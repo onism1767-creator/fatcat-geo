@@ -1,0 +1,77 @@
+# Surface 注册表(架构书 6.6)。
+# 新 surface = 一个适配器文件 + 本文件一行,L2/L3 零改动。
+# provider/surface 名字符串只允许存在于本文件与 adapters/ 内;
+# tests/unit/test_no_provider_strings.py 从这里读名单去扫描 engine/ 与 diagnosis/。
+#
+# capabilities 当前为按公开文档的暂定值,每个适配器落地时逐项核对修订。
+# enabled: 适配器落地并通过契约测试后才置 true。
+
+surfaces:
+  - name: perplexity_search
+    provider: perplexity
+    adapter: adapters.perplexity_search.PerplexitySearchAdapter
+    api_key_env: PERPLEXITY_API_KEY
+    enabled: false
+    capabilities:
+      supports_query_trace: false
+      supports_retrieval_rank: true   # 检索观测通道:返回带序的结果列表
+      supports_citations: false
+      supports_region: false
+      supports_forced_search: false
+      supports_search_disabled: false
+      supports_offline: false
+
+  - name: perplexity_agent
+    provider: perplexity
+    adapter: adapters.perplexity_agent.PerplexityAgentAdapter
+    api_key_env: PERPLEXITY_API_KEY
+    enabled: false
+    capabilities:
+      supports_query_trace: false
+      supports_retrieval_rank: false
+      supports_citations: true        # 生成+引用通道
+      supports_region: false
+      supports_forced_search: false
+      supports_search_disabled: false
+
+  - name: openai_web_search
+    provider: openai
+    adapter: adapters.openai_web_search.OpenAIWebSearchAdapter
+    api_key_env: OPENAI_API_KEY
+    enabled: false
+    capabilities:
+      supports_query_trace: true
+      supports_retrieval_rank: false
+      supports_citations: true
+      supports_region: true
+      supports_forced_search: true
+      supports_search_disabled: true
+      supports_offline: true
+
+  - name: gemini_grounding
+    provider: gemini
+    adapter: adapters.gemini_grounding.GeminiGroundingAdapter
+    api_key_env: GOOGLE_API_KEY
+    enabled: false
+    capabilities:
+      supports_query_trace: true
+      supports_retrieval_rank: false
+      supports_citations: true
+      supports_region: false
+      supports_forced_search: false
+      supports_search_disabled: true
+      supports_offline: true
+
+  - name: claude_web_search
+    provider: anthropic
+    adapter: adapters.claude_web_search.ClaudeWebSearchAdapter
+    api_key_env: ANTHROPIC_API_KEY
+    enabled: false
+    capabilities:
+      supports_query_trace: true
+      supports_retrieval_rank: false
+      supports_citations: true
+      supports_region: true
+      supports_forced_search: false
+      supports_search_disabled: true
+      supports_offline: true

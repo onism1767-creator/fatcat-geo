@@ -1,0 +1,18 @@
+[project]
+name = "geo-tool"
+version = "0.1.0"
+description = "轻量级 AI 可见度诊断:定位品牌在 AI 回答链路中缺席的阶段"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.7",
+    "pyyaml>=6",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
