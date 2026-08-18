@@ -1,0 +1,84 @@
+# AI 爬虫名单(ACCESS 审计的配置资产)。
+# 新增一个要审计的爬虫 = 本文件加一条,diagnosis/ 零代码改动。
+# 厂商/爬虫名字符串只允许存在于 config/ 与 adapters/(硬边界 2)。
+#
+# user_agent 为各家官方文档的快照,需定期核对(docs 列出处);
+# user_agent 为 null 表示仅作为 robots.txt 令牌存在,不实际发请求(不抓取)。
+#
+# gating:是否参与 ACCESS 资格门聚合。
+#   搜索索引与用户触发抓取的爬虫 gating=true(被禁 → AI 检索看不到你);
+#   纯训练用途爬虫 gating=false(被禁是站点的正当选择,不影响检索可见度,仅提示)。
+
+crawlers:
+  - name: OAI-SearchBot
+    robots_token: OAI-SearchBot
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; OAI-SearchBot/1.0; +https://openai.com/searchbot"
+    purpose: search_index
+    gating: true
+    docs: https://platform.openai.com/docs/bots
+
+  - name: ChatGPT-User
+    robots_token: ChatGPT-User
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot"
+    purpose: user_fetch
+    gating: true
+    docs: https://platform.openai.com/docs/bots
+
+  - name: GPTBot
+    robots_token: GPTBot
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.2; +https://openai.com/gptbot"
+    purpose: training
+    gating: false
+    docs: https://platform.openai.com/docs/bots
+
+  - name: PerplexityBot
+    robots_token: PerplexityBot
+    user_agent: "Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://perplexity.ai/perplexitybot)"
+    purpose: search_index
+    gating: true
+    docs: https://docs.perplexity.ai/guides/bots
+
+  - name: Perplexity-User
+    robots_token: Perplexity-User
+    user_agent: "Mozilla/5.0 (compatible; Perplexity-User/1.0; +https://perplexity.ai/perplexity-user)"
+    purpose: user_fetch
+    gating: true
+    docs: https://docs.perplexity.ai/guides/bots
+
+  - name: Claude-SearchBot
+    robots_token: Claude-SearchBot
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-SearchBot/1.0; +Claude-SearchBot@anthropic.com)"
+    purpose: search_index
+    gating: true
+    docs: https://support.anthropic.com/en/articles/8896518
+
+  - name: Claude-User
+    robots_token: Claude-User
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Claude-User/1.0; +Claude-User@anthropic.com)"
+    purpose: user_fetch
+    gating: true
+    docs: https://support.anthropic.com/en/articles/8896518
+
+  - name: ClaudeBot
+    robots_token: ClaudeBot
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; ClaudeBot/1.0; +claudebot@anthropic.com)"
+    purpose: training
+    gating: false
+    docs: https://support.anthropic.com/en/articles/8896518
+
+  - name: Googlebot
+    # 通用搜索索引;Gemini 侧检索依赖 Google 索引,故纳入资格门
+    robots_token: Googlebot
+    user_agent: "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
+    purpose: search_index
+    gating: true
+    docs: https://developers.google.com/search/docs/crawling-indexing/overview-google-crawlers
+
+  - name: Google-Extended
+    # 仅 robots 令牌,控制内容的 AI 用途;不以此 UA 抓取。
+    # 对 Gemini 各产品线可见度的具体影响口径以官方文档为准,故不进资格门,只提示。
+    robots_token: Google-Extended
+    user_agent: null
+    purpose: ai_uses
+    gating: false
+    docs: https://developers.google.com/search/docs/crawling-indexing/overview-google-crawlers
