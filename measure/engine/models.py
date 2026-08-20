@@ -71,6 +71,17 @@ class PromptOrigin(StrEnum):
     ASSISTED = "assisted"
 
 
+class StopReason(StrEnum):
+    """采样停止原因(7.2)。必须随指标一起进报告——N=6 因收敛而停与
+    N=6 因预算截断,是完全不同强度的结论(铁律 5)。"""
+
+    CI_CONVERGED = "CI_CONVERGED"
+    MAX_N_REACHED = "MAX_N_REACHED"
+    FAILURE_RATE_EXCEEDED = "FAILURE_RATE_EXCEEDED"
+    BUDGET_EXHAUSTED = "BUDGET_EXHAUSTED"
+    SURFACE_DISABLED = "SURFACE_DISABLED"
+
+
 # ── 诊断对象与需求(1.3 / 6.5)─────────────────────────────────────────
 
 
