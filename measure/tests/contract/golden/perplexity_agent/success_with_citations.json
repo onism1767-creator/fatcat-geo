@@ -1,0 +1,46 @@
+{
+  "id": "chatcmpl-a1b2c3d4",
+  "object": "chat.completion",
+  "created": 1755400000,
+  "model": "sonar",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+        "role": "assistant",
+        "content": "对于中小团队,常被推荐的 CRM 包括 HubSpot[1] 与 Zoho CRM[2],两者都提供免费档位。"
+      }
+    }
+  ],
+  "citations": [
+    "https://www.example-review.com/best-crm-small-teams",
+    "https://blog.example.org/crm-selection-guide"
+  ],
+  "search_results": [
+    {
+      "title": "Best CRM for Small Teams (2026)",
+      "url": "https://www.example-review.com/best-crm-small-teams",
+      "date": "2026-05-11",
+      "last_updated": "2026-07-30"
+    },
+    {
+      "title": "中小团队 CRM 选型指南",
+      "url": "https://blog.example.org/crm-selection-guide",
+      "date": "2026-03-02",
+      "last_updated": null
+    }
+  ],
+  "usage": {
+    "prompt_tokens": 21,
+    "completion_tokens": 64,
+    "total_tokens": 85,
+    "search_context_size": "low",
+    "cost": {
+      "input_tokens_cost": 0.0,
+      "output_tokens_cost": 0.0001,
+      "request_cost": 0.005,
+      "total_cost": 0.0051
+    }
+  }
+}

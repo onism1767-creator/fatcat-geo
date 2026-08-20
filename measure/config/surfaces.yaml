@@ -11,7 +11,7 @@ surfaces:
     provider: perplexity
     adapter: adapters.perplexity_search.PerplexitySearchAdapter
     api_key_env: PERPLEXITY_API_KEY
-    enabled: false
+    enabled: true
     capabilities:
       supports_query_trace: false
       supports_retrieval_rank: true   # 检索观测通道:返回带序的结果列表
@@ -25,7 +25,7 @@ surfaces:
     provider: perplexity
     adapter: adapters.perplexity_agent.PerplexityAgentAdapter
     api_key_env: PERPLEXITY_API_KEY
-    enabled: false
+    enabled: true
     capabilities:
       supports_query_trace: false
       supports_retrieval_rank: false

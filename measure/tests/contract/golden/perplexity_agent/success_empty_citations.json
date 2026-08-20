@@ -1,0 +1,30 @@
+{
+  "id": "chatcmpl-e5f6a7b8",
+  "object": "chat.completion",
+  "created": 1755400100,
+  "model": "sonar",
+  "choices": [
+    {
+      "index": 0,
+      "finish_reason": "stop",
+      "message": {
+        "role": "assistant",
+        "content": "这个问题较为小众,公开资料有限,以下是一般性的选型建议。"
+      }
+    }
+  ],
+  "citations": [],
+  "search_results": [],
+  "usage": {
+    "prompt_tokens": 18,
+    "completion_tokens": 42,
+    "total_tokens": 60,
+    "search_context_size": "low",
+    "cost": {
+      "input_tokens_cost": 0.0,
+      "output_tokens_cost": 0.0001,
+      "request_cost": 0.005,
+      "total_cost": 0.0051
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "id": "srch-1a2b3c4d",
+  "results": [
+    {
+      "title": "Best CRM for Small Teams (2026)",
+      "url": "https://www.example-review.com/best-crm-small-teams",
+      "snippet": "We compared 12 CRMs on price, onboarding time and integrations…",
+      "date": "2026-05-11",
+      "last_updated": "2026-07-30"
+    },
+    {
+      "title": "中小团队 CRM 选型指南",
+      "url": "https://blog.example.org/crm-selection-guide",
+      "snippet": "从线索管理到自动化,本文给出五个评估维度…",
+      "date": "2026-03-02",
+      "last_updated": null
+    },
+    {
+      "title": "CRM Pricing Comparison",
+      "url": "https://www.example-pricing.net/crm",
+      "snippet": "Free tiers, per-seat pricing and hidden costs across vendors…",
+      "date": "2025-12-18",
+      "last_updated": "2026-06-01"
+    }
+  ]
+}
