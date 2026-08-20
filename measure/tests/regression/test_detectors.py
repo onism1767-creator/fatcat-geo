@@ -9,14 +9,19 @@ from datetime import UTC, datetime
 
 from engine.detectors.brand_mention import BrandMentionDetector
 from engine.detectors.citation import CitationDetector
+from engine.detectors.retrieval_rank import RetrievalRankDetector
+from engine.detectors.sentiment import SentimentDetector
 from engine.models import (
+    NOT_OBSERVABLE,
     Answer,
     BrandSpec,
     Citation,
     Outcome,
+    RetrievedSource,
     RunError,
     RunErrorType,
     SearchMode,
+    SearchTrace,
     SurfaceRun,
 )
 
@@ -27,7 +32,9 @@ BRAND = BrandSpec(
 )
 
 
-def make_run(run_id: str, *, outcome=Outcome.SUCCESS, answer=None, error=None) -> SurfaceRun:
+def make_run(
+    run_id: str, *, outcome=Outcome.SUCCESS, answer=None, error=None, search_trace=None
+) -> SurfaceRun:
     return SurfaceRun(
         run_id=run_id,
         information_need_id="need-1",
@@ -40,10 +47,21 @@ def make_run(run_id: str, *, outcome=Outcome.SUCCESS, answer=None, error=None) -
         outcome=outcome,
         error=error,
         answer=answer,
+        search_trace=search_trace or SearchTrace(),
         raw_payload={},
         timestamp=datetime(2026, 8, 20, tzinfo=UTC),
         latency_ms=1000,
         cost_usd=0.005,
+    )
+
+
+def sources_trace(*specs: tuple[str, object]) -> SearchTrace:
+    return SearchTrace(
+        search_triggered=True,
+        retrieved_sources=[
+            RetrievedSource(url=f"https://{domain}/x", domain=domain, rank=rank)
+            for domain, rank in specs
+        ],
     )
 
 
@@ -94,6 +112,38 @@ SAMPLES = {
     "citations_not_available": make_run(
         "r-c4", answer=answer_with("回答正文。", available=False)
     ),
+    "rank_hit_with_subdomain": make_run(
+        "r-r1",
+        search_trace=sources_trace(
+            ("blog.csdn.net", 1), ("docs.aurora-crm.com", 2),
+            ("www.aurora-crm.com", 3), ("aurora-crm.com.evil.net", 4),
+        ),
+    ),
+    "rank_absent": make_run(
+        "r-r2", search_trace=sources_trace(("blog.csdn.net", 1), ("reddit.com", 2)),
+    ),
+    "rank_empty_candidates": make_run(
+        "r-r3", search_trace=SearchTrace(search_triggered=True, retrieved_sources=[]),
+    ),
+    "rank_unobservable_order": make_run(
+        "r-r4", search_trace=sources_trace(("aurora-crm.com", NOT_OBSERVABLE)),
+    ),
+    "rank_candidates_not_observable": make_run("r-r5"),  # 默认 NOT_OBSERVABLE ≠ 空集
+    "sentiment_positive": make_run(
+        "r-s1", answer=answer_with("对于中小团队,极光CRM 值得一试。另一段无关文字。")
+    ),
+    "sentiment_negative": make_run(
+        "r-s2", answer=answer_with("极光CRM 功能较弱且价格高,不推荐小团队使用。")
+    ),
+    "sentiment_mixed": make_run(
+        "r-s3", answer=answer_with("极光CRM 好用但昂贵。")
+    ),
+    "sentiment_neutral": make_run(
+        "r-s4", answer=answer_with("极光CRM 是一款客户管理软件。")
+    ),
+    "sentiment_scope_is_mention_sentence": make_run(
+        "r-s5", answer=answer_with("市面上最佳工具很多。极光CRM 是其中一款。")
+    ),
 }
 
 # ── 期望值,按 detector_version 归档(只增不改)──────────────────────────
@@ -121,6 +171,57 @@ CITATION_EXPECTED = {
         "refused_run": None,
     }
 }
+
+
+RETRIEVAL_RANK_EXPECTED = {
+    1: {
+        "rank_hit_with_subdomain": dict(
+            present=True, best_rank=2,
+            matched_domains=["docs.aurora-crm.com", "www.aurora-crm.com"],  # evil.net 不命中
+        ),
+        "rank_absent": dict(present=False, best_rank=None, matched_domains=[]),
+        "rank_empty_candidates": dict(present=False, best_rank=None, matched_domains=[]),
+        "rank_unobservable_order": dict(
+            present=True, best_rank=None, matched_domains=["aurora-crm.com"],  # 在场但位次不可观测
+        ),
+        "rank_candidates_not_observable": None,  # 候选集不可观测 → 无观测
+        "refused_run": None,
+    }
+}
+
+SENTIMENT_EXPECTED = {
+    1: {
+        "sentiment_positive": dict(sentiment="positive"),
+        "sentiment_negative": dict(sentiment="negative"),  # "不推荐"遮蔽后不再命中"推荐"
+        "sentiment_mixed": dict(sentiment="mixed"),
+        "sentiment_neutral": dict(sentiment="neutral"),
+        "sentiment_scope_is_mention_sentence": dict(sentiment="neutral"),  # "最佳"在别句,不算
+        "mention_absent": None,  # 未提及 → 情感不可判定
+        "refused_run": None,
+    }
+}
+
+
+def run_expectations(detector, expectations):
+    for sample_name, expected in expectations[detector.version].items():
+        observation = detector.detect(SAMPLES[sample_name], BRAND)
+        if expected is None:
+            assert observation is None, f"{sample_name}: 应无观测"
+            continue
+        assert observation is not None, f"{sample_name}: 应有观测"
+        assert observation.detector_name == detector.name
+        assert observation.detector_version == detector.version
+        assert observation.run_id == SAMPLES[sample_name].run_id
+        for field, value in expected.items():
+            assert getattr(observation, field) == value, f"{sample_name}.{field}"
+
+
+def test_retrieval_rank_detector_matches_archived_expectations():
+    run_expectations(RetrievalRankDetector(), RETRIEVAL_RANK_EXPECTED)
+
+
+def test_sentiment_detector_matches_archived_expectations():
+    run_expectations(SentimentDetector(), SENTIMENT_EXPECTED)
 
 
 def test_brand_mention_detector_matches_archived_expectations():
@@ -162,3 +263,5 @@ def test_citation_detector_requires_brand_domains():
 def test_current_versions_have_archived_expectations():
     assert BrandMentionDetector().version in MENTION_EXPECTED
     assert CitationDetector().version in CITATION_EXPECTED
+    assert RetrievalRankDetector().version in RETRIEVAL_RANK_EXPECTED
+    assert SentimentDetector().version in SENTIMENT_EXPECTED

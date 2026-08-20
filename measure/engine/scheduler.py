@@ -32,6 +32,7 @@ from engine.metrics import (
     SampleAccounting,
     account_outcomes,
     estimate_proportion,
+    merge_accounting,
 )
 from engine.models import (
     AskRequest,
@@ -87,6 +88,48 @@ class SamplingResult(FrozenModel):
     estimate: ProportionEstimate | None  # 分母为空时 None
     total_cost_usd: float
     run_ids: list[str]
+
+
+class NeedSurfaceMetric(FrozenModel):
+    """需求层指标(第 3 章步骤 7):同一 InformationNeed 在一个 surface 上
+    跨全部问法的合并观测。合并是各问法命中的混合比例——问法间的差异
+    保留在 per_variant 明细里,报告可展开。"""
+
+    information_need_id: str
+    provider: str
+    surface: str
+    model: str
+    metric_label: str  # 命中口径(通常为判定器名),如 citation_domain_match
+    k_hits: int
+    estimate: ProportionEstimate | None
+    accounting: SampleAccounting
+    stop_reasons: list[StopReason]  # 逐问法,随口径进报告
+    per_variant: list[SamplingResult]
+
+
+def aggregate_need_surface(
+    results: list[SamplingResult], *, metric_label: str
+) -> NeedSurfaceMetric:
+    if not results:
+        raise ValueError("没有可聚合的采样结果")
+    heads = {(r.information_need_id, r.provider, r.surface, r.model) for r in results}
+    if len(heads) != 1:
+        raise ValueError(f"只能聚合同一 (需求, surface, model) 的结果,收到 {heads}")
+    k_hits = sum(r.k_hits for r in results)
+    n_pooled = sum(r.estimate.n for r in results if r.estimate)
+    need_id, provider, surface, model = next(iter(heads))
+    return NeedSurfaceMetric(
+        information_need_id=need_id,
+        provider=provider,
+        surface=surface,
+        model=model,
+        metric_label=metric_label,
+        k_hits=k_hits,
+        estimate=estimate_proportion(k_hits, n_pooled) if n_pooled else None,
+        accounting=merge_accounting(r.accounting for r in results),
+        stop_reasons=[r.stop_reason for r in results],
+        per_variant=results,
+    )
 
 
 class SequentialSampler:

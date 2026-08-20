@@ -1,28 +1,18 @@
 """引用判定器 v1:品牌域名与引用集的域名匹配。
 
-匹配规则(v1,升级需提版本号并全量重算):
-- 双方均小写、剥离前缀 www. 后比较;
-- 相等,或引用域名是品牌域名的子域(endswith "." + 品牌域名)→ 命中。
-  注意 "acme.com.evil.net" 不会命中 "acme.com"(后缀必须是完整域名段)。
+匹配规则见 engine/detectors/matching.py(与检索排名判定器共享);
+规则变更需提版本号并全量重算。
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from engine.detectors.matching import matches_any_brand_domain
 from engine.models import BrandSpec, CitationObservation, Outcome, SurfaceRun
 
 DETECTOR_NAME = "citation_domain_match"
 DETECTOR_VERSION = 1
-
-
-def _normalize(host: str) -> str:
-    return host.lower().removeprefix("www.")
-
-
-def _matches(citation_domain: str, brand_domain: str) -> bool:
-    cited, brand = _normalize(citation_domain), _normalize(brand_domain)
-    return cited == brand or cited.endswith("." + brand)
 
 
 class CitationDetector:
@@ -42,7 +32,7 @@ class CitationDetector:
         positions = [
             citation.position
             for citation in run.answer.citations
-            if any(_matches(citation.domain, domain) for domain in brand.domains)
+            if matches_any_brand_domain(citation.domain, brand)
         ]
         return CitationObservation(
             run_id=run.run_id,

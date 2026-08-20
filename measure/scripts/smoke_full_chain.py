@@ -1,9 +1,10 @@
-"""端到端手动 smoke:需求 → 序贯采样(真实 API)→ 只追加落库(真实库)
-→ 判定 → 指标(概率 + 95% 区间 + 完整口径)。
+"""端到端手动 smoke:架构书第 3 章走查的真实执行(L2 全流水线)。
 
-这是第 10 章"打通全链"的验证脚本。默认用一个公认品牌做正例观测,
-策略刻意收紧(max_n=8、宽阈值)控制成本,单次全链 < $0.06。
+配置装载(surfaces.yaml)→ 问法变体生成(LLM 辅助,走适配器)→
+双通道 × 每个问法序贯采样(真实 API)→ 只追加落库(真实库)→
+四个判定器 → 需求层聚合(概率 + 95% 区间 + 完整口径)。
 
+策略刻意收紧控制成本(单次全链约 $0.15)。
 前置:.env 有 PERPLEXITY_API_KEY;本地库在跑(scripts/pgdev.ps1 start)。
 用法: .venv\\Scripts\\python scripts\\smoke_full_chain.py
 """
@@ -17,74 +18,108 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from adapters.perplexity_agent import PerplexityAgentAdapter  # noqa: E402
 from engine.detectors.brand_mention import BrandMentionDetector  # noqa: E402
 from engine.detectors.citation import CitationDetector  # noqa: E402
+from engine.detectors.retrieval_rank import RetrievalRankDetector  # noqa: E402
 from engine.detectors.runner import observe_runs  # noqa: E402
-from engine.models import (  # noqa: E402
-    BrandSpec,
-    InformationNeed,
-    PromptOrigin,
-    PromptVariant,
-    SurfaceRun,
+from engine.detectors.sentiment import SentimentDetector  # noqa: E402
+from engine.loader import build_adapters  # noqa: E402
+from engine.models import BrandSpec, InformationNeed, PromptOrigin, PromptVariant, SurfaceRun  # noqa: E402
+from engine.scheduler import (  # noqa: E402
+    NeedSurfaceMetric,
+    SamplingPolicy,
+    SequentialSampler,
+    aggregate_need_surface,
 )
-from engine.scheduler import SamplingPolicy, SequentialSampler  # noqa: E402
 from engine.storage import Storage  # noqa: E402
+from engine.variants import generate_variants  # noqa: E402
 from scripts.smoke_perplexity import load_env_file  # noqa: E402
 
 DEFAULT_DB = "postgresql://geo@localhost:5433/geo_tool"
+POLICY = SamplingPolicy(min_n=5, max_n=6, ci_width_threshold=0.35, budget_usd=0.10)
+
+BRAND = BrandSpec(name="HubSpot", aliases=["hubspot"], domains=["hubspot.com"])
+
+# 各通道用哪个判定器做收敛判据(hit 语义)
+CHANNEL_HIT_DETECTORS = {
+    "perplexity_agent": ("被引", CitationDetector(), lambda obs: obs.cited),
+    "perplexity_search": ("检索在场", RetrievalRankDetector(), lambda obs: obs.present),
+}
+
+
+def print_metric(label: str, metric: NeedSurfaceMetric) -> None:
+    acc = metric.accounting
+    if metric.estimate:
+        e = metric.estimate
+        headline = f"{e.point:.0%} [95% 区间(Jeffreys): {e.ci_low:.0%}–{e.ci_high:.0%}]"
+    else:
+        headline = "无有效样本"
+    reasons = ",".join(r.value for r in metric.stop_reasons)
+    print(f"\n  {label}{headline}")
+    print(f"    口径:surface={metric.surface} model={metric.model} "
+          f"N_valid={acc.n_valid}/{acc.n_total}(跨 {len(metric.per_variant)} 个问法)")
+    print(f"         stop_reasons=[{reasons}] 拒答率={acc.refusal_rate:.0%} "
+          f"失败率={acc.failure_rate:.0%}{' [LOW_CONFIDENCE]' if acc.low_confidence else ''}")
 
 
 def main() -> int:
     load_env_file()
-    api_key = os.environ.get("PERPLEXITY_API_KEY", "")
-    if not api_key:
-        print("PERPLEXITY_API_KEY 未设置", file=sys.stderr)
+    adapters = build_adapters(os.environ)
+    if not adapters:
+        print("没有可用 surface(检查 .env 的 key)", file=sys.stderr)
         return 1
+    print(f"配置装载:{', '.join(adapters)}")
 
     storage = Storage(os.environ.get("GEO_DATABASE_URL", DEFAULT_DB))
     storage.ensure_schema()
 
     need = InformationNeed(statement="中小团队的 CRM 选型")
-    variant = PromptVariant(need_id=need.need_id, prompt_text="中小团队用什么 CRM 好?",
-                            origin=PromptOrigin.USER)
     storage.insert_information_need(need)
-    storage.insert_prompt_variant(variant)
 
-    brand = BrandSpec(name="HubSpot", aliases=["hubspot"], domains=["hubspot.com"])
-    citation_detector = CitationDetector()
+    user_variant = PromptVariant(need_id=need.need_id, prompt_text="中小团队用什么 CRM 好?",
+                                 origin=PromptOrigin.USER)
+    assisted = generate_variants(adapters["perplexity_agent"], need, count=2)
+    variants = [user_variant, assisted[0]]  # 控制成本:原话 + 1 个生成变体
+    for variant in variants:
+        storage.insert_prompt_variant(variant)
+    print("问法:")
+    for variant in variants:
+        print(f"  [{variant.origin.value}] {variant.prompt_text}")
 
-    def hit_fn(run: SurfaceRun) -> bool | None:
-        observation = citation_detector.detect(run, brand)
-        return None if observation is None else observation.cited
-
-    policy = SamplingPolicy(min_n=5, max_n=8, ci_width_threshold=0.35, budget_usd=0.15)
     sampler = SequentialSampler(storage)
-    result = sampler.run_plan(
-        PerplexityAgentAdapter(api_key=api_key), need, variant,
-        hit_fn=hit_fn, policy=policy,
-    )
+    total_cost = 0.0
+    all_runs: list[SurfaceRun] = []
+    metrics: list[tuple[str, NeedSurfaceMetric]] = []
 
-    runs = storage.runs_for_variant(variant.variant_id, surface=result.surface)
+    for surface, (label, detector, extract) in CHANNEL_HIT_DETECTORS.items():
+        adapter = adapters[surface]
+
+        def hit_fn(run: SurfaceRun) -> bool | None:
+            observation = detector.detect(run, BRAND)
+            return None if observation is None else extract(observation)
+
+        results = [
+            sampler.run_plan(adapter, need, variant, hit_fn=hit_fn, policy=POLICY)
+            for variant in variants
+        ]
+        metric = aggregate_need_surface(results, metric_label=detector.name)
+        metrics.append((label, metric))
+        total_cost += sum(r.total_cost_usd for r in results)
+        for variant in variants:
+            all_runs.extend(storage.runs_for_variant(variant.variant_id, surface=surface))
+
     observations = observe_runs(
-        storage, runs, [BrandMentionDetector(), CitationDetector()], brand
+        storage, all_runs,
+        [BrandMentionDetector(), CitationDetector(), RetrievalRankDetector(), SentimentDetector()],
+        BRAND,
     )
 
-    acc = result.accounting
-    print("\n════ 全链 smoke 结果 ════")
-    print(f"需求:{need.statement} / 问法:{variant.prompt_text}")
-    print(f"品牌:{brand.name}(域名 {', '.join(brand.domains)})")
-    if result.estimate:
-        e = result.estimate
-        print(f"\n被引概率:{e.point:.0%} [95% 区间(Jeffreys): {e.ci_low:.0%}–{e.ci_high:.0%}]")
-    else:
-        print("\n被引概率:无有效样本")
-    print(f"口径:surface={result.surface} model={result.model} "
-          f"N_valid={acc.n_valid}/{acc.n_total} stop_reason={result.stop_reason.value}")
-    print(f"      拒答率={acc.refusal_rate:.0%} 失败率={acc.failure_rate:.0%}"
-          f"{' [LOW_CONFIDENCE]' if acc.low_confidence else ''}")
-    print(f"成本:${result.total_cost_usd:.4f} / 判定观测写入 {observations} 条")
-    print(f"落库 run:{len(result.run_ids)} 条(只追加,含全部终态)")
+    print("\n════ 需求层指标(第 3 章步骤 7)════")
+    print(f"需求:{need.statement} / 品牌:{BRAND.name}({', '.join(BRAND.domains)})")
+    for label, metric in metrics:
+        print_metric(f"{label}:", metric)
+    print(f"\n判定观测写入 {observations} 条 / 落库 run {len(all_runs)} 条 / "
+          f"采样成本 ${total_cost:.4f}")
     storage.close()
     return 0
 

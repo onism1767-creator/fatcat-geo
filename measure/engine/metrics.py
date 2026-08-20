@@ -72,6 +72,34 @@ class SampleAccounting(FrozenModel):
     low_confidence: bool
 
 
+def merge_accounting(
+    parts: Iterable[SampleAccounting],
+    low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD,
+) -> SampleAccounting:
+    """合并多份记账(如同一需求下多个问法的采样),比率按合并后总数重算。"""
+    n_total = n_valid = n_refused = n_transient = n_permanent = 0
+    for part in parts:
+        n_total += part.n_total
+        n_valid += part.n_valid
+        n_refused += part.n_refused
+        n_transient += part.n_transient_failure
+        n_permanent += part.n_permanent_failure
+    failure_rate = (n_transient + n_permanent) / n_total if n_total else 0.0
+    refusal_rate = n_refused / n_total if n_total else 0.0
+    invalid_rate = (n_total - n_valid) / n_total if n_total else 0.0
+    return SampleAccounting(
+        n_total=n_total,
+        n_valid=n_valid,
+        n_refused=n_refused,
+        n_transient_failure=n_transient,
+        n_permanent_failure=n_permanent,
+        refusal_rate=refusal_rate,
+        failure_rate=failure_rate,
+        invalid_rate=invalid_rate,
+        low_confidence=invalid_rate > low_confidence_threshold,
+    )
+
+
 def account_outcomes(
     outcomes: Iterable[Outcome],
     low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD,

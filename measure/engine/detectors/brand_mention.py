@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
+from engine.detectors.matching import find_first_alias
 from engine.models import BrandMentionObservation, BrandSpec, Outcome, SurfaceRun
 
 DETECTOR_NAME = "brand_mention_rules"
@@ -26,24 +27,16 @@ class BrandMentionDetector:
         不产出观测——缺席的观测就是缺席,禁止填充默认值。"""
         if run.outcome is not Outcome.SUCCESS or run.answer is None:
             return None
-        # 用 lower() 而非 casefold():保证位置偏移与原文一一对应
-        text = run.answer.answer_text.lower()
-        best: tuple[int, str] | None = None
-        for alias in dict.fromkeys([brand.name, *brand.aliases]):
-            needle = alias.strip().lower()
-            if not needle:
-                continue
-            pos = text.find(needle)
-            if pos >= 0 and (best is None or pos < best[0]):
-                best = (pos, alias)
+        found = find_first_alias(run.answer.answer_text, brand)
         common = dict(
             run_id=run.run_id,
             detector_name=self.name,
             detector_version=self.version,
             computed_at=datetime.now(UTC),
         )
-        if best is None:
+        if found is None:
             return BrandMentionObservation(mentioned=False, **common)
+        position, alias = found
         return BrandMentionObservation(
-            mentioned=True, matched_alias=best[1], first_position=best[0], **common
+            mentioned=True, matched_alias=alias, first_position=position, **common
         )

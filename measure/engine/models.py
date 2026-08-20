@@ -246,6 +246,14 @@ class CitationObservation(DerivedObservation):
     positions: list[int] = []  # 命中引用在引用集中的位次
 
 
+class RetrievalRankObservation(DerivedObservation):
+    """品牌域名在检索候选集中的位次判定(检索观测通道供数)。"""
+
+    present: bool
+    best_rank: int | None = None  # 命中来源中最靠前的位次(1 起);未命中或位次不可观测为 None
+    matched_domains: list[str] = []  # 命中的候选域名原样记录
+
+
 class Sentiment(StrEnum):
     POSITIVE = "positive"
     NEUTRAL = "neutral"
