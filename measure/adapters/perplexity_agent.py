@@ -154,7 +154,7 @@ class PerplexityAgentAdapter(SurfaceAdapter):
                 payload={
                     "model": self.meta().default_model,
                     "messages": [{"role": "user", "content": "ping"}],
-                    "max_tokens": 1,
+                    "max_tokens": 16,  # 平台下限:max_tokens must be at least 16
                 },
                 timeout_s=15.0,
             )
