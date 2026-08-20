@@ -1,0 +1,98 @@
+"""L2 阶段指标:比例估计与置信区间(第 7 章)。
+
+区间构造定死为 Jeffreys(7.1):取 Beta(k+0.5, n−k+0.5) 后验的
+2.5% / 97.5% 分位数,用 scipy.stats.beta.ppf,不自造公式。
+采用标准 Jeffreys 边界约定(Brown–Cai–DasGupta 2001):
+k=0 时下界取 0,k=n 时上界取 1——否则区间不覆盖点估计,
+违反 12.1 要求的属性(覆盖点估计、边界不退化)。
+
+分母规则以 7.3 为唯一权威:比例指标分母 = outcome 为 SUCCESS 的运行数;
+拒答与失败不进分母,但拒答率/失败率必须作为口径随指标输出;
+无效样本占比超阈值 → LOW_CONFIDENCE,诊断规则须降权。
+"""
+
+from __future__ import annotations
+
+from collections import Counter
+from typing import Iterable
+
+from scipy.stats import beta
+
+from engine.models import FrozenModel, Outcome
+
+LOW_CONFIDENCE_THRESHOLD = 0.20  # 7.3:无效样本占比超此阈值 → LOW_CONFIDENCE(可配)
+
+
+def jeffreys_interval(k: int, n: int) -> tuple[float, float]:
+    """二元结果命中概率的 95% 区间(Jeffreys)。k=命中次数,n=有效样本数。"""
+    if n <= 0:
+        raise ValueError(f"n 必须为正,收到 {n}")
+    if not 0 <= k <= n:
+        raise ValueError(f"k 必须在 [0, n] 内,收到 k={k}, n={n}")
+    lower = 0.0 if k == 0 else float(beta.ppf(0.025, k + 0.5, n - k + 0.5))
+    upper = 1.0 if k == n else float(beta.ppf(0.975, k + 0.5, n - k + 0.5))
+    return lower, upper
+
+
+class ProportionEstimate(FrozenModel):
+    """一个比例指标:点估计 + 95% 区间(Jeffreys)。
+
+    这只是数值部分;完整口径(surface/model/N/stop_reason/时间窗/地区)
+    由聚合层在其外层补齐(7.4),缺口径的数值不允许单独进报告。
+    """
+
+    k: int
+    n: int
+    point: float
+    ci_low: float
+    ci_high: float
+    method: str = "jeffreys-95"
+
+    @property
+    def width(self) -> float:
+        return self.ci_high - self.ci_low
+
+
+def estimate_proportion(k: int, n: int) -> ProportionEstimate:
+    lower, upper = jeffreys_interval(k, n)
+    return ProportionEstimate(k=k, n=n, point=k / n, ci_low=lower, ci_high=upper)
+
+
+class SampleAccounting(FrozenModel):
+    """采样终态记账(7.3 口径):分母、拒答率、失败率与置信降级标记。"""
+
+    n_total: int
+    n_valid: int  # outcome=SUCCESS,比例指标的唯一合法分母
+    n_refused: int
+    n_transient_failure: int
+    n_permanent_failure: int
+    refusal_rate: float
+    failure_rate: float
+    invalid_rate: float  # (拒答+失败)/总数;LOW_CONFIDENCE 的判定依据(取保守口径)
+    low_confidence: bool
+
+
+def account_outcomes(
+    outcomes: Iterable[Outcome],
+    low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD,
+) -> SampleAccounting:
+    counts = Counter(outcomes)
+    n_total = sum(counts.values())
+    n_valid = counts[Outcome.SUCCESS]
+    n_refused = counts[Outcome.REFUSED]
+    n_transient = counts[Outcome.TRANSIENT_FAILURE]
+    n_permanent = counts[Outcome.PERMANENT_FAILURE]
+    failure_rate = (n_transient + n_permanent) / n_total if n_total else 0.0
+    refusal_rate = n_refused / n_total if n_total else 0.0
+    invalid_rate = (n_total - n_valid) / n_total if n_total else 0.0
+    return SampleAccounting(
+        n_total=n_total,
+        n_valid=n_valid,
+        n_refused=n_refused,
+        n_transient_failure=n_transient,
+        n_permanent_failure=n_permanent,
+        refusal_rate=refusal_rate,
+        failure_rate=failure_rate,
+        invalid_rate=invalid_rate,
+        low_confidence=invalid_rate > low_confidence_threshold,
+    )

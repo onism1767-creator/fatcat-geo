@@ -71,7 +71,19 @@ class PromptOrigin(StrEnum):
     ASSISTED = "assisted"
 
 
-# ── 需求与问法(6.5)────────────────────────────────────────────────────
+# ── 诊断对象与需求(1.3 / 6.5)─────────────────────────────────────────
+
+
+class BrandSpec(FrozenModel):
+    """诊断对象:品牌名、别名/常见错写、品牌域名(用户输入的建模)。
+    是判定器(L2 detectors)的业务输入,不进入 SurfaceRun 原始层。"""
+
+    name: str
+    aliases: list[str] = []  # 别名与常见错写;匹配时与 name 合并使用
+    domains: list[str] = []  # 品牌域名,如 example.com,不带协议
+
+
+
 
 
 class InformationNeed(FrozenModel):
