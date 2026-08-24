@@ -159,7 +159,7 @@ def test_manual_flow_to_confirm_and_launch(client_and_job):
         "tier": "quick", "variants": "2", "budget": "1.0", "custom": "",
     }, follow_redirects=False)
     assert resp.status_code == 303
-    job_id = resp.headers["location"].rsplit("/", 1)[-1]
+    job_id = resp.headers["location"].rsplit("/", 1)[-1].split("?")[0]
     assert calls == [job_id]  # 执行器被触发
     job = client.app.state.registry.get(job_id)
     assert len(job.needs) == 2 and job.fingerprint
@@ -183,7 +183,7 @@ def test_unfinished_report_redirects_to_status(client_and_job):
         "brand_name": "X", "website": "x.com", "category": "C",
         "questions": "q1?", "generate": "",
     }, follow_redirects=False)
-    job_id = resp.headers["location"].split("/")[2]
+    job_id = resp.headers["location"].split("/")[2].split("?")[0]
     resp = client.get(f"/jobs/{job_id}/report", follow_redirects=False)
     assert resp.status_code == 303
 

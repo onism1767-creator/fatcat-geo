@@ -1,0 +1,168 @@
+"""界面文案目录(16.5):界面语言 lang ∈ {zh, en},URL 参数切换,不进口径。
+
+注意与测量语境(locale)严格分离:本目录只管页面怎么显示,
+不影响问什么语言的问题。诊断结论文本(L3 产出)的双语化属 v1.1。
+"""
+
+from __future__ import annotations
+
+from engine.models import NeedIntent
+
+LANGS = ("zh", "en")
+
+INTENT_LABELS: dict[str, dict[NeedIntent, str]] = {
+    "zh": {
+        NeedIntent.DISCOVERY: "发现",
+        NeedIntent.COMPARISON: "比较",
+        NeedIntent.SCENARIO: "场景",
+        NeedIntent.BRAND_PROBE: "品牌探针",
+    },
+    "en": {
+        NeedIntent.DISCOVERY: "Discovery",
+        NeedIntent.COMPARISON: "Comparison",
+        NeedIntent.SCENARIO: "Scenario",
+        NeedIntent.BRAND_PROBE: "Brand probe",
+    },
+}
+
+MESSAGES: dict[str, dict[str, str]] = {
+    "zh": {
+        "tagline": "v1 · 本机 · 逐阶段可见度诊断,概率与区间,不打分",
+        "lang_switch": "English",
+        # 输入页
+        "new_diag": "发起一次诊断",
+        "brand_name": "品牌名",
+        "brand_name_ph": "如:极光CRM",
+        "aliases": "别名 / 常见错写(逗号分隔,可空)",
+        "aliases_ph": "如:AuroraCRM, 极光 CRM",
+        "website": "网站",
+        "category": "行业 / 品类",
+        "category_ph": "如:客户关系管理软件(CRM)",
+        "locale_label": "测量语境(问题语言,是结论口径的一部分)",
+        "questions_label": "目标问题(每行一个,可空——“我希望 AI 在回答什么问题时推荐我”)",
+        "generate_label": "帮我生成候选问题(盲起草:发现/比较/场景/品牌探针四型 + 竞品建议;约需 30–60 秒,花费约 $0.02)",
+        "no_surface": "未装载任何 surface(检查 .env 的 API key),仅可手填问题。",
+        "submit_next": "下一步:生成并确认问题集",
+        "history": "历史任务",
+        "th_brand": "品牌", "th_state": "状态", "th_phase": "阶段", "th_cost": "花费",
+        "view": "查看", "view_report": "看报告",
+        # 确认页
+        "confirm_title": "确认问题集与采样计划",
+        "confirm_note": "确认前不产生任何采样花费。问法措辞对结论影响巨大,请逐条过目。",
+        "brand_word": "品牌", "category_word": "品类", "locale_word": "测量语境",
+        "candidates_title": "候选问题(勾选 1–10 个,建议 3–10)",
+        "custom_label": "补充自定义问题(每行一个,计为「发现」型)",
+        "competitors_title": "竞品对照(勾选,用于引用差距与份额对比)",
+        "plan_title": "采样计划",
+        "surfaces_label": "观测 surface",
+        "tier_label": "档位",
+        "tier_standard": "标准档(精度约 ±10%)",
+        "tier_quick": "快扫档(精度约 ±17%)",
+        "variants_label": "每需求问法数(原话 + AI 改写)",
+        "budget_label": "预算上限(USD,可空 = 不限;超限自动熔断)",
+        "est_label": "预估:",
+        "est_calls_word": "次采样",
+        "est_min_word": "分钟",
+        "est_note": "并发 3 路;区间提前收敛只会更快更省",
+        "confirm_submit": "确认并开始采样(此后开始计费)",
+        # 任务页
+        "job_title": "诊断任务",
+        "fingerprint_word": "指纹", "tier_word": "档",
+        "needs_word": "需求", "variants_word": "问法", "surfaces_word": "surface",
+        "progress_word": "进度", "plans_word": "采样计划",
+        "spent_word": "已花费", "budget_word": "预算",
+        "access_early": "ACCESS 审计(先行结果)",
+        "auto_refresh": "页面每 3 秒自动刷新;区间提前收敛会使实际进度快于预估。",
+        "job_failed": "执行失败",
+        "view_report_btn": "查看四阶段诊断报告",
+        # 报告页
+        "report_title": "四阶段诊断报告",
+        "started_word": "起测", "cost_word": "实际花费",
+        "partial_note": "部分完成(存在熔断截断,见各指标 stop_reasons)",
+        "access_section": "■ ACCESS — 站点可达性(全站一次)",
+        "access_missing": "未执行 ACCESS 审计。",
+        "caveats_summary": "口径与局限",
+        "evidence_summary": "证据与口径",
+        "sampled_variants": "采样问法",
+        "localization_title": "▶ 诊断定位",
+        "loc_pre": "失败最可能发生在", "loc_post": "阶段。",
+        "no_failure": "各可观测阶段均无 FAIL/WEAK。",
+        "recs_title": "▶ 下一步实验建议(每条挂证据条目,无证据不出建议)",
+        "level_word": "证据等级",
+        "sources_word": "来源", "guardrail_word": "护栏", "contra_word": "禁忌",
+        "footer": "本报告不打分:各阶段结论 = 概率 + 95% 区间(Jeffreys)+ 完整口径"
+                  "(surface / model / N / stop_reasons / 拒答率 / 失败率 / 判定阈值)。"
+                  "原始观测只追加留档,判定器升级后可全量重算复核。",
+        "l3_lang_note": "",
+    },
+    "en": {
+        "tagline": "v1 · local · stage-by-stage visibility diagnosis — probabilities & intervals, no scores",
+        "lang_switch": "中文",
+        "new_diag": "Start a diagnosis",
+        "brand_name": "Brand name",
+        "brand_name_ph": "e.g. AuroraCRM",
+        "aliases": "Aliases / common misspellings (comma-separated, optional)",
+        "aliases_ph": "e.g. Aurora CRM, auroracrm",
+        "website": "Website",
+        "category": "Industry / category",
+        "category_ph": "e.g. Customer Relationship Management (CRM) software",
+        "locale_label": "Measurement locale (question language — part of the result caliber)",
+        "questions_label": "Target questions (one per line, optional — “questions where I want AI to recommend me”)",
+        "generate_label": "Draft candidate questions for me (blind drafting: discovery/comparison/scenario/brand-probe + competitor suggestions; ~30–60 s, ~$0.02)",
+        "no_surface": "No surface loaded (check API keys in .env); manual questions only.",
+        "submit_next": "Next: draft & review the question set",
+        "history": "Past jobs",
+        "th_brand": "Brand", "th_state": "State", "th_phase": "Phase", "th_cost": "Cost",
+        "view": "View", "view_report": "Report",
+        "confirm_title": "Review question set & sampling plan",
+        "confirm_note": "Nothing is billed before you confirm. Question wording strongly affects results — please review each item.",
+        "brand_word": "Brand", "category_word": "Category", "locale_word": "Measurement locale",
+        "candidates_title": "Candidate questions (pick 1–10; 3–10 recommended)",
+        "custom_label": "Add custom questions (one per line, counted as Discovery)",
+        "competitors_title": "Competitors (for citation-gap and share-of-voice comparison)",
+        "plan_title": "Sampling plan",
+        "surfaces_label": "Surfaces",
+        "tier_label": "Tier",
+        "tier_standard": "Standard (≈ ±10% precision)",
+        "tier_quick": "Quick scan (≈ ±17% precision)",
+        "variants_label": "Phrasings per question (original + AI rewrites)",
+        "budget_label": "Budget cap (USD, empty = unlimited; hard-stops when exceeded)",
+        "est_label": "Estimate: ",
+        "est_calls_word": "calls",
+        "est_min_word": "min",
+        "est_note": "3-way concurrency; early convergence only makes it faster & cheaper",
+        "confirm_submit": "Confirm & start sampling (billing starts now)",
+        "job_title": "Diagnosis job",
+        "fingerprint_word": "fingerprint", "tier_word": "tier",
+        "needs_word": "questions", "variants_word": "phrasings", "surfaces_word": "surfaces",
+        "progress_word": "Progress", "plans_word": "plans",
+        "spent_word": "Spent", "budget_word": "budget",
+        "access_early": "ACCESS audit (early result)",
+        "auto_refresh": "Auto-refreshes every 3 s; early convergence makes actual progress faster than estimated.",
+        "job_failed": "Job failed",
+        "view_report_btn": "Open the four-stage report",
+        "report_title": "Four-Stage Diagnosis Report",
+        "started_word": "started", "cost_word": "actual cost",
+        "partial_note": "PARTIAL (breaker-truncated; see stop_reasons per metric)",
+        "access_section": "■ ACCESS — site reachability (site-wide, once)",
+        "access_missing": "ACCESS audit was not run.",
+        "caveats_summary": "Caliber & limitations",
+        "evidence_summary": "Evidence & caliber",
+        "sampled_variants": "Sampled phrasings",
+        "localization_title": "▶ Failure localization",
+        "loc_pre": "The failure most likely occurs at the", "loc_post": "stage.",
+        "no_failure": "No FAIL/WEAK among observable stages.",
+        "recs_title": "▶ Next experiments (every item cites an evidence entry — no evidence, no advice)",
+        "level_word": "evidence level",
+        "sources_word": "Sources", "guardrail_word": "Guardrail", "contra_word": "Contraindications",
+        "footer": "This report has no scores: every stage conclusion = probability + 95% interval (Jeffreys) "
+                  "+ full caliber (surface / model / N / stop_reasons / refusal & failure rates / thresholds). "
+                  "Raw observations are append-only; detector upgrades recompute all history.",
+        "l3_lang_note": "Note: diagnostic conclusion sentences are currently rendered in Chinese "
+                        "(structured bilingual output ships in v1.1).",
+    },
+}
+
+
+def resolve_lang(value: str | None) -> str:
+    return value if value in LANGS else "zh"

@@ -51,8 +51,9 @@
 </style>
 </head>
 <body>
-<header><div class="wrap"><a href="/">GEO 诊断</a>
-  <span class="muted">v1 · 本机 · 逐阶段可见度诊断,概率与区间,不打分</span></div></header>
+<header><div class="wrap"><a href="/?lang={{ lang }}">GEO Insight</a>
+  <span class="muted">{{ t["tagline"] }}</span>
+  <span style="margin-left:auto"><a class="muted" href="?lang={{ 'en' if lang == 'zh' else 'zh' }}">{{ t["lang_switch"] }}</a></span></div></header>
 <main class="wrap">{% block content %}{% endblock %}</main>
 </body>
 </html>

@@ -95,6 +95,59 @@ _COMPETITOR_PROMPT = """利用联网检索,列出品类「{category}」下最主
 只返回合法 JSON(至多 {k} 条),不要 markdown,不要解释,形如:
 {"competitors":[{"name":"...","domain":"example.com"}]}"""
 
+# ── en-US 语境的英文版(同一套硬规则与质检,16.5)────────────────────────
+
+_NEUTRAL_PROMPT_EN = """You are drafting neutral market-research questions about a product category —
+the kind a real buyer asks an AI assistant. You are deliberately NOT given any
+specific brand. Do not ask for one.
+
+Category: {category}
+Language: {locale}
+
+Draft EXACTLY: discovery {n_discovery}, comparison {n_comparison}, scenario {n_scenario}.
+- discovery: open "what/which is best/recommended for…" across different buyer
+  personas (beginner, experienced, budget, premium, scale, service). No duplicates.
+- comparison: "how do top brands compare on X" — each a DIFFERENT axis that
+  multiple brands genuinely compete on.
+- scenario: distinct, realistic buyer situations within the category.
+
+HARD RULES:
+- NEVER name any brand, company, or product line.
+- Do not stack qualifiers that only ONE brand could satisfy (covert bias).
+- Real buyer voice; one intent per question; no presupposed answer ("why is X best").
+- Stay strictly inside the category "{category}".
+
+Return ONLY valid JSON, no markdown, no comments, exactly:
+{"discovery":["..."],"comparison":["..."],"scenario":["..."]}"""
+
+_PROBE_PROMPT_EN = """Draft EXACTLY {count} brand-probe questions about ONE specific brand
+(they test how an AI describes it).
+
+Brand: {brand}
+Category: {category}
+Language: {locale}
+
+Cover: overall reputation/quality, comparison with peers, community opinion, value for money.
+HARD RULES:
+- Each question names ONLY {brand}. NEVER name a competitor.
+- Framing TWO-SIDED and neutral — explicitly invite BOTH strengths and weaknesses.
+- Real buyer voice; one intent each.
+
+Return ONLY valid JSON, no markdown, no comments:
+{"brand_probe":["..."]}"""
+
+_COMPETITOR_PROMPT_EN = """Using web search, list the most prominent REAL competitor brands in the
+"{category}" category, EXCLUDING {brand} (the client's own brand).
+Give each brand's common name and primary official website domain.
+Only real, well-known brands. Do not invent.
+
+Return ONLY valid JSON (at most {k} items), no markdown, no comments:
+{"competitors":[{"name":"...","domain":"example.com"}]}"""
+
+
+def _is_english(locale: str) -> bool:
+    return locale.lower().startswith("en")
+
 
 # ── 通用:调适配器 → 抠 JSON → 校验,有界重试 ────────────────────────────
 
@@ -178,8 +231,9 @@ def _draft_neutral(
     counts: dict[NeedIntent, int],
 ) -> list[NeedCandidate]:
     """① 真盲:prompt 不含任何品牌信息;质检(配比+撞车)失败即整批重生成。"""
+    template = _NEUTRAL_PROMPT_EN if _is_english(locale) else _NEUTRAL_PROMPT
     prompt = (
-        _NEUTRAL_PROMPT
+        template
         .replace("{category}", category)
         .replace("{locale}", locale)
         .replace("{n_discovery}", str(counts[NeedIntent.DISCOVERY]))
@@ -218,8 +272,9 @@ def suggest_competitors(
     locale: str = "zh-CN",
 ) -> list[CompetitorSuggestion]:
     """② 竞品建议:建议用带联网检索的 surface 调用;排除焦点、去重、封顶 k。"""
+    template = _COMPETITOR_PROMPT_EN if _is_english(locale) else _COMPETITOR_PROMPT
     prompt = (
-        _COMPETITOR_PROMPT
+        template
         .replace("{category}", category)
         .replace("{brand}", brand.name)
         .replace("{k}", str(k))
@@ -257,8 +312,9 @@ def _draft_probes(
     count: int,
 ) -> list[NeedCandidate]:
     """③ 品牌探针:此时才把焦点名交给生成器;探针必须点名焦点品牌。"""
+    template = _PROBE_PROMPT_EN if _is_english(locale) else _PROBE_PROMPT
     prompt = (
-        _PROBE_PROMPT
+        template
         .replace("{count}", str(count))
         .replace("{brand}", brand.name)
         .replace("{category}", category)

@@ -27,6 +27,15 @@ _TEMPLATE = (
     "每行输出一个问法,不要编号,不要解释,不要输出任何其他内容。"
 )
 
+_TEMPLATE_EN = (
+    "You are generating sampling phrasings for an AI-visibility diagnosis tool.\n"
+    "Information need: {statement}\n"
+    "Language: {locale} (phrasings must match this locale)\n"
+    "Write {count} phrasings with the same meaning but different wording "
+    "(mix casual, formal and situational).\n"
+    "Output one phrasing per line — no numbering, no explanations, nothing else."
+)
+
 
 def parse_variant_lines(text: str, *, count: int, exclude: set[str] | None = None) -> list[str]:
     """把 LLM 输出解析为问法列表:剥行首编号/符号,去空行,去重,截断到 count。"""
@@ -53,11 +62,12 @@ def generate_variants(
     locale: str = "zh-CN",
 ) -> list[PromptVariant]:
     """生成 count 个 ASSISTED 变体。生成失败显式抛错,不静默返回空。"""
+    template = _TEMPLATE_EN if locale.lower().startswith("en") else _TEMPLATE
     request = AskRequest(
         run_id=f"vargen-{uuid4().hex[:12]}",
         information_need_id=need.need_id,
         prompt_variant_id="__variant_generation__",
-        prompt_text=_TEMPLATE.format(statement=need.statement, count=count, locale=locale),
+        prompt_text=template.format(statement=need.statement, count=count, locale=locale),
         locale=locale,
     )
     run = adapter.ask(request)  # 辅助调用:不落库

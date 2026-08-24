@@ -1,14 +1,15 @@
 {% extends "base.html" %}
-{% block title %}确认问题集 · GEO 诊断{% endblock %}
+{% block title %}{{ t["confirm_title"] }}{% endblock %}
 {% block content %}
-<h1>确认问题集与采样计划</h1>
-<p class="muted">品牌:{{ job.brand.name }}({{ ", ".join(job.brand.domains) }}) · 品类:{{ job.category }}。
-确认前不产生任何采样花费。问法措辞对结论影响巨大,请逐条过目。</p>
+<h1>{{ t["confirm_title"] }}</h1>
+<p class="muted">{{ t["brand_word"] }}:{{ job.brand.name }}({{ ", ".join(job.brand.domains) }}) ·
+{{ t["category_word"] }}:{{ job.category }} · {{ t["locale_word"] }}:{{ job.locale }}。
+{{ t["confirm_note"] }}</p>
 {% if error %}<div class="err">{{ error }}</div>{% endif %}
 
-<form method="post" action="/jobs/{{ job.job_id }}/confirm">
+<form method="post" action="/jobs/{{ job.job_id }}/confirm?lang={{ lang }}">
   <div class="card">
-    <h3>候选问题(勾选 1–10 个,建议 3–10)</h3>
+    <h3>{{ t["candidates_title"] }}</h3>
     {% for cand in job.candidates %}
     <label style="font-weight:400">
       <input type="checkbox" name="needs_selected" value="{{ loop.index0 }}"
@@ -16,13 +17,13 @@
       <span class="chip intent">{{ intent_labels[cand.intent] }}</span> {{ cand.text }}
     </label>
     {% endfor %}
-    <label>补充自定义问题(每行一个,计为「发现」型)</label>
+    <label>{{ t["custom_label"] }}</label>
     <textarea name="custom"></textarea>
   </div>
 
   {% if job.competitors_suggested %}
   <div class="card">
-    <h3>竞品对照(勾选,用于引用差距与份额对比)</h3>
+    <h3>{{ t["competitors_title"] }}</h3>
     {% for comp in job.competitors_suggested %}
     <label style="font-weight:400">
       <input type="checkbox" name="competitors_selected" value="{{ loop.index0 }}"
@@ -34,29 +35,29 @@
   {% endif %}
 
   <div class="card">
-    <h3>采样计划</h3>
+    <h3>{{ t["plan_title"] }}</h3>
     <div class="row">
-      <div><label>观测 surface</label>
+      <div><label>{{ t["surfaces_label"] }}</label>
         {% for s in surfaces %}
         <label style="font-weight:400"><input type="checkbox" name="surfaces_selected" value="{{ s }}" checked> {{ s }}</label>
         {% endfor %}
       </div>
-      <div><label>档位</label>
-        <select name="tier">{% for tid, t in tiers.items() %}
-          <option value="{{ tid }}" {{ "selected" if tid == "quick" else "" }}>{{ t.label }}</option>
+      <div><label>{{ t["tier_label"] }}</label>
+        <select name="tier">{% for tid in tiers %}
+          <option value="{{ tid }}" {{ "selected" if tid == "quick" else "" }}>{{ t["tier_" + tid] }}</option>
         {% endfor %}</select>
-        <label>每需求问法数(原话 + AI 改写)</label>
+        <label>{{ t["variants_label"] }}</label>
         <select name="variants"><option>1</option><option selected>2</option><option>3</option></select>
       </div>
-      <div><label>预算上限(USD,可空 = 不限;超限自动熔断)</label>
-        <input type="number" name="budget" step="0.1" min="0.1" placeholder="如 2.0">
+      <div><label>{{ t["budget_label"] }}</label>
+        <input type="number" name="budget" step="0.1" min="0.1" placeholder="2.0">
       </div>
     </div>
-    <p class="kv">预估:<b><span id="est-calls">–</span></b> 次采样 ·
-      约 <b>$<span id="est-cost">–</span></b> ·
-      约 <b><span id="est-min">–</span> 分钟</b>(并发 3 路;区间提前收敛只会更快更省)</p>
+    <p class="kv">{{ t["est_label"] }}<b><span id="est-calls">–</span></b> {{ t["est_calls_word"] }} ·
+      ≈ <b>$<span id="est-cost">–</span></b> ·
+      ≈ <b><span id="est-min">–</span> {{ t["est_min_word"] }}</b>({{ t["est_note"] }})</p>
   </div>
-  <button type="submit">确认并开始采样(此后开始计费)</button>
+  <button type="submit">{{ t["confirm_submit"] }}</button>
 </form>
 
 <script>

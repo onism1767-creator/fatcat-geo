@@ -21,6 +21,7 @@ from engine.loader import build_adapters
 from engine.models import BrandSpec, InformationNeed, NeedIntent
 from engine.needs import NeedCandidate, draft_need_candidates
 from report import runner
+from report.i18n import INTENT_LABELS, MESSAGES, resolve_lang
 from report.jobs import (
     AVG_COST_PER_CALL_USD,
     AVG_SECONDS_PER_CALL,
@@ -33,12 +34,6 @@ from report.jobs import (
 )
 
 DEFAULT_DSN = "postgresql://geo@localhost:5433/geo_tool"
-INTENT_LABELS = {
-    NeedIntent.DISCOVERY: "发现",
-    NeedIntent.COMPARISON: "比较",
-    NeedIntent.SCENARIO: "场景",
-    NeedIntent.BRAND_PROBE: "品牌探针",
-}
 
 
 def create_app(
@@ -62,8 +57,16 @@ def create_app(
     app.state.adapters = adapters
 
     def render(request: Request, name: str, **context) -> HTMLResponse:
-        context.setdefault("intent_labels", INTENT_LABELS)
+        lang = resolve_lang(request.query_params.get("lang"))
+        context.setdefault("lang", lang)
+        context.setdefault("t", MESSAGES[lang])
+        context.setdefault("intent_labels", INTENT_LABELS[lang])
         return templates.TemplateResponse(request, name, context)
+
+    def redirect(request: Request, path: str) -> RedirectResponse:
+        lang = resolve_lang(request.query_params.get("lang"))
+        joiner = "&" if "?" in path else "?"
+        return RedirectResponse(f"{path}{joiner}lang={lang}", status_code=303)
 
     def not_found(request: Request) -> HTMLResponse:
         return HTMLResponse("任务不存在", status_code=404)
@@ -115,7 +118,7 @@ def create_app(
             candidates=candidates, competitors_suggested=competitors_suggested,
         )
         registry.add(job)
-        return RedirectResponse(f"/jobs/{job.job_id}/confirm", status_code=303)
+        return redirect(request, f"/jobs/{job.job_id}/confirm")
 
     @app.get("/jobs/{job_id}/confirm", response_class=HTMLResponse)
     async def confirm_page(request: Request, job_id: str, error: str = ""):
@@ -123,7 +126,7 @@ def create_app(
         if job is None:
             return not_found(request)
         if job.state is not JobState.DRAFT:
-            return RedirectResponse(f"/jobs/{job.job_id}", status_code=303)
+            return redirect(request, f"/jobs/{job.job_id}")
         estimate_constants = json.dumps({
             "tier_calls": {tid: t.expected_calls_per_plan for tid, t in TIERS.items()},
             "cost_per_call": AVG_COST_PER_CALL_USD,
@@ -150,7 +153,7 @@ def create_app(
         if job is None:
             return not_found(request)
         if job.state is not JobState.DRAFT:
-            return RedirectResponse(f"/jobs/{job.job_id}", status_code=303)
+            return redirect(request, f"/jobs/{job.job_id}")
 
         needs = [
             InformationNeed(statement=job.candidates[i].text, intent=job.candidates[i].intent)
@@ -163,9 +166,7 @@ def create_app(
         ]
 
         def back(error: str):
-            return RedirectResponse(
-                f"/jobs/{job.job_id}/confirm?error={error}", status_code=303
-            )
+            return redirect(request, f"/jobs/{job.job_id}/confirm?error={error}")
 
         if not 1 <= len(needs) <= 10:
             return back("需求数量须在 1–10 个之间(架构口径建议 3–10)")
@@ -189,7 +190,7 @@ def create_app(
             kwargs=dict(job=job, adapters=adapters, dsn=dsn, evidence=evidence),
             daemon=True,
         ).start()
-        return RedirectResponse(f"/jobs/{job.job_id}", status_code=303)
+        return redirect(request, f"/jobs/{job.job_id}")
 
     @app.get("/jobs/{job_id}", response_class=HTMLResponse)
     async def job_status(request: Request, job_id: str):
@@ -204,7 +205,7 @@ def create_app(
         if job is None:
             return not_found(request)
         if not job.finished:
-            return RedirectResponse(f"/jobs/{job.job_id}", status_code=303)
-        return render(request, "report.html", job=job, tier_label=TIERS[job.tier_id].label)
+            return redirect(request, f"/jobs/{job.job_id}")
+        return render(request, "report.html", job=job)
 
     return app
