@@ -133,12 +133,31 @@ def test_upstream_fail_yields_only_upstream_recommendations():
 
 
 def test_retrieval_failure_warns_against_rewriting():
+    # 引用阶段未 PASS(WEAK)时,检索 FAIL 的定位成立
     diagnosis = diagnose_need(NEED, registry=REGISTRY,
-                              **findings_for(retrieval=StageStatus.FAIL))
+                              **findings_for(retrieval=StageStatus.FAIL,
+                                             citation=StageStatus.WEAK))
     assert diagnosis.primary_failure is Stage.RETRIEVAL
     assert any("不建议】进行全页" in caution or "不建议】" in caution
                for caution in diagnosis.cautions)
     assert all(rec.stage is Stage.RETRIEVAL for rec in diagnosis.recommendations)
+
+
+def test_retrieval_fail_contradicted_by_citation_pass_is_channel_divergence():
+    """被引必先被检索:引用 PASS 时检索 FAIL 不得定位为失败(风险 #5)。"""
+    diagnosis = diagnose_need(NEED, registry=REGISTRY,
+                              **findings_for(retrieval=StageStatus.FAIL))
+    assert diagnosis.primary_failure is None  # 其余全 PASS → 无失败可定位
+    assert any("观测通道" in caution and "不据此定位" in caution
+               for caution in diagnosis.cautions)
+    assert diagnosis.recommendations == []
+
+
+def test_divergent_retrieval_skipped_but_downstream_weak_still_localizes():
+    diagnosis = diagnose_need(NEED, registry=REGISTRY,
+                              **findings_for(retrieval=StageStatus.FAIL,
+                                             representation=StageStatus.WEAK))
+    assert diagnosis.primary_failure is Stage.REPRESENTATION
 
 
 def test_all_pass_yields_no_recommendations():

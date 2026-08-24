@@ -80,9 +80,11 @@ def create_app(
         aliases: str = Form(""),
         website: str = Form(...),
         category: str = Form(...),
+        locale: str = Form("zh-CN"),
         questions: str = Form(""),
         generate: str = Form(""),
     ):
+        locale = locale if locale in ("zh-CN", "en-US") else "zh-CN"
         normalized = website if "://" in website else f"https://{website}"
         domain = urlsplit(normalized).hostname or ""
         brand = BrandSpec(
@@ -98,7 +100,7 @@ def create_app(
             )
             if generation_adapter is not None:
                 candidates, competitors_suggested = draft_need_candidates(
-                    generation_adapter, category=category, brand=brand, locale="zh-CN"
+                    generation_adapter, category=category, brand=brand, locale=locale
                 )
         manual = [line.strip() for line in questions.splitlines() if line.strip()]
         candidates = candidates + [
@@ -109,7 +111,7 @@ def create_app(
                           surfaces=sorted(adapters),
                           error="请至少手填一个目标问题,或勾选「帮我生成」")
         job = DiagnosisJob(
-            brand=brand, website=normalized, category=category, locale="zh-CN",
+            brand=brand, website=normalized, category=category, locale=locale,
             candidates=candidates, competitors_suggested=competitors_suggested,
         )
         registry.add(job)

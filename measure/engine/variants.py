@@ -22,7 +22,8 @@ _LINE_PREFIX = re.compile(r"^\s*(?:[0-9]+[).、.::]?|[-*•])\s*")
 _TEMPLATE = (
     "你在为一个 AI 可见度诊断工具生成采样问法。\n"
     "信息需求:{statement}\n"
-    "请生成 {count} 个语义相同但表述不同的中文问法(口语、正式、场景化混合)。\n"
+    "语言:{locale}(问法必须与该语境一致)\n"
+    "请生成 {count} 个语义相同但表述不同的问法(口语、正式、场景化混合)。\n"
     "每行输出一个问法,不要编号,不要解释,不要输出任何其他内容。"
 )
 
@@ -56,7 +57,7 @@ def generate_variants(
         run_id=f"vargen-{uuid4().hex[:12]}",
         information_need_id=need.need_id,
         prompt_variant_id="__variant_generation__",
-        prompt_text=_TEMPLATE.format(statement=need.statement, count=count),
+        prompt_text=_TEMPLATE.format(statement=need.statement, count=count, locale=locale),
         locale=locale,
     )
     run = adapter.ask(request)  # 辅助调用:不落库

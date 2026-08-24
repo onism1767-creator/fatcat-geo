@@ -61,14 +61,16 @@ def access_finding(audit: AccessAuditResult | None) -> StageFinding:
     )
 
 
-def localize_failure(findings: dict[Stage, StageFinding]) -> Stage | None:
+def localize_failure(
+    findings: dict[Stage, StageFinding], *, skip: frozenset[Stage] = frozenset()
+) -> Stage | None:
     if findings[Stage.ACCESS].status is StageStatus.FAIL:
         return Stage.ACCESS
     for stage in _FUNNEL:
-        if findings[stage].status is StageStatus.FAIL:
+        if stage not in skip and findings[stage].status is StageStatus.FAIL:
             return stage
     for stage in _FUNNEL:
-        if findings[stage].status is StageStatus.WEAK:
+        if stage not in skip and findings[stage].status is StageStatus.WEAK:
             return stage
     return None
 
@@ -88,9 +90,22 @@ def diagnose_need(
         Stage.CITATION: citation,
         Stage.REPRESENTATION: representation,
     }
-    primary = localize_failure(findings)
-
     cautions: list[str] = []
+    skip: frozenset[Stage] = frozenset()
+    # 通道分歧防线:被引必先被检索。引用阶段 PASS 时,裸检索通道的缺席
+    # 只能说明观测通道与生成端实际检索(查询改写/多语言 fan-out)不等同
+    # (风险 #5:观测通道不当真值),不得据此定位检索失败。
+    if (
+        findings[Stage.RETRIEVAL].status in (StageStatus.FAIL, StageStatus.WEAK)
+        and findings[Stage.CITATION].status is StageStatus.PASS
+    ):
+        skip = frozenset({Stage.RETRIEVAL})
+        cautions.append(
+            "检索观测通道显示品牌缺席,但引用阶段 PASS——被引必先被检索,两通道结论矛盾。"
+            "这说明裸检索观测通道与生成端实际执行的检索(含查询改写与多语言扩展)不等同,"
+            "检索结论按观测通道分歧处理,不据此定位失败(架构书风险 #5:观测通道不当真值)"
+        )
+    primary = localize_failure(findings, skip=skip)
     unobservable = [s.value for s in findings if findings[s].status is StageStatus.NOT_OBSERVABLE]
     if unobservable:
         cautions.append(f"以下阶段不可观测,未参与定位:{', '.join(unobservable)}")
