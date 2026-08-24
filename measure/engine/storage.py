@@ -39,8 +39,6 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
         created_at timestamptz NOT NULL
     )
     """,
-    # 兼容 v0.4.1 期建的旧库(v1 无迁移框架,幂等 ALTER 补列)
-    "ALTER TABLE information_need ADD COLUMN IF NOT EXISTS intent text NOT NULL DEFAULT 'discovery'",
     """
     CREATE TABLE IF NOT EXISTS prompt_variant (
         variant_id text PRIMARY KEY,

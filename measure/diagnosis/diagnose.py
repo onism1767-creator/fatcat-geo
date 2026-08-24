@@ -16,7 +16,7 @@ from diagnosis.access_audit import AccessAuditResult
 from diagnosis.access_audit import CheckStatus as AccessCheckStatus
 from diagnosis.findings import Stage, StageFinding, StageStatus
 from diagnosis.recommender import EvidenceEntry, Recommendation, recommend
-from engine.models import FrozenModel, InformationNeed
+from engine.models import FrozenModel, InformationNeed, NeedIntent
 
 _FUNNEL = (Stage.RETRIEVAL, Stage.CITATION, Stage.REPRESENTATION)
 
@@ -24,7 +24,7 @@ _FUNNEL = (Stage.RETRIEVAL, Stage.CITATION, Stage.REPRESENTATION)
 class NeedDiagnosis(FrozenModel):
     need_id: str
     statement: str
-    intent: str
+    intent: NeedIntent
     findings: list[StageFinding]  # 按 ACCESS/RETRIEVAL/CITATION/REPRESENTATION 顺序
     primary_failure: Stage | None
     cautions: list[str]
@@ -108,7 +108,7 @@ def diagnose_need(
     return NeedDiagnosis(
         need_id=need.need_id,
         statement=need.statement,
-        intent=need.intent.value,
+        intent=need.intent,
         findings=[access, retrieval, citation, representation],
         primary_failure=primary,
         cautions=cautions,
