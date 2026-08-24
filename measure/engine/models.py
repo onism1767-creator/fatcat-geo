@@ -71,6 +71,16 @@ class PromptOrigin(StrEnum):
     ASSISTED = "assisted"
 
 
+class NeedIntent(StrEnum):
+    """需求意图分型(17.2)。指标解释按意图分层,不得混算:
+    中立三型测自然可见度;brand_probe 点名焦点品牌,专测 REPRESENTATION。"""
+
+    DISCOVERY = "discovery"
+    COMPARISON = "comparison"
+    SCENARIO = "scenario"
+    BRAND_PROBE = "brand_probe"
+
+
 class StopReason(StrEnum):
     """采样停止原因(7.2)。必须随指标一起进报告——N=6 因收敛而停与
     N=6 因预算截断,是完全不同强度的结论(铁律 5)。"""
@@ -98,11 +108,20 @@ class BrandSpec(FrozenModel):
 
 
 class InformationNeed(FrozenModel):
-    """信息需求:分析与报告的基本单位,指标聚合到这一层。"""
+    """信息需求:分析与报告的基本单位,指标聚合到这一层。
+    intent 为必填:意图是口径的一部分(17.2),不允许无标签的需求。"""
 
     need_id: str = Field(default_factory=lambda: str(uuid4()))
     statement: str
+    intent: NeedIntent
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class CompetitorSuggestion(FrozenModel):
+    """竞品建议条目(17.3 第②步产物),用户勾选后转为竞品 BrandSpec。"""
+
+    name: str
+    domain: str
 
 
 class PromptVariant(FrozenModel):

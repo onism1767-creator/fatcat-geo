@@ -35,9 +35,12 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     CREATE TABLE IF NOT EXISTS information_need (
         need_id text PRIMARY KEY,
         statement text NOT NULL,
+        intent text NOT NULL,
         created_at timestamptz NOT NULL
     )
     """,
+    # 兼容 v0.4.1 期建的旧库(v1 无迁移框架,幂等 ALTER 补列)
+    "ALTER TABLE information_need ADD COLUMN IF NOT EXISTS intent text NOT NULL DEFAULT 'discovery'",
     """
     CREATE TABLE IF NOT EXISTS prompt_variant (
         variant_id text PRIMARY KEY,
@@ -169,9 +172,9 @@ class Storage:
 
     def insert_information_need(self, need: InformationNeed) -> None:
         self._conn.execute(
-            "INSERT INTO information_need (need_id, statement, created_at) "
-            "VALUES (%s, %s, %s) ON CONFLICT (need_id) DO NOTHING",
-            (need.need_id, need.statement, need.created_at),
+            "INSERT INTO information_need (need_id, statement, intent, created_at) "
+            "VALUES (%s, %s, %s, %s) ON CONFLICT (need_id) DO NOTHING",
+            (need.need_id, need.statement, need.intent.value, need.created_at),
         )
 
     def insert_prompt_variant(self, variant: PromptVariant) -> None:

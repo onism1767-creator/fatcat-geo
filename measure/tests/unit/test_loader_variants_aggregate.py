@@ -11,6 +11,7 @@ from engine.metrics import account_outcomes, estimate_proportion
 from engine.models import (
     Answer,
     InformationNeed,
+    NeedIntent,
     Outcome,
     PromptOrigin,
     RunError,
@@ -111,7 +112,7 @@ class _FakeGenAdapter:
 
 
 def test_generate_variants_end_to_end():
-    need = InformationNeed(need_id="need-v", statement="中小团队 CRM 选型")
+    need = InformationNeed(need_id="need-v", statement="中小团队 CRM 选型", intent=NeedIntent.DISCOVERY)
     adapter = _FakeGenAdapter("1. 小公司用什么 CRM?\n2. 十人团队 CRM 推荐\n")
     variants = generate_variants(adapter, need, count=2)
     assert [v.prompt_text for v in variants] == ["小公司用什么 CRM?", "十人团队 CRM 推荐"]
@@ -119,7 +120,7 @@ def test_generate_variants_end_to_end():
 
 
 def test_generate_variants_fails_loudly_on_refusal():
-    need = InformationNeed(need_id="need-v", statement="测试")
+    need = InformationNeed(need_id="need-v", statement="测试", intent=NeedIntent.DISCOVERY)
     with pytest.raises(ValueError, match="变体生成失败"):
         generate_variants(_FakeGenAdapter(None), need, count=2)
 

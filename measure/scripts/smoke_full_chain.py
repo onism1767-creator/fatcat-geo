@@ -24,7 +24,14 @@ from engine.detectors.retrieval_rank import RetrievalRankDetector  # noqa: E402
 from engine.detectors.runner import observe_runs  # noqa: E402
 from engine.detectors.sentiment import SentimentDetector  # noqa: E402
 from engine.loader import build_adapters  # noqa: E402
-from engine.models import BrandSpec, InformationNeed, PromptOrigin, PromptVariant, SurfaceRun  # noqa: E402
+from engine.models import (  # noqa: E402
+    BrandSpec,
+    InformationNeed,
+    NeedIntent,
+    PromptOrigin,
+    PromptVariant,
+    SurfaceRun,
+)
 from engine.scheduler import (  # noqa: E402
     NeedSurfaceMetric,
     SamplingPolicy,
@@ -73,7 +80,7 @@ def main() -> int:
     storage = Storage(os.environ.get("GEO_DATABASE_URL", DEFAULT_DB))
     storage.ensure_schema()
 
-    need = InformationNeed(statement="中小团队的 CRM 选型")
+    need = InformationNeed(statement="中小团队的 CRM 选型", intent=NeedIntent.DISCOVERY)
     storage.insert_information_need(need)
 
     user_variant = PromptVariant(need_id=need.need_id, prompt_text="中小团队用什么 CRM 好?",

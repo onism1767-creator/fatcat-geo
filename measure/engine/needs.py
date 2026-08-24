@@ -1,0 +1,301 @@
+"""需求辅助生成(第 17 章):盲起草三步序 + 机械质检。
+
+顺序即防线(17.3):
+  ① 中立题先行(真盲)——生成 prompt 不含品牌名/别名/网站,生成器不知道谁是"你";
+  ② 竞品建议(用带联网检索的 surface)——排除焦点品牌;
+  ③ brand_probe 最后注入焦点名,双面措辞。
+
+机械质检(17.4)内嵌在各步的有界重试里:配比核对、JSON 合法、判重、
+别名撞车扫描(中立题含焦点品牌即打回重生成)。仍失败显式抛错,不静默降级。
+
+生成调用是辅助行为:SurfaceRun 不落库、不进任何指标分母(与 variants.py 同一纪律)。
+"""
+
+from __future__ import annotations
+
+import json
+from typing import Any, Callable
+from uuid import uuid4
+
+import structlog
+
+from adapters.base import SurfaceAdapter
+from engine.models import (
+    AskRequest,
+    BrandSpec,
+    CompetitorSuggestion,
+    FrozenModel,
+    NeedIntent,
+    Outcome,
+)
+
+log = structlog.get_logger("engine.needs")
+
+_MAX_ATTEMPTS = 3
+
+# 17.2 建议配比 3:2:2:1 → 默认候选池 discovery 6 / comparison 4 / scenario 4 / probe 2
+DEFAULT_NEUTRAL_COUNTS: dict[NeedIntent, int] = {
+    NeedIntent.DISCOVERY: 6,
+    NeedIntent.COMPARISON: 4,
+    NeedIntent.SCENARIO: 4,
+}
+DEFAULT_PROBE_COUNT = 2
+DEFAULT_COMPETITOR_K = 8
+
+
+class NeedCandidate(FrozenModel):
+    """一条候选需求(待用户在确认页勾选/改写)。"""
+
+    intent: NeedIntent
+    text: str
+
+
+# ── 生成 prompt(硬规则与第 17 章逐条对应;含字面花括号,用 replace 注入)──
+
+_NEUTRAL_PROMPT = """你在为一个产品品类起草中立的市场调研问题——真实买家会拿去问 AI 助手的那种。
+你被刻意隔离:不知道委托方是哪个品牌,也不要问。
+
+品类:{category}
+语言:{locale}
+
+恰好生成:discovery {n_discovery} 条、comparison {n_comparison} 条、scenario {n_scenario} 条。
+- discovery:开放式"什么/哪家最好、最推荐"——覆盖不同买家画像(新手、资深、预算敏感、
+  高端、规格/规模、服务保障、耐用性等),两两不重复。
+- comparison:"主流品牌在 X 维度上怎么比"——每条一个真实存在多品牌竞争的不同维度。
+- scenario:六(或指定数)个彼此不同的、真实买家会遇到的具体场景。
+
+硬规则:
+- 绝不点名任何品牌、公司或产品线。
+- 不堆叠只有单一品牌才能满足的限定条件(隐性偏置)。
+- 真实买家口吻;一题只问一个意图;不预设答案("为什么 X 最好"属违规)。
+- 严格限定在品类「{category}」之内。
+
+只返回合法 JSON,不要 markdown,不要解释,形如:
+{"discovery":["..."],"comparison":["..."],"scenario":["..."]}"""
+
+_PROBE_PROMPT = """为下面这一个品牌恰好起草 {count} 条「品牌探针」问题(测 AI 如何描述它)。
+
+品牌:{brand}
+品类:{category}
+语言:{locale}
+
+覆盖:整体口碑/质量、与同类相比如何、用户/社区评价、性价比。
+硬规则:
+- 每条只点名 {brand},绝不点名任何竞品。
+- 措辞双面中立——同时邀请优点与缺点。禁止单边引导("为什么 {brand} 最好"/"{brand} 是不是很差"都违规)。
+- 真实买家口吻;一题一个意图。
+
+只返回合法 JSON,不要 markdown,不要解释,形如:
+{"brand_probe":["..."]}"""
+
+_COMPETITOR_PROMPT = """利用联网检索,列出品类「{category}」下最主流的真实竞品品牌,
+排除「{brand}」(委托方自己)。每个给出常用名称与官方网站主域名。
+只要真实、知名的品牌,不得编造。
+
+只返回合法 JSON(至多 {k} 条),不要 markdown,不要解释,形如:
+{"competitors":[{"name":"...","domain":"example.com"}]}"""
+
+
+# ── 通用:调适配器 → 抠 JSON → 校验,有界重试 ────────────────────────────
+
+
+def _ask_json(
+    adapter: SurfaceAdapter,
+    prompt: str,
+    check: Callable[[Any], None],
+    *,
+    locale: str,
+) -> Any:
+    last: Exception | None = None
+    for _ in range(_MAX_ATTEMPTS):
+        run = adapter.ask(AskRequest(
+            run_id=f"needgen-{uuid4().hex[:12]}",
+            information_need_id="__need_generation__",
+            prompt_variant_id="__need_generation__",
+            prompt_text=prompt,
+            locale=locale,
+        ))
+        if run.outcome is not Outcome.SUCCESS or run.answer is None:
+            last = ValueError(f"生成调用未成功:outcome={run.outcome}")
+            continue
+        try:
+            data = _extract_json(run.answer.answer_text)
+            check(data)
+            return data
+        except (ValueError, KeyError, TypeError) as exc:
+            last = exc
+    raise ValueError(f"需求生成 {_MAX_ATTEMPTS} 次尝试仍未产出合格结果:{last}")
+
+
+def _extract_json(text: str) -> Any:
+    """容忍模型偶尔加围栏/前后语:抠出首个 {...} 对象解析。"""
+    start, end = text.find("{"), text.rfind("}")
+    if start == -1 or end <= start:
+        raise ValueError("回答中未含 JSON 对象")
+    return json.loads(text[start : end + 1])
+
+
+def _str_list(value: Any) -> list[str]:
+    if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+        raise ValueError("期望字符串数组")
+    return [item.strip() for item in value if item.strip()]
+
+
+# ── 质检原语(17.4)───────────────────────────────────────────────────
+
+
+def _brand_tokens(brand: BrandSpec) -> list[str]:
+    tokens = [brand.name, *brand.aliases, *brand.domains]
+    return [t.strip().lower() for t in tokens if t.strip()]
+
+
+def brand_collisions(texts: list[str], brand: BrandSpec) -> list[str]:
+    """别名撞车扫描:返回含焦点品牌名/别名/域名的文本(中立题命中即违规)。"""
+    tokens = _brand_tokens(brand)
+    return [text for text in texts if any(token in text.lower() for token in tokens)]
+
+
+def _dedupe(texts: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for text in texts:
+        key = text.lower()
+        if key not in seen:
+            seen.add(key)
+            out.append(text)
+    return out
+
+
+# ── 三步序 ────────────────────────────────────────────────────────────
+
+
+def _draft_neutral(
+    adapter: SurfaceAdapter,
+    *,
+    category: str,
+    brand: BrandSpec,
+    locale: str,
+    counts: dict[NeedIntent, int],
+) -> list[NeedCandidate]:
+    """① 真盲:prompt 不含任何品牌信息;质检(配比+撞车)失败即整批重生成。"""
+    prompt = (
+        _NEUTRAL_PROMPT
+        .replace("{category}", category)
+        .replace("{locale}", locale)
+        .replace("{n_discovery}", str(counts[NeedIntent.DISCOVERY]))
+        .replace("{n_comparison}", str(counts[NeedIntent.COMPARISON]))
+        .replace("{n_scenario}", str(counts[NeedIntent.SCENARIO]))
+    )
+    keys = {NeedIntent.DISCOVERY: "discovery", NeedIntent.COMPARISON: "comparison",
+            NeedIntent.SCENARIO: "scenario"}
+
+    def check(data: Any) -> None:
+        for intent, key in keys.items():
+            texts = _str_list(data[key])
+            if len(texts) != counts[intent]:
+                raise ValueError(f"{key} 应恰为 {counts[intent]} 条,实得 {len(texts)}")
+        all_texts = [t for key in keys.values() for t in _str_list(data[key])]
+        if len(_dedupe(all_texts)) != len(all_texts):
+            raise ValueError("中立题存在重复")
+        leaked = brand_collisions(all_texts, brand)
+        if leaked:
+            raise ValueError(f"中立题泄漏焦点品牌(违反真盲):{leaked[:2]}")
+
+    data = _ask_json(adapter, prompt, check, locale=locale)
+    return [
+        NeedCandidate(intent=intent, text=text)
+        for intent, key in keys.items()
+        for text in _str_list(data[key])
+    ]
+
+
+def suggest_competitors(
+    adapter: SurfaceAdapter,
+    *,
+    category: str,
+    brand: BrandSpec,
+    k: int = DEFAULT_COMPETITOR_K,
+    locale: str = "zh-CN",
+) -> list[CompetitorSuggestion]:
+    """② 竞品建议:建议用带联网检索的 surface 调用;排除焦点、去重、封顶 k。"""
+    prompt = (
+        _COMPETITOR_PROMPT
+        .replace("{category}", category)
+        .replace("{brand}", brand.name)
+        .replace("{k}", str(k))
+    )
+
+    def check(data: Any) -> None:
+        if not isinstance(data, dict) or not isinstance(data.get("competitors"), list):
+            raise ValueError("competitors 须为数组")
+
+    data = _ask_json(adapter, prompt, check, locale=locale)
+    focal = brand.name.strip().lower()
+    seen: set[str] = set()
+    out: list[CompetitorSuggestion] = []
+    for item in data["competitors"]:
+        if not isinstance(item, dict):
+            continue
+        name = str(item.get("name", "")).strip()
+        domain = str(item.get("domain", "")).strip()
+        key = name.lower()
+        if not name or not domain or key == focal or key in seen:
+            continue
+        seen.add(key)
+        out.append(CompetitorSuggestion(name=name, domain=domain))
+        if len(out) >= k:
+            break
+    return out
+
+
+def _draft_probes(
+    adapter: SurfaceAdapter,
+    *,
+    category: str,
+    brand: BrandSpec,
+    locale: str,
+    count: int,
+) -> list[NeedCandidate]:
+    """③ 品牌探针:此时才把焦点名交给生成器;探针必须点名焦点品牌。"""
+    prompt = (
+        _PROBE_PROMPT
+        .replace("{count}", str(count))
+        .replace("{brand}", brand.name)
+        .replace("{category}", category)
+        .replace("{locale}", locale)
+    )
+
+    def check(data: Any) -> None:
+        texts = _str_list(data["brand_probe"])
+        if len(texts) != count:
+            raise ValueError(f"探针题应恰为 {count} 条,实得 {len(texts)}")
+        missing = [t for t in texts if brand.name.lower() not in t.lower()]
+        if missing:
+            raise ValueError(f"探针题未点名焦点品牌:{missing[:2]}")
+
+    data = _ask_json(adapter, prompt, check, locale=locale)
+    return [NeedCandidate(intent=NeedIntent.BRAND_PROBE, text=text)
+            for text in _str_list(data["brand_probe"])]
+
+
+def draft_need_candidates(
+    adapter: SurfaceAdapter,
+    *,
+    category: str,
+    brand: BrandSpec,
+    locale: str = "zh-CN",
+    neutral_counts: dict[NeedIntent, int] | None = None,
+    probe_count: int = DEFAULT_PROBE_COUNT,
+    competitor_k: int = DEFAULT_COMPETITOR_K,
+) -> tuple[list[NeedCandidate], list[CompetitorSuggestion]]:
+    """盲起草三步序编排。候选供确认页展示;用户勾选/改写后才成为 InformationNeed。"""
+    counts = neutral_counts or DEFAULT_NEUTRAL_COUNTS
+    neutral = _draft_neutral(adapter, category=category, brand=brand, locale=locale, counts=counts)
+    competitors = suggest_competitors(adapter, category=category, brand=brand,
+                                      k=competitor_k, locale=locale)
+    probes = _draft_probes(adapter, category=category, brand=brand, locale=locale,
+                           count=probe_count)
+    candidates = neutral + probes
+    log.info("need_candidates_drafted", category=category,
+             neutral=len(neutral), probes=len(probes), competitors=len(competitors))
+    return candidates, competitors

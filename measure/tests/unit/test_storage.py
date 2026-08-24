@@ -16,6 +16,7 @@ from engine.models import (
     BrandSpec,
     Citation,
     InformationNeed,
+    NeedIntent,
     Outcome,
     PromptOrigin,
     PromptVariant,
@@ -85,7 +86,7 @@ def test_schema_is_idempotent(storage):
 
 
 def test_surface_run_round_trip(storage):
-    storage.insert_information_need(InformationNeed(need_id="need-s1", statement="测试"))
+    storage.insert_information_need(InformationNeed(need_id="need-s1", statement="测试", intent=NeedIntent.DISCOVERY))
     storage.insert_prompt_variant(PromptVariant(
         variant_id="variant-s1", need_id="need-s1", prompt_text="问?", origin=PromptOrigin.USER,
     ))

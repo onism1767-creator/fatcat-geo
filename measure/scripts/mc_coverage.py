@@ -27,6 +27,7 @@ from engine.models import (  # noqa: E402
     Answer,
     AskRequest,
     InformationNeed,
+    NeedIntent,
     Outcome,
     PromptOrigin,
     PromptVariant,
@@ -70,7 +71,7 @@ def main() -> int:
     parser.add_argument("--sims", type=int, default=400)
     args = parser.parse_args()
 
-    need = InformationNeed(need_id="mc", statement="mc")
+    need = InformationNeed(need_id="mc", statement="mc", intent=NeedIntent.DISCOVERY)
     variant = PromptVariant(variant_id="mc", need_id="mc", prompt_text="mc",
                             origin=PromptOrigin.ASSISTED)
     policy = SamplingPolicy()

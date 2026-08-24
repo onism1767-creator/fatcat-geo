@@ -19,6 +19,7 @@ from engine.models import (
     Answer,
     AskRequest,
     InformationNeed,
+    NeedIntent,
     Outcome,
     PromptOrigin,
     PromptVariant,
@@ -29,7 +30,7 @@ from engine.models import (
 )
 from engine.scheduler import SamplingPolicy, SequentialSampler
 
-NEED = InformationNeed(need_id="need-1", statement="测试需求")
+NEED = InformationNeed(need_id="need-1", statement="测试需求", intent=NeedIntent.DISCOVERY)
 VARIANT = PromptVariant(
     variant_id="variant-1", need_id="need-1", prompt_text="测试问题?", origin=PromptOrigin.USER
 )
