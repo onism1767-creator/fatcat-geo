@@ -1,0 +1,186 @@
+# 证据注册表(架构书第 8 章)。人工维护的配置资产,不是代码。
+#
+# 运行规则:
+# - 报告中每条建议必须引用本表条目 ID;表里没有的建议不允许出现(铁律 9);
+# - evidence_level:A=官方文档/强共识 B=多研究支持 C=单一研究且有反证
+#   D=描述性关联 E=无支持(E 级永不作为建议输出,仅存档);
+# - C 级及以下的建议必须带「建议实验验证」字样;
+# - 吸收新研究 = 增改本表条目,零代码改动;
+# - supported_intents 使用本项目需求意图词表:discovery/comparison/scenario/brand_probe。
+#
+# 主要来源:KDD2024(arXiv:2311.09735)、C-SEO-Bench(arXiv:2506.11097)、
+# SAGEO-Arena(arXiv:2602.12187)、各平台官方爬虫文档。详见架构书 5.3。
+
+entries:
+  # ── ACCESS ──────────────────────────────────────────────────────────
+  - id: EVIDENCE_ACCESS_ROBOTS_V1
+    stage: ACCESS
+    hypothesis: 在 robots.txt 中放行检索类与用户触发类 AI 爬虫,是进入 AI 检索链路的前提
+    evidence_level: A
+    sources: [各平台官方爬虫文档]
+    supported_intents: [discovery, comparison, scenario, brand_probe]
+    contraindications: [内容策略上有意屏蔽 AI 使用的站点]
+    engines_tested: [官方文档口径]
+    expected_effect: 必要非充分条件
+    guardrail: 放行只解决准入,不构成任何排名或引用承诺
+    version: 1
+
+  - id: EVIDENCE_ACCESS_CDN_VERIFY_V1
+    stage: ACCESS
+    hypothesis: CDN/WAF 侧按官方 IP 段核验放行真实爬虫,而非按 UA 一刀切封禁
+    evidence_level: A
+    sources: [各平台官方 IP 段文档, 主流 CDN verified-bots 机制文档]
+    supported_intents: [discovery, comparison, scenario, brand_probe]
+    contraindications: []
+    engines_tested: [官方文档口径]
+    expected_effect: 消除准入层阻断
+    guardrail: 需在 CDN 后台核验,本工具的 UA 探测无法替代站长侧确认
+    version: 1
+
+  - id: EVIDENCE_ACCESS_SSR_V1
+    stage: ACCESS
+    hypothesis: 关键内容以服务端渲染/预渲染提供,不依赖客户端 JS 执行
+    evidence_level: A
+    sources: [各平台官方爬虫文档(主流 AI 爬虫不执行 JS)]
+    supported_intents: [discovery, comparison, scenario, brand_probe]
+    contraindications: []
+    engines_tested: [官方文档口径]
+    expected_effect: 使正文对不执行 JS 的爬虫可读
+    guardrail: 对爬虫与对用户的内容必须一致,禁止差异化伪装
+    version: 1
+
+  - id: EVIDENCE_ACCESS_SITEMAP_V1
+    stage: ACCESS
+    hypothesis: 提供 sitemap 与规范链接可能有助于收录完整性
+    evidence_level: D
+    sources: [传统搜索引擎收录实践的描述性外推]
+    supported_intents: [discovery, comparison, scenario, brand_probe]
+    contraindications: []
+    engines_tested: []
+    expected_effect: unknown_experiment_required
+    guardrail: 不阻断准入,属提示项
+    version: 1
+
+  # ── RETRIEVAL ───────────────────────────────────────────────────────
+  - id: EVIDENCE_STRUCT_V1
+    stage: RETRIEVAL
+    hypothesis: 标题/heading/schema 等结构信号与目标需求语义对齐,有利于检索阶段存活
+    evidence_level: B
+    sources: [SAGEO-Arena(支持:结构化信息利于检索), C-SEO-Bench(检索位次效应显著)]
+    supported_intents: [discovery, comparison, scenario]
+    contraindications: [已高度优化的页面继续堆砌, 与页面真实内容不符的标题]
+    engines_tested: [benchmark_GE, 完整检索流水线仿真]
+    expected_effect: 检索阶段存活率提升(幅度须实验)
+    guardrail: 只改结构与语义对齐,严禁关键词堆砌(有负效应反证)
+    version: 1
+
+  - id: EVIDENCE_COVERAGE_PAGE_V1
+    stage: RETRIEVAL
+    hypothesis: 为目标需求创建直接作答的专门页面(提高语义覆盖)可能改善进入候选的概率
+    evidence_level: C
+    sources: [SAGEO-Arena(间接支持), 传统检索共识(描述性)]
+    supported_intents: [discovery, scenario]
+    contraindications: [大量薄内容页面]
+    engines_tested: [benchmark_GE]
+    expected_effect: unknown_experiment_required
+    guardrail: 页面须真实有料,禁止批量生成空壳页
+    version: 1
+
+  - id: EVIDENCE_THIRDPARTY_RETRIEVAL_V1
+    stage: RETRIEVAL
+    hypothesis: 进入检索存在感高的第三方内容(测评/榜单/对比文)可为品牌获得检索层在场
+    evidence_level: C
+    sources: [本项目实测观察(检索候选集由第三方内容主导,描述性), C-SEO-Bench(来源位次效应)]
+    supported_intents: [discovery, comparison]
+    contraindications: [伪造第三方背书(黑帽,禁止)]
+    engines_tested: [perplexity]
+    expected_effect: unknown_experiment_required
+    guardrail: 只可通过真实的公关/内容合作达成,严禁伪造与刷量
+    version: 1
+
+  # ── CITATION ────────────────────────────────────────────────────────
+  - id: EVIDENCE_STATS_V1
+    stage: CITATION
+    hypothesis: 增加可核验的量化证据可能提高生成阶段被引用概率
+    evidence_level: C
+    sources: [KDD2024(支持), C-SEO-Bench(削弱:跨域复测多数无效)]
+    supported_intents: [discovery, comparison]
+    contraindications: [页面已高密度统计, 数字无法溯源]
+    engines_tested: [benchmark_GE, perplexity]
+    expected_effect: unknown_experiment_required
+    guardrail: 严禁生成虚假数字
+    version: 1
+
+  - id: EVIDENCE_QUOTABLE_V1
+    stage: CITATION
+    hypothesis: 提供清晰、可直接引述的结论句/定义句可能提高被引用概率
+    evidence_level: C
+    sources: [KDD2024(引述类改写有正效应), C-SEO-Bench(多数改写基本无效)]
+    supported_intents: [discovery, comparison, scenario]
+    contraindications: [与正文主张不符的断言句]
+    engines_tested: [benchmark_GE]
+    expected_effect: unknown_experiment_required
+    guardrail: 结论句必须有依据,禁止无来源断言
+    version: 1
+
+  - id: EVIDENCE_FAQ_V1
+    stage: CITATION
+    hypothesis: FAQ 化组织内容,在需求意图为问答式时可能利于被选为引用
+    evidence_level: D
+    sources: [描述性关联,无对照研究]
+    supported_intents: [discovery, scenario]
+    contraindications: [与页面主题无关的 FAQ 堆砌]
+    engines_tested: []
+    expected_effect: unknown_experiment_required
+    guardrail: 仅意图匹配时采用
+    version: 1
+
+  # ── REPRESENTATION ─────────────────────────────────────────────────
+  - id: EVIDENCE_FACT_PAGE_V1
+    stage: REPRESENTATION
+    hypothesis: 官网维护清晰稳定的品牌事实陈述(定位/定价/差异点),便于模型正确描述品牌
+    evidence_level: D
+    sources: [描述性关联]
+    supported_intents: [brand_probe, discovery]
+    contraindications: []
+    engines_tested: []
+    expected_effect: unknown_experiment_required
+    guardrail: 事实陈述必须与现实一致并保持更新
+    version: 1
+
+  - id: EVIDENCE_CORRECT_SOURCES_V1
+    stage: REPRESENTATION
+    hypothesis: 修正高被引第三方来源中的过时/错误信息,可能减少 AI 对品牌的错误描述
+    evidence_level: D
+    sources: [描述性关联(回答内容大量取材于被引第三方,本项目引用观测)]
+    supported_intents: [brand_probe, comparison]
+    contraindications: [无法联系的来源方]
+    engines_tested: [perplexity]
+    expected_effect: unknown_experiment_required
+    guardrail: 只可请求事实性更正,禁止施压删除真实负面评价
+    version: 1
+
+  # ── E 级存档(永不作为建议输出)──────────────────────────────────────
+  - id: EVIDENCE_LLMSTXT_V1
+    stage: RETRIEVAL
+    hypothesis: 部署 llms.txt 能改善 AI 可见度
+    evidence_level: E
+    sources: [无平台确认采用的证据]
+    supported_intents: []
+    contraindications: []
+    engines_tested: []
+    expected_effect: 无证据
+    guardrail: 不作为建议输出
+    version: 1
+
+  - id: EVIDENCE_KEYWORD_STUFFING_V1
+    stage: RETRIEVAL
+    hypothesis: 关键词堆砌能提升 AI 检索可见度
+    evidence_level: E
+    sources: [SAGEO-Arena(反证:仅优化正文使检索/重排/引用全面下降)]
+    supported_intents: []
+    contraindications: []
+    engines_tested: [完整检索流水线仿真]
+    expected_effect: 负效应
+    guardrail: 禁止项,任何情况下不得建议
+    version: 1
