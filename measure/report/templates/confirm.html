@@ -1,0 +1,79 @@
+{% extends "base.html" %}
+{% block title %}确认问题集 · GEO 诊断{% endblock %}
+{% block content %}
+<h1>确认问题集与采样计划</h1>
+<p class="muted">品牌:{{ job.brand.name }}({{ ", ".join(job.brand.domains) }}) · 品类:{{ job.category }}。
+确认前不产生任何采样花费。问法措辞对结论影响巨大,请逐条过目。</p>
+{% if error %}<div class="err">{{ error }}</div>{% endif %}
+
+<form method="post" action="/jobs/{{ job.job_id }}/confirm">
+  <div class="card">
+    <h3>候选问题(勾选 1–10 个,建议 3–10)</h3>
+    {% for cand in job.candidates %}
+    <label style="font-weight:400">
+      <input type="checkbox" name="needs_selected" value="{{ loop.index0 }}"
+             {{ "checked" if loop.index0 < 4 or cand.intent.value == "brand_probe" else "" }}>
+      <span class="chip intent">{{ intent_labels[cand.intent] }}</span> {{ cand.text }}
+    </label>
+    {% endfor %}
+    <label>补充自定义问题(每行一个,计为「发现」型)</label>
+    <textarea name="custom"></textarea>
+  </div>
+
+  {% if job.competitors_suggested %}
+  <div class="card">
+    <h3>竞品对照(勾选,用于引用差距与份额对比)</h3>
+    {% for comp in job.competitors_suggested %}
+    <label style="font-weight:400">
+      <input type="checkbox" name="competitors_selected" value="{{ loop.index0 }}"
+             {{ "checked" if loop.index0 < 3 else "" }}>
+      {{ comp.name }} <span class="muted">({{ comp.domain }})</span>
+    </label>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  <div class="card">
+    <h3>采样计划</h3>
+    <div class="row">
+      <div><label>观测 surface</label>
+        {% for s in surfaces %}
+        <label style="font-weight:400"><input type="checkbox" name="surfaces_selected" value="{{ s }}" checked> {{ s }}</label>
+        {% endfor %}
+      </div>
+      <div><label>档位</label>
+        <select name="tier">{% for tid, t in tiers.items() %}
+          <option value="{{ tid }}" {{ "selected" if tid == "quick" else "" }}>{{ t.label }}</option>
+        {% endfor %}</select>
+        <label>每需求问法数(原话 + AI 改写)</label>
+        <select name="variants"><option>1</option><option selected>2</option><option>3</option></select>
+      </div>
+      <div><label>预算上限(USD,可空 = 不限;超限自动熔断)</label>
+        <input type="number" name="budget" step="0.1" min="0.1" placeholder="如 2.0">
+      </div>
+    </div>
+    <p class="kv">预估:<b><span id="est-calls">–</span></b> 次采样 ·
+      约 <b>$<span id="est-cost">–</span></b> ·
+      约 <b><span id="est-min">–</span> 分钟</b>(并发 3 路;区间提前收敛只会更快更省)</p>
+  </div>
+  <button type="submit">确认并开始采样(此后开始计费)</button>
+</form>
+
+<script>
+const C = {{ estimate_constants | safe }};
+function recalc() {
+  const n = document.querySelectorAll('input[name=needs_selected]:checked').length
+          + document.querySelector('textarea[name=custom]').value.split('\n').filter(s => s.trim()).length;
+  const s = document.querySelectorAll('input[name=surfaces_selected]:checked').length;
+  const v = parseInt(document.querySelector('select[name=variants]').value);
+  const t = document.querySelector('select[name=tier]').value;
+  const calls = n * v * s * C.tier_calls[t];
+  document.getElementById('est-calls').textContent = Math.round(calls);
+  document.getElementById('est-cost').textContent = (calls * C.cost_per_call).toFixed(2);
+  document.getElementById('est-min').textContent = (calls * C.seconds_per_call / 60 / C.concurrency).toFixed(1);
+}
+document.addEventListener('change', recalc);
+document.querySelector('textarea[name=custom]').addEventListener('input', recalc);
+recalc();
+</script>
+{% endblock %}

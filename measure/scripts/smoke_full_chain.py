@@ -40,7 +40,7 @@ from engine.scheduler import (  # noqa: E402
 )
 from engine.storage import Storage  # noqa: E402
 from engine.variants import generate_variants  # noqa: E402
-from scripts.smoke_perplexity import load_env_file  # noqa: E402
+from engine.envfile import load_env_file  # noqa: E402
 
 DEFAULT_DB = "postgresql://geo@localhost:5433/geo_tool"
 POLICY = SamplingPolicy(min_n=5, max_n=6, ci_width_threshold=0.35, budget_usd=0.10)

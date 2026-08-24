@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}任务 {{ job.job_id }} · GEO 诊断{% endblock %}
+{% block content %}
+{% if job.state.value in ("CONFIRMED", "RUNNING") %}<meta http-equiv="refresh" content="3">{% endif %}
+<h1>诊断任务 · {{ job.brand.name }}</h1>
+<div class="card">
+  <p><b>{{ job.state.value }}</b> · {{ job.phase }}
+     <span class="muted">指纹 {{ job.fingerprint or "—" }} · {{ job.tier_id }} 档 ·
+     {{ job.needs|length }} 需求 × {{ job.variants_per_need }} 问法 × {{ job.surfaces|length }} surface</span></p>
+  <div class="bar"><div style="width: {{ job.progress_pct }}%"></div></div>
+  <p class="kv">进度 {{ job.progress_pct }}%(采样计划 {{ job.completed_plans }}/{{ job.total_plans }})
+     · 已花费 ${{ "%.4f"|format(job.spent_usd) }}{% if job.budget_usd %} / 预算 ${{ job.budget_usd }}{% endif %}</p>
+  {% if job.error %}<div class="err">执行失败:{{ job.error }}</div>{% endif %}
+</div>
+
+{% if job.access_result %}
+<div class="card">
+  <h3>ACCESS 审计(先行结果)<span class="chip {{ job.access_result.overall.value }}">{{ job.access_result.overall.value }}</span></h3>
+  <ul class="ev">
+    {% for check in job.access_result.checks if check.gating %}
+    <li>[{{ check.status.value }}] {{ check.check }} — {{ check.detail }}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{% if job.finished %}
+<p><a href="/jobs/{{ job.job_id }}/report"><button>查看四阶段诊断报告</button></a></p>
+{% elif job.state.value == "RUNNING" %}
+<p class="muted">页面每 3 秒自动刷新;区间提前收敛会使实际进度快于预估。</p>
+{% endif %}
+{% endblock %}

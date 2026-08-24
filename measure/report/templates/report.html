@@ -1,0 +1,68 @@
+{% extends "base.html" %}
+{% block title %}诊断报告 · {{ job.brand.name }}{% endblock %}
+{% block content %}
+<h1>四阶段诊断报告 · {{ job.brand.name }}</h1>
+<p class="muted">网站 {{ job.website }} · 品类 {{ job.category }} · 语境 {{ job.locale }} ·
+{{ tier_label }} · 任务指纹 {{ job.fingerprint }} ·
+{{ job.created_at.strftime("%Y-%m-%d %H:%M") }} 起测 · 实际花费 ${{ "%.4f"|format(job.spent_usd) }}
+{% if job.state.value == "PARTIAL" %} · <b>部分完成(存在熔断截断,见各指标 stop_reasons)</b>{% endif %}</p>
+
+{% set access = job.access_result %}
+<div class="card">
+  <h2 style="margin-top:0">■ ACCESS — 站点可达性(全站一次)
+    {% if access %}<span class="chip {{ access.overall.value }}">{{ access.overall.value }}</span>{% endif %}</h2>
+  {% if access %}
+  <ul class="ev">
+    {% for check in access.checks %}
+    <li>[{{ check.status.value }}]{{ "(提示)" if not check.gating else "" }} {{ check.check }} — {{ check.detail }}</li>
+    {% endfor %}
+  </ul>
+  <details><summary>口径与局限</summary>
+    <ul class="ev">{% for caveat in access.caveats %}<li>{{ caveat }}</li>{% endfor %}</ul>
+  </details>
+  {% else %}<p class="muted">未执行 ACCESS 审计。</p>{% endif %}
+</div>
+
+{% for nr in job.need_reports %}
+{% set d = nr.diagnosis %}
+<div class="card">
+  <h2 style="margin-top:0"><span class="chip intent">{{ intent_labels[nr.need.intent] }}</span>
+    {{ nr.need.statement }}</h2>
+  <p class="kv">采样问法:{% for t in nr.variant_texts %}「{{ t }}」{% endfor %}</p>
+
+  {% for finding in d.findings if finding.stage.value != "ACCESS" %}
+  <h3>■ {{ finding.stage.value }}
+    <span class="chip {{ finding.status.value }}">{{ finding.status.value }}</span></h3>
+  <p style="margin:4px 0">{{ finding.headline }}</p>
+  {% if finding.evidence_lines %}
+  <details {{ "open" if finding.status.value in ("FAIL", "WEAK") else "" }}>
+    <summary>证据与口径</summary>
+    <ul class="ev">{% for line in finding.evidence_lines %}<li>{{ line }}</li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+  {% endfor %}
+
+  <h3>▶ 诊断定位</h3>
+  <p>{% if d.primary_failure %}失败最可能发生在 <b>{{ d.primary_failure.value }}</b> 阶段。
+     {% else %}各可观测阶段均无 FAIL/WEAK。{% endif %}</p>
+  {% for caution in d.cautions %}<div class="caution">{{ caution }}</div>{% endfor %}
+
+  {% if d.recommendations %}
+  <h3>▶ 下一步实验建议(每条挂证据条目,无证据不出建议)</h3>
+  {% for rec in d.recommendations %}
+  <div class="rec">
+    <span class="id">{{ rec.evidence_id }}</span> · 证据等级 {{ rec.evidence_level }}<br>
+    {{ rec.text }}
+    <div class="kv">来源:{{ "; ".join(rec.sources) }}
+      {% if rec.guardrail %}<br>护栏:{{ rec.guardrail }}{% endif %}
+      {% if rec.contraindications %}<br>禁忌:{{ "; ".join(rec.contraindications) }}{% endif %}</div>
+  </div>
+  {% endfor %}
+  {% endif %}
+</div>
+{% endfor %}
+
+<p class="muted">本报告不打分:各阶段结论 = 概率 + 95% 区间(Jeffreys)+ 完整口径
+(surface / model / N / stop_reasons / 拒答率 / 失败率 / 判定阈值)。
+原始观测只追加留档,判定器升级后可全量重算复核。</p>
+{% endblock %}

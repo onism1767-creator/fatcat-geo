@@ -25,21 +25,10 @@ sys.path.insert(0, str(ROOT))
 from adapters.base import AdapterError  # noqa: E402
 from adapters.perplexity_agent import PerplexityAgentAdapter  # noqa: E402
 from adapters.perplexity_search import PerplexitySearchAdapter  # noqa: E402
+from engine.envfile import load_env_file  # noqa: E402
 from engine.models import NOT_OBSERVABLE, AskRequest  # noqa: E402
 
 SMOKE_PROMPT = "中小团队用什么 CRM 好?"
-
-
-def load_env_file() -> None:
-    env_path = ROOT / ".env"
-    if not env_path.exists():
-        return
-    for line in env_path.read_text(encoding="utf-8").splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, _, value = line.partition("=")
-        os.environ.setdefault(key.strip(), value.strip())
 
 
 def make_request(prompt: str) -> AskRequest:

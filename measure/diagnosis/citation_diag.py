@@ -61,6 +61,8 @@ def diagnose_citation(
         StageStatus.WEAK: "品牌域名进入引用集但不稳定",
         StageStatus.PASS: "品牌域名稳定进入引用集",
     }[status]
+    if status is StageStatus.WEAK and metric.k_hits == 0:
+        headline = "样本内未见被引;样本量不足以下 FAIL 结论"
     return StageFinding(
         stage=Stage.CITATION,
         status=status,

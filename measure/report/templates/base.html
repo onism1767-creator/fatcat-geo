@@ -1,0 +1,58 @@
+<!doctype html>
+<html lang="zh">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}GEO 诊断{% endblock %}</title>
+<style>
+  :root { --ink:#1a1a1a; --muted:#777; --line:#e3e3e0; --bg:#faf9f7; --card:#fff;
+          --pass:#1a7f37; --weak:#b26a00; --fail:#c0392b; --na:#8a8a8a; --accent:#0b5cad; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.65 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; }
+  header { border-bottom:1px solid var(--line); background:var(--card); }
+  header .wrap { display:flex; align-items:baseline; gap:12px; }
+  header a { color:var(--ink); text-decoration:none; font-weight:700; font-size:17px; }
+  .wrap { max-width:920px; margin:0 auto; padding:14px 20px; }
+  main.wrap { padding-top:22px; padding-bottom:60px; }
+  h1 { font-size:22px; margin:0 0 14px; } h2 { font-size:18px; margin:26px 0 10px; }
+  h3 { font-size:15px; margin:16px 0 8px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px;
+          padding:16px 18px; margin:14px 0; }
+  label { display:block; margin:10px 0 4px; font-weight:600; font-size:14px; }
+  input[type=text], input[type=number], textarea, select {
+    width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px;
+    font:inherit; background:#fff; }
+  textarea { min-height:80px; }
+  .row { display:flex; gap:16px; flex-wrap:wrap; } .row > div { flex:1; min-width:180px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:6px;
+           padding:10px 22px; font:inherit; font-weight:600; cursor:pointer; margin-top:14px; }
+  .chip { display:inline-block; padding:1px 10px; border-radius:999px; font-size:12.5px;
+          font-weight:700; color:#fff; vertical-align:middle; }
+  .chip.PASS{background:var(--pass);} .chip.WEAK{background:var(--weak);}
+  .chip.FAIL{background:var(--fail);} .chip.NOT_OBSERVABLE{background:var(--na);}
+  .chip.intent { background:#eef3f9; color:var(--accent); font-weight:600; }
+  .bar { height:10px; background:#ececec; border-radius:5px; overflow:hidden; }
+  .bar > div { height:100%; background:var(--accent); transition:width .5s; }
+  table { border-collapse:collapse; width:100%; font-size:14px; }
+  td, th { border-bottom:1px solid var(--line); padding:6px 8px; text-align:left; }
+  ul.ev { margin:6px 0 2px; padding-left:20px; }
+  ul.ev li { margin:3px 0; font-size:13.5px; color:#333; }
+  .caution { background:#fff8e6; border:1px solid #f0dfae; border-radius:6px;
+             padding:10px 14px; margin:10px 0; font-size:14px; }
+  .rec { border-left:3px solid var(--accent); padding:8px 12px; margin:10px 0;
+         background:#f6f9fc; border-radius:0 6px 6px 0; }
+  .rec .id { font-family:Consolas, monospace; font-size:12.5px; color:var(--accent); }
+  .err { background:#fdecea; border:1px solid #f5c6c3; border-radius:6px;
+         padding:10px 14px; margin:12px 0; }
+  .kv { font-size:13px; color:#444; }
+  details summary { cursor:pointer; color:var(--accent); font-size:13.5px; margin-top:4px; }
+</style>
+</head>
+<body>
+<header><div class="wrap"><a href="/">GEO 诊断</a>
+  <span class="muted">v1 · 本机 · 逐阶段可见度诊断,概率与区间,不打分</span></div></header>
+<main class="wrap">{% block content %}{% endblock %}</main>
+</body>
+</html>
