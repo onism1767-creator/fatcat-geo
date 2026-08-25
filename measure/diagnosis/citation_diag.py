@@ -19,6 +19,7 @@ from diagnosis.findings import (
     msg,
 )
 from engine.metrics import ProportionEstimate
+from engine.models import FrozenModel
 from engine.scheduler import NeedSurfaceMetric
 
 _HEADLINES = {
@@ -38,10 +39,20 @@ def _compare_line(focal: ProportionEstimate, name: str, competitor: ProportionEs
     return msg(code, name=name, **estimate_params(competitor))
 
 
+class VerificationSummary(FrozenModel):
+    """三档证据「已核验」层的需求级汇总(独立重抓被引 URL 的结果)。"""
+
+    estimate: ProportionEstimate | None  # 已核验被引概率(分母与被引指标一致)
+    checked_urls: int
+    unreachable: int
+    soft_misses: int  # 可达但正文未见品牌(疑似软 404/错标)
+
+
 def diagnose_citation(
     metric: NeedSurfaceMetric | None,
     competitors: list[tuple[str, ProportionEstimate]] | None = None,
     thresholds: DiagnosisThresholds = DiagnosisThresholds(),
+    verification: "VerificationSummary | None" = None,
 ) -> StageFinding:
     if metric is None or metric.estimate is None:
         return StageFinding(
@@ -63,6 +74,16 @@ def diagnose_citation(
         msg("citation.thresholds",
             fail=thresholds.citation_fail_ci_high, pass_=thresholds.citation_pass_ci_low),
     ]
+    if verification is not None:
+        evidence.append(msg("citation.tier_note"))
+        if verification.estimate is not None:
+            evidence.append(msg("citation.verified_rate", **estimate_params(verification.estimate)))
+        evidence.append(msg(
+            "citation.verify_summary",
+            checked=verification.checked_urls,
+            unreachable=verification.unreachable,
+            soft=verification.soft_misses,
+        ))
     evidence.extend(_compare_line(estimate, name, comp) for name, comp in (competitors or []))
     evidence.extend(notes)
     headline_code = _HEADLINES[status]

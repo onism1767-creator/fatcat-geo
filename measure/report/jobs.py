@@ -97,7 +97,7 @@ class DiagnosisJob:
         self.competitors_suggested = competitors_suggested
 
         self.state = JobState.DRAFT
-        self.phase = "待确认"
+        self.phase = "phase_draft"
         self.needs: list[InformationNeed] = []
         self.competitors: list[BrandSpec] = []
         self.surfaces: list[str] = []
@@ -159,7 +159,7 @@ class DiagnosisJob:
         canonical = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
         self.fingerprint = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
         self.state = JobState.CONFIRMED
-        self.phase = "已确认,等待执行"
+        self.phase = "phase_confirmed"
 
 
 class JobRegistry:

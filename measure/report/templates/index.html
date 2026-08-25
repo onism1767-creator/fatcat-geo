@@ -36,7 +36,7 @@
   <tr>
     <td>{{ j.brand.name }}<span class="muted"> · {{ j.category }} · {{ j.locale }}</span></td>
     <td>{{ j.state.value }}</td>
-    <td>{{ j.phase }}</td>
+    <td>{{ t.get(j.phase, j.phase) }}</td>
     <td>${{ "%.4f"|format(j.spent_usd) }}</td>
     <td><a href="/jobs/{{ j.job_id }}{{ '/report' if j.finished else '' }}?lang={{ lang }}">{{ t["view_report"] if j.finished else t["view"] }}</a></td>
   </tr>

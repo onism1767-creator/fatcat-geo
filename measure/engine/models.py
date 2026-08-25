@@ -265,6 +265,27 @@ class CitationObservation(DerivedObservation):
     positions: list[int] = []  # 命中引用在引用集中的位次
 
 
+class CitationEvidence(FrozenModel):
+    """一条被引 URL 的独立核验记录(三档证据「已核验」层的原始观测)。
+
+    这是对「核验时刻的网页」的观测,只追加、可按时效复用;
+    「某次运行算不算已核验被引」是判断,由诊断层基于本表 + SurfaceRun 计算。
+    checked_brands 记录本次查找过哪些品牌——没查过的品牌缺席不可解读。
+    """
+
+    evidence_id: str = Field(default_factory=lambda: str(uuid4()))
+    url: str
+    normalized_url: str
+    fetched_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    reachable: bool
+    http_status: int | None = None
+    final_url: str | None = None
+    checked_brands: list[str] = []
+    brands_found: list[str] = []  # 可见正文中确实出现清晰名的品牌
+    visible_chars: int | None = None
+    error: str | None = None
+
+
 class RetrievalRankObservation(DerivedObservation):
     """品牌域名在检索候选集中的位次判定(检索观测通道供数)。"""
 

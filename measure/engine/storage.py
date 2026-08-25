@@ -13,7 +13,7 @@
 from __future__ import annotations
 
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
 
@@ -22,6 +22,7 @@ from psycopg.types.json import Jsonb
 
 from engine.models import (
     Answer,
+    CitationEvidence,
     DerivedObservation,
     InformationNeed,
     PromptVariant,
@@ -85,6 +86,40 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     "CREATE INDEX IF NOT EXISTS derived_obs_run_idx ON derived_observation (run_id)",
     "CREATE INDEX IF NOT EXISTS derived_obs_detector_idx ON derived_observation (detector_name, detector_version)",
     """
+    CREATE TABLE IF NOT EXISTS citation_evidence (
+        evidence_id text PRIMARY KEY,
+        url text NOT NULL,
+        normalized_url text NOT NULL,
+        fetched_at timestamptz NOT NULL,
+        reachable boolean NOT NULL,
+        http_status integer,
+        final_url text,
+        checked_brands jsonb NOT NULL,
+        brands_found jsonb NOT NULL,
+        visible_chars integer,
+        error text
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS citation_evidence_url_idx ON citation_evidence (normalized_url, fetched_at DESC)",
+    # 触发器函数必须先于全部触发器语句创建(全新库依赖此顺序)
+    """
+    CREATE OR REPLACE FUNCTION reject_mutation() RETURNS trigger AS $$
+    BEGIN
+        RAISE EXCEPTION '% is append-only (iron rule 8): % rejected', TG_TABLE_NAME, TG_OP;
+    END;
+    $$ LANGUAGE plpgsql
+    """,
+    """
+    CREATE OR REPLACE TRIGGER citation_evidence_append_only
+        BEFORE UPDATE OR DELETE ON citation_evidence
+        FOR EACH ROW EXECUTE FUNCTION reject_mutation()
+    """,
+    """
+    CREATE OR REPLACE TRIGGER citation_evidence_no_truncate
+        BEFORE TRUNCATE ON citation_evidence
+        FOR EACH STATEMENT EXECUTE FUNCTION reject_mutation()
+    """,
+    """
     CREATE TABLE IF NOT EXISTS recompute_event (
         event_id text PRIMARY KEY,
         occurred_at timestamptz NOT NULL,
@@ -95,13 +130,6 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
         trigger_kind text NOT NULL,
         note text
     )
-    """,
-    """
-    CREATE OR REPLACE FUNCTION reject_mutation() RETURNS trigger AS $$
-    BEGIN
-        RAISE EXCEPTION '% is append-only (iron rule 8): % rejected', TG_TABLE_NAME, TG_OP;
-    END;
-    $$ LANGUAGE plpgsql
     """,
     """
     CREATE OR REPLACE TRIGGER surface_run_append_only
@@ -223,6 +251,42 @@ class Storage:
                 Jsonb(observation.model_dump(mode="json")),
             ),
         )
+
+    def insert_citation_evidence(self, evidence: CitationEvidence) -> None:
+        self._conn.execute(
+            "INSERT INTO citation_evidence (evidence_id, url, normalized_url, fetched_at, "
+            "reachable, http_status, final_url, checked_brands, brands_found, visible_chars, error) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (
+                evidence.evidence_id, evidence.url, evidence.normalized_url,
+                evidence.fetched_at, evidence.reachable, evidence.http_status,
+                evidence.final_url, Jsonb(evidence.checked_brands),
+                Jsonb(evidence.brands_found), evidence.visible_chars, evidence.error,
+            ),
+        )
+
+    def recent_citation_evidence(
+        self, normalized_urls: list[str], *, max_age_days: int = 7
+    ) -> dict[str, CitationEvidence]:
+        """每个 URL 取时效窗口内最新一条核验记录(核验缓存,Potato 式按 URL 去重)。"""
+        if not normalized_urls:
+            return {}
+        cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
+        rows = self._conn.execute(
+            "SELECT DISTINCT ON (normalized_url) evidence_id, url, normalized_url, fetched_at, "
+            "reachable, http_status, final_url, checked_brands, brands_found, visible_chars, error "
+            "FROM citation_evidence WHERE normalized_url = ANY(%s) AND fetched_at > %s "
+            "ORDER BY normalized_url, fetched_at DESC",
+            (normalized_urls, cutoff),
+        ).fetchall()
+        return {
+            row[2]: CitationEvidence(
+                evidence_id=row[0], url=row[1], normalized_url=row[2], fetched_at=row[3],
+                reachable=row[4], http_status=row[5], final_url=row[6],
+                checked_brands=row[7], brands_found=row[8], visible_chars=row[9], error=row[10],
+            )
+            for row in rows
+        }
 
     def insert_recompute_event(
         self,

@@ -26,34 +26,8 @@ from engine.models import (
     SearchTrace,
     SurfaceRun,
 )
-from engine.storage import Storage
-
-SERVER_DSN = "postgresql://geo@localhost:5433/postgres"
-TEST_DSN = "postgresql://geo@localhost:5433/geo_tool_test"
-
 BRAND = BrandSpec(name="极光CRM", domains=["aurora-crm.com"])
-
-
-@pytest.fixture(scope="session")
-def storage():
-    try:
-        admin = psycopg.connect(SERVER_DSN, autocommit=True, connect_timeout=3)
-    except psycopg.OperationalError:
-        pytest.skip("本地 PostgreSQL 未运行:powershell scripts/pgdev.ps1 start")
-    if not admin.execute("SELECT 1 FROM pg_database WHERE datname='geo_tool_test'").fetchone():
-        admin.execute("CREATE DATABASE geo_tool_test")
-    admin.close()
-
-    cleaner = psycopg.connect(TEST_DSN, autocommit=True)
-    for table in ("derived_observation", "recompute_event", "surface_run",
-                  "prompt_variant", "information_need"):
-        cleaner.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
-    cleaner.close()
-
-    st = Storage(TEST_DSN)
-    st.ensure_schema()
-    yield st
-    st.close()
+# storage 夹具:tests/unit/conftest.py(会话级共享测试库)
 
 
 def make_run(run_id: str, *, cited: bool = True) -> SurfaceRun:

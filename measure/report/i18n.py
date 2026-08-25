@@ -91,6 +91,16 @@ MESSAGES: dict[str, dict[str, str]] = {
         "level_word": "证据等级",
         "sources_word": "来源", "guardrail_word": "护栏", "contra_word": "禁忌",
         "needs_experiment": "建议实验验证",
+        "phase_draft": "待确认",
+        "phase_confirmed": "已确认,等待执行",
+        "phase_access": "ACCESS 审计",
+        "phase_variants": "问法变体生成",
+        "phase_sampling": "序贯采样",
+        "phase_verify": "引用独立核验",
+        "phase_scoring": "判定与指标",
+        "phase_done": "完成",
+        "phase_partial": "部分完成(存在熔断截断,详见口径)",
+        "phase_failed": "执行失败",
         "footer": "本报告不打分:各阶段结论 = 概率 + 95% 区间(Jeffreys)+ 完整口径"
                   "(surface / model / N / stop_reasons / 拒答率 / 失败率 / 判定阈值)。"
                   "原始观测只追加留档,判定器升级后可全量重算复核。",
@@ -156,6 +166,16 @@ MESSAGES: dict[str, dict[str, str]] = {
         "level_word": "evidence level",
         "sources_word": "Sources", "guardrail_word": "Guardrail", "contra_word": "Contraindications",
         "needs_experiment": "experiment recommended",
+        "phase_draft": "Awaiting review",
+        "phase_confirmed": "Confirmed, queued",
+        "phase_access": "ACCESS audit",
+        "phase_variants": "Drafting phrasings",
+        "phase_sampling": "Sequential sampling",
+        "phase_verify": "Citation verification",
+        "phase_scoring": "Scoring & diagnosis",
+        "phase_done": "Done",
+        "phase_partial": "Partial (breaker-truncated; see caliber)",
+        "phase_failed": "Failed",
         "footer": "This report has no scores: every stage conclusion = probability + 95% interval (Jeffreys) "
                   "+ full caliber (surface / model / N / stop_reasons / refusal & failure rates / thresholds). "
                   "Raw observations are append-only; detector upgrades recompute all history.",

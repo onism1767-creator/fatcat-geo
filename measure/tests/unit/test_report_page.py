@@ -12,7 +12,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
-from diagnosis.citation_diag import diagnose_citation
+from diagnosis.citation_diag import VerificationSummary, diagnose_citation
 from diagnosis.diagnose import access_finding, diagnose_need
 from diagnosis.recommender import load_evidence_registry
 from diagnosis.representation_diag import diagnose_representation
@@ -65,7 +65,14 @@ def finished_job() -> DiagnosisJob:
         need,
         access=access_finding(None),
         retrieval=diagnose_retrieval(make_metric(0, 30), []),
-        citation=diagnose_citation(make_metric(0, 30), [("竞品甲", estimate_proportion(20, 30))]),
+        citation=diagnose_citation(
+            make_metric(0, 30),
+            [("竞品甲", estimate_proportion(20, 30))],
+            verification=VerificationSummary(
+                estimate=estimate_proportion(0, 30), checked_urls=2,
+                unreachable=1, soft_misses=1,
+            ),
+        ),
         representation=diagnose_representation(
             NeedIntent.DISCOVERY, make_metric(20, 30), {Sentiment.POSITIVE: 5}
         ),

@@ -108,6 +108,25 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": "判定阈值:FAIL 上界≤{fail:.0%},PASS 下界≥{pass_:.0%}",
         "en": "Verdict thresholds: FAIL if CI upper ≤{fail:.0%}, PASS if CI lower ≥{pass_:.0%}",
     },
+    "citation.tier_note": {
+        "zh": "三档证据口径:提及 → 被引 → 已核验。「已核验」= 本工具自行重抓被引 URL,"
+              "确认可达且页面可见正文出现品牌清晰名——不轻信平台引用,可达但无品牌的"
+              "软 404 不计",
+        "en": "Three-tier evidence: mentioned → cited → verified. \"Verified\" = this tool "
+              "independently re-fetches each cited URL and confirms it is reachable AND the "
+              "visible page text contains the brand's clear name — platform citations are not "
+              "trusted blindly; reachable soft-404s without the brand do not count",
+    },
+    "citation.verified_rate": {
+        "zh": f"已核验被引概率:{_EST}",
+        "en": f"Verified citation probability: {_EST_EN}",
+    },
+    "citation.verify_summary": {
+        "zh": "核验明细:重抓被引 URL {checked} 条;不可达 {unreachable} 条;"
+              "可达但正文未见品牌(疑似软 404/错标){soft} 条",
+        "en": "Verification detail: re-fetched {checked} cited URL(s); {unreachable} unreachable; "
+              "{soft} reachable but brand absent from visible text (likely soft-404/mislabel)",
+    },
     "citation.compare.behind": {
         "zh": f"显著落后于竞品 {{name}}(其被引 {_EST})",
         "en": f"Significantly behind competitor {{name}} (their citation rate: {_EST_EN})",

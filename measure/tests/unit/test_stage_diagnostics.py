@@ -91,6 +91,19 @@ def test_citation_stable_passes():
     assert diagnose_citation(make_metric(15, 30)).status is StageStatus.PASS
 
 
+def test_citation_verification_lines():
+    from diagnosis.citation_diag import VerificationSummary
+
+    verification = VerificationSummary(
+        estimate=estimate_proportion(3, 30), checked_urls=5, unreachable=1, soft_misses=2,
+    )
+    finding = diagnose_citation(make_metric(6, 30), verification=verification)
+    lines = "\n".join(zh_lines(finding))
+    assert "三档证据口径" in lines and "不轻信平台引用" in lines
+    assert "已核验被引概率" in lines
+    assert "不可达 1 条" in lines and "疑似软 404" in lines
+
+
 def test_citation_competitor_comparison_lines():
     focal = make_metric(0, 30)
     strong_comp = estimate_proportion(20, 30)

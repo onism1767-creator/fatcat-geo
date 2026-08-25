@@ -19,12 +19,19 @@ import structlog
 
 from adapters.base import SurfaceAdapter
 from diagnosis import access_audit
-from diagnosis.citation_diag import diagnose_citation
+from diagnosis.citation_diag import VerificationSummary, diagnose_citation
+from diagnosis.citation_verify import (
+    CitationVerifier,
+    brand_verified,
+    is_soft_miss,
+    normalize_url,
+)
 from diagnosis.diagnose import access_finding, diagnose_need
 from diagnosis.recommender import EvidenceEntry
 from diagnosis.representation_diag import diagnose_representation
 from diagnosis.retrieval_diag import diagnose_retrieval
 from engine.detectors.brand_mention import BrandMentionDetector
+from engine.detectors.matching import matches_any_brand_domain
 from engine.detectors.citation import CitationDetector
 from engine.detectors.retrieval_rank import RetrievalRankDetector
 from engine.detectors.runner import observe_runs
@@ -92,7 +99,7 @@ def execute_job(
         log.error("job_failed", job_id=job.job_id, error=f"{type(exc).__name__}: {exc}")
         job.state = JobState.FAILED
         job.error = f"{type(exc).__name__}: {exc}"
-        job.phase = "执行失败"
+        job.phase = "phase_failed"
 
 
 def _execute(
@@ -103,7 +110,7 @@ def _execute(
     evidence: list[EvidenceEntry],
 ) -> None:
     job.state = JobState.RUNNING
-    job.phase = "ACCESS 审计"
+    job.phase = "phase_access"
     job.access_result = access_audit.audit(job.website)
 
     storage = Storage(dsn)
@@ -113,7 +120,7 @@ def _execute(
         (a for a in selected.values() if a.meta().capabilities.supports_citations), None
     )
 
-    job.phase = "问法变体生成"
+    job.phase = "phase_variants"
     variants_by_need: dict[str, list[PromptVariant]] = {}
     for need in job.needs:
         storage.insert_information_need(need)
@@ -132,7 +139,7 @@ def _execute(
     per_plan_budget = job.budget_usd / len(plans) if job.budget_usd else None
     policy = TIERS[job.tier_id].policy.model_copy(update={"budget_usd": per_plan_budget})
 
-    job.phase = "序贯采样"
+    job.phase = "phase_sampling"
     progress_lock = threading.Lock()
     results: dict[tuple[str, str], list[SamplingResult]] = {}
 
@@ -158,7 +165,36 @@ def _execute(
     with ThreadPoolExecutor(max_workers=PLAN_CONCURRENCY) as pool:
         list(pool.map(run_one, plans))
 
-    job.phase = "判定与指标"
+    # 预取全部运行,收集品牌被引 URL,统一独立核验(全局去重 + 库缓存)
+    job.phase = "phase_verify"
+    runs_by: dict[tuple[str, str], list[SurfaceRun]] = {}
+    for need in job.needs:
+        variant_ids = [v.variant_id for v in variants_by_need[need.need_id]]
+        for surface_name in selected:
+            runs_by[(need.need_id, surface_name)] = [
+                run
+                for vid in variant_ids
+                for run in storage.runs_for_variant(vid, surface=surface_name)
+            ]
+
+    def brand_cited_urls(run: SurfaceRun) -> list[str]:
+        if run.answer is None or not run.answer.citations_available:
+            return []
+        return [
+            c.url for c in run.answer.citations
+            if matches_any_brand_domain(c.domain, job.brand)
+        ]
+
+    all_cited_urls = sorted({
+        url for runs in runs_by.values() for run in runs for url in brand_cited_urls(run)
+    })
+    verifier = CitationVerifier(storage)
+    try:
+        evidence_map = verifier.verify(all_cited_urls, [job.brand])
+    finally:
+        verifier.close()
+
+    job.phase = "phase_scoring"
     access = access_finding(job.access_result)
     mention_det = BrandMentionDetector()
     citation_det = CitationDetector()
@@ -167,10 +203,10 @@ def _execute(
     truncated = False
 
     for need in job.needs:
-        variant_ids = [v.variant_id for v in variants_by_need[need.need_id]]
         citation_metric: NeedSurfaceMetric | None = None
         mention_metric: NeedSurfaceMetric | None = None
         retrieval_metric: NeedSurfaceMetric | None = None
+        verification: VerificationSummary | None = None
         best_ranks: list[int] = []
         sentiment_counts: Counter = Counter()
         competitor_estimates: list = []
@@ -179,11 +215,7 @@ def _execute(
         for surface_name, adapter in selected.items():
             plan_results = results[(need.need_id, surface_name)]
             truncated |= any(r.stop_reason in _TRUNCATION_REASONS for r in plan_results)
-            runs = [
-                run
-                for vid in variant_ids
-                for run in storage.runs_for_variant(vid, surface=surface_name)
-            ]
+            runs = runs_by[(need.need_id, surface_name)]
             need_runs += runs
             capabilities = adapter.meta().capabilities
             if capabilities.supports_retrieval_rank and retrieval_metric is None:
@@ -214,6 +246,26 @@ def _execute(
                 sentiment_counts = Counter(
                     obs.sentiment for run in runs if (obs := sentiment_det.detect(run, job.brand))
                 )
+                cited_runs_urls = [(run, brand_cited_urls(run)) for run in runs]
+                need_urls = {normalize_url(u) for _, us in cited_runs_urls for u in us}
+                k_verified = sum(
+                    any(
+                        brand_verified(evidence_map[normalize_url(u)], job.brand.name)
+                        for u in us
+                        if normalize_url(u) in evidence_map
+                    )
+                    for _, us in cited_runs_urls
+                )
+                need_evidence = [evidence_map[n] for n in need_urls if n in evidence_map]
+                verification = VerificationSummary(
+                    estimate=(
+                        estimate_proportion(k_verified, citation_metric.estimate.n)
+                        if citation_metric.estimate is not None else None
+                    ),
+                    checked_urls=len(need_evidence),
+                    unreachable=sum(not e.reachable for e in need_evidence),
+                    soft_misses=sum(is_soft_miss(e, job.brand.name) for e in need_evidence),
+                )
                 for competitor in job.competitors:
                     comp_obs = [
                         obs for run in runs if (obs := citation_det.detect(run, competitor))
@@ -229,7 +281,8 @@ def _execute(
             need,
             access=access,
             retrieval=diagnose_retrieval(retrieval_metric, best_ranks),
-            citation=diagnose_citation(citation_metric, competitor_estimates),
+            citation=diagnose_citation(citation_metric, competitor_estimates,
+                                       verification=verification),
             representation=diagnose_representation(
                 need.intent, mention_metric, dict(sentiment_counts)
             ),
@@ -243,7 +296,7 @@ def _execute(
 
     storage.close()
     job.state = JobState.PARTIAL if truncated else JobState.DONE
-    job.phase = "部分完成(存在熔断截断,详见口径)" if truncated else "完成"
+    job.phase = "phase_partial" if truncated else "phase_done"
     job.finished_at = datetime.now(UTC)
     log.info("job_finished", job_id=job.job_id, state=job.state.value,
              plans=job.total_plans, spent_usd=round(job.spent_usd, 4))

@@ -127,11 +127,16 @@ class _TextExtractor(HTMLParser):
             self.parts.append(data)
 
 
-def visible_text_length(html: str) -> int:
-    """去掉 script/style 等后的可见文本字符数,用于 JS 白板启发式判断。"""
+def extract_visible_text(html: str) -> str:
+    """去掉 script/style 等后的可见文本(引用核验器与本模块共用)。"""
     extractor = _TextExtractor()
     extractor.feed(html[:MAX_PARSED_BYTES])
-    return len(re.sub(r"\s+", " ", "".join(extractor.parts)).strip())
+    return re.sub(r"\s+", " ", "".join(extractor.parts)).strip()
+
+
+def visible_text_length(html: str) -> int:
+    """可见文本字符数,用于 JS 白板启发式判断。"""
+    return len(extract_visible_text(html))
 
 
 def _is_html(response: httpx.Response) -> bool:
