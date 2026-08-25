@@ -87,7 +87,8 @@ def test_ui_language_toggle():
     assert "Brand name" in en and "品牌名" not in en
 
 
-def test_report_page_english_chrome():
+def test_report_page_fully_english():
+    """v1.1:结论语句本身随界面语言渲染,英文报告不残留中文结论。"""
     app = create_app(adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=lambda **kw: None)
     job = finished_job()
@@ -95,7 +96,33 @@ def test_report_page_english_chrome():
     client = TestClient(app)
     html = client.get(f"/jobs/{job.job_id}/report?lang=en").text
     assert "Four-Stage Diagnosis Report" in html
-    assert "evidence level" in html
-    assert "structured bilingual output ships in v1.1" in html  # 结论文本语言的诚实标注
-    # 结论语句本身仍为中文(v1.1 前),但界面语言切换不得丢失口径要素
-    assert "stop_reasons" in html and "EVIDENCE_" in html
+    assert "largely absent from retrieval candidates" in html  # L3 结论英文化
+    assert "Significantly behind competitor" in html
+    assert "NOT recommended" in html  # 不建议全页改写的英文警示
+    assert "experiment recommended" in html  # C 级以下实验标注英文版
+    assert "stop_reasons" in html and "EVIDENCE_" in html  # 口径要素不丢
+    assert "品牌网站基本不进检索候选" not in html  # 中文结论不残留
+
+
+def test_catalog_bilingual_completeness():
+    """每个结论码必须 zh/en 双版齐备——组句永不静默缺语言。"""
+    from diagnosis.messages import CATALOG
+
+    for code, versions in CATALOG.items():
+        assert set(versions) == {"zh", "en"}, code
+        assert versions["zh"].strip() and versions["en"].strip(), code
+
+
+def test_all_diagnosis_output_renders_in_both_languages():
+    """把一份完整诊断的全部 Msg 在两种语言下渲染一遍:缺码/缺参立即炸。"""
+    from diagnosis.messages import render_msg
+
+    job = finished_job()
+    diagnosis = job.need_reports[0].diagnosis
+    messages = [f.headline for f in diagnosis.findings]
+    messages += [line for f in diagnosis.findings for line in f.evidence_lines]
+    messages += diagnosis.cautions
+    assert messages
+    for lang in ("zh", "en"):
+        for message in messages:
+            assert render_msg(message, lang).strip()

@@ -1,5 +1,7 @@
 """L3 共享类型:阶段、状态、阈值与阶段结论(第 5 章诊断层词汇)。
 
+v1.1 结构化输出(16.5):L3 只产出**结论码 + 参数**(Msg),不产出任何
+成品语句;组句发生在渲染层(diagnosis/messages.py 的目录,zh/en 双语)。
 阈值是产品口径的一部分:每个 StageFinding 在 evidence_lines 里自报
 所用阈值,报告渲染时随指标一并展示(铁律 5)。
 LOW_CONFIDENCE 的指标不允许给出确定性 PASS/FAIL 结论,一律降权 WEAK(7.3)。
@@ -8,9 +10,12 @@ LOW_CONFIDENCE 的指标不允许给出确定性 PASS/FAIL 结论,一律降权 W
 from __future__ import annotations
 
 from enum import StrEnum
+from typing import Any
 
+from diagnosis.messages import Msg, msg
 from engine.metrics import ProportionEstimate
 from engine.models import FrozenModel
+from engine.scheduler import NeedSurfaceMetric
 
 
 class Stage(StrEnum):
@@ -49,15 +54,31 @@ class DiagnosisThresholds(FrozenModel):
 class StageFinding(FrozenModel):
     stage: Stage
     status: StageStatus
-    headline: str
-    evidence_lines: list[str] = []
+    headline: Msg
+    evidence_lines: list[Msg] = []
     low_confidence: bool = False
 
 
-def fmt_estimate(estimate: ProportionEstimate) -> str:
-    return (
-        f"{estimate.point:.0%} [95% 区间(Jeffreys): "
-        f"{estimate.ci_low:.0%}–{estimate.ci_high:.0%}](N={estimate.n})"
+def estimate_params(estimate: ProportionEstimate) -> dict[str, Any]:
+    return {
+        "point": estimate.point,
+        "low": estimate.ci_low,
+        "high": estimate.ci_high,
+        "n": estimate.n,
+    }
+
+
+def caliber_msg(metric: NeedSurfaceMetric) -> Msg:
+    accounting = metric.accounting
+    return msg(
+        "common.caliber",
+        surface=metric.surface,
+        model=metric.model,
+        n_valid=accounting.n_valid,
+        n_total=accounting.n_total,
+        stop_reasons=", ".join(r.value for r in metric.stop_reasons),
+        refusal=accounting.refusal_rate,
+        failure=accounting.failure_rate,
     )
 
 
@@ -67,16 +88,16 @@ def interval_status(
     low_confidence: bool,
     fail_ci_high: float,
     pass_ci_low: float,
-) -> tuple[StageStatus, list[str]]:
-    """区间三态判定 + LOW_CONFIDENCE 降权。返回 (状态, 附注行)。"""
+) -> tuple[StageStatus, list[Msg]]:
+    """区间三态判定 + LOW_CONFIDENCE 降权。返回 (状态, 附注)。"""
     if estimate.ci_high <= fail_ci_high:
         status = StageStatus.FAIL
     elif estimate.ci_low >= pass_ci_low:
         status = StageStatus.PASS
     else:
         status = StageStatus.WEAK
-    notes: list[str] = []
+    notes: list[Msg] = []
     if low_confidence and status is not StageStatus.WEAK:
-        notes.append("无效样本占比超阈值(LOW_CONFIDENCE),确定性结论降权为 WEAK(7.3)")
+        notes.append(msg("common.low_confidence_downgrade"))
         status = StageStatus.WEAK
     return status, notes

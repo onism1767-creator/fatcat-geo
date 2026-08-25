@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from diagnosis.access_audit import AccessAuditResult
 from diagnosis.access_audit import CheckStatus as AccessCheckStatus
-from diagnosis.findings import Stage, StageFinding, StageStatus
+from diagnosis.findings import Msg, Stage, StageFinding, StageStatus, msg
 from diagnosis.recommender import EvidenceEntry, Recommendation, recommend
 from engine.models import FrozenModel, InformationNeed, NeedIntent
 
@@ -27,37 +27,32 @@ class NeedDiagnosis(FrozenModel):
     intent: NeedIntent
     findings: list[StageFinding]  # 按 ACCESS/RETRIEVAL/CITATION/REPRESENTATION 顺序
     primary_failure: Stage | None
-    cautions: list[str]
+    cautions: list[Msg]
     recommendations: list[Recommendation]
 
 
 def access_finding(audit: AccessAuditResult | None) -> StageFinding:
-    """把 ACCESS 审计结果翻译为阶段结论。UNKNOWN 记 NOT_OBSERVABLE 并注明。"""
+    """把 ACCESS 审计结果翻译为阶段结论。UNKNOWN 记 NOT_OBSERVABLE 并注明。
+    (检查明细由报告层直接渲染 audit 对象,此处不重复。)"""
     if audit is None:
         return StageFinding(
             stage=Stage.ACCESS,
             status=StageStatus.NOT_OBSERVABLE,
-            headline="未执行 ACCESS 审计",
+            headline=msg("access.headline.missing"),
         )
     status = {
         AccessCheckStatus.PASS: StageStatus.PASS,
         AccessCheckStatus.FAIL: StageStatus.FAIL,
         AccessCheckStatus.UNKNOWN: StageStatus.NOT_OBSERVABLE,
     }[audit.overall]
-    gating_lines = [
-        f"[{check.status}] {check.check} — {check.detail}"
-        for check in audit.checks
-        if check.gating
-    ]
-    if audit.overall is AccessCheckStatus.UNKNOWN:
-        gating_lines.append("存在无法判定的检查项,资格门记为不可观测,需站长侧核验")
-    headline = {
-        StageStatus.PASS: "站点对 AI 爬虫可达,资格门通过",
-        StageStatus.FAIL: "站点存在准入阻断,AI 爬虫无法正常获取内容",
-        StageStatus.NOT_OBSERVABLE: "资格门存在无法判定项",
+    headline_code = {
+        StageStatus.PASS: "access.headline.pass",
+        StageStatus.FAIL: "access.headline.fail",
+        StageStatus.NOT_OBSERVABLE: "access.headline.unknown",
     }[status]
+    notes = [msg("access.unknown_note")] if audit.overall is AccessCheckStatus.UNKNOWN else []
     return StageFinding(
-        stage=Stage.ACCESS, status=status, headline=headline, evidence_lines=gating_lines
+        stage=Stage.ACCESS, status=status, headline=msg(headline_code), evidence_lines=notes
     )
 
 
@@ -90,7 +85,7 @@ def diagnose_need(
         Stage.CITATION: citation,
         Stage.REPRESENTATION: representation,
     }
-    cautions: list[str] = []
+    cautions: list[Msg] = []
     skip: frozenset[Stage] = frozenset()
     # 通道分歧防线:被引必先被检索。引用阶段 PASS 时,裸检索通道的缺席
     # 只能说明观测通道与生成端实际检索(查询改写/多语言 fan-out)不等同
@@ -100,22 +95,15 @@ def diagnose_need(
         and findings[Stage.CITATION].status is StageStatus.PASS
     ):
         skip = frozenset({Stage.RETRIEVAL})
-        cautions.append(
-            "检索观测通道显示品牌缺席,但引用阶段 PASS——被引必先被检索,两通道结论矛盾。"
-            "这说明裸检索观测通道与生成端实际执行的检索(含查询改写与多语言扩展)不等同,"
-            "检索结论按观测通道分歧处理,不据此定位失败(架构书风险 #5:观测通道不当真值)"
-        )
+        cautions.append(msg("caution.divergence"))
     primary = localize_failure(findings, skip=skip)
     unobservable = [s.value for s in findings if findings[s].status is StageStatus.NOT_OBSERVABLE]
     if unobservable:
-        cautions.append(f"以下阶段不可观测,未参与定位:{', '.join(unobservable)}")
+        cautions.append(msg("caution.unobservable", stages=", ".join(unobservable)))
     if primary in (Stage.ACCESS, Stage.RETRIEVAL):
-        cautions.append(
-            "失败定位在准入/检索层:当前证据不足以表明问题出在引用或生成阶段,"
-            "因此【不建议】进行全页内容改写(依据见架构书 5.3)"
-        )
+        cautions.append(msg("caution.no_rewrite"))
     if primary is None:
-        cautions.append("未定位到失败阶段:各可观测阶段均无 FAIL/WEAK,无需药方")
+        cautions.append(msg("caution.none"))
 
     recommendations = (
         recommend(registry, stage=primary, intent=need.intent) if primary is not None else []

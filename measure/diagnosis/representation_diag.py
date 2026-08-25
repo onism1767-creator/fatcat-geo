@@ -6,6 +6,7 @@
 - brand_probe(点名探针):提及率天然≈100%,无判定价值;状态只由情感分布决定。
 
 描述正确性判定需要品牌事实清单作参照,v1 未启用,如实标注。
+输出为结论码 + 参数(v1.1),组句在渲染层。
 """
 
 from __future__ import annotations
@@ -14,26 +15,44 @@ from typing import Mapping
 
 from diagnosis.findings import (
     DiagnosisThresholds,
+    Msg,
     Stage,
     StageFinding,
     StageStatus,
-    fmt_estimate,
+    estimate_params,
     interval_status,
+    msg,
 )
 from engine.models import NeedIntent, Sentiment
 from engine.scheduler import NeedSurfaceMetric
 
-_CLAIMS_NOTE = "描述正确性判定需品牌事实清单作参照,v1 未启用(路线图 v1.x)"
 
-
-def _sentiment_summary(counts: Mapping[Sentiment, int]) -> tuple[int, float, str]:
+def _sentiment_summary(counts: Mapping[Sentiment, int]) -> tuple[int, float, Msg]:
     total = sum(counts.values())
     negative = counts.get(Sentiment.NEGATIVE, 0)
     share = negative / total if total else 0.0
-    detail = "、".join(
-        f"{sentiment.value} {count}" for sentiment, count in counts.items() if count
-    ) or "无"
-    return total, share, f"提及句情感分布:{detail}(负面占比 {share:.0%})"
+    line = msg(
+        "repr.sentiment_dist",
+        positive=counts.get(Sentiment.POSITIVE, 0),
+        neutral=counts.get(Sentiment.NEUTRAL, 0),
+        negative=negative,
+        mixed=counts.get(Sentiment.MIXED, 0),
+        share=share,
+    )
+    return total, share, line
+
+
+def _caliber(metric: NeedSurfaceMetric, intent: NeedIntent) -> Msg:
+    accounting = metric.accounting
+    return msg(
+        "repr.caliber",
+        surface=metric.surface,
+        model=metric.model,
+        n_valid=accounting.n_valid,
+        n_total=accounting.n_total,
+        stop_reasons=", ".join(r.value for r in metric.stop_reasons),
+        intent=intent.value,
+    )
 
 
 def diagnose_representation(
@@ -46,17 +65,12 @@ def diagnose_representation(
         return StageFinding(
             stage=Stage.REPRESENTATION,
             status=StageStatus.NOT_OBSERVABLE,
-            headline="无生成回答观测,表述阶段不可观测",
+            headline=msg("repr.headline.not_observable"),
         )
     estimate = mention_metric.estimate
     accounting = mention_metric.accounting
     n_sentiment, negative_share, sentiment_line = _sentiment_summary(sentiment_counts)
-    caliber = (
-        f"口径:surface={mention_metric.surface} model={mention_metric.model} "
-        f"N_valid={accounting.n_valid}/{accounting.n_total} "
-        f"stop_reasons={[r.value for r in mention_metric.stop_reasons]} "
-        f"意图={intent.value}"
-    )
+    caliber = _caliber(mention_metric, intent)
 
     if intent is NeedIntent.BRAND_PROBE:
         # 探针需求:提及率无判定价值,状态由情感决定
@@ -64,25 +78,29 @@ def diagnose_representation(
             return StageFinding(
                 stage=Stage.REPRESENTATION,
                 status=StageStatus.NOT_OBSERVABLE,
-                headline="探针需求下无可分析的提及句(异常,建议检查采样)",
-                evidence_lines=[f"提及率:{fmt_estimate(estimate)}", caliber, _CLAIMS_NOTE],
+                headline=msg("repr.headline.probe_none"),
+                evidence_lines=[
+                    msg("repr.mention_rate", **estimate_params(estimate)),
+                    caliber,
+                    msg("repr.claims_note"),
+                ],
             )
         if negative_share >= thresholds.negative_share_fail:
-            status, headline = StageStatus.FAIL, "点名询问下 AI 对品牌的描述以负面为主"
+            status, headline = StageStatus.FAIL, "repr.headline.probe_fail"
         elif negative_share > thresholds.negative_share_weak:
-            status, headline = StageStatus.WEAK, "点名询问下 AI 对品牌的描述含明显负面成分"
+            status, headline = StageStatus.WEAK, "repr.headline.probe_weak"
         else:
-            status, headline = StageStatus.PASS, "点名询问下 AI 对品牌的描述以中性/正面为主"
+            status, headline = StageStatus.PASS, "repr.headline.probe_pass"
         return StageFinding(
             stage=Stage.REPRESENTATION,
             status=status,
-            headline=headline,
+            headline=msg(headline),
             evidence_lines=[
                 sentiment_line,
-                f"判定阈值:负面占比 >{thresholds.negative_share_weak:.0%} 为 WEAK,"
-                f"≥{thresholds.negative_share_fail:.0%} 为 FAIL(探针需求提及率不参与判定)",
+                msg("repr.thresholds.probe",
+                    weak=thresholds.negative_share_weak, fail=thresholds.negative_share_fail),
                 caliber,
-                _CLAIMS_NOTE,
+                msg("repr.claims_note"),
             ],
             low_confidence=accounting.low_confidence,
         )
@@ -95,29 +113,31 @@ def diagnose_representation(
         pass_ci_low=thresholds.mention_pass_ci_low,
     )
     if status is StageStatus.PASS and negative_share > thresholds.negative_share_weak:
-        notes.append(f"提及充分但负面占比 {negative_share:.0%} 超阈值,状态封顶 WEAK")
+        notes.append(msg("repr.negative_cap", share=negative_share))
         status = StageStatus.WEAK
     if status is StageStatus.FAIL:
-        headline = "品牌未稳定进入生成回答,暂无可分析的品牌描述"
-        sentiment_part = ["情感分析:提及样本不足,暂不适用"] if n_sentiment == 0 else [sentiment_line]
+        headline = "repr.headline.neutral_fail"
+        sentiment_part = (
+            [msg("repr.sentiment_insufficient")] if n_sentiment == 0 else [sentiment_line]
+        )
     else:
         headline = {
-            StageStatus.WEAK: "品牌在回答中不稳定地被提及",
-            StageStatus.PASS: "品牌稳定进入回答且描述以中性/正面为主",
+            StageStatus.WEAK: "repr.headline.neutral_weak",
+            StageStatus.PASS: "repr.headline.neutral_pass",
         }[status]
         sentiment_part = [sentiment_line]
     return StageFinding(
         stage=Stage.REPRESENTATION,
         status=status,
-        headline=headline,
+        headline=msg(headline),
         evidence_lines=[
-            f"提及率:{fmt_estimate(estimate)}",
+            msg("repr.mention_rate", **estimate_params(estimate)),
             *sentiment_part,
-            f"判定阈值:FAIL 上界≤{thresholds.mention_fail_ci_high:.0%},"
-            f"PASS 下界≥{thresholds.mention_pass_ci_low:.0%},"
-            f"负面占比 >{thresholds.negative_share_weak:.0%} 封顶 WEAK",
+            msg("repr.thresholds.neutral",
+                fail=thresholds.mention_fail_ci_high, pass_=thresholds.mention_pass_ci_low,
+                neg=thresholds.negative_share_weak),
             caliber,
-            _CLAIMS_NOTE,
+            msg("repr.claims_note"),
             *notes,
         ],
         low_confidence=accounting.low_confidence,

@@ -19,7 +19,7 @@
   <h3>{{ t["access_early"] }} <span class="chip {{ job.access_result.overall.value }}">{{ job.access_result.overall.value }}</span></h3>
   <ul class="ev">
     {% for check in job.access_result.checks if check.gating %}
-    <li>[{{ check.status.value }}] {{ check.check }} — {{ check.detail }}</li>
+    <li>[{{ check.status.value }}] {{ check.check }} — {{ check.detail|msg(lang) }}</li>
     {% endfor %}
   </ul>
 </div>

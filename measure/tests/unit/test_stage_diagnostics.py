@@ -5,6 +5,15 @@
 
 from diagnosis.citation_diag import diagnose_citation
 from diagnosis.findings import Stage, StageStatus
+from diagnosis.messages import render_msg
+
+
+def zh(message) -> str:
+    return render_msg(message, "zh")
+
+
+def zh_lines(finding) -> list[str]:
+    return [zh(line) for line in finding.evidence_lines]
 from diagnosis.representation_diag import diagnose_representation
 from diagnosis.retrieval_diag import diagnose_retrieval
 from engine.metrics import account_outcomes, estimate_proportion
@@ -44,14 +53,14 @@ def test_retrieval_not_observable_without_metric():
 def test_retrieval_absent_fails_with_rank_evidence():
     finding = diagnose_retrieval(make_metric(0, 30), [])
     assert finding.status is StageStatus.FAIL
-    assert any("从未进入检索候选" in line for line in finding.evidence_lines)
-    assert any("判定阈值" in line for line in finding.evidence_lines)  # 阈值自报进口径
+    assert any("从未进入检索候选" in line for line in zh_lines(finding))
+    assert any("判定阈值" in line for line in zh_lines(finding))  # 阈值自报进口径
 
 
 def test_retrieval_stable_presence_passes_with_rank_summary():
     finding = diagnose_retrieval(make_metric(27, 30), [3, 7, 5])
     assert finding.status is StageStatus.PASS
-    assert any("中位数第 5 位" in line for line in finding.evidence_lines)
+    assert any("中位数第 5 位" in line for line in zh_lines(finding))
 
 
 def test_retrieval_middling_is_weak():
@@ -63,7 +72,7 @@ def test_retrieval_low_confidence_caps_fail_to_weak():
     finding = diagnose_retrieval(metric, [])
     assert finding.status is StageStatus.WEAK
     assert finding.low_confidence is True
-    assert any("LOW_CONFIDENCE" in line for line in finding.evidence_lines)
+    assert any("LOW_CONFIDENCE" in line for line in zh_lines(finding))
 
 
 # ── CITATION ─────────────────────────────────────────────────────────
@@ -87,7 +96,7 @@ def test_citation_competitor_comparison_lines():
     strong_comp = estimate_proportion(20, 30)
     overlap_comp = estimate_proportion(1, 30)
     finding = diagnose_citation(focal, [("竞品甲", strong_comp), ("竞品乙", overlap_comp)])
-    lines = "\n".join(finding.evidence_lines)
+    lines = "\n".join(zh_lines(finding))
     assert "显著落后于竞品 竞品甲" in lines
     assert "与竞品 竞品乙 区间重叠,无法区分" in lines  # 重叠禁止硬排序
 
@@ -98,8 +107,8 @@ def test_citation_competitor_comparison_lines():
 def test_representation_neutral_low_mention_fails_with_na_wording():
     finding = diagnose_representation(NeedIntent.DISCOVERY, make_metric(0, 30), {})
     assert finding.status is StageStatus.FAIL
-    assert "未稳定进入生成回答" in finding.headline
-    assert any("提及样本不足" in line for line in finding.evidence_lines)
+    assert "未稳定进入生成回答" in zh(finding.headline)
+    assert any("提及样本不足" in line for line in zh_lines(finding))
 
 
 def test_representation_neutral_pass_and_negative_cap():
@@ -111,7 +120,7 @@ def test_representation_neutral_pass_and_negative_cap():
     counts_negative = {Sentiment.POSITIVE: 3, Sentiment.NEGATIVE: 3}
     capped = diagnose_representation(NeedIntent.DISCOVERY, make_metric(27, 30), counts_negative)
     assert capped.status is StageStatus.WEAK
-    assert any("封顶 WEAK" in line for line in capped.evidence_lines)
+    assert any("封顶 WEAK" in line for line in zh_lines(capped))
 
 
 def test_representation_probe_judged_by_sentiment_only():
@@ -135,4 +144,4 @@ def test_representation_probe_judged_by_sentiment_only():
 
 def test_representation_claims_note_always_present():
     finding = diagnose_representation(NeedIntent.DISCOVERY, make_metric(27, 30), {})
-    assert any("品牌事实清单" in line for line in finding.evidence_lines)
+    assert any("品牌事实清单" in line for line in zh_lines(finding))

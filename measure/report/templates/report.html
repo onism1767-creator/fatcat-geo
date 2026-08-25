@@ -8,7 +8,6 @@
 {{ job.created_at.strftime("%Y-%m-%d %H:%M") }} {{ t["started_word"] }} ·
 {{ t["cost_word"] }} ${{ "%.4f"|format(job.spent_usd) }}
 {% if job.state.value == "PARTIAL" %} · <b>{{ t["partial_note"] }}</b>{% endif %}</p>
-{% if t["l3_lang_note"] %}<p class="muted">{{ t["l3_lang_note"] }}</p>{% endif %}
 
 {% set access = job.access_result %}
 <div class="card">
@@ -17,11 +16,11 @@
   {% if access %}
   <ul class="ev">
     {% for check in access.checks %}
-    <li>[{{ check.status.value }}]{{ "(提示)" if not check.gating and lang == "zh" else (" (info)" if not check.gating else "") }} {{ check.check }} — {{ check.detail }}</li>
+    <li>[{{ check.status.value }}]{{ "(提示)" if not check.gating and lang == "zh" else (" (info)" if not check.gating else "") }} {{ check.check }} — {{ check.detail|msg(lang) }}</li>
     {% endfor %}
   </ul>
   <details><summary>{{ t["caveats_summary"] }}</summary>
-    <ul class="ev">{% for caveat in access.caveats %}<li>{{ caveat }}</li>{% endfor %}</ul>
+    <ul class="ev">{% for caveat in access.caveats %}<li>{{ caveat|msg(lang) }}</li>{% endfor %}</ul>
   </details>
   {% else %}<p class="muted">{{ t["access_missing"] }}</p>{% endif %}
 </div>
@@ -36,11 +35,11 @@
   {% for finding in d.findings if finding.stage.value != "ACCESS" %}
   <h3>■ {{ finding.stage.value }}
     <span class="chip {{ finding.status.value }}">{{ finding.status.value }}</span></h3>
-  <p style="margin:4px 0">{{ finding.headline }}</p>
+  <p style="margin:4px 0">{{ finding.headline|msg(lang) }}</p>
   {% if finding.evidence_lines %}
   <details {{ "open" if finding.status.value in ("FAIL", "WEAK") else "" }}>
     <summary>{{ t["evidence_summary"] }}</summary>
-    <ul class="ev">{% for line in finding.evidence_lines %}<li>{{ line }}</li>{% endfor %}</ul>
+    <ul class="ev">{% for line in finding.evidence_lines %}<li>{{ line|msg(lang) }}</li>{% endfor %}</ul>
   </details>
   {% endif %}
   {% endfor %}
@@ -48,17 +47,17 @@
   <h3>{{ t["localization_title"] }}</h3>
   <p>{% if d.primary_failure %}{{ t["loc_pre"] }} <b>{{ d.primary_failure.value }}</b> {{ t["loc_post"] }}
      {% else %}{{ t["no_failure"] }}{% endif %}</p>
-  {% for caution in d.cautions %}<div class="caution">{{ caution }}</div>{% endfor %}
+  {% for caution in d.cautions %}<div class="caution">{{ caution|msg(lang) }}</div>{% endfor %}
 
   {% if d.recommendations %}
   <h3>{{ t["recs_title"] }}</h3>
   {% for rec in d.recommendations %}
   <div class="rec">
     <span class="id">{{ rec.evidence_id }}</span> · {{ t["level_word"] }} {{ rec.evidence_level }}<br>
-    {{ rec.text }}
-    <div class="kv">{{ t["sources_word"] }}:{{ "; ".join(rec.sources) }}
-      {% if rec.guardrail %}<br>{{ t["guardrail_word"] }}:{{ rec.guardrail }}{% endif %}
-      {% if rec.contraindications %}<br>{{ t["contra_word"] }}:{{ "; ".join(rec.contraindications) }}{% endif %}</div>
+    {{ rec.hypothesis[lang] }}{% if rec.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}
+    <div class="kv">{{ t["sources_word"] }}:{{ "; ".join(rec.sources[lang]) }}
+      {% if rec.guardrail %}<br>{{ t["guardrail_word"] }}:{{ rec.guardrail[lang] }}{% endif %}
+      {% if rec.contraindications[lang] %}<br>{{ t["contra_word"] }}:{{ "; ".join(rec.contraindications[lang]) }}{% endif %}</div>
   </div>
   {% endfor %}
   {% endif %}

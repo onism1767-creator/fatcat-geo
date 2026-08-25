@@ -15,6 +15,7 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
+from diagnosis.messages import render_msg
 from diagnosis.recommender import EvidenceEntry, load_evidence_registry
 from engine.envfile import load_env_file
 from engine.loader import build_adapters
@@ -52,6 +53,7 @@ def create_app(
 
     app = FastAPI(title="GEO 诊断")
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+    templates.env.filters["msg"] = render_msg  # 结论码 → 当前界面语言的成句
     registry = JobRegistry()
     app.state.registry = registry
     app.state.adapters = adapters

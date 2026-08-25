@@ -7,6 +7,7 @@ import httpx
 import pytest
 import respx
 
+from diagnosis.messages import render_msg
 from diagnosis.access_audit import (
     DEFAULT_CRAWLERS_PATH,
     CheckStatus,
@@ -75,7 +76,7 @@ def test_robots_disallow_of_search_bot_fails_gate():
     assert result.overall is CheckStatus.FAIL
     robots_check = check_by_name(result, "robots_txt")
     assert robots_check.status is CheckStatus.FAIL
-    assert "TestSearchBot" in robots_check.detail
+    assert "TestSearchBot" in render_msg(robots_check.detail, "zh")
 
 
 @respx.mock
@@ -85,7 +86,7 @@ def test_robots_disallow_of_training_bot_only_is_informational():
     assert result.overall is CheckStatus.PASS
     robots_check = check_by_name(result, "robots_txt")
     assert robots_check.status is CheckStatus.PASS
-    assert "TestTrainBot" in robots_check.detail
+    assert "TestTrainBot" in render_msg(robots_check.detail, "zh")
 
 
 @respx.mock
@@ -110,7 +111,7 @@ def test_bot_ua_blocked_yields_unknown_not_fail():
     assert result.overall is CheckStatus.UNKNOWN
     ua_check = check_by_name(result, "ua_differential")
     assert ua_check.status is CheckStatus.UNKNOWN
-    assert "TestSearchBot" in ua_check.detail
+    assert "TestSearchBot" in render_msg(ua_check.detail, "zh")
     assert not any(c.status is CheckStatus.FAIL for c in result.checks if c.gating)
 
 

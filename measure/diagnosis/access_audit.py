@@ -3,6 +3,9 @@
 自带轻量爬取器,不走 L1/L2,可独立运行(依赖方向铁律的唯一例外)。
 资格门,不打分:输出 PASS / FAIL / UNKNOWN。
 
+v1.1 起,检查详情与口径以结论码(Msg)输出,组句在 diagnosis/messages.py
+的双语目录中完成;本模块仅引用零依赖的 messages(不破坏独立性)。
+
 检查项:站点可达性、robots.txt 对各 AI 爬虫令牌的放行、CDN/WAF 对爬虫 UA 的
 差异化拦截、HTML 中是否存在可见内容(JS 白板)、sitemap、重定向链。
 
@@ -11,7 +14,7 @@
 
 诚实口径(随结果一并输出,见 STANDARD_CAVEATS):
 - 审计从普通网络发起,拿不到各家官方爬虫 IP 段。站点若按「官方 IP 白名单」
-  放行真实爬虫,伪装 UA 会被拒——这与「封杀爬虫 UA」在本审计视角不可区分,
+  放行真爬虫,伪装 UA 会被拒——这与「封杀爬虫 UA」在本审计视角不可区分,
   因此 UA 差异化拦截只出 UNKNOWN,不出 FAIL(铁律 7:不可观测不猜测)。
 - robots.txt 是站点单方声明,爬虫遵不遵守不在担保范围。
 
@@ -36,6 +39,8 @@ import httpx
 import yaml
 from pydantic import BaseModel, ConfigDict, JsonValue
 
+from diagnosis.messages import Msg, msg, render_msg
+
 BROWSER_UA: Final = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
     "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
@@ -46,10 +51,9 @@ MAX_PARSED_BYTES: Final = 2_000_000
 DEFAULT_CRAWLERS_PATH: Final = Path(__file__).resolve().parents[1] / "config" / "crawlers.yaml"
 
 STANDARD_CAVEATS: Final = (
-    "审计自普通网络发起,未使用官方爬虫 IP 段;站点若按官方 IP 白名单放行真实爬虫,"
-    "UA 差异化拦截检查将呈现 UNKNOWN 而非 FAIL,需站长在 CDN 后台或服务器日志侧核验",
-    "robots.txt 为站点单方声明,各爬虫是否遵守不在本审计担保范围",
-    "爬虫名单与 UA 字符串来自 config/crawlers.yaml(官方文档快照),需定期核对",
+    msg("access.caveat.vantage"),
+    msg("access.caveat.robots_voluntary"),
+    msg("access.caveat.ua_list"),
 )
 
 
@@ -76,7 +80,7 @@ class CheckResult(FrozenModel):
     check: str
     status: CheckStatus
     gating: bool  # 是否参与资格门聚合;False = 仅提示
-    detail: str
+    detail: Msg
     evidence: JsonValue = None
 
 
@@ -95,7 +99,7 @@ class AccessAuditResult(FrozenModel):
     overall: CheckStatus
     checks: list[CheckResult]
     bots: list[BotProbe]
-    caveats: list[str]
+    caveats: list[Msg]
     audited_at: datetime
 
 
@@ -151,21 +155,21 @@ def _normalize_url(site_url: str) -> str:
 
 def _fetch_robots(
     client: httpx.Client, base_url: str
-) -> tuple[Callable[[str], bool] | None, list[str], str]:
-    """返回 (放行判定函数 | None=无法判定, sitemap 声明列表, 说明文字)。"""
+) -> tuple[Callable[[str], bool] | None, list[str], Msg]:
+    """返回 (放行判定函数 | None=无法判定, sitemap 声明列表, 状态说明)。"""
     robots_url = urljoin(base_url, "/robots.txt")
     try:
         resp = client.get(robots_url, headers={"User-Agent": BROWSER_UA})
     except httpx.HTTPError as exc:
-        return None, [], f"robots.txt 请求失败({type(exc).__name__})"
+        return None, [], msg("access.robots.note.fetch_failed", error=type(exc).__name__)
     if resp.status_code == 200:
         parser = robotparser.RobotFileParser()
         parser.parse(resp.text.splitlines())
         sitemaps = list(parser.site_maps() or [])
-        return (lambda token: parser.can_fetch(token, base_url)), sitemaps, "HTTP 200,已解析"
+        return (lambda token: parser.can_fetch(token, base_url)), sitemaps, msg("access.robots.note.parsed")
     if 400 <= resp.status_code < 500:
-        return (lambda token: True), [], f"HTTP {resp.status_code},视为无限制"
-    return None, [], f"HTTP {resp.status_code},爬虫方可能按保守策略视为全站禁抓"
+        return (lambda token: True), [], msg("access.robots.note.no_restrictions", status=resp.status_code)
+    return None, [], msg("access.robots.note.server_error", status=resp.status_code)
 
 
 def audit(
@@ -199,24 +203,24 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
         if baseline.is_success:
             reach = CheckResult(
                 check="reachability", status=CheckStatus.PASS, gating=True,
-                detail=f"基准请求(浏览器 UA)HTTP {baseline.status_code}",
+                detail=msg("access.reach.ok", status=baseline.status_code),
                 evidence={"status": baseline.status_code, "final_url": final_url},
             )
         else:
             reach = CheckResult(
                 check="reachability", status=CheckStatus.FAIL, gating=True,
-                detail=f"基准请求(浏览器 UA)HTTP {baseline.status_code},站点对普通访问者亦不可达",
+                detail=msg("access.reach.bad", status=baseline.status_code),
                 evidence={"status": baseline.status_code, "final_url": final_url},
             )
     except httpx.TooManyRedirects:
         reach = CheckResult(
             check="reachability", status=CheckStatus.FAIL, gating=True,
-            detail="重定向次数超限(疑似循环),任何爬虫都无法到达最终页面",
+            detail=msg("access.reach.redirect_loop"),
         )
     except httpx.HTTPError as exc:
         reach = CheckResult(
             check="reachability", status=CheckStatus.UNKNOWN, gating=True,
-            detail=f"基准请求失败({type(exc).__name__}),无法区分站点故障与审计侧网络问题",
+            detail=msg("access.reach.error", error=type(exc).__name__),
         )
     checks.append(reach)
     baseline_ok = baseline is not None and baseline.is_success
@@ -224,15 +228,22 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
     if redirect_chain:
         origin_host = urlsplit(url).hostname
         final_host = urlsplit(final_url or url).hostname
-        cross = f";最终落在跨主机地址 {final_host}" if final_host != origin_host else ""
+        chain_params = dict(
+            count=len(redirect_chain), chain=" → ".join(redirect_chain), final=final_url
+        )
+        detail = (
+            msg("access.redirects.chain_cross", host=final_host, **chain_params)
+            if final_host != origin_host
+            else msg("access.redirects.chain", **chain_params)
+        )
         checks.append(CheckResult(
             check="redirects", status=CheckStatus.PASS, gating=False,
-            detail=f"重定向 {len(redirect_chain)} 跳:{' → '.join(redirect_chain)} → {final_url}{cross}",
-            evidence={"chain": redirect_chain, "final_url": final_url},
+            detail=detail, evidence={"chain": redirect_chain, "final_url": final_url},
         ))
     else:
         checks.append(CheckResult(
-            check="redirects", status=CheckStatus.PASS, gating=False, detail="无重定向",
+            check="redirects", status=CheckStatus.PASS, gating=False,
+            detail=msg("access.redirects.none"),
         ))
 
     # 2. robots.txt(按最终主机)
@@ -263,22 +274,25 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
     if allowed_fn is None:
         checks.append(CheckResult(
             check="robots_txt", status=CheckStatus.UNKNOWN, gating=True,
-            detail=f"robots.txt 状态无法判定:{robots_note}",
+            detail=msg("access.robots.unknown", note=robots_note),
         ))
     else:
         denied_gating = [p.bot for p in probes if p.gating and p.robots_allowed is False]
         denied_info = [p.bot for p in probes if not p.gating and p.robots_allowed is False]
-        info = f";另有非资格门爬虫被禁(不影响结论):{', '.join(denied_info)}" if denied_info else ""
+        info: Msg | str = (
+            msg("access.robots.info_denied", names=", ".join(denied_info)) if denied_info else ""
+        )
         if denied_gating:
             checks.append(CheckResult(
                 check="robots_txt", status=CheckStatus.FAIL, gating=True,
-                detail=f"robots.txt 禁止了检索类爬虫:{', '.join(denied_gating)}{info}",
+                detail=msg("access.robots.fail", denied=", ".join(denied_gating), info=info),
                 evidence={"denied": denied_gating, "denied_non_gating": denied_info},
             ))
         else:
             checks.append(CheckResult(
                 check="robots_txt", status=CheckStatus.PASS, gating=True,
-                detail=f"robots.txt({robots_note})对全部 {sum(p.gating for p in probes)} 个检索类爬虫令牌放行{info}",
+                detail=msg("access.robots.pass",
+                           note=robots_note, n=sum(p.gating for p in probes), info=info),
                 evidence={"denied_non_gating": denied_info},
             ))
 
@@ -292,22 +306,18 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
     if not baseline_ok:
         checks.append(CheckResult(
             check="ua_differential", status=CheckStatus.UNKNOWN, gating=True,
-            detail="无成功的浏览器基准响应,差异化拦截无从比对",
+            detail=msg("access.ua.no_baseline"),
         ))
     elif blocked:
         checks.append(CheckResult(
             check="ua_differential", status=CheckStatus.UNKNOWN, gating=True,
-            detail=(
-                f"浏览器 UA 正常,但爬虫 UA 未获成功响应:{', '.join(blocked)}。"
-                "可能是 CDN/WAF 封锁爬虫 UA(真爬虫也会被拒),也可能是仅放行官方 IP 的"
-                "反伪装策略(真爬虫能进),本审计无法区分,需在 CDN 后台核验"
-            ),
+            detail=msg("access.ua.blocked", blocked=", ".join(blocked)),
             evidence={"blocked": blocked},
         ))
     else:
         checks.append(CheckResult(
             check="ua_differential", status=CheckStatus.PASS, gating=True,
-            detail=f"已探测 {len(probed)} 个检索类爬虫 UA,均与浏览器基准一致获得成功响应",
+            detail=msg("access.ua.pass", n=len(probed)),
         ))
 
     # 6. HTML 内容(JS 白板):优先以爬虫视角判定
@@ -315,42 +325,41 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
         visible_text_length(baseline.text) if baseline_ok and _is_html(baseline) else None
     )
     bot_views = [(p.bot, p.visible_text_chars) for p in probes if p.visible_text_chars is not None]
+    label: Msg | str = ""
     if bot_views:
-        label, chars = max(bot_views, key=lambda view: view[1])
-        label = f"爬虫 UA 视角:{label}"
+        bot_name, chars = max(bot_views, key=lambda view: view[1])
+        label = msg("access.content.label.bot", bot=bot_name)
     elif browser_chars is not None:
-        label, chars = "浏览器 UA 视角近似", browser_chars
-        caveats.append("所有爬虫 UA 均未获得可分析的 HTML,内容检查以浏览器视角近似")
+        label, chars = msg("access.content.label.browser"), browser_chars
+        caveats.append(msg("access.caveat.browser_view_fallback"))
     else:
-        label, chars = "", -1
+        chars = -1
     if chars < 0:
         checks.append(CheckResult(
             check="html_content", status=CheckStatus.UNKNOWN, gating=True,
-            detail="未获得任何可分析的 HTML 响应",
+            detail=msg("access.content.none"),
         ))
     elif chars >= MIN_VISIBLE_TEXT_CHARS:
-        prerender = (
-            ";浏览器视角为空壳而爬虫视角有内容,站点疑似对爬虫做了预渲染"
+        prerender: Msg | str = (
+            msg("access.content.prerender_note")
             if browser_chars is not None and browser_chars < MIN_VISIBLE_TEXT_CHARS and bot_views
             else ""
         )
         checks.append(CheckResult(
             check="html_content", status=CheckStatus.PASS, gating=True,
-            detail=f"HTML 含可见文本约 {chars} 字符({label}){prerender}",
+            detail=msg("access.content.pass", chars=chars, label=label, prerender=prerender),
             evidence={"visible_chars": chars, "browser_chars": browser_chars},
         ))
     else:
-        reverse = (
-            ";浏览器视角内容充足而爬虫视角为空壳,疑似对爬虫差异化输出"
+        reverse: Msg | str = (
+            msg("access.content.reverse_note")
             if browser_chars is not None and browser_chars >= MIN_VISIBLE_TEXT_CHARS and bot_views
             else ""
         )
         checks.append(CheckResult(
             check="html_content", status=CheckStatus.FAIL, gating=True,
-            detail=(
-                f"HTML 可见文本仅约 {chars} 字符({label}),低于 {MIN_VISIBLE_TEXT_CHARS} 阈值,"
-                f"内容疑似完全依赖 JS 渲染(JS 白板),不执行 JS 的爬虫拿不到正文{reverse}"
-            ),
+            detail=msg("access.content.fail", chars=chars, label=label,
+                       threshold=MIN_VISIBLE_TEXT_CHARS, reverse=reverse),
             evidence={"visible_chars": chars, "browser_chars": browser_chars},
         ))
 
@@ -358,7 +367,7 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
     if sitemap_urls:
         checks.append(CheckResult(
             check="sitemap", status=CheckStatus.PASS, gating=False,
-            detail=f"robots.txt 声明了 sitemap:{', '.join(sitemap_urls[:3])}",
+            detail=msg("access.sitemap.declared", urls=", ".join(sitemap_urls[:3])),
             evidence={"sitemaps": sitemap_urls},
         ))
     else:
@@ -368,17 +377,17 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
             if resp.is_success:
                 checks.append(CheckResult(
                     check="sitemap", status=CheckStatus.PASS, gating=False,
-                    detail=f"robots.txt 未声明,但 {sitemap_url} 可达",
+                    detail=msg("access.sitemap.fallback", url=sitemap_url),
                 ))
             else:
                 checks.append(CheckResult(
                     check="sitemap", status=CheckStatus.FAIL, gating=False,
-                    detail=f"未发现 sitemap(robots.txt 未声明,/sitemap.xml HTTP {resp.status_code});不阻断抓取,仅提示",
+                    detail=msg("access.sitemap.missing", url=sitemap_url, status=resp.status_code),
                 ))
         except httpx.HTTPError as exc:
             checks.append(CheckResult(
                 check="sitemap", status=CheckStatus.UNKNOWN, gating=False,
-                detail=f"sitemap 检查请求失败({type(exc).__name__})",
+                detail=msg("access.sitemap.error", error=type(exc).__name__),
             ))
 
     # 8. 资格门聚合:任一 gating 检查 FAIL → FAIL;否则有 UNKNOWN → UNKNOWN;否则 PASS
@@ -396,7 +405,7 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
     )
 
 
-# ── 呈现与 CLI ────────────────────────────────────────────────────────
+# ── 呈现与 CLI(开发者工具,固定中文渲染)───────────────────────────────
 
 
 def render_text(result: AccessAuditResult) -> str:
@@ -406,7 +415,7 @@ def render_text(result: AccessAuditResult) -> str:
     lines.append("")
     for check in result.checks:
         tag = "" if check.gating else "(提示)"
-        lines.append(f"  [{check.status}]{tag} {check.check} — {check.detail}")
+        lines.append(f"  [{check.status}]{tag} {check.check} — {render_msg(check.detail, 'zh')}")
     lines.append("")
     lines.append("  爬虫探测明细:")
     for probe in result.bots:
@@ -423,7 +432,7 @@ def render_text(result: AccessAuditResult) -> str:
         lines.append(f"    {probe.bot}{gate}: {robots}; {fetch}")
     lines.append("")
     lines.append("  口径与局限:")
-    lines.extend(f"    - {caveat}" for caveat in result.caveats)
+    lines.extend(f"    - {render_msg(caveat, 'zh')}" for caveat in result.caveats)
     return "\n".join(lines)
 
 

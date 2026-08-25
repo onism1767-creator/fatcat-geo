@@ -2,28 +2,40 @@
 
 输出被引概率 + 区间 + 竞品差距。竞品对比遵循「区间重叠即无法区分」
 原则(v0.4.2 附录):禁止在重叠区间上硬排序——与"无总分"同源。
+输出为结论码 + 参数(v1.1),组句在渲染层。
 """
 
 from __future__ import annotations
 
 from diagnosis.findings import (
     DiagnosisThresholds,
+    Msg,
     Stage,
     StageFinding,
     StageStatus,
-    fmt_estimate,
+    caliber_msg,
+    estimate_params,
     interval_status,
+    msg,
 )
 from engine.metrics import ProportionEstimate
 from engine.scheduler import NeedSurfaceMetric
 
+_HEADLINES = {
+    StageStatus.FAIL: "citation.headline.fail",
+    StageStatus.WEAK: "citation.headline.weak",
+    StageStatus.PASS: "citation.headline.pass",
+}
 
-def _compare_line(focal: ProportionEstimate, name: str, competitor: ProportionEstimate) -> str:
+
+def _compare_line(focal: ProportionEstimate, name: str, competitor: ProportionEstimate) -> Msg:
     if focal.ci_high < competitor.ci_low:
-        return f"显著落后于竞品 {name}(其被引 {fmt_estimate(competitor)})"
-    if competitor.ci_high < focal.ci_low:
-        return f"显著领先竞品 {name}(其被引 {fmt_estimate(competitor)})"
-    return f"与竞品 {name} 区间重叠,无法区分(其被引 {fmt_estimate(competitor)})"
+        code = "citation.compare.behind"
+    elif competitor.ci_high < focal.ci_low:
+        code = "citation.compare.ahead"
+    else:
+        code = "citation.compare.overlap"
+    return msg(code, name=name, **estimate_params(competitor))
 
 
 def diagnose_citation(
@@ -35,7 +47,7 @@ def diagnose_citation(
         return StageFinding(
             stage=Stage.CITATION,
             status=StageStatus.NOT_OBSERVABLE,
-            headline="无引用观测通道或无有效样本,引用阶段不可观测",
+            headline=msg("citation.headline.not_observable"),
         )
     estimate = metric.estimate
     accounting = metric.accounting
@@ -46,27 +58,20 @@ def diagnose_citation(
         pass_ci_low=thresholds.citation_pass_ci_low,
     )
     evidence = [
-        f"被引概率:{fmt_estimate(estimate)}",
-        f"口径:surface={metric.surface} model={metric.model} "
-        f"N_valid={accounting.n_valid}/{accounting.n_total} "
-        f"stop_reasons={[r.value for r in metric.stop_reasons]} "
-        f"拒答率={accounting.refusal_rate:.0%} 失败率={accounting.failure_rate:.0%}",
-        f"判定阈值:FAIL 上界≤{thresholds.citation_fail_ci_high:.0%},"
-        f"PASS 下界≥{thresholds.citation_pass_ci_low:.0%}",
+        msg("citation.rate", **estimate_params(estimate)),
+        caliber_msg(metric),
+        msg("citation.thresholds",
+            fail=thresholds.citation_fail_ci_high, pass_=thresholds.citation_pass_ci_low),
     ]
     evidence.extend(_compare_line(estimate, name, comp) for name, comp in (competitors or []))
     evidence.extend(notes)
-    headline = {
-        StageStatus.FAIL: "品牌域名基本不进引用集",
-        StageStatus.WEAK: "品牌域名进入引用集但不稳定",
-        StageStatus.PASS: "品牌域名稳定进入引用集",
-    }[status]
+    headline_code = _HEADLINES[status]
     if status is StageStatus.WEAK and metric.k_hits == 0:
-        headline = "样本内未见被引;样本量不足以下 FAIL 结论"
+        headline_code = "citation.headline.weak_zero"
     return StageFinding(
         stage=Stage.CITATION,
         status=status,
-        headline=headline,
+        headline=msg(headline_code),
         evidence_lines=evidence,
         low_confidence=accounting.low_confidence,
     )

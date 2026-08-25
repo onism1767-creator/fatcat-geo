@@ -90,10 +90,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "recs_title": "▶ 下一步实验建议(每条挂证据条目,无证据不出建议)",
         "level_word": "证据等级",
         "sources_word": "来源", "guardrail_word": "护栏", "contra_word": "禁忌",
+        "needs_experiment": "建议实验验证",
         "footer": "本报告不打分:各阶段结论 = 概率 + 95% 区间(Jeffreys)+ 完整口径"
                   "(surface / model / N / stop_reasons / 拒答率 / 失败率 / 判定阈值)。"
                   "原始观测只追加留档,判定器升级后可全量重算复核。",
-        "l3_lang_note": "",
     },
     "en": {
         "tagline": "v1 · local · stage-by-stage visibility diagnosis — probabilities & intervals, no scores",
@@ -155,11 +155,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "recs_title": "▶ Next experiments (every item cites an evidence entry — no evidence, no advice)",
         "level_word": "evidence level",
         "sources_word": "Sources", "guardrail_word": "Guardrail", "contra_word": "Contraindications",
+        "needs_experiment": "experiment recommended",
         "footer": "This report has no scores: every stage conclusion = probability + 95% interval (Jeffreys) "
                   "+ full caliber (surface / model / N / stop_reasons / refusal & failure rates / thresholds). "
                   "Raw observations are append-only; detector upgrades recompute all history.",
-        "l3_lang_note": "Note: diagnostic conclusion sentences are currently rendered in Chinese "
-                        "(structured bilingual output ships in v1.1).",
     },
 }
 

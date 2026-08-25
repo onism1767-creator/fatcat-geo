@@ -11,13 +11,17 @@ import yaml
 
 from diagnosis.access_audit import AccessAuditResult, CheckStatus
 from diagnosis.diagnose import access_finding, diagnose_need, localize_failure
-from diagnosis.findings import Stage, StageFinding, StageStatus
+from diagnosis.findings import Msg, Stage, StageFinding, StageStatus
+from diagnosis.messages import render_msg
 from diagnosis.recommender import (
     DEFAULT_REGISTRY_PATH,
-    NEEDS_EXPERIMENT_PHRASE,
     load_evidence_registry,
     recommend,
 )
+
+
+def zh_cautions(diagnosis) -> list[str]:
+    return [render_msg(c, "zh") for c in diagnosis.cautions]
 from engine.models import InformationNeed, NeedIntent
 
 REGISTRY = load_evidence_registry()
@@ -26,7 +30,8 @@ NEED = InformationNeed(need_id="need-1", statement="测试需求", intent=NeedIn
 
 
 def make_finding(stage: Stage, status: StageStatus) -> StageFinding:
-    return StageFinding(stage=stage, status=status, headline=f"{stage} {status}")
+    return StageFinding(stage=stage, status=status,
+                        headline=Msg(code="test.headline", params={}))
 
 
 def findings_for(access=StageStatus.PASS, retrieval=StageStatus.PASS,
@@ -79,11 +84,8 @@ def test_recommend_marks_experiment_for_c_and_below():
     recs = recommend(REGISTRY, stage=Stage.CITATION, intent=NeedIntent.DISCOVERY)
     assert recs
     for rec in recs:
-        if rec.evidence_level in ("C", "D"):
-            assert NEEDS_EXPERIMENT_PHRASE in rec.text
-            assert rec.needs_experiment is True
-        else:
-            assert NEEDS_EXPERIMENT_PHRASE not in rec.text
+        assert rec.needs_experiment is (rec.evidence_level in ("C", "D"))
+        assert {"zh", "en"} <= set(rec.hypothesis)  # 双语齐备
 
 
 def test_recommend_filters_by_intent():
@@ -138,8 +140,7 @@ def test_retrieval_failure_warns_against_rewriting():
                               **findings_for(retrieval=StageStatus.FAIL,
                                              citation=StageStatus.WEAK))
     assert diagnosis.primary_failure is Stage.RETRIEVAL
-    assert any("不建议】进行全页" in caution or "不建议】" in caution
-               for caution in diagnosis.cautions)
+    assert any("不建议】进行全页" in caution for caution in zh_cautions(diagnosis))
     assert all(rec.stage is Stage.RETRIEVAL for rec in diagnosis.recommendations)
 
 
@@ -149,7 +150,7 @@ def test_retrieval_fail_contradicted_by_citation_pass_is_channel_divergence():
                               **findings_for(retrieval=StageStatus.FAIL))
     assert diagnosis.primary_failure is None  # 其余全 PASS → 无失败可定位
     assert any("观测通道" in caution and "不据此定位" in caution
-               for caution in diagnosis.cautions)
+               for caution in zh_cautions(diagnosis))
     assert diagnosis.recommendations == []
 
 
@@ -164,13 +165,13 @@ def test_all_pass_yields_no_recommendations():
     diagnosis = diagnose_need(NEED, registry=REGISTRY, **findings_for())
     assert diagnosis.primary_failure is None
     assert diagnosis.recommendations == []
-    assert any("无需药方" in caution for caution in diagnosis.cautions)
+    assert any("无需药方" in caution for caution in zh_cautions(diagnosis))
 
 
 def test_not_observable_stages_are_named_in_cautions():
     diagnosis = diagnose_need(NEED, registry=REGISTRY,
                               **findings_for(retrieval=StageStatus.NOT_OBSERVABLE))
-    assert any("RETRIEVAL" in caution for caution in diagnosis.cautions)
+    assert any("RETRIEVAL" in caution for caution in zh_cautions(diagnosis))
 
 
 # ── ACCESS 结论翻译 ──────────────────────────────────────────────────
