@@ -29,12 +29,12 @@ def test_registry_loads_bundled_config():
     entries = load_surface_registry(DEFAULT_SURFACES_PATH)
     assert len(entries) == 5
     enabled = [e for e in entries if e.enabled]
-    assert len(enabled) == 2  # 当前只有双通道落地
+    assert len(enabled) == 3  # 双通道 + claude_web_search 已落地
 
 
 def test_build_adapters_with_key_and_capability_consistency():
-    adapters = build_adapters({"PERPLEXITY_API_KEY": "test-key"})
-    assert set(adapters) == {"perplexity_search", "perplexity_agent"}
+    adapters = build_adapters({"PERPLEXITY_API_KEY": "test-key", "ANTHROPIC_API_KEY": "test-key"})
+    assert set(adapters) == {"perplexity_search", "perplexity_agent", "claude_web_search"}
     for name, adapter in adapters.items():
         assert adapter.meta().surface == name  # 身份与能力一致性校验已通过
 

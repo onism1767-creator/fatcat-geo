@@ -62,16 +62,19 @@ surfaces:
       supports_search_disabled: true
       supports_offline: true
 
+  # 2026-08-25 落地核对(暂定值修订):supports_offline 改 false——v1 未定义该
+  # 能力语义,不虚报;retrieval_rank 保持 false——候选集虽可观测(进
+  # retrieved_sources 存档),但本质是生成通道,不作检索排名口径/收敛判据。
   - name: claude_web_search
     provider: anthropic
     adapter: adapters.claude_web_search.ClaudeWebSearchAdapter
     api_key_env: ANTHROPIC_API_KEY
-    enabled: false
+    enabled: true
     capabilities:
-      supports_query_trace: true
+      supports_query_trace: true      # server_tool_use 块暴露模型自拟检索词
       supports_retrieval_rank: false
-      supports_citations: true
-      supports_region: true
-      supports_forced_search: false
-      supports_search_disabled: true
-      supports_offline: true
+      supports_citations: true        # 文内锚定引用,按首次出现去重成引用池
+      supports_region: true           # user_location(approximate country)
+      supports_forced_search: false   # 平台无强制检索开关
+      supports_search_disabled: true  # 不带工具调用,测参数化知识
+      supports_offline: false

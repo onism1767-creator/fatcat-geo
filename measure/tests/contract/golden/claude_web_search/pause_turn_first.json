@@ -1,0 +1,30 @@
+{
+  "id": "msg_01PauseAAAAAAAAAAAAAAAAA",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-4-6",
+  "content": [
+    {
+      "type": "server_tool_use",
+      "id": "srvtoolu_01Pause",
+      "name": "web_search",
+      "input": {"query": "CRM 中小团队 免费 对比"}
+    },
+    {
+      "type": "web_search_tool_result",
+      "tool_use_id": "srvtoolu_01Pause",
+      "content": [
+        {
+          "type": "web_search_result",
+          "url": "https://www.example-forum.com/crm-thread",
+          "title": "CRM 讨论帖",
+          "encrypted_content": "EpjKCioIBBgBIiQ3YTAwMjY1Mi1mZjM5LTQ1NGUtODgxNC1kNjNjNTk1ZWI3_fake",
+          "page_age": "June 1, 2026"
+        }
+      ]
+    }
+  ],
+  "stop_reason": "pause_turn",
+  "stop_sequence": null,
+  "usage": {"input_tokens": 6100, "output_tokens": 210, "server_tool_use": {"web_search_requests": 1}}
+}

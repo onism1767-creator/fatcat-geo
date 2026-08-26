@@ -1,0 +1,54 @@
+{
+  "id": "msg_01MaxUsesAAAAAAAAAAAAAAA",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-4-6",
+  "content": [
+    {
+      "type": "server_tool_use",
+      "id": "srvtoolu_01MaxUses1",
+      "name": "web_search",
+      "input": {"query": "中小团队 CRM 对比 2026"}
+    },
+    {
+      "type": "web_search_tool_result",
+      "tool_use_id": "srvtoolu_01MaxUses1",
+      "content": [
+        {
+          "type": "web_search_result",
+          "url": "https://www.example-review.com/best-crm-small-teams",
+          "title": "Best CRM for Small Teams (2026)",
+          "encrypted_content": "EqgfCioIARgBIiQ3YTAwMjY1Mi1mZjM5LTQ1NGUtODgxNC1kNjNjNTk1ZWI3_fake",
+          "page_age": "May 11, 2026"
+        }
+      ]
+    },
+    {
+      "type": "server_tool_use",
+      "id": "srvtoolu_01MaxUses2",
+      "name": "web_search",
+      "input": {"query": "CRM 免费档 十人以下团队"}
+    },
+    {
+      "type": "web_search_tool_result",
+      "tool_use_id": "srvtoolu_01MaxUses2",
+      "content": {"type": "web_search_tool_result_error", "error_code": "max_uses_exceeded"}
+    },
+    {
+      "type": "text",
+      "text": "根据已检索到的对比,HubSpot 对十人以下团队最常被推荐。",
+      "citations": [
+        {
+          "type": "web_search_result_location",
+          "url": "https://www.example-review.com/best-crm-small-teams",
+          "title": "Best CRM for Small Teams (2026)",
+          "cited_text": "We compared 12 CRMs on price, onboarding time and integrations…",
+          "encrypted_index": "Eo8BCioIAhgBIiQyYjQ0OTk3NA_fake"
+        }
+      ]
+    }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {"input_tokens": 9410, "output_tokens": 214, "server_tool_use": {"web_search_requests": 1}}
+}
