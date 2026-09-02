@@ -84,6 +84,7 @@ class PerplexityAgentAdapter(SurfaceAdapter):
             default_model="sonar",
             capabilities=_CAPABILITIES,
             unit_prices={"request_usd": 0.005},  # 检索附加费近似值,待官方价目核对
+            est_cost_per_call_usd=0.006,  # 口径:2026-08 实测均值(请求费 + 少量 token 费)
         )
 
     def ask(self, request: AskRequest) -> SurfaceRun:

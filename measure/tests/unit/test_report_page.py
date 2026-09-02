@@ -38,7 +38,8 @@ class DummyAdapter(SurfaceAdapter):
     def meta(self) -> SurfaceMeta:
         return SurfaceMeta(provider="test_provider", surface="s1", models=["m1"],
                            default_model="m1",
-                           capabilities=CapabilityRegistry(supports_citations=True))
+                           capabilities=CapabilityRegistry(supports_citations=True),
+                           est_cost_per_call_usd=0.005)
 
     def ask(self, request):
         raise AssertionError("测试不应触发真实采样")
@@ -199,9 +200,10 @@ def test_unfinished_report_redirects_to_status(client_and_job):
 
 
 def test_estimate_job_arithmetic():
-    est = estimate_job(3, 2, 2, "quick")
-    assert est.calls == 90
-    assert est.cost_usd == pytest.approx(90 * 0.0055)
+    # 按 surface 分价(v0.4.6):便宜通道与贵通道混选,成本逐个计价求和
+    est = estimate_job(3, 2, [0.005, 0.17], "quick")
+    assert est.calls == 90  # 3 需求 × 2 变体 × 2 surface × 7.5 期望采样
+    assert est.cost_usd == pytest.approx(3 * 2 * 7.5 * (0.005 + 0.17))
 
 
 def test_fingerprint_stable_and_sensitive():

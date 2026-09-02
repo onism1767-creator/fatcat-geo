@@ -57,6 +57,7 @@ class ScriptedAdapter(SurfaceAdapter):
             provider="test_provider", surface="test_surface",
             models=["m1"], default_model="m1",
             capabilities=CapabilityRegistry(supports_citations=True),
+            est_cost_per_call_usd=0.005,
         )
 
     def ask(self, request: AskRequest) -> SurfaceRun:

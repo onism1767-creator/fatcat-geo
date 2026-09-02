@@ -37,6 +37,7 @@ def test_build_adapters_with_key_and_capability_consistency():
     assert set(adapters) == {"perplexity_search", "perplexity_agent", "claude_web_search"}
     for name, adapter in adapters.items():
         assert adapter.meta().surface == name  # 身份与能力一致性校验已通过
+        assert adapter.meta().est_cost_per_call_usd > 0  # 预估分价:每个 surface 必须报价
 
 
 def test_build_adapters_skips_surfaces_without_key():

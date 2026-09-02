@@ -24,14 +24,12 @@ from engine.needs import NeedCandidate, draft_need_candidates
 from report import runner
 from report.i18n import INTENT_LABELS, MESSAGES, resolve_lang
 from report.jobs import (
-    AVG_COST_PER_CALL_USD,
     AVG_SECONDS_PER_CALL,
     PLAN_CONCURRENCY,
     TIERS,
     DiagnosisJob,
     JobRegistry,
     JobState,
-    estimate_job,
 )
 
 DEFAULT_DSN = "postgresql://geo@localhost:5433/geo_tool"
@@ -131,7 +129,8 @@ def create_app(
             return redirect(request, f"/jobs/{job.job_id}")
         estimate_constants = json.dumps({
             "tier_calls": {tid: t.expected_calls_per_plan for tid, t in TIERS.items()},
-            "cost_per_call": AVG_COST_PER_CALL_USD,
+            # 按 surface 分价(v0.4.6):单价由各适配器 meta 声明,前端按勾选求和
+            "surface_costs": {name: a.meta().est_cost_per_call_usd for name, a in adapters.items()},
             "seconds_per_call": AVG_SECONDS_PER_CALL,
             "concurrency": PLAN_CONCURRENCY,
         })

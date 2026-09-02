@@ -79,6 +79,9 @@ class SurfaceMeta(FrozenModel):
     default_model: str
     capabilities: CapabilityRegistry
     unit_prices: dict[str, float] = {}  # 计费单价,键为该 surface 的计费口径(如每千输入 token)
+    # 单次调用期望成本,确认页预估用(v0.4.6):由适配器自行声明,单一真相源;
+    # 口径二选一且须在适配器内注明——实测均值 或 推导上界。真实计费仍以 SurfaceRun.cost_usd 为准。
+    est_cost_per_call_usd: float
 
 
 class SurfaceAdapter(ABC):

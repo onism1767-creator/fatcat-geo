@@ -65,12 +65,14 @@ const C = {{ estimate_constants | safe }};
 function recalc() {
   const n = document.querySelectorAll('input[name=needs_selected]:checked').length
           + document.querySelector('textarea[name=custom]').value.split('\n').filter(s => s.trim()).length;
-  const s = document.querySelectorAll('input[name=surfaces_selected]:checked').length;
+  const checked = Array.from(document.querySelectorAll('input[name=surfaces_selected]:checked'));
   const v = parseInt(document.querySelector('select[name=variants]').value);
   const t = document.querySelector('select[name=tier]').value;
-  const calls = n * v * s * C.tier_calls[t];
+  const perSurfaceCalls = n * v * C.tier_calls[t];
+  const calls = perSurfaceCalls * checked.length;
+  const cost = perSurfaceCalls * checked.reduce((sum, el) => sum + C.surface_costs[el.value], 0);
   document.getElementById('est-calls').textContent = Math.round(calls);
-  document.getElementById('est-cost').textContent = (calls * C.cost_per_call).toFixed(2);
+  document.getElementById('est-cost').textContent = cost.toFixed(2);
   document.getElementById('est-min').textContent = (calls * C.seconds_per_call / 60 / C.concurrency).toFixed(1);
 }
 document.addEventListener('change', recalc);

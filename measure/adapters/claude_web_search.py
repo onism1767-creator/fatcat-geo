@@ -140,6 +140,10 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
                 "output_usd_per_mtok": _TOKEN_PRICES_PER_MTOK[_DEFAULT_MODEL][1],
                 "search_usd_per_use": _SEARCH_USD_PER_USE,
             },
+            # 口径:推导上界(默认模型,满额 MAX_USES 次检索;每次检索约 1.2 万输入
+            # token 为 Potato 实测校准值),待本仪器实测后校准:
+            # (2000 + 3×12000)/1e6×$3 + 2000/1e6×$15 + 3×$0.01 ≈ $0.17
+            est_cost_per_call_usd=0.17,
         )
 
     def ask(self, request: AskRequest) -> SurfaceRun:

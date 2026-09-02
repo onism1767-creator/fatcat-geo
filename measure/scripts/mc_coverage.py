@@ -42,7 +42,8 @@ class BernoulliAdapter(SurfaceAdapter):
 
     def meta(self) -> SurfaceMeta:
         return SurfaceMeta(provider="sim", surface="sim", models=["sim"],
-                           default_model="sim", capabilities=CapabilityRegistry())
+                           default_model="sim", capabilities=CapabilityRegistry(),
+                           est_cost_per_call_usd=0.005)
 
     def ask(self, request: AskRequest) -> SurfaceRun:
         return SurfaceRun(

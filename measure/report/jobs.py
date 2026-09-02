@@ -21,8 +21,9 @@ from engine.scheduler import SamplingPolicy
 
 PLAN_CONCURRENCY = 3  # 采样计划并发路数(16.1)
 
-# 预估口径(16.4):2026-08 双通道实测均值,随价目/延迟变化校准
-AVG_COST_PER_CALL_USD = 0.0055
+# 预估口径(16.4 / v0.4.6):成本按 surface 分价——单价由各适配器 meta 声明
+# (est_cost_per_call_usd,实测均值或推导上界);时间仍用双通道实测均值,
+# 留待多 surface 实测后一并校准。
 AVG_SECONDS_PER_CALL = 4.0
 
 
@@ -61,11 +62,15 @@ class Estimate(FrozenModel):
     minutes: float
 
 
-def estimate_job(n_needs: int, variants_per_need: int, n_surfaces: int, tier_id: str) -> Estimate:
-    calls = n_needs * variants_per_need * n_surfaces * TIERS[tier_id].expected_calls_per_plan
+def estimate_job(
+    n_needs: int, variants_per_need: int, surface_costs: list[float], tier_id: str
+) -> Estimate:
+    """surface_costs = 所选各 surface 的单次调用期望成本(适配器 meta 声明)。"""
+    per_surface_calls = n_needs * variants_per_need * TIERS[tier_id].expected_calls_per_plan
+    calls = per_surface_calls * len(surface_costs)
     return Estimate(
         calls=round(calls),
-        cost_usd=calls * AVG_COST_PER_CALL_USD,
+        cost_usd=per_surface_calls * sum(surface_costs),
         minutes=calls * AVG_SECONDS_PER_CALL / 60 / PLAN_CONCURRENCY,
     )
 
