@@ -367,6 +367,62 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": "所有爬虫 UA 均未获得可分析的 HTML,内容检查以浏览器视角近似",
         "en": "No crawler UA returned analyzable HTML; the content check approximates using the browser view",
     },
+    # ── 检索依赖(第 9 章挂靠)─────────────────────────────────────────
+    "dependency.headline.high": {
+        "zh": "检索依赖:高——禁用检索后提及率不足开卷下界的一半,可见度主要靠实时检索支撑",
+        "en": "Retrieval dependency: HIGH — with search disabled the mention rate falls below half of the search-on lower bound; visibility relies mainly on live retrieval",
+    },
+    "dependency.headline.medium": {
+        "zh": "检索依赖:中——禁用检索后提及率显著下降,实时检索贡献了可观的可见度增量",
+        "en": "Retrieval dependency: MEDIUM — the mention rate drops significantly with search disabled; live retrieval contributes a substantial share of visibility",
+    },
+    "dependency.headline.low": {
+        "zh": "检索依赖:低——开卷与闭卷提及率无法区分,可见度不依赖临场检索",
+        "en": "Retrieval dependency: LOW — search-on and search-off mention rates are indistinguishable; visibility does not depend on live retrieval",
+    },
+    "dependency.headline.inconclusive": {
+        "zh": "检索依赖:无法判定",
+        "en": "Retrieval dependency: INCONCLUSIVE",
+    },
+    "dependency.pair": {
+        "zh": "开卷(正常检索)提及:{on_point:.0%} [95% 区间(Jeffreys): {on_low:.0%}–{on_high:.0%}](N={on_n});"
+              "闭卷(禁用检索)提及:{off_point:.0%} [95% 区间(Jeffreys): {off_low:.0%}–{off_high:.0%}](N={off_n})",
+        "en": "Search-on mention: {on_point:.0%} [95% CI (Jeffreys): {on_low:.0%}–{on_high:.0%}] (N={on_n}); "
+              "search-off mention: {off_point:.0%} [95% CI (Jeffreys): {off_low:.0%}–{off_high:.0%}] (N={off_n})",
+    },
+    "dependency.note.meaning": {
+        "zh": "口径说明:闭卷 = 同一问法在不提供检索工具下重复采样;闭卷能答不等于「AI 记住了品牌」,"
+              "仅说明可见度不依赖临场检索(第 9 章)。本观测不参与失败定位",
+        "en": "Caliber note: search-off = the same prompts re-sampled without the search tool; answering "
+              "search-off does not mean the AI \"remembers\" the brand — only that visibility does not depend "
+              "on live retrieval (§9). This observation does not participate in failure localization",
+    },
+    "dependency.note.absent_online": {
+        "zh": "开卷提及本身处于缺席水平(区间上界不高于缺席阈值),依赖度无从谈起",
+        "en": "Search-on mention is itself at absence level (CI upper bound at or below the absence threshold); dependency is moot",
+    },
+    "dependency.note.missing_leg": {
+        "zh": "开卷或闭卷缺少有效样本,无法对比",
+        "en": "The search-on or search-off leg has no valid samples; comparison is not possible",
+    },
+    "dependency.thresholds": {
+        "zh": "判定规则(只认区间端点):区间重叠 → LOW;分离 → MEDIUM;闭卷上界 < 开卷下界×{ratio:.0%} → HIGH;"
+              "开卷上界 ≤ {absent:.0%} 或任一腿缺样本 → 无法判定",
+        "en": "Verdict rule (interval endpoints only): overlap → LOW; separated → MEDIUM; search-off upper < "
+              "search-on lower ×{ratio:.0%} → HIGH; search-on upper ≤ {absent:.0%} or a missing leg → INCONCLUSIVE",
+    },
+    "dependency.leg_caliber": {
+        "zh": "{leg},{caliber}",
+        "en": "{leg}: {caliber}",
+    },
+    "dependency.leg.online": {
+        "zh": "开卷腿",
+        "en": "search-on leg",
+    },
+    "dependency.leg.offline": {
+        "zh": "闭卷腿",
+        "en": "search-off leg",
+    },
     # ── 警示语(diagnose)──────────────────────────────────────────────
     "caution.divergence": {
         "zh": "检索观测通道显示品牌缺席,但引用阶段 PASS——被引必先被检索,两通道结论矛盾。"

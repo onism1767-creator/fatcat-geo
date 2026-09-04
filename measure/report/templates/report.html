@@ -44,6 +44,17 @@
   {% endif %}
   {% endfor %}
 
+  {% if d.retrieval_dependency %}
+  {% set dep = d.retrieval_dependency %}
+  <h3>■ {{ t["dep_section"] }}
+    <span class="chip {{ dep.level.value }}">{{ dep.level.value }}</span></h3>
+  <p style="margin:4px 0">{{ dep.headline|msg(lang) }}</p>
+  <details {{ "open" if dep.level.value in ("HIGH", "MEDIUM") else "" }}>
+    <summary>{{ t["evidence_summary"] }}</summary>
+    <ul class="ev">{% for line in dep.evidence_lines %}<li>{{ line|msg(lang) }}</li>{% endfor %}</ul>
+  </details>
+  {% endif %}
+
   <h3>{{ t["localization_title"] }}</h3>
   <p>{% if d.primary_failure %}{{ t["loc_pre"] }} <b>{{ d.primary_failure.value }}</b> {{ t["loc_post"] }}
      {% else %}{{ t["no_failure"] }}{% endif %}</p>

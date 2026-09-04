@@ -144,6 +144,8 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
             # token 为 Potato 实测校准值),待本仪器实测后校准:
             # (2000 + 3×12000)/1e6×$3 + 2000/1e6×$15 + 3×$0.01 ≈ $0.17
             est_cost_per_call_usd=0.17,
+            # 闭卷腿口径:同源推导上界,无检索项:(2000×$3 + 2000×$15)/1e6 ≈ $0.04
+            est_cost_per_call_search_disabled_usd=0.04,
         )
 
     def ask(self, request: AskRequest) -> SurfaceRun:

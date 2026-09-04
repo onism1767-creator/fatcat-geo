@@ -49,6 +49,8 @@ class DiagnosisThresholds(FrozenModel):
     mention_pass_ci_low: float = 0.50
     negative_share_weak: float = 0.30  # 情感负面占比超此值,状态封顶 WEAK
     negative_share_fail: float = 0.50  # 探针需求下负面过半 → FAIL
+    # 检索依赖(第 9 章):闭卷区间上界 < 开卷区间下界 × 此值 → HIGH(2026-09 用户拍板)
+    dependency_high_ratio: float = 0.5
 
 
 class StageFinding(FrozenModel):

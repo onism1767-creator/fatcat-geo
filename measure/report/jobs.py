@@ -63,14 +63,21 @@ class Estimate(FrozenModel):
 
 
 def estimate_job(
-    n_needs: int, variants_per_need: int, surface_costs: list[float], tier_id: str
+    n_needs: int,
+    variants_per_need: int,
+    surface_costs: list[float],
+    tier_id: str,
+    dependency_costs: list[float] | None = None,
 ) -> Estimate:
-    """surface_costs = 所选各 surface 的单次调用期望成本(适配器 meta 声明)。"""
-    per_surface_calls = n_needs * variants_per_need * TIERS[tier_id].expected_calls_per_plan
-    calls = per_surface_calls * len(surface_costs)
+    """surface_costs = 所选各 surface 的单次调用期望成本(适配器 meta 声明);
+    dependency_costs = 启用检索依赖对照时各支持 surface 的闭卷腿单价
+    (闭卷腿与开卷同采样策略,故每腿期望调用数相同)。"""
+    dependency_costs = dependency_costs or []
+    per_leg_calls = n_needs * variants_per_need * TIERS[tier_id].expected_calls_per_plan
+    calls = per_leg_calls * (len(surface_costs) + len(dependency_costs))
     return Estimate(
         calls=round(calls),
-        cost_usd=per_surface_calls * sum(surface_costs),
+        cost_usd=per_leg_calls * (sum(surface_costs) + sum(dependency_costs)),
         minutes=calls * AVG_SECONDS_PER_CALL / 60 / PLAN_CONCURRENCY,
     )
 
@@ -109,6 +116,7 @@ class DiagnosisJob:
         self.tier_id = "quick"
         self.variants_per_need = 2
         self.budget_usd: float | None = None
+        self.dependency_enabled = False  # 检索依赖对照(第 9 章挂靠),默认关
         self.fingerprint = ""
 
         self.total_plans = 0
@@ -140,6 +148,7 @@ class DiagnosisJob:
         tier_id: str,
         variants_per_need: int,
         budget_usd: float | None,
+        dependency_enabled: bool = False,
     ) -> None:
         """确认即冻结:任务快照 + config_fingerprint(16.3)。改题 = 新任务新基线。"""
         self.needs = needs
@@ -148,6 +157,7 @@ class DiagnosisJob:
         self.tier_id = tier_id
         self.variants_per_need = variants_per_need
         self.budget_usd = budget_usd
+        self.dependency_enabled = dependency_enabled
         snapshot = {
             "brand": self.brand.model_dump(),
             "website": self.website,
@@ -159,6 +169,7 @@ class DiagnosisJob:
             "tier": tier_id,
             "variants_per_need": variants_per_need,
             "budget_usd": budget_usd,
+            "dependency_enabled": dependency_enabled,
             "policy": TIERS[tier_id].policy.model_dump(),
         }
         canonical = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)

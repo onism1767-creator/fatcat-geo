@@ -29,6 +29,7 @@ from diagnosis.citation_verify import (
 from diagnosis.diagnose import access_finding, diagnose_need
 from diagnosis.recommender import EvidenceEntry
 from diagnosis.representation_diag import diagnose_representation
+from diagnosis.retrieval_dependency import diagnose_retrieval_dependency
 from diagnosis.retrieval_diag import diagnose_retrieval
 from engine.detectors.brand_mention import BrandMentionDetector
 from engine.detectors.matching import matches_any_brand_domain
@@ -42,6 +43,7 @@ from engine.models import (
     InformationNeed,
     PromptOrigin,
     PromptVariant,
+    SearchMode,
     StopReason,
     SurfaceRun,
 )
@@ -84,6 +86,17 @@ def _hit_fn_for(adapter: SurfaceAdapter, brand: BrandSpec):
 
         return cited
     raise ValueError(f"surface {adapter.meta().surface} 未声明可作收敛判据的能力")
+
+
+def _mention_hit_fn(brand: BrandSpec):
+    """闭卷腿(search_disabled)收敛判据:提及——该模式无引用机制,引用判据恒空。"""
+    detector = BrandMentionDetector()
+
+    def mentioned(run: SurfaceRun) -> bool | None:
+        observation = detector.detect(run, brand)
+        return None if observation is None else observation.mentioned
+
+    return mentioned
 
 
 def execute_job(
@@ -134,31 +147,47 @@ def _execute(
             storage.insert_prompt_variant(variant)
         variants_by_need[need.need_id] = variants
 
-    plans = [(need, surface_name) for need in job.needs for surface_name in selected]
+    # 检索依赖对照(第 9 章挂靠):启用时,为支持 search_disabled 的 surface
+    # 追加闭卷腿计划——同一批问法、同采样策略,仅检索模式不同(模式即口径)
+    dependency_surfaces = [
+        name for name, adapter in selected.items()
+        if job.dependency_enabled and adapter.meta().capabilities.supports_search_disabled
+    ]
+    plans = [
+        (need, surface_name, SearchMode.DEFAULT) for need in job.needs for surface_name in selected
+    ] + [
+        (need, surface_name, SearchMode.SEARCH_DISABLED)
+        for need in job.needs
+        for surface_name in dependency_surfaces
+    ]
     job.total_plans = len(plans)
     per_plan_budget = job.budget_usd / len(plans) if job.budget_usd else None
     policy = TIERS[job.tier_id].policy.model_copy(update={"budget_usd": per_plan_budget})
 
     job.phase = "phase_sampling"
     progress_lock = threading.Lock()
-    results: dict[tuple[str, str], list[SamplingResult]] = {}
+    results: dict[tuple[str, str, SearchMode], list[SamplingResult]] = {}
 
-    def run_one(plan: tuple[InformationNeed, str]) -> None:
-        need, surface_name = plan
+    def run_one(plan: tuple[InformationNeed, str, SearchMode]) -> None:
+        need, surface_name, mode = plan
         adapter = selected[surface_name]
-        hit_fn = _hit_fn_for(adapter, job.brand)
+        hit_fn = (
+            _mention_hit_fn(job.brand)
+            if mode is SearchMode.SEARCH_DISABLED
+            else _hit_fn_for(adapter, job.brand)
+        )
         plan_storage = Storage(dsn)  # psycopg 连接非线程安全:每计划独立连接
         try:
             sampler = SequentialSampler(plan_storage)
             plan_results = [
                 sampler.run_plan(adapter, need, variant, hit_fn=hit_fn,
-                                 policy=policy, locale=job.locale)
+                                 policy=policy, search_mode=mode, locale=job.locale)
                 for variant in variants_by_need[need.need_id]
             ]
         finally:
             plan_storage.close()
         with progress_lock:
-            results[(need.need_id, surface_name)] = plan_results
+            results[(need.need_id, surface_name, mode)] = plan_results
             job.completed_plans += 1
             job.spent_usd += sum(r.total_cost_usd for r in plan_results)
 
@@ -168,13 +197,21 @@ def _execute(
     # 预取全部运行,收集品牌被引 URL,统一独立核验(全局去重 + 库缓存)
     job.phase = "phase_verify"
     runs_by: dict[tuple[str, str], list[SurfaceRun]] = {}
+    offline_runs_by: dict[tuple[str, str], list[SurfaceRun]] = {}
     for need in job.needs:
         variant_ids = [v.variant_id for v in variants_by_need[need.need_id]]
         for surface_name in selected:
-            runs_by[(need.need_id, surface_name)] = [
+            all_runs = [
                 run
                 for vid in variant_ids
                 for run in storage.runs_for_variant(vid, surface=surface_name)
+            ]
+            # 闭卷腿单独归档:检索模式即口径,禁止混入开卷指标的分母
+            runs_by[(need.need_id, surface_name)] = [
+                run for run in all_runs if run.search_mode != SearchMode.SEARCH_DISABLED
+            ]
+            offline_runs_by[(need.need_id, surface_name)] = [
+                run for run in all_runs if run.search_mode == SearchMode.SEARCH_DISABLED
             ]
 
     def brand_cited_urls(run: SurfaceRun) -> list[str]:
@@ -211,12 +248,13 @@ def _execute(
         sentiment_counts: Counter = Counter()
         competitor_estimates: list = []
         need_runs: list[SurfaceRun] = []
+        dependency = None
 
         for surface_name, adapter in selected.items():
-            plan_results = results[(need.need_id, surface_name)]
+            plan_results = results[(need.need_id, surface_name, SearchMode.DEFAULT)]
             truncated |= any(r.stop_reason in _TRUNCATION_REASONS for r in plan_results)
             runs = runs_by[(need.need_id, surface_name)]
-            need_runs += runs
+            need_runs += runs + offline_runs_by[(need.need_id, surface_name)]
             capabilities = adapter.meta().capabilities
             if capabilities.supports_retrieval_rank and retrieval_metric is None:
                 retrieval_metric = aggregate_need_surface(plan_results, metric_label=rank_det.name)
@@ -276,6 +314,23 @@ def _execute(
                             estimate_proportion(sum(o.cited for o in comp_obs), len(comp_obs)),
                         ))
 
+            # 检索依赖对照(第 9 章):同 surface 的开卷/闭卷提及率区间并比
+            closed_key = (need.need_id, surface_name, SearchMode.SEARCH_DISABLED)
+            if dependency is None and closed_key in results:
+                closed_results = results[closed_key]
+                truncated |= any(r.stop_reason in _TRUNCATION_REASONS for r in closed_results)
+                closed_metric = aggregate_need_surface(closed_results, metric_label=mention_det.name)
+                open_obs = [obs for run in runs if (obs := mention_det.detect(run, job.brand))]
+                k_open = sum(obs.mentioned for obs in open_obs)
+                open_metric = aggregate_need_surface(
+                    plan_results, metric_label=mention_det.name
+                ).model_copy(update={  # 开卷腿收敛判据是引用,提及数须按判定器重算
+                    "k_hits": k_open,
+                    "estimate": estimate_proportion(k_open, len(open_obs)) if open_obs else None,
+                    "per_variant": [],
+                })
+                dependency = diagnose_retrieval_dependency(open_metric, closed_metric)
+
         observe_runs(storage, need_runs, [mention_det, citation_det, rank_det, sentiment_det], job.brand)
         diagnosis = diagnose_need(
             need,
@@ -287,6 +342,7 @@ def _execute(
                 need.intent, mention_metric, dict(sentiment_counts)
             ),
             registry=evidence,
+            retrieval_dependency=dependency,
         )
         job.need_reports.append(NeedReport(
             need=need,

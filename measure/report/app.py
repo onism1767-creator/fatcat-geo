@@ -131,6 +131,12 @@ def create_app(
             "tier_calls": {tid: t.expected_calls_per_plan for tid, t in TIERS.items()},
             # 按 surface 分价(v0.4.6):单价由各适配器 meta 声明,前端按勾选求和
             "surface_costs": {name: a.meta().est_cost_per_call_usd for name, a in adapters.items()},
+            # 检索依赖对照的闭卷腿单价:仅支持 search_disabled 的 surface 在此出现
+            "dependency": {
+                name: price
+                for name, a in adapters.items()
+                if (price := a.meta().est_cost_per_call_search_disabled_usd) is not None
+            },
             "seconds_per_call": AVG_SECONDS_PER_CALL,
             "concurrency": PLAN_CONCURRENCY,
         })
@@ -149,6 +155,7 @@ def create_app(
         tier: str = Form("quick"),
         variants: int = Form(2),
         budget: str = Form(""),
+        dependency: str = Form(""),
     ):
         job = registry.get(job_id)
         if job is None:
@@ -185,7 +192,8 @@ def create_app(
             for c in [job.competitors_suggested[i]]
         ]
         job.freeze(needs=needs, competitors=competitors, surfaces=surfaces,
-                   tier_id=tier, variants_per_need=variants, budget_usd=budget_usd)
+                   tier_id=tier, variants_per_need=variants, budget_usd=budget_usd,
+                   dependency_enabled=bool(dependency))
         threading.Thread(
             target=job_runner,
             kwargs=dict(job=job, adapters=adapters, dsn=dsn, evidence=evidence),

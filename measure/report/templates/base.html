@@ -32,6 +32,9 @@
           font-weight:700; color:#fff; vertical-align:middle; }
   .chip.PASS{background:var(--pass);} .chip.WEAK{background:var(--weak);}
   .chip.FAIL{background:var(--fail);} .chip.NOT_OBSERVABLE{background:var(--na);}
+  /* 检索依赖四档:HIGH=风险色(全押检索),LOW=安然色 */
+  .chip.HIGH{background:var(--fail);} .chip.MEDIUM{background:var(--weak);}
+  .chip.LOW{background:var(--pass);} .chip.INCONCLUSIVE{background:var(--na);}
   .chip.intent { background:#eef3f9; color:var(--accent); font-weight:600; }
   .bar { height:10px; background:#ececec; border-radius:5px; overflow:hidden; }
   .bar > div { height:100%; background:var(--accent); transition:width .5s; }

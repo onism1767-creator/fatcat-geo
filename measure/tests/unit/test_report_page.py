@@ -16,6 +16,7 @@ from diagnosis.citation_diag import VerificationSummary, diagnose_citation
 from diagnosis.diagnose import access_finding, diagnose_need
 from diagnosis.recommender import load_evidence_registry
 from diagnosis.representation_diag import diagnose_representation
+from diagnosis.retrieval_dependency import diagnose_retrieval_dependency
 from diagnosis.retrieval_diag import diagnose_retrieval
 from engine.metrics import account_outcomes, estimate_proportion
 from engine.models import (
@@ -78,6 +79,10 @@ def finished_job() -> DiagnosisJob:
             NeedIntent.DISCOVERY, make_metric(20, 30), {Sentiment.POSITIVE: 5}
         ),
         registry=REGISTRY,
+        # 开卷 20/30 vs 闭卷 2/30:区间分离且闭卷上界不足开卷下界一半 → HIGH
+        retrieval_dependency=diagnose_retrieval_dependency(
+            make_metric(20, 30), make_metric(2, 30)
+        ),
     )
     job = DiagnosisJob(brand=brand, website="https://aurora-crm.com", category="CRM",
                        locale="zh-CN", candidates=[], competitors_suggested=[])
@@ -204,6 +209,26 @@ def test_estimate_job_arithmetic():
     est = estimate_job(3, 2, [0.005, 0.17], "quick")
     assert est.calls == 90  # 3 需求 × 2 变体 × 2 surface × 7.5 期望采样
     assert est.cost_usd == pytest.approx(3 * 2 * 7.5 * (0.005 + 0.17))
+    # 检索依赖对照:闭卷腿按自身单价另计(每腿采样策略与开卷相同)
+    est_dep = estimate_job(3, 2, [0.005, 0.17], "quick", dependency_costs=[0.04])
+    assert est_dep.calls == 135  # 多一条闭卷腿
+    assert est_dep.cost_usd == pytest.approx(3 * 2 * 7.5 * (0.005 + 0.17 + 0.04))
+
+
+def test_fingerprint_sensitive_to_dependency_flag():
+    def build(dependency_enabled: bool) -> str:
+        job = DiagnosisJob(brand=BrandSpec(name="X", domains=["x.com"]), website="https://x.com",
+                           category="C", locale="zh-CN", candidates=[],
+                           competitors_suggested=[])
+        job.freeze(needs=[InformationNeed(need_id="fixed", statement="问法甲",
+                                          intent=NeedIntent.DISCOVERY,
+                                          created_at=datetime(2026, 8, 24, tzinfo=UTC))],
+                   competitors=[], surfaces=["s1"], tier_id="quick",
+                   variants_per_need=2, budget_usd=None,
+                   dependency_enabled=dependency_enabled)
+        return job.fingerprint
+
+    assert build(False) != build(True)  # 闭卷对照开关是口径的一部分,必须进指纹
 
 
 def test_fingerprint_stable_and_sensitive():

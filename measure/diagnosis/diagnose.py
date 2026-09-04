@@ -16,6 +16,7 @@ from diagnosis.access_audit import AccessAuditResult
 from diagnosis.access_audit import CheckStatus as AccessCheckStatus
 from diagnosis.findings import Msg, Stage, StageFinding, StageStatus, msg
 from diagnosis.recommender import EvidenceEntry, Recommendation, recommend
+from diagnosis.retrieval_dependency import DependencyFinding
 from engine.models import FrozenModel, InformationNeed, NeedIntent
 
 _FUNNEL = (Stage.RETRIEVAL, Stage.CITATION, Stage.REPRESENTATION)
@@ -29,6 +30,7 @@ class NeedDiagnosis(FrozenModel):
     primary_failure: Stage | None
     cautions: list[Msg]
     recommendations: list[Recommendation]
+    retrieval_dependency: DependencyFinding | None = None  # 第 9 章挂靠观测,不参与定位
 
 
 def access_finding(audit: AccessAuditResult | None) -> StageFinding:
@@ -78,6 +80,7 @@ def diagnose_need(
     citation: StageFinding,
     representation: StageFinding,
     registry: list[EvidenceEntry],
+    retrieval_dependency: DependencyFinding | None = None,
 ) -> NeedDiagnosis:
     findings = {
         Stage.ACCESS: access,
@@ -116,4 +119,5 @@ def diagnose_need(
         primary_failure=primary,
         cautions=cautions,
         recommendations=recommendations,
+        retrieval_dependency=retrieval_dependency,
     )

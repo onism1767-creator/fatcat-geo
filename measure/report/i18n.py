@@ -60,6 +60,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "tier_quick": "快扫档(精度约 ±17%)",
         "variants_label": "每需求问法数(原话 + AI 改写)",
         "budget_label": "预算上限(USD,可空 = 不限;超限自动熔断)",
+        "dep_label": "加测:AI 不联网还认识你吗?(开卷 vs 闭卷对照)",
+        "dep_hint": "把同一批问题再问一遍「禁止联网检索」的版本,对比两次提到品牌的概率——"
+                    "看你的品牌是 AI 本身就知道,还是全靠临场搜索才被提到。"
+                    "仅部分 AI 支持:勾选后,下方预估会按支持的 AI 增加费用;预估没变,说明当前所选都不支持。",
         "est_label": "预估:",
         "est_calls_word": "次采样",
         "est_min_word": "分钟",
@@ -84,6 +88,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "caveats_summary": "口径与局限",
         "evidence_summary": "证据与口径",
         "sampled_variants": "采样问法",
+        "dep_section": "检索依赖(开卷 vs 闭卷,挂靠观测,不参与定位)",
         "localization_title": "▶ 诊断定位",
         "loc_pre": "失败最可能发生在", "loc_post": "阶段。",
         "no_failure": "各可观测阶段均无 FAIL/WEAK。",
@@ -137,6 +142,11 @@ MESSAGES: dict[str, dict[str, str]] = {
         "tier_quick": "Quick scan (≈ ±17% precision)",
         "variants_label": "Phrasings per question (original + AI rewrites)",
         "budget_label": "Budget cap (USD, empty = unlimited; hard-stops when exceeded)",
+        "dep_label": "Add-on: does the AI know you offline? (search-on vs search-off)",
+        "dep_hint": "Asks the same questions again with web search disabled and compares brand-mention "
+                    "rates — does the AI know your brand by itself, or only via live search? "
+                    "Supported on some AIs only: when checked, the estimate below grows for supporting AIs; "
+                    "an unchanged estimate means none of the selected surfaces support it.",
         "est_label": "Estimate: ",
         "est_calls_word": "calls",
         "est_min_word": "min",
@@ -159,6 +169,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "caveats_summary": "Caliber & limitations",
         "evidence_summary": "Evidence & caliber",
         "sampled_variants": "Sampled phrasings",
+        "dep_section": "Retrieval dependency (search-on vs search-off; piggyback observation, not used for localization)",
         "localization_title": "▶ Failure localization",
         "loc_pre": "The failure most likely occurs at the", "loc_post": "stage.",
         "no_failure": "No FAIL/WEAK among observable stages.",

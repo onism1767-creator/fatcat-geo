@@ -74,6 +74,11 @@ def build_adapters(
                 f"{entry.name} 能力声明漂移:配置 {declared} vs 适配器 {meta.capabilities}。"
                 "两处必须一致,改其一须同步另一处并过契约测试"
             )
+        if declared.supports_search_disabled and meta.est_cost_per_call_search_disabled_usd is None:
+            raise ValueError(
+                f"{entry.name} 声明了 supports_search_disabled 但未报闭卷单价"
+                "(est_cost_per_call_search_disabled_usd)——预估会静默漏计,禁止带病运行"
+            )
         adapters[entry.name] = adapter
         log.info("surface_loaded", surface=entry.name, provider=entry.provider)
     return adapters
