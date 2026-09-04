@@ -60,7 +60,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "tier_quick": "快扫档(精度约 ±17%)",
         "variants_label": "每需求问法数(原话 + AI 改写)",
         "budget_label": "预算上限(USD,可空 = 不限;超限自动熔断)",
-        "dep_label": "加测:AI 不联网还认识你吗?(开卷 vs 闭卷对照)",
+        "dep_label": "闭卷测试开关(开启后会加测 AI 不联网状态)",
         "dep_hint": "把同一批问题再问一遍「禁止联网检索」的版本,对比两次提到品牌的概率——"
                     "看你的品牌是 AI 本身就知道,还是全靠临场搜索才被提到。"
                     "仅部分 AI 支持:勾选后,下方预估会按支持的 AI 增加费用;预估没变,说明当前所选都不支持。",
@@ -142,7 +142,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "tier_quick": "Quick scan (≈ ±17% precision)",
         "variants_label": "Phrasings per question (original + AI rewrites)",
         "budget_label": "Budget cap (USD, empty = unlimited; hard-stops when exceeded)",
-        "dep_label": "Add-on: does the AI know you offline? (search-on vs search-off)",
+        "dep_label": "Closed-book test switch (when on, also tests the AI without web search)",
         "dep_hint": "Asks the same questions again with web search disabled and compares brand-mention "
                     "rates — does the AI know your brand by itself, or only via live search? "
                     "Supported on some AIs only: when checked, the estimate below grows for supporting AIs; "
