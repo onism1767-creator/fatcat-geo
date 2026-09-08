@@ -65,6 +65,7 @@ MESSAGES: dict[str, dict[str, str]] = {
                     "看你的品牌是 AI 本身就知道,还是全靠临场搜索才被提到。"
                     "仅部分 AI 支持:勾选后,下方预估会按支持的 AI 增加费用;预估没变,说明当前所选都不支持。",
         "est_label": "预估:",
+        "est_breakdown": "各 AI 分项:",
         "est_calls_word": "次采样",
         "est_min_word": "分钟",
         "est_note": "并发 3 路;区间提前收敛只会更快更省",
@@ -153,6 +154,7 @@ MESSAGES: dict[str, dict[str, str]] = {
                     "Supported on some AIs only: when checked, the estimate below grows for supporting AIs; "
                     "an unchanged estimate means none of the selected surfaces support it.",
         "est_label": "Estimate: ",
+        "est_breakdown": "Per-AI breakdown: ",
         "est_calls_word": "calls",
         "est_min_word": "min",
         "est_note": "3-way concurrency; early convergence only makes it faster & cheaper",

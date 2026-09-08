@@ -58,6 +58,7 @@
     <p class="kv">{{ t["est_label"] }}<b><span id="est-calls">–</span></b> {{ t["est_calls_word"] }} ·
       ≈ <b>$<span id="est-cost">–</span></b> ·
       ≈ <b><span id="est-min">–</span> {{ t["est_min_word"] }}</b>({{ t["est_note"] }})</p>
+    <p class="kv muted">{{ t["est_breakdown"] }}<span id="est-breakdown">–</span></p>
   </div>
   <button type="submit">{{ t["confirm_submit"] }}</button>
 </form>
@@ -78,6 +79,13 @@ function recalc() {
     checked.reduce((sum, el) => sum + C.surface_costs[el.value], 0)
     + depChecked.reduce((sum, el) => sum + C.dependency[el.value], 0)
   );
+  // 各 AI 分项预估(v0.4.11 补):谁家花多少钱,勾选前看得见
+  const parts = checked.map(el => {
+    let per = C.surface_costs[el.value] * perLegCalls;
+    if (depOn && el.value in C.dependency) per += C.dependency[el.value] * perLegCalls;
+    return el.value + ' ≈ $' + per.toFixed(2);
+  });
+  document.getElementById('est-breakdown').textContent = parts.length ? parts.join(' · ') : '–';
   document.getElementById('est-calls').textContent = Math.round(calls);
   document.getElementById('est-cost').textContent = cost.toFixed(2);
   document.getElementById('est-min').textContent = (calls * C.seconds_per_call / 60 / C.concurrency).toFixed(1);

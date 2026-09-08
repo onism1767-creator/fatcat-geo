@@ -32,7 +32,9 @@
     {{ nr.need.statement }}</h2>
   <p class="kv">{{ t["sampled_variants"] }}:{% for vt in nr.variant_texts %}「{{ vt }}」{% endfor %}</p>
 
-  {# AI × 阶段总览矩阵(v0.4.11 分家):各家仪器并列,一眼跨 AI 对比 #}
+  {# AI × 阶段总览矩阵(v0.4.11 分家):各家仪器并列,一眼跨 AI 对比;
+     单 AI 任务(单 AI 版报告)无对比可言,不出矩阵 #}
+  {% if d.surfaces|length > 1 %}
   <table>
     <tr><th>{{ t["matrix_surface"] }}</th><th>RETRIEVAL</th><th>CITATION</th>
       <th>REPRESENTATION</th><th>{{ t["dep_short"] }}</th></tr>
@@ -46,6 +48,7 @@
     </tr>
     {% endfor %}
   </table>
+  {% endif %}
 
   {% for sd in d.surfaces %}
   <h3 style="border-top:1px solid #e4e9f0; padding-top:10px">◆ {{ sd.surface }}
