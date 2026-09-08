@@ -127,6 +127,21 @@ def test_missing_robots_and_sitemap_still_passes_gate():
 
 
 @respx.mock
+def test_bot_protection_403_yields_unknown_not_fail():
+    """香奈儿首测复盘(铁律 7):带浏览器 UA 仍被 403 = 疑似机器人防护拦截探针,
+    真人与官方爬虫可能正常——不可判定为「全站不可达」,只能 UNKNOWN。"""
+    respx.get(f"{SITE}/robots.txt").mock(return_value=httpx.Response(200, text=ROBOTS_ALLOW_ALL))
+    respx.get(f"{SITE}/sitemap.xml").mock(return_value=httpx.Response(404))
+    respx.get(f"{SITE}/").mock(return_value=httpx.Response(403, text="Access Denied"))
+    result = audit(SITE, BOTS)
+    reach = check_by_name(result, "reachability")
+    assert reach.status is CheckStatus.UNKNOWN
+    assert "机器人防护" in render_msg(reach.detail, "zh")
+    assert result.overall is CheckStatus.UNKNOWN  # 资格门不可观测,不判死
+    assert not any(c.status is CheckStatus.FAIL for c in result.checks if c.gating)
+
+
+@respx.mock
 def test_network_error_yields_unknown():
     respx.route(host="example.com").mock(side_effect=httpx.ConnectError("no route"))
     result = audit(SITE, BOTS)

@@ -279,6 +279,14 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": "基准请求(浏览器 UA)HTTP {status},站点对普通访问者亦不可达",
         "en": "Baseline request (browser UA): HTTP {status} — the site is unreachable even for regular visitors",
     },
+    "access.reach.blocked": {
+        "zh": "基准请求(浏览器 UA)HTTP {status},疑似 CDN/机器人防护按客户端指纹拦截非浏览器"
+              "客户端——真实浏览器与官方爬虫可能正常访问,本审计视角无法判定,需站长在 CDN 后台核验"
+              "AI 爬虫是否被放行",
+        "en": "Baseline request (browser UA): HTTP {status} — likely CDN/bot protection rejecting "
+              "non-browser clients by fingerprint. Real browsers and official crawlers may pass; this "
+              "audit vantage cannot determine it — verify in the CDN console whether AI crawlers are allowed",
+    },
     "access.reach.redirect_loop": {
         "zh": "重定向次数超限(疑似循环),任何爬虫都无法到达最终页面",
         "en": "Too many redirects (likely a loop) — no crawler can reach the final page",
