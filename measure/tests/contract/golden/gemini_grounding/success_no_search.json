@@ -1,0 +1,33 @@
+{
+  "object": "interaction",
+  "model": "gemini-3.7-flash",
+  "status": "completed",
+  "created": "2026-09-08T12:01:00Z",
+  "updated": "2026-09-08T12:01:12Z",
+  "service_tier": "standard",
+  "steps": [
+    {
+      "type": "thought",
+      "signature": "EqYdCqMdARFNMg_fake2"
+    },
+    {
+      "type": "model_output",
+      "content": [
+        {
+          "type": "text",
+          "text": "常见的中小团队 CRM 有 HubSpot、Zoho CRM 与 Pipedrive,各有免费或低价档位。",
+          "annotations": []
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "total_tokens": 2315,
+    "total_input_tokens": 8,
+    "input_tokens_by_modality": [{"modality": "text", "tokens": 8}],
+    "total_cached_tokens": 0,
+    "total_output_tokens": 1351,
+    "total_tool_use_tokens": 0,
+    "total_thought_tokens": 956
+  }
+}

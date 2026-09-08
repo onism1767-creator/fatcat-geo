@@ -1,0 +1,73 @@
+{
+  "object": "interaction",
+  "model": "gemini-3.7-flash",
+  "status": "completed",
+  "created": "2026-09-08T12:00:00Z",
+  "updated": "2026-09-08T12:00:19Z",
+  "service_tier": "standard",
+  "steps": [
+    {
+      "type": "google_search_call",
+      "id": "search_001",
+      "search_type": "web_search",
+      "signature": "CoMDAXLI2nyn_fake",
+      "arguments": {
+        "queries": ["中小团队 CRM 推荐 2026", "best CRM small teams pricing 2026"]
+      }
+    },
+    {
+      "type": "google_search_result",
+      "call_id": "search_001",
+      "is_error": false,
+      "signature": "EqYdCqMd_fake",
+      "result": [
+        {"search_suggestions": "<!-- HTML and CSS for the search widget -->"}
+      ]
+    },
+    {
+      "type": "thought",
+      "signature": "EqYdCqMdARFNMg_fake"
+    },
+    {
+      "type": "model_output",
+      "content": [
+        {
+          "type": "text",
+          "text": "对于中小团队,HubSpot 与 Zoho CRM 是最常被推荐的选择,两者都提供免费档位。如果预算敏感,可优先试用免费档。",
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 0,
+              "end_index": 30,
+              "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFakeToken001",
+              "title": "example-review.com"
+            },
+            {
+              "type": "url_citation",
+              "start_index": 31,
+              "end_index": 55,
+              "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFakeToken002",
+              "title": "zoho.com.cn"
+            },
+            {
+              "type": "url_citation",
+              "start_index": 56,
+              "end_index": 74,
+              "url": "https://vertexaisearch.cloud.google.com/grounding-api-redirect/AUZIYQFakeToken001",
+              "title": "example-review.com"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "total_tokens": 3219,
+    "total_input_tokens": 197,
+    "input_tokens_by_modality": [{"modality": "text", "tokens": 197}],
+    "total_cached_tokens": 0,
+    "total_output_tokens": 2097,
+    "total_tool_use_tokens": 0,
+    "total_thought_tokens": 925
+  }
+}

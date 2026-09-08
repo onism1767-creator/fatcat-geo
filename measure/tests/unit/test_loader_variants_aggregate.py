@@ -29,7 +29,7 @@ def test_registry_loads_bundled_config():
     entries = load_surface_registry(DEFAULT_SURFACES_PATH)
     assert len(entries) == 5
     enabled = [e for e in entries if e.enabled]
-    assert len(enabled) == 4  # 双通道 + claude_web_search + openai_web_search 已落地
+    assert len(enabled) == 5  # 五个 surface 全部落地
 
 
 def test_build_adapters_with_key_and_capability_consistency():
@@ -37,9 +37,11 @@ def test_build_adapters_with_key_and_capability_consistency():
         "PERPLEXITY_API_KEY": "test-key",
         "ANTHROPIC_API_KEY": "test-key",
         "OPENAI_API_KEY": "test-key",
+        "GOOGLE_API_KEY": "test-key",
     })
     assert set(adapters) == {
-        "perplexity_search", "perplexity_agent", "claude_web_search", "openai_web_search",
+        "perplexity_search", "perplexity_agent", "claude_web_search",
+        "openai_web_search", "gemini_grounding",
     }
     for name, adapter in adapters.items():
         assert adapter.meta().surface == name  # 身份与能力一致性校验已通过

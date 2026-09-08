@@ -50,19 +50,22 @@ surfaces:
       supports_search_disabled: true  # 不带工具调用,测参数化知识
       supports_offline: false
 
+  # 2026-09-08 落地核对(暂定值修订):supports_offline 改 false(v1 未定义语义,
+  # 不虚报)。候选集平台不暴露(search_result 仅搜索建议组件),retrieved_sources
+  # 记 NOT_OBSERVABLE;引用 URL 为平台跳转链,真实域名在 title 字段(见适配器注)。
   - name: gemini_grounding
     provider: gemini
     adapter: adapters.gemini_grounding.GeminiGroundingAdapter
     api_key_env: GOOGLE_API_KEY
-    enabled: false
+    enabled: true
     capabilities:
-      supports_query_trace: true
+      supports_query_trace: true      # google_search_call 步骤暴露检索词(一步多词)
       supports_retrieval_rank: false
-      supports_citations: true
-      supports_region: false
-      supports_forced_search: false
-      supports_search_disabled: true
-      supports_offline: true
+      supports_citations: true        # url_citation 锚注,按 url(跳转链)去重成引用池
+      supports_region: false          # 接地工具无地区参数
+      supports_forced_search: false   # 平台无强制检索开关
+      supports_search_disabled: true  # 不带工具调用,测参数化知识
+      supports_offline: false
 
   # 2026-08-25 落地核对(暂定值修订):supports_offline 改 false——v1 未定义该
   # 能力语义,不虚报;retrieval_rank 保持 false——候选集虽可观测(进
