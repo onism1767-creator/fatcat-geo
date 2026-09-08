@@ -42,13 +42,18 @@ def contract_post(
     latency_ms = int((time.perf_counter() - t0) * 1000)
 
     status = response.status_code
+    body = response.text[:2000] if status >= 400 else None  # 错误证据存档,截断防巨响应
     if status == 429 or status >= 500:
-        raise AdapterTransientError(f"HTTP {status}", http_status=status)
+        raise AdapterTransientError(f"HTTP {status}", http_status=status, response_body=body)
     if status in (401, 403):
-        raise AdapterPermanentError(f"认证/授权失败 HTTP {status}", http_status=status)
+        raise AdapterPermanentError(
+            f"认证/授权失败 HTTP {status}", http_status=status, response_body=body
+        )
     if status >= 400:
         raise AdapterPermanentError(
-            f"非法请求 HTTP {status}: {response.text[:200]}", http_status=status
+            f"非法请求 HTTP {status}: {response.text[:200]}",
+            http_status=status,
+            response_body=body,
         )
     try:
         return response.json(), latency_ms, started_at

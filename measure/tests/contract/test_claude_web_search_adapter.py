@@ -255,6 +255,7 @@ def test_rate_limit_raises_transient_and_does_not_retry():
     with pytest.raises(AdapterTransientError) as exc_info:
         ClaudeWebSearchAdapter(api_key="test-key").ask(make_request())
     assert exc_info.value.http_status == 429
+    assert "rate_limit_error" in exc_info.value.response_body  # 错误证据随异常上交存档
     assert route.call_count == 1  # 适配器内禁止自行重试(13.1)
 
 
@@ -304,3 +305,9 @@ def test_healthcheck_minimal_request_without_tools():
         return_value=httpx.Response(401, json={"type": "error", "error": {"type": "authentication_error", "message": "bad"}})
     )
     assert ClaudeWebSearchAdapter(api_key="bad-key").healthcheck() is False
+
+
+def test_close_releases_http_client():
+    client = httpx.Client()
+    ClaudeWebSearchAdapter(api_key="test-key", client=client).close()
+    assert client.is_closed

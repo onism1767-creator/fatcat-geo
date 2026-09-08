@@ -319,3 +319,6 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
         except AdapterError:
             return False
         return True
+
+    def close(self) -> None:
+        self._client.close()

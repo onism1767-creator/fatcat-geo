@@ -210,6 +210,13 @@ def test_search_undeclared_capabilities_raise_explicitly():
         adapter.ask(make_request(model="sonar"))  # 该 surface 无模型可选
 
 
+def test_close_releases_http_client():
+    for adapter_cls in (PerplexitySearchAdapter, PerplexityAgentAdapter):
+        client = httpx.Client()
+        adapter_cls(api_key="test-key", client=client).close()
+        assert client.is_closed
+
+
 @respx.mock
 def test_search_healthcheck():
     respx.post(SEARCH_URL).mock(return_value=httpx.Response(200, json={"id": "s", "results": []}))

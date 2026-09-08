@@ -92,6 +92,8 @@ def main() -> int:
             exit_code = 1
             status = getattr(exc, "http_status", None)
             print(f"{surface}: 契约异常 {type(exc).__name__} http_status={status}: {exc}")
+        finally:
+            adapter.close()
     return exit_code
 
 

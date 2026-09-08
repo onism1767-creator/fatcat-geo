@@ -275,6 +275,7 @@ class SequentialSampler:
                             error_type=RunErrorType.TRANSIENT, message=str(exc),
                             http_status=exc.http_status, attempts=attempts,
                         ),
+                        response_body=exc.response_body,
                     )
                 cap = min(policy.backoff_max_s, policy.backoff_base_s * (2 ** (attempts - 1)))
                 self._sleep(self._rng.uniform(0, cap))
@@ -288,6 +289,7 @@ class SequentialSampler:
                         error_type=RunErrorType.PERMANENT, message=str(exc),
                         http_status=exc.http_status, attempts=attempts,
                     ),
+                    response_body=exc.response_body,
                 )
             # CapabilityNotSupportedError 故意不捕获:编程错误直接上抛(13.1)
 
@@ -301,6 +303,7 @@ class SequentialSampler:
         *,
         outcome: Outcome,
         error: RunError,
+        response_body: str | None = None,
     ) -> SurfaceRun:
         return SurfaceRun(
             run_id=request.run_id,
@@ -315,6 +318,10 @@ class SequentialSampler:
             outcome=outcome,
             error=error,
             # SearchTrace 默认全 UNKNOWN/NOT_OBSERVABLE;失败时无回答、无成本数据
+            # 平台错误响应体(截断)存档:失败的证据也不蒸发(13.1)
+            raw_payload=(
+                {"error_response_text": response_body} if response_body is not None else None
+            ),
             timestamp=started_at,
             latency_ms=int((time.perf_counter() - t0) * 1000),  # 含重试与退避的真实耗时
             cost_usd=0.0,

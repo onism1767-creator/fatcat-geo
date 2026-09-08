@@ -19,11 +19,21 @@ from engine.models import AskRequest, FrozenModel, SearchMode, SurfaceRun
 
 
 class AdapterError(Exception):
-    """Transient/Permanent 的公共基类,便于引擎统一捕获。"""
+    """Transient/Permanent 的公共基类,便于引擎统一捕获。
 
-    def __init__(self, message: str, *, http_status: int | None = None) -> None:
+    response_body:平台错误响应体(截断),随失败 SurfaceRun 进 raw_payload
+    存档——失败不蒸发也包括失败的证据(13.1 增补)。"""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        http_status: int | None = None,
+        response_body: str | None = None,
+    ) -> None:
         super().__init__(message)
         self.http_status = http_status
+        self.response_body = response_body
 
 
 class AdapterTransientError(AdapterError):
@@ -106,3 +116,7 @@ class SurfaceAdapter(ABC):
     @abstractmethod
     def healthcheck(self) -> bool:
         """key 有效性、配额可用性。"""
+
+    def close(self) -> None:
+        """释放底层连接。持有 httpx.Client 的适配器必须覆写;
+        默认无资源可释放(测试替身/模拟适配器无需实现)。"""

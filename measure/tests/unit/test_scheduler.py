@@ -144,6 +144,29 @@ def test_refusals_excluded_from_denominator_but_recorded():
     assert len(refused) == 1 and refused[0].error.error_type is RunErrorType.REFUSAL
 
 
+def test_failure_run_archives_platform_error_body():
+    """13.1 增补:失败的证据也不蒸发——平台错误响应体(截断)随失败运行存档。"""
+    storage = MemoryStorage()
+    body = '{"type": "error", "error": {"type": "invalid_request_error", "message": "bad"}}'
+    make_sampler(storage).run_plan(
+        ScriptedAdapter(
+            [AdapterPermanentError("非法请求 HTTP 400", http_status=400, response_body=body), "hit"]
+        ),
+        NEED, VARIANT, hit_fn=hit_fn,
+    )
+    failure = storage.runs[0]
+    assert failure.outcome is Outcome.PERMANENT_FAILURE
+    assert failure.raw_payload == {"error_response_text": body}
+    # 无响应体的失败(如超时)raw_payload 保持 None,不臆造
+    storage2 = MemoryStorage()
+    make_sampler(storage2).run_plan(
+        ScriptedAdapter([AdapterTransientError("请求超时")] * 3 + ["hit"]),
+        NEED, VARIANT, hit_fn=hit_fn, policy=SamplingPolicy(max_attempts=3),
+    )
+    assert storage2.runs[0].outcome is Outcome.TRANSIENT_FAILURE
+    assert storage2.runs[0].raw_payload is None
+
+
 def test_transient_retries_then_breaker():
     storage = MemoryStorage()
     sleeps = []
