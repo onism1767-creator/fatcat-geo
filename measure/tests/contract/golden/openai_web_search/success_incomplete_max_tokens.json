@@ -1,0 +1,43 @@
+{
+  "id": "resp_0incomplete01",
+  "object": "response",
+  "created_at": 1757300300,
+  "status": "incomplete",
+  "error": null,
+  "incomplete_details": {"reason": "max_output_tokens"},
+  "model": "gpt-5.6-terra",
+  "output": [
+    {
+      "type": "web_search_call",
+      "id": "ws_0ic1",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "中小团队 CRM 对比",
+        "sources": [
+          {"type": "url", "url": "https://www.example-review.com/best-crm-small-teams"}
+        ]
+      }
+    },
+    {
+      "id": "msg_0ic1",
+      "type": "message",
+      "status": "incomplete",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "对于中小团队,可以从以下几个维度对比 CRM:价格、",
+          "annotations": []
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "input_tokens": 8120,
+    "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+    "output_tokens": 4096,
+    "output_tokens_details": {"reasoning_tokens": 3900},
+    "total_tokens": 12216
+  }
+}

@@ -1,0 +1,81 @@
+{
+  "id": "resp_0abc123def456",
+  "object": "response",
+  "created_at": 1757300000,
+  "status": "completed",
+  "error": null,
+  "incomplete_details": null,
+  "model": "gpt-5.6-terra",
+  "output": [
+    {
+      "type": "reasoning",
+      "id": "rs_0aa1",
+      "summary": []
+    },
+    {
+      "type": "web_search_call",
+      "id": "ws_0bb1",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "queries": ["中小团队 CRM 推荐 2026", "best CRM small teams"],
+        "sources": [
+          {"type": "url", "url": "https://www.example-review.com/best-crm-small-teams"},
+          {"type": "url", "url": "https://blog.example.org/crm-selection-guide"},
+          {"type": "url", "url": "https://www.example-pricing.net/crm"}
+        ]
+      }
+    },
+    {
+      "type": "web_search_call",
+      "id": "ws_0bb2",
+      "status": "completed",
+      "action": {
+        "type": "open_page",
+        "url": "https://www.example-review.com/best-crm-small-teams"
+      }
+    },
+    {
+      "id": "msg_0cc1",
+      "type": "message",
+      "status": "completed",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "对于中小团队,HubSpot 与 Zoho CRM 是最常被推荐的选择,两者都提供免费档位。如果预算敏感,可优先试用免费档。",
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 5,
+              "end_index": 30,
+              "url": "https://www.example-review.com/best-crm-small-teams",
+              "title": "Best CRM for Small Teams (2026)"
+            },
+            {
+              "type": "url_citation",
+              "start_index": 31,
+              "end_index": 44,
+              "url": "https://blog.example.org/crm-selection-guide",
+              "title": "中小团队 CRM 选型指南"
+            },
+            {
+              "type": "url_citation",
+              "start_index": 45,
+              "end_index": 58,
+              "url": "https://www.example-review.com/best-crm-small-teams",
+              "title": "Best CRM for Small Teams (2026)"
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "input_tokens": 9412,
+    "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+    "output_tokens": 486,
+    "output_tokens_details": {"reasoning_tokens": 128},
+    "total_tokens": 9898
+  }
+}

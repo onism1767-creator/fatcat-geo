@@ -1,0 +1,31 @@
+{
+  "id": "resp_0nosearch01",
+  "object": "response",
+  "created_at": 1757300100,
+  "status": "completed",
+  "error": null,
+  "incomplete_details": null,
+  "model": "gpt-5.6-terra",
+  "output": [
+    {
+      "id": "msg_0ns1",
+      "type": "message",
+      "status": "completed",
+      "role": "assistant",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "常见的中小团队 CRM 有 HubSpot、Zoho CRM 与 Pipedrive,各有免费或低价档位。",
+          "annotations": []
+        }
+      ]
+    }
+  ],
+  "usage": {
+    "input_tokens": 388,
+    "input_tokens_details": {"cached_tokens": 0, "cache_write_tokens": 0},
+    "output_tokens": 92,
+    "output_tokens_details": {"reasoning_tokens": 0},
+    "total_tokens": 480
+  }
+}
