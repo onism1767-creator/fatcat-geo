@@ -157,17 +157,29 @@ class SequentialSampler:
         model: str | None = None,
         locale: str = "zh-CN",
         region: str | None = None,
+        prior_runs: list[SurfaceRun] | None = None,
     ) -> SamplingResult:
+        """prior_runs:幂等续跑(v0.4.9)——本计划已落库的运行按时间序作为前缀,
+        指标、成本、熔断窗口与预算合并计算;既有样本已满足停止条件时零新调用。
+        幂等键 = (问法 × surface × 检索模式),尝试序号由时间戳顺序隐含。"""
         policy = policy or SamplingPolicy()
         meta = adapter.meta()
         resolved_model = model or meta.default_model
 
-        outcomes: list[Outcome] = []
+        prior_runs = prior_runs or []
+        outcomes: list[Outcome] = [r.outcome for r in prior_runs]
         hits: list[bool] = []
-        recent_failures: deque[bool] = deque(maxlen=policy.failure_window)
-        run_ids: list[str] = []
-        total_cost = 0.0
-        stop_reason: StopReason | None = None
+        for prior in prior_runs:
+            if prior.outcome is Outcome.SUCCESS and (prior_hit := hit_fn(prior)) is not None:
+                hits.append(prior_hit)
+        recent_failures: deque[bool] = deque(
+            (r.outcome in (Outcome.TRANSIENT_FAILURE, Outcome.PERMANENT_FAILURE) for r in prior_runs),
+            maxlen=policy.failure_window,
+        )
+        run_ids: list[str] = [r.run_id for r in prior_runs]
+        total_cost = sum(r.cost_usd for r in prior_runs)
+        # 续跑:先按既有样本判停——已收敛的计划一分钱新调用都不发
+        stop_reason: StopReason | None = self._statistical_stop(hits, policy)
 
         while stop_reason is None:
             # ── 采样前检查(会阻止花钱的停止条件)──────────────────────
@@ -218,15 +230,7 @@ class SequentialSampler:
                     hits.append(hit)
 
             # ── 采样后检查(统计停止条件,7.2 顺序)────────────────────
-            n_valid = len(hits)
-            if n_valid >= policy.min_n:
-                interim = estimate_proportion(sum(hits), n_valid)
-                if interim.width <= policy.ci_width_threshold:
-                    stop_reason = StopReason.CI_CONVERGED
-                    break
-            if n_valid >= policy.max_n:
-                stop_reason = StopReason.MAX_N_REACHED
-                break
+            stop_reason = self._statistical_stop(hits, policy)
 
         estimate = estimate_proportion(sum(hits), len(hits)) if hits else None
         result = SamplingResult(
@@ -247,6 +251,19 @@ class SequentialSampler:
                  n_attempts=result.n_attempts, n_valid=result.accounting.n_valid,
                  k_hits=result.k_hits, cost_usd=total_cost)
         return result
+
+    @staticmethod
+    def _statistical_stop(hits: list[bool], policy: SamplingPolicy) -> StopReason | None:
+        """统计停止条件(7.2):收敛优先于 max_n。既用于逐样本后检查,
+        也用于续跑时对既有样本的开场判停。"""
+        n_valid = len(hits)
+        if n_valid >= policy.min_n:
+            interim = estimate_proportion(sum(hits), n_valid)
+            if interim.width <= policy.ci_width_threshold:
+                return StopReason.CI_CONVERGED
+        if n_valid >= policy.max_n:
+            return StopReason.MAX_N_REACHED
+        return None
 
     def _attempt_with_retries(
         self,

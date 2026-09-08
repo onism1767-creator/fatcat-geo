@@ -25,6 +25,7 @@ from engine.models import (
     PromptVariant,
     RunError,
     RunErrorType,
+    SearchMode,
     StopReason,
     SurfaceRun,
 )
@@ -142,6 +143,59 @@ def test_refusals_excluded_from_denominator_but_recorded():
     assert result.accounting.n_valid == first_converging_n()  # 但不进分母
     refused = [r for r in storage.runs if r.outcome is Outcome.REFUSED]
     assert len(refused) == 1 and refused[0].error.error_type is RunErrorType.REFUSAL
+
+
+def make_prior(run_id: str, *, outcome=Outcome.SUCCESS, hit: bool = True,
+               cost: float = 0.005) -> SurfaceRun:
+    """幂等续跑测试用:模拟此前会话已落库的运行(raw_payload 携带 hit_fn 判据)。"""
+    return SurfaceRun(
+        run_id=run_id, information_need_id="need-1", prompt_variant_id="variant-1",
+        provider="test_provider", surface="test_surface", model="test-model",
+        search_mode=SearchMode.DEFAULT, locale="zh-CN",
+        outcome=outcome,
+        error=(None if outcome is Outcome.SUCCESS
+               else RunError(error_type=RunErrorType.TRANSIENT, message="x")),
+        raw_payload={"hit": hit},
+        timestamp=datetime(2026, 9, 8, tzinfo=UTC), latency_ms=1, cost_usd=cost,
+    )
+
+
+def test_resume_with_converged_priors_makes_zero_calls():
+    """幂等续跑(v0.4.9):既有样本已收敛 → 零新调用、零新落库。"""
+    storage = MemoryStorage()
+    priors = [make_prior(f"p-{i}") for i in range(first_converging_n())]
+    result = make_sampler(storage).run_plan(
+        ScriptedAdapter(["hit"]), NEED, VARIANT, hit_fn=hit_fn, prior_runs=priors
+    )
+    assert result.stop_reason is StopReason.CI_CONVERGED
+    assert storage.runs == []  # 一分钱新调用都没发
+    assert result.n_attempts == len(priors)
+    assert result.k_hits == len(priors)
+    assert set(result.run_ids) == {p.run_id for p in priors}
+
+
+def test_resume_with_partial_priors_fills_gap_only():
+    storage = MemoryStorage()
+    result = make_sampler(storage).run_plan(
+        ScriptedAdapter(["hit"]), NEED, VARIANT, hit_fn=hit_fn,
+        prior_runs=[make_prior("p-0"), make_prior("p-1")],
+    )
+    assert result.stop_reason is StopReason.CI_CONVERGED
+    assert result.n_attempts == first_converging_n()  # 口径合并:前缀 + 新采样
+    assert len(storage.runs) == first_converging_n() - 2  # 只补缺口
+    assert result.estimate is not None and result.estimate.n == first_converging_n()
+
+
+def test_resume_priors_count_against_budget():
+    storage = MemoryStorage()
+    result = make_sampler(storage).run_plan(
+        ScriptedAdapter(["hit"]), NEED, VARIANT, hit_fn=hit_fn,
+        policy=SamplingPolicy(budget_usd=0.01),
+        prior_runs=[make_prior("p-0", cost=0.02)],
+    )
+    assert result.stop_reason is StopReason.BUDGET_EXHAUSTED
+    assert storage.runs == []  # 已花的钱计入预算,不再烧新钱
+    assert result.total_cost_usd == pytest.approx(0.02)
 
 
 def test_failure_run_archives_platform_error_body():

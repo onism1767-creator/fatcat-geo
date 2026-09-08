@@ -34,6 +34,7 @@ class JobState(StrEnum):
     DONE = "DONE"
     PARTIAL = "PARTIAL"  # 熔断截断,如实标注
     FAILED = "FAILED"
+    INTERRUPTED = "INTERRUPTED"  # 进程中断(重启后自快照恢复),可续跑(v0.4.9)
 
 
 class Tier(FrozenModel):
@@ -177,6 +178,57 @@ class DiagnosisJob:
         self.state = JobState.CONFIRMED
         self.phase = "phase_confirmed"
 
+    # ── 快照往返(v0.4.9 幂等续跑):冻结配置 + 状态,不含可重算的报告 ────
+
+    def to_snapshot(self) -> dict:
+        """落库快照:恢复一个任务所需的全部冻结配置。need_reports/access_result
+        不入快照——它们可从只追加的运行档案重算,重算即续跑的收尾。"""
+        return {
+            "job_id": self.job_id,
+            "created_at": self.created_at.isoformat(),
+            "state": self.state.value,
+            "brand": self.brand.model_dump(mode="json"),
+            "website": self.website,
+            "category": self.category,
+            "locale": self.locale,
+            "needs": [n.model_dump(mode="json") for n in self.needs],
+            "competitors": [c.model_dump(mode="json") for c in self.competitors],
+            "surfaces": self.surfaces,
+            "tier_id": self.tier_id,
+            "variants_per_need": self.variants_per_need,
+            "budget_usd": self.budget_usd,
+            "dependency_enabled": self.dependency_enabled,
+            "fingerprint": self.fingerprint,
+        }
+
+    @classmethod
+    def from_snapshot(cls, snapshot: dict) -> DiagnosisJob:
+        job = cls(
+            brand=BrandSpec.model_validate(snapshot["brand"]),
+            website=snapshot["website"],
+            category=snapshot["category"],
+            locale=snapshot["locale"],
+            candidates=[],  # 起草候选只服务确认页,冻结后无意义
+            competitors_suggested=[],
+        )
+        job.job_id = snapshot["job_id"]
+        job.created_at = datetime.fromisoformat(snapshot["created_at"])
+        job.state = JobState(snapshot["state"])
+        job.needs = [InformationNeed.model_validate(n) for n in snapshot["needs"]]
+        job.competitors = [BrandSpec.model_validate(c) for c in snapshot["competitors"]]
+        job.surfaces = list(snapshot["surfaces"])
+        job.tier_id = snapshot["tier_id"]
+        job.variants_per_need = snapshot["variants_per_need"]
+        job.budget_usd = snapshot["budget_usd"]
+        job.dependency_enabled = snapshot["dependency_enabled"]
+        job.fingerprint = snapshot["fingerprint"]
+        job.phase = {
+            JobState.DONE: "phase_done",
+            JobState.PARTIAL: "phase_partial",
+            JobState.FAILED: "phase_failed",
+        }.get(job.state, "phase_interrupted")
+        return job
+
 
 class JobRegistry:
     def __init__(self) -> None:
@@ -193,3 +245,22 @@ class JobRegistry:
     def recent(self, limit: int = 20) -> list[DiagnosisJob]:
         jobs = sorted(self._jobs.values(), key=lambda j: j.created_at, reverse=True)
         return jobs[:limit]
+
+
+def restore_registry(dsn: str) -> JobRegistry:
+    """启动恢复(v0.4.9):从库中快照重建任务登记处。
+    上次进程死亡时正在跑或待跑的任务(CONFIRMED/RUNNING)标为 INTERRUPTED,
+    等用户点「续跑」——花钱的动作永远由用户触发。"""
+    from engine.storage import Storage
+
+    registry = JobRegistry()
+    with Storage(dsn) as storage:
+        storage.ensure_schema()
+        for snapshot in storage.load_job_snapshots():
+            job = DiagnosisJob.from_snapshot(snapshot)
+            if job.state in (JobState.CONFIRMED, JobState.RUNNING):
+                job.state = JobState.INTERRUPTED
+                job.phase = "phase_interrupted"
+                storage.upsert_job_snapshot(job.to_snapshot())
+            registry.add(job)
+    return registry

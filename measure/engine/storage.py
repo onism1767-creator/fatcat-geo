@@ -85,6 +85,23 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     """,
     "CREATE INDEX IF NOT EXISTS derived_obs_run_idx ON derived_observation (run_id)",
     "CREATE INDEX IF NOT EXISTS derived_obs_detector_idx ON derived_observation (detector_name, detector_version)",
+    # exactly-once(v0.4.9):同 (run, 判定器, 版本) 至多一条观测——幂等续跑重复评分
+    # 不产生重复行;判定器升级以新版本追加,不受影响
+    """
+    CREATE UNIQUE INDEX IF NOT EXISTS derived_obs_exactly_once_idx
+        ON derived_observation (run_id, detector_name, detector_version)
+    """,
+    # 任务快照(v0.4.9,16.3 修订):任务是运行状态而非观测,允许覆写;
+    # 观测四表的只追加铁律不受影响
+    """
+    CREATE TABLE IF NOT EXISTS diagnosis_job (
+        job_id text PRIMARY KEY,
+        created_at timestamptz NOT NULL,
+        state text NOT NULL,
+        fingerprint text NOT NULL,
+        snapshot jsonb NOT NULL
+    )
+    """,
     """
     CREATE TABLE IF NOT EXISTS citation_evidence (
         evidence_id text PRIMARY KEY,
@@ -237,10 +254,13 @@ class Storage:
         )
 
     def insert_observation(self, observation: DerivedObservation) -> None:
+        """幂等写入:同 (run, 判定器, 版本) 已有观测时静默跳过(续跑重复评分不产生
+        重复行)。注意 recompute 审计的 rows_affected 因此是"尝试数"口径。"""
         self._conn.execute(
             "INSERT INTO derived_observation (observation_id, run_id, observation_type, "
             "detector_name, detector_version, computed_at, payload) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s) "
+            "ON CONFLICT (run_id, detector_name, detector_version) DO NOTHING",
             (
                 observation.observation_id,
                 observation.run_id,
@@ -305,6 +325,43 @@ class Storage:
             (str(uuid4()), datetime.now(UTC), detector_name,
              version_from, version_to, rows_affected, trigger_kind, note),
         )
+
+    # ── 任务快照(v0.4.9 幂等续跑)─────────────────────────────────────
+
+    def upsert_job_snapshot(self, snapshot: dict[str, Any]) -> None:
+        """整快照覆写(任务是运行状态,非观测层)。snapshot 对 L2 是不透明 JSON,
+        结构由 L4 report/jobs.py 定义,须含 job_id/created_at/state/fingerprint。"""
+        self._conn.execute(
+            "INSERT INTO diagnosis_job (job_id, created_at, state, fingerprint, snapshot) "
+            "VALUES (%s, %s, %s, %s, %s) "
+            "ON CONFLICT (job_id) DO UPDATE SET state = EXCLUDED.state, snapshot = EXCLUDED.snapshot",
+            (
+                snapshot["job_id"],
+                datetime.fromisoformat(snapshot["created_at"]),
+                snapshot["state"],
+                snapshot["fingerprint"],
+                Jsonb(snapshot),
+            ),
+        )
+
+    def load_job_snapshots(self) -> list[dict[str, Any]]:
+        rows = self._conn.execute(
+            "SELECT snapshot FROM diagnosis_job ORDER BY created_at"
+        ).fetchall()
+        return [row[0] for row in rows]
+
+    def variants_for_need(self, need_id: str) -> list[PromptVariant]:
+        """续跑复用已存问法(不重烧起草费)。按创建时间序:用户原话先于生成变体。"""
+        rows = self._conn.execute(
+            "SELECT variant_id, need_id, prompt_text, origin, created_at "
+            "FROM prompt_variant WHERE need_id = %s ORDER BY created_at",
+            (need_id,),
+        ).fetchall()
+        return [
+            PromptVariant(variant_id=r[0], need_id=r[1], prompt_text=r[2],
+                          origin=r[3], created_at=r[4])
+            for r in rows
+        ]
 
     # ── 读取 ─────────────────────────────────────────────────────────
 

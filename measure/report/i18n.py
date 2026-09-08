@@ -108,6 +108,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "phase_done": "完成",
         "phase_partial": "部分完成(存在熔断截断,详见口径)",
         "phase_failed": "执行失败",
+        "phase_interrupted": "已中断(可续跑,已花的钱不重花)",
+        "btn_resume": "续跑(只补缺口)",
+        "btn_recompute": "重算报告",
         "footer": "本报告不打分:各阶段结论 = 概率 + 95% 区间(Jeffreys)+ 完整口径"
                   "(surface / model / N / stop_reasons / 拒答率 / 失败率 / 判定阈值)。"
                   "原始观测只追加留档,判定器升级后可全量重算复核。",
@@ -191,6 +194,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "phase_done": "Done",
         "phase_partial": "Partial (breaker-truncated; see caliber)",
         "phase_failed": "Failed",
+        "phase_interrupted": "Interrupted (resumable; money already spent is not re-spent)",
+        "btn_resume": "Resume (fill gaps only)",
+        "btn_recompute": "Recompute report",
         "footer": "This report has no scores: every stage conclusion = probability + 95% interval (Jeffreys) "
                   "+ full caliber (surface / model / N / stop_reasons / refusal & failure rates / thresholds). "
                   "Raw observations are append-only; detector upgrades recompute all history.",

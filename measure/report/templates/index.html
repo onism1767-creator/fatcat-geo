@@ -38,7 +38,19 @@
     <td>{{ j.state.value }}</td>
     <td>{{ t.get(j.phase, j.phase) }}</td>
     <td>${{ "%.4f"|format(j.spent_usd) }}</td>
-    <td><a href="/jobs/{{ j.job_id }}{{ '/report' if j.finished else '' }}?lang={{ lang }}">{{ t["view_report"] if j.finished else t["view"] }}</a></td>
+    <td>
+      {% if j.state.value in ("INTERRUPTED", "FAILED") %}
+      <form method="post" action="/jobs/{{ j.job_id }}/resume?lang={{ lang }}" style="display:inline">
+        <button type="submit">{{ t["btn_resume"] }}</button>
+      </form>
+      {% elif j.finished and not j.need_reports %}
+      <form method="post" action="/jobs/{{ j.job_id }}/resume?lang={{ lang }}" style="display:inline">
+        <button type="submit">{{ t["btn_recompute"] }}</button>
+      </form>
+      {% else %}
+      <a href="/jobs/{{ j.job_id }}{{ '/report' if j.finished else '' }}?lang={{ lang }}">{{ t["view_report"] if j.finished else t["view"] }}</a>
+      {% endif %}
+    </td>
   </tr>
   {% endfor %}
 </table>

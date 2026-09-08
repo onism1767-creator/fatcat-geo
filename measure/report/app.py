@@ -41,6 +41,7 @@ def create_app(
     dsn: str | None = None,
     evidence: list[EvidenceEntry] | None = None,
     job_runner=None,
+    registry: JobRegistry | None = None,  # 启动恢复(v0.4.9)由入口注入;缺省全新登记处
 ) -> FastAPI:
     if adapters is None:
         load_env_file()
@@ -52,7 +53,7 @@ def create_app(
     app = FastAPI(title="GEO 诊断")
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
     templates.env.filters["msg"] = render_msg  # 结论码 → 当前界面语言的成句
-    registry = JobRegistry()
+    registry = registry or JobRegistry()
     app.state.registry = registry
     app.state.adapters = adapters
 
@@ -194,6 +195,28 @@ def create_app(
         job.freeze(needs=needs, competitors=competitors, surfaces=surfaces,
                    tier_id=tier, variants_per_need=variants, budget_usd=budget_usd,
                    dependency_enabled=bool(dependency))
+        threading.Thread(
+            target=job_runner,
+            kwargs=dict(job=job, adapters=adapters, dsn=dsn, evidence=evidence),
+            daemon=True,
+        ).start()
+        return redirect(request, f"/jobs/{job.job_id}")
+
+    @app.post("/jobs/{job_id}/resume")
+    async def resume(request: Request, job_id: str):
+        """幂等续跑(v0.4.9):中断/失败任务补缺口;重启恢复的完成任务重算报告。
+        执行器可重入,已存样本按幂等键复用——已花的钱不重花。"""
+        job = registry.get(job_id)
+        if job is None:
+            return not_found(request)
+        resumable = job.state in (JobState.INTERRUPTED, JobState.FAILED) or (
+            job.finished and not job.need_reports
+        )
+        if not resumable:
+            return redirect(request, f"/jobs/{job.job_id}")
+        missing = [s for s in job.surfaces if s not in adapters]
+        if missing:
+            return redirect(request, f"/?error=续跑缺 surface(对应 key 未配?):{', '.join(missing)}")
         threading.Thread(
             target=job_runner,
             kwargs=dict(job=job, adapters=adapters, dsn=dsn, evidence=evidence),

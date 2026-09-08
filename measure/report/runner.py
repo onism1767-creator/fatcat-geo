@@ -117,6 +117,11 @@ def execute_job(
         job.state = JobState.FAILED
         job.error = f"{type(exc).__name__}: {exc}"
         job.phase = "phase_failed"
+        try:  # 失败态尽力落库供重启后续跑;持久化自身的失败不得掩盖原始错误
+            with Storage(dsn) as failure_store:
+                failure_store.upsert_job_snapshot(job.to_snapshot())
+        except Exception:
+            log.warning("job_state_persist_failed", job_id=job.job_id)
 
 
 def _execute(
@@ -126,12 +131,18 @@ def _execute(
     dsn: str,
     evidence: list[EvidenceEntry],
 ) -> None:
+    # 可重入(v0.4.9 幂等续跑):进度字段清零重算;已存的问法与运行按幂等键复用
     job.state = JobState.RUNNING
     job.phase = "phase_access"
+    job.completed_plans = 0
+    job.spent_usd = 0.0
+    job.need_reports = []
+    job.error = None
     job.access_result = access_audit.audit(job.website)
 
     storage = Storage(dsn)
     storage.ensure_schema()
+    storage.upsert_job_snapshot(job.to_snapshot())
     selected = {name: adapters[name] for name in job.surfaces}
     generation_adapter = next(
         (a for a in selected.values() if a.meta().capabilities.supports_citations), None
@@ -141,14 +152,19 @@ def _execute(
     variants_by_need: dict[str, list[PromptVariant]] = {}
     for need in job.needs:
         storage.insert_information_need(need)
-        variants = [
-            PromptVariant(need_id=need.need_id, prompt_text=need.statement, origin=PromptOrigin.USER)
-        ]
-        extra = job.variants_per_need - 1
+        variants = storage.variants_for_need(need.need_id)  # 续跑复用,不重烧起草费
+        if not variants:
+            variants = [
+                PromptVariant(need_id=need.need_id, prompt_text=need.statement,
+                              origin=PromptOrigin.USER)
+            ]
+            storage.insert_prompt_variant(variants[0])
+        extra = job.variants_per_need - len(variants)
         if extra > 0 and generation_adapter is not None:
-            variants += generate_variants(generation_adapter, need, count=extra, locale=job.locale)
-        for variant in variants:
-            storage.insert_prompt_variant(variant)
+            fresh = generate_variants(generation_adapter, need, count=extra, locale=job.locale)
+            for variant in fresh:
+                storage.insert_prompt_variant(variant)
+            variants += fresh
         variants_by_need[need.need_id] = variants
 
     # 检索依赖对照(第 9 章挂靠):启用时,为支持 search_disabled 的 surface
@@ -183,11 +199,16 @@ def _execute(
         plan_storage = Storage(dsn)  # psycopg 连接非线程安全:每计划独立连接
         try:
             sampler = SequentialSampler(plan_storage)
-            plan_results = [
-                sampler.run_plan(adapter, need, variant, hit_fn=hit_fn,
-                                 policy=policy, search_mode=mode, locale=job.locale)
-                for variant in variants_by_need[need.need_id]
-            ]
+            plan_results = []
+            for variant in variants_by_need[need.need_id]:
+                prior = [  # 幂等键 (问法 × surface × 模式) 下已存的运行,续跑作前缀
+                    r for r in plan_storage.runs_for_variant(variant.variant_id, surface=surface_name)
+                    if r.search_mode == mode
+                ]
+                plan_results.append(
+                    sampler.run_plan(adapter, need, variant, hit_fn=hit_fn, policy=policy,
+                                     search_mode=mode, locale=job.locale, prior_runs=prior)
+                )
         finally:
             plan_storage.close()
         with progress_lock:
@@ -391,9 +412,10 @@ def _execute(
             diagnosis=diagnosis,
         ))
 
-    storage.close()
     job.state = JobState.PARTIAL if truncated else JobState.DONE
     job.phase = "phase_partial" if truncated else "phase_done"
     job.finished_at = datetime.now(UTC)
+    storage.upsert_job_snapshot(job.to_snapshot())
+    storage.close()
     log.info("job_finished", job_id=job.job_id, state=job.state.value,
              plans=job.total_plans, spent_usd=round(job.spent_usd, 4))

@@ -221,6 +221,34 @@ def test_estimate_job_arithmetic():
     assert est_dep.cost_usd == pytest.approx(3 * 2 * 7.5 * (0.005 + 0.17 + 0.04))
 
 
+def test_job_snapshot_round_trip():
+    """快照往返(v0.4.9):冻结配置全保留;报告不入快照,续跑/重算时重建。"""
+    job = finished_job()
+    restored = DiagnosisJob.from_snapshot(job.to_snapshot())
+    assert restored.job_id == job.job_id
+    assert restored.fingerprint == job.fingerprint  # 同快照同指纹,续跑不换基线
+    assert restored.state is JobState.DONE and restored.phase == "phase_done"
+    assert [n.need_id for n in restored.needs] == [n.need_id for n in job.needs]
+    assert restored.surfaces == job.surfaces and restored.tier_id == job.tier_id
+    assert restored.dependency_enabled == job.dependency_enabled
+    assert restored.need_reports == []
+
+
+def test_resume_endpoint_relaunches_interrupted_job(client_and_job):
+    client, job, calls = client_and_job
+    job.state = JobState.INTERRUPTED
+    resp = client.post(f"/jobs/{job.job_id}/resume", follow_redirects=False)
+    assert resp.status_code == 303
+    assert calls == [job.job_id]  # 执行器被再次触发(可重入,只补缺口)
+
+
+def test_resume_endpoint_rejects_completed_job_with_report(client_and_job):
+    client, job, calls = client_and_job  # 夹具任务:DONE 且报告在手 → 无缺可补
+    resp = client.post(f"/jobs/{job.job_id}/resume", follow_redirects=False)
+    assert resp.status_code == 303
+    assert calls == []
+
+
 def test_fingerprint_sensitive_to_dependency_flag():
     def build(dependency_enabled: bool) -> str:
         job = DiagnosisJob(brand=BrandSpec(name="X", domains=["x.com"]), website="https://x.com",
