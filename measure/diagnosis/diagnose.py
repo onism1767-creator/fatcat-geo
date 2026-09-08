@@ -14,7 +14,15 @@ from __future__ import annotations
 
 from diagnosis.access_audit import AccessAuditResult
 from diagnosis.access_audit import CheckStatus as AccessCheckStatus
-from diagnosis.findings import Msg, Stage, StageFinding, StageStatus, msg
+from diagnosis.findings import (
+    ChannelFinding,
+    Msg,
+    RetrievalChannel,
+    Stage,
+    StageFinding,
+    StageStatus,
+    msg,
+)
 from diagnosis.recommender import EvidenceEntry, Recommendation, recommend
 from diagnosis.retrieval_dependency import DependencyFinding
 from engine.models import FrozenModel, InformationNeed, NeedIntent
@@ -31,6 +39,9 @@ class NeedDiagnosis(FrozenModel):
     cautions: list[Msg]
     recommendations: list[Recommendation]
     retrieval_dependency: DependencyFinding | None = None  # 第 9 章挂靠观测,不参与定位
+    # 双通道架构(v0.4.8):生成端通道存在时填两条(标准化 + 生成端)并列展示;
+    # 只有裸检索时为空,RETRIEVAL 阶段按单通道渲染(与旧版一致)
+    retrieval_channels: list[ChannelFinding] = []
 
 
 def access_finding(audit: AccessAuditResult | None) -> StageFinding:
@@ -81,14 +92,50 @@ def diagnose_need(
     representation: StageFinding,
     registry: list[EvidenceEntry],
     retrieval_dependency: DependencyFinding | None = None,
+    retrieval_generative: ChannelFinding | None = None,
 ) -> NeedDiagnosis:
+    cautions: list[Msg] = []
+    # ── RETRIEVAL 双通道合成(v0.4.8)────────────────────────────────
+    # 生成端通道可观测时,阶段状态与定位依据取生成端(与引用同仪器,
+    # 「被引必先被检索」在同仪器内严格成立);标准化裸检索降为并列参考。
+    # 两通道各自完整结论保留在 retrieval_channels,报告分视角展示。
+    channels: list[ChannelFinding] = []
+    if (
+        retrieval_generative is not None
+        and retrieval_generative.status is not StageStatus.NOT_OBSERVABLE
+    ):
+        channels = [
+            ChannelFinding(
+                channel=RetrievalChannel.STANDARDIZED,
+                status=retrieval.status,
+                headline=retrieval.headline,
+                evidence_lines=retrieval.evidence_lines,
+                low_confidence=retrieval.low_confidence,
+            ),
+            retrieval_generative,
+        ]
+        if retrieval.status is not StageStatus.NOT_OBSERVABLE and (
+            retrieval.status is not retrieval_generative.status
+        ):
+            cautions.append(msg(
+                "caution.channel_divergence",
+                std=retrieval.status.value,
+                gen=retrieval_generative.status.value,
+            ))
+        retrieval = StageFinding(
+            stage=Stage.RETRIEVAL,
+            status=retrieval_generative.status,
+            headline=retrieval_generative.headline,
+            evidence_lines=[msg("retrieval.channel_basis")],
+            low_confidence=retrieval_generative.low_confidence,
+        )
+
     findings = {
         Stage.ACCESS: access,
         Stage.RETRIEVAL: retrieval,
         Stage.CITATION: citation,
         Stage.REPRESENTATION: representation,
     }
-    cautions: list[Msg] = []
     skip: frozenset[Stage] = frozenset()
     # 通道分歧防线:被引必先被检索。引用阶段 PASS 时,裸检索通道的缺席
     # 只能说明观测通道与生成端实际检索(查询改写/多语言 fan-out)不等同
@@ -120,4 +167,5 @@ def diagnose_need(
         cautions=cautions,
         recommendations=recommendations,
         retrieval_dependency=retrieval_dependency,
+        retrieval_channels=channels,
     )

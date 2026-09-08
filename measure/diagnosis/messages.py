@@ -79,6 +79,53 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": "判定阈值:FAIL 上界≤{fail:.0%},PASS 下界≥{pass_:.0%}",
         "en": "Verdict thresholds: FAIL if CI upper ≤{fail:.0%}, PASS if CI lower ≥{pass_:.0%}",
     },
+    # ── RETRIEVAL 生成端通道(v0.4.8 双通道架构)───────────────────────
+    "genret.headline.fail": {
+        "zh": "在 AI 自己的搜索习惯下,品牌基本不被递到模型手上",
+        "en": "Under the AI's own search behavior, the brand rarely reaches the model's hands",
+    },
+    "genret.headline.weak": {
+        "zh": "在 AI 自己的搜索习惯下,品牌不稳定地进入检索候选",
+        "en": "Under the AI's own search behavior, the brand enters retrieval candidates inconsistently",
+    },
+    "genret.headline.pass": {
+        "zh": "在 AI 自己的搜索习惯下,品牌稳定进入检索候选",
+        "en": "Under the AI's own search behavior, the brand reliably enters retrieval candidates",
+    },
+    "genret.headline.not_observable": {
+        "zh": "生成端检索通道无有效样本,不可观测",
+        "en": "The generative-side retrieval channel has no valid samples — not observable",
+    },
+    "genret.presence": {
+        "zh": f"候选在场率(模型自拟检索词换来的候选集中出现品牌域名):{_EST}",
+        "en": f"Candidate presence rate (brand domain among results fetched for model-authored queries): {_EST_EN}",
+    },
+    "genret.query_entry": {
+        "zh": f"检索词品牌入场率(模型自拟检索词中出现品牌名/别名):{_EST}",
+        "en": f"Query entry rate (brand name/alias appears in model-authored queries): {_EST_EN}",
+    },
+    "genret.funnel.pair": {
+        "zh": "同仪器漏斗:候选在场 {presence_point:.0%} [{presence_low:.0%}–{presence_high:.0%}](N={presence_n})"
+              " vs 被引 {cited_point:.0%} [{cited_low:.0%}–{cited_high:.0%}](N={cited_n})",
+        "en": "Same-instrument funnel: candidate presence {presence_point:.0%} [{presence_low:.0%}–{presence_high:.0%}] (N={presence_n})"
+              " vs cited {cited_point:.0%} [{cited_low:.0%}–{cited_high:.0%}] (N={cited_n})",
+    },
+    "genret.funnel.gap": {
+        "zh": "被引区间显著低于在场区间——资料递到了模型手上却常落选,缺席主因偏向内容竞争力而非检索可见度(同一批运行内部对比,零跨仪器混淆)",
+        "en": "The cited interval is significantly below the presence interval — material reaches the model but often loses out; the absence leans toward content competitiveness rather than retrieval visibility (same-run comparison, no cross-instrument confound)",
+    },
+    "genret.funnel.aligned": {
+        "zh": "在场率与被引率区间重叠——递上来的资料被采用的程度与在场程度无法区分",
+        "en": "Presence and cited intervals overlap — adoption of delivered material is indistinguishable from its presence",
+    },
+    "genret.triggered": {
+        "zh": f"检索触发率:{_EST};未触发检索的运行计入各分母——不检索本身就是自然行为的一部分",
+        "en": f"Search trigger rate: {_EST_EN}; runs without search count in denominators — not searching is itself part of natural behavior",
+    },
+    "retrieval.channel_basis": {
+        "zh": "定位依据:生成端检索通道(与引用同仪器,「被引必先被检索」在同仪器内严格成立);标准化裸检索通道结论并列展示,不参与定位(风险 #5:跨仪器观测通道不当真值)",
+        "en": "Localization basis: the generative-side channel (same instrument as citations, where \"cited requires retrieved\" holds strictly); the standardized bare-search channel is shown alongside but not used for localization (risk #5: cross-instrument observation channels are not ground truth)",
+    },
     # ── CITATION ─────────────────────────────────────────────────────
     "citation.headline.fail": {
         "zh": "品牌域名基本不进引用集",
@@ -433,6 +480,15 @@ CATALOG: dict[str, dict[str, str]] = {
               "is not equivalent to the generator's actual retrieval (query rewriting, multilingual fan-out); "
               "the retrieval result is treated as channel divergence and not used for failure localization "
               "(architecture risk #5: observation channels are not ground truth)",
+    },
+    "caution.channel_divergence": {
+        "zh": "两条检索通道结论分歧(标准化裸检索 {std} vs 生成端 {gen})。两通道测的不是同一个量:"
+              "受控查询×另一家索引 vs 模型自拟检索词×本平台索引,分歧本身是信息而非矛盾;"
+              "定位只采信与引用同仪器的生成端通道",
+        "en": "The two retrieval channels disagree (standardized bare-search {std} vs generative {gen}). "
+              "They measure different quantities — a controlled query against another index vs model-authored "
+              "queries against this platform's index; the divergence is information, not contradiction. "
+              "Localization trusts only the generative channel (same instrument as citations)",
     },
     "caution.unobservable": {
         "zh": "以下阶段不可观测,未参与定位:{stages}",

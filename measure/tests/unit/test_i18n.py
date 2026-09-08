@@ -125,6 +125,9 @@ def test_all_diagnosis_output_renders_in_both_languages():
     if diagnosis.retrieval_dependency is not None:
         messages.append(diagnosis.retrieval_dependency.headline)
         messages += diagnosis.retrieval_dependency.evidence_lines
+    for channel in diagnosis.retrieval_channels:
+        messages.append(channel.headline)
+        messages += channel.evidence_lines
     assert messages
     for lang in ("zh", "en"):
         for message in messages:

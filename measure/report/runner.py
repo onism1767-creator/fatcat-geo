@@ -27,6 +27,7 @@ from diagnosis.citation_verify import (
     normalize_url,
 )
 from diagnosis.diagnose import access_finding, diagnose_need
+from diagnosis.generative_retrieval import diagnose_generative_retrieval
 from diagnosis.recommender import EvidenceEntry
 from diagnosis.representation_diag import diagnose_representation
 from diagnosis.retrieval_dependency import diagnose_retrieval_dependency
@@ -34,13 +35,16 @@ from diagnosis.retrieval_diag import diagnose_retrieval
 from engine.detectors.brand_mention import BrandMentionDetector
 from engine.detectors.matching import matches_any_brand_domain
 from engine.detectors.citation import CitationDetector
+from engine.detectors.query_trace import QueryTraceDetector
 from engine.detectors.retrieval_rank import RetrievalRankDetector
 from engine.detectors.runner import observe_runs
 from engine.detectors.sentiment import SentimentDetector
 from engine.metrics import estimate_proportion
 from engine.models import (
+    UNKNOWN,
     BrandSpec,
     InformationNeed,
+    Outcome,
     PromptOrigin,
     PromptVariant,
     SearchMode,
@@ -237,6 +241,7 @@ def _execute(
     citation_det = CitationDetector()
     rank_det = RetrievalRankDetector()
     sentiment_det = SentimentDetector()
+    query_det = QueryTraceDetector()
     truncated = False
 
     for need in job.needs:
@@ -249,6 +254,7 @@ def _execute(
         competitor_estimates: list = []
         need_runs: list[SurfaceRun] = []
         dependency = None
+        generative = None
 
         for surface_name, adapter in selected.items():
             plan_results = results[(need.need_id, surface_name, SearchMode.DEFAULT)]
@@ -314,6 +320,37 @@ def _execute(
                             estimate_proportion(sum(o.cited for o in comp_obs), len(comp_obs)),
                         ))
 
+            # 生成端检索通道(v0.4.8):检索词/候选可观测的 surface,与引用同仪器
+            if generative is None and capabilities.supports_query_trace:
+                presence_obs = [obs for run in runs if (obs := rank_det.detect(run, job.brand))]
+                presence_metric = None
+                if presence_obs:
+                    k_presence = sum(obs.present for obs in presence_obs)
+                    presence_metric = aggregate_need_surface(
+                        plan_results, metric_label=rank_det.name
+                    ).model_copy(update={  # 开卷腿收敛判据是引用,在场数须按判定器重算
+                        "k_hits": k_presence,
+                        "estimate": estimate_proportion(k_presence, len(presence_obs)),
+                        "per_variant": [],
+                    })
+                query_obs = [obs for run in runs if (obs := query_det.detect(run, job.brand))]
+                gen_cited_obs = [obs for run in runs if (obs := citation_det.detect(run, job.brand))]
+                triggered_flags = [
+                    run.search_trace.search_triggered
+                    for run in runs
+                    if run.outcome is Outcome.SUCCESS and run.search_trace.search_triggered != UNKNOWN
+                ]
+                generative = diagnose_generative_retrieval(
+                    presence_metric,
+                    [obs.best_rank for obs in presence_obs if obs.best_rank is not None],
+                    estimate_proportion(sum(o.present for o in query_obs), len(query_obs))
+                    if query_obs else None,
+                    estimate_proportion(sum(o.cited for o in gen_cited_obs), len(gen_cited_obs))
+                    if gen_cited_obs else None,
+                    estimate_proportion(sum(bool(f) for f in triggered_flags), len(triggered_flags))
+                    if triggered_flags else None,
+                )
+
             # 检索依赖对照(第 9 章):同 surface 的开卷/闭卷提及率区间并比
             closed_key = (need.need_id, surface_name, SearchMode.SEARCH_DISABLED)
             if dependency is None and closed_key in results:
@@ -331,7 +368,8 @@ def _execute(
                 })
                 dependency = diagnose_retrieval_dependency(open_metric, closed_metric)
 
-        observe_runs(storage, need_runs, [mention_det, citation_det, rank_det, sentiment_det], job.brand)
+        observe_runs(storage, need_runs,
+                     [mention_det, citation_det, rank_det, sentiment_det, query_det], job.brand)
         diagnosis = diagnose_need(
             need,
             access=access,
@@ -343,6 +381,7 @@ def _execute(
             ),
             registry=evidence,
             retrieval_dependency=dependency,
+            retrieval_generative=generative,
         )
         job.need_reports.append(NeedReport(
             need=need,

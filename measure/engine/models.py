@@ -294,6 +294,16 @@ class RetrievalRankObservation(DerivedObservation):
     matched_domains: list[str] = []  # 命中的候选域名原样记录
 
 
+class QueryTraceObservation(DerivedObservation):
+    """品牌名/别名是否进入模型自拟的检索词(检索词可观测的通道供数,v0.4.8)。
+
+    「你在不在模型的候选名单里」——生成端检索通道的上游环节判定。"""
+
+    present: bool
+    matched_alias: str | None = None  # 首个命中的品牌名/别名
+    matched_queries: list[str] = []  # 命中的检索词原样记录
+
+
 class Sentiment(StrEnum):
     POSITIVE = "positive"
     NEUTRAL = "neutral"

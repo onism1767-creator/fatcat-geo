@@ -42,6 +42,22 @@
     <ul class="ev">{% for line in finding.evidence_lines %}<li>{{ line|msg(lang) }}</li>{% endfor %}</ul>
   </details>
   {% endif %}
+  {% if finding.stage.value == "RETRIEVAL" and d.retrieval_channels %}
+  {# 双通道架构(v0.4.8):两台仪器、两个口径,并列展示,各判各的 #}
+  {% for ch in d.retrieval_channels %}
+  <div style="margin-left:16px">
+    <h4 style="margin:8px 0 2px">▸ {{ t["channel_" + ch.channel.value] }}
+      <span class="chip {{ ch.status.value }}">{{ ch.status.value }}</span></h4>
+    <p style="margin:2px 0">{{ ch.headline|msg(lang) }}</p>
+    {% if ch.evidence_lines %}
+    <details {{ "open" if ch.status.value in ("FAIL", "WEAK") else "" }}>
+      <summary>{{ t["evidence_summary"] }}</summary>
+      <ul class="ev">{% for line in ch.evidence_lines %}<li>{{ line|msg(lang) }}</li>{% endfor %}</ul>
+    </details>
+    {% endif %}
+  </div>
+  {% endfor %}
+  {% endif %}
   {% endfor %}
 
   {% if d.retrieval_dependency %}

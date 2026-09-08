@@ -15,6 +15,7 @@ from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
 from diagnosis.citation_diag import VerificationSummary, diagnose_citation
 from diagnosis.diagnose import access_finding, diagnose_need
 from diagnosis.recommender import load_evidence_registry
+from diagnosis.generative_retrieval import diagnose_generative_retrieval
 from diagnosis.representation_diag import diagnose_representation
 from diagnosis.retrieval_dependency import diagnose_retrieval_dependency
 from diagnosis.retrieval_diag import diagnose_retrieval
@@ -82,6 +83,11 @@ def finished_job() -> DiagnosisJob:
         # 开卷 20/30 vs 闭卷 2/30:区间分离且闭卷上界不足开卷下界一半 → HIGH
         retrieval_dependency=diagnose_retrieval_dependency(
             make_metric(20, 30), make_metric(2, 30)
+        ),
+        # 生成端通道:在场 0/30 → FAIL,与裸检索一致(无分歧警示);漏斗/检索词/触发率齐备
+        retrieval_generative=diagnose_generative_retrieval(
+            make_metric(0, 30), [],
+            estimate_proportion(1, 30), estimate_proportion(0, 30), estimate_proportion(25, 30),
         ),
     )
     job = DiagnosisJob(brand=brand, website="https://aurora-crm.com", category="CRM",

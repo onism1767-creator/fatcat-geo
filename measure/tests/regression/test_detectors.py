@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 
 from engine.detectors.brand_mention import BrandMentionDetector
 from engine.detectors.citation import CitationDetector
+from engine.detectors.query_trace import QueryTraceDetector
 from engine.detectors.retrieval_rank import RetrievalRankDetector
 from engine.detectors.sentiment import SentimentDetector
 from engine.models import (
@@ -144,6 +145,23 @@ SAMPLES = {
     "sentiment_scope_is_mention_sentence": make_run(
         "r-s5", answer=answer_with("市面上最佳工具很多。极光CRM 是其中一款。")
     ),
+    "query_hit_alias": make_run(
+        "r-q1",
+        search_trace=SearchTrace(
+            search_triggered=True,
+            generated_queries=["中小团队 CRM 对比 极光CRM Zoho", "CRM 免费档推荐"],
+        ),
+    ),
+    "query_absent": make_run(
+        "r-q2",
+        search_trace=SearchTrace(
+            search_triggered=True, generated_queries=["中小团队 CRM 推荐 2026"]
+        ),
+    ),
+    "query_none_generated": make_run(
+        "r-q3", search_trace=SearchTrace(search_triggered=False, generated_queries=[]),
+    ),
+    "query_not_observable": make_run("r-q4"),  # 默认 NOT_OBSERVABLE ≠ 空列表
 }
 
 # ── 期望值,按 detector_version 归档(只增不改)──────────────────────────
@@ -202,6 +220,20 @@ SENTIMENT_EXPECTED = {
 }
 
 
+QUERY_TRACE_EXPECTED = {
+    1: {
+        "query_hit_alias": dict(
+            present=True, matched_alias="极光CRM",
+            matched_queries=["中小团队 CRM 对比 极光CRM Zoho"],
+        ),
+        "query_absent": dict(present=False, matched_alias=None, matched_queries=[]),
+        "query_none_generated": dict(present=False, matched_alias=None, matched_queries=[]),
+        "query_not_observable": None,  # 检索词不可观测 → 无观测
+        "refused_run": None,
+    }
+}
+
+
 def run_expectations(detector, expectations):
     for sample_name, expected in expectations[detector.version].items():
         observation = detector.detect(SAMPLES[sample_name], BRAND)
@@ -222,6 +254,10 @@ def test_retrieval_rank_detector_matches_archived_expectations():
 
 def test_sentiment_detector_matches_archived_expectations():
     run_expectations(SentimentDetector(), SENTIMENT_EXPECTED)
+
+
+def test_query_trace_detector_matches_archived_expectations():
+    run_expectations(QueryTraceDetector(), QUERY_TRACE_EXPECTED)
 
 
 def test_brand_mention_detector_matches_archived_expectations():
