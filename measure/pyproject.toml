@@ -19,10 +19,30 @@ dependencies = [
 [dependency-groups]
 dev = [
     "hypothesis>=6",
+    "mypy>=2",
     "pytest>=8",
     "respx>=0.21",
+    "ruff>=0.16",
 ]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
 testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["B008"]  # 冻结 pydantic 模型作参数默认值是刻意模式(不可变,无共享状态风险)
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*" = ["E402"]  # smoke 脚本须先注入 sys.path 再导入项目模块
+"diagnosis/messages.py" = ["E501"]  # 双语结论码目录:文案完整性优先,不硬折行
+"report/i18n.py" = ["E501"]  # 界面文案目录,同上
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+files = ["adapters", "engine", "diagnosis", "report"]

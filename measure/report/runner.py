@@ -33,8 +33,8 @@ from diagnosis.representation_diag import diagnose_representation
 from diagnosis.retrieval_dependency import diagnose_retrieval_dependency
 from diagnosis.retrieval_diag import diagnose_retrieval
 from engine.detectors.brand_mention import BrandMentionDetector
-from engine.detectors.matching import matches_any_brand_domain
 from engine.detectors.citation import CitationDetector
+from engine.detectors.matching import matches_any_brand_domain
 from engine.detectors.query_trace import QueryTraceDetector
 from engine.detectors.retrieval_rank import RetrievalRankDetector
 from engine.detectors.runner import observe_runs
@@ -74,18 +74,18 @@ def _hit_fn_for(adapter: SurfaceAdapter, brand: BrandSpec):
     """按能力声明选择收敛判据(不认 surface 名,只认能力)。"""
     capabilities = adapter.meta().capabilities
     if capabilities.supports_retrieval_rank:
-        detector = RetrievalRankDetector()
+        rank_detector = RetrievalRankDetector()
 
         def presence(run: SurfaceRun) -> bool | None:
-            observation = detector.detect(run, brand)
+            observation = rank_detector.detect(run, brand)
             return None if observation is None else observation.present
 
         return presence
     if capabilities.supports_citations:
-        detector = CitationDetector()
+        citation_detector = CitationDetector()
 
         def cited(run: SurfaceRun) -> bool | None:
-            observation = detector.detect(run, brand)
+            observation = citation_detector.detect(run, brand)
             return None if observation is None else observation.cited
 
         return cited
@@ -265,14 +265,14 @@ def _execute(
             if capabilities.supports_retrieval_rank and retrieval_metric is None:
                 retrieval_metric = aggregate_need_surface(plan_results, metric_label=rank_det.name)
                 best_ranks = [
-                    obs.best_rank
+                    r_obs.best_rank
                     for run in runs
-                    if (obs := rank_det.detect(run, job.brand)) and obs.best_rank is not None
+                    if (r_obs := rank_det.detect(run, job.brand)) and r_obs.best_rank is not None
                 ]
             elif capabilities.supports_citations and citation_metric is None:
                 citation_metric = aggregate_need_surface(plan_results, metric_label=citation_det.name)
                 mention_obs = [
-                    obs for run in runs if (obs := mention_det.detect(run, job.brand))
+                    m_obs for run in runs if (m_obs := mention_det.detect(run, job.brand))
                 ]
                 k_mention = sum(obs.mentioned for obs in mention_obs)
                 mention_metric = NeedSurfaceMetric(
@@ -288,7 +288,7 @@ def _execute(
                     per_variant=[],
                 )
                 sentiment_counts = Counter(
-                    obs.sentiment for run in runs if (obs := sentiment_det.detect(run, job.brand))
+                    s_obs.sentiment for run in runs if (s_obs := sentiment_det.detect(run, job.brand))
                 )
                 cited_runs_urls = [(run, brand_cited_urls(run)) for run in runs]
                 need_urls = {normalize_url(u) for _, us in cited_runs_urls for u in us}
@@ -312,7 +312,7 @@ def _execute(
                 )
                 for competitor in job.competitors:
                     comp_obs = [
-                        obs for run in runs if (obs := citation_det.detect(run, competitor))
+                        c_obs for run in runs if (c_obs := citation_det.detect(run, competitor))
                     ]
                     if comp_obs:
                         competitor_estimates.append((
@@ -322,7 +322,7 @@ def _execute(
 
             # 生成端检索通道(v0.4.8):检索词/候选可观测的 surface,与引用同仪器
             if generative is None and capabilities.supports_query_trace:
-                presence_obs = [obs for run in runs if (obs := rank_det.detect(run, job.brand))]
+                presence_obs = [p_obs for run in runs if (p_obs := rank_det.detect(run, job.brand))]
                 presence_metric = None
                 if presence_obs:
                     k_presence = sum(obs.present for obs in presence_obs)
@@ -333,8 +333,10 @@ def _execute(
                         "estimate": estimate_proportion(k_presence, len(presence_obs)),
                         "per_variant": [],
                     })
-                query_obs = [obs for run in runs if (obs := query_det.detect(run, job.brand))]
-                gen_cited_obs = [obs for run in runs if (obs := citation_det.detect(run, job.brand))]
+                query_obs = [q_obs for run in runs if (q_obs := query_det.detect(run, job.brand))]
+                gen_cited_obs = [
+                    gc_obs for run in runs if (gc_obs := citation_det.detect(run, job.brand))
+                ]
                 triggered_flags = [
                     run.search_trace.search_triggered
                     for run in runs
@@ -357,8 +359,8 @@ def _execute(
                 closed_results = results[closed_key]
                 truncated |= any(r.stop_reason in _TRUNCATION_REASONS for r in closed_results)
                 closed_metric = aggregate_need_surface(closed_results, metric_label=mention_det.name)
-                open_obs = [obs for run in runs if (obs := mention_det.detect(run, job.brand))]
-                k_open = sum(obs.mentioned for obs in open_obs)
+                open_obs = [om_obs for run in runs if (om_obs := mention_det.detect(run, job.brand))]
+                k_open = sum(o.mentioned for o in open_obs)
                 open_metric = aggregate_need_surface(
                     plan_results, metric_label=mention_det.name
                 ).model_copy(update={  # 开卷腿收敛判据是引用,提及数须按判定器重算

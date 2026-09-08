@@ -231,7 +231,7 @@ class SurfaceRun(FrozenModel):
     cost_usd: float
 
     @model_validator(mode="after")
-    def _outcome_error_consistency(self) -> "SurfaceRun":
+    def _outcome_error_consistency(self) -> SurfaceRun:
         if self.outcome is Outcome.SUCCESS and self.error is not None:
             raise ValueError("outcome=SUCCESS 时不得携带 error")
         if self.outcome is not Outcome.SUCCESS and self.error is None:

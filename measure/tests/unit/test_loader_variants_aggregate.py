@@ -76,7 +76,8 @@ def test_build_adapters_rejects_identity_mismatch(tmp_path):
 
 
 def test_parse_variant_lines_strips_numbering_and_dedupes():
-    text = "1. 中小团队适合哪个 CRM?\n2、有什么 CRM 推荐给小公司?\n- 中小团队适合哪个 CRM?\n\n3) 十人团队怎么选客户管理系统\n"
+    text = ("1. 中小团队适合哪个 CRM?\n2、有什么 CRM 推荐给小公司?\n"
+            "- 中小团队适合哪个 CRM?\n\n3) 十人团队怎么选客户管理系统\n")
     lines = parse_variant_lines(text, count=4)
     assert lines == [
         "中小团队适合哪个 CRM?",

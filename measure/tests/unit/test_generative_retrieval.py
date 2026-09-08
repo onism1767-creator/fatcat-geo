@@ -6,7 +6,6 @@
   裸检索降为并列参考;两通道状态分歧出警示;各自完整结论保留。
 """
 
-import pytest
 
 from diagnosis.diagnose import diagnose_need
 from diagnosis.findings import RetrievalChannel, Stage, StageFinding, StageStatus, msg

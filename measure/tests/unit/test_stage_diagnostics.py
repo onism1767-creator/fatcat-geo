@@ -6,6 +6,11 @@
 from diagnosis.citation_diag import diagnose_citation
 from diagnosis.findings import Stage, StageStatus
 from diagnosis.messages import render_msg
+from diagnosis.representation_diag import diagnose_representation
+from diagnosis.retrieval_diag import diagnose_retrieval
+from engine.metrics import account_outcomes, estimate_proportion
+from engine.models import NeedIntent, Outcome, Sentiment, StopReason
+from engine.scheduler import NeedSurfaceMetric
 
 
 def zh(message) -> str:
@@ -14,11 +19,6 @@ def zh(message) -> str:
 
 def zh_lines(finding) -> list[str]:
     return [zh(line) for line in finding.evidence_lines]
-from diagnosis.representation_diag import diagnose_representation
-from diagnosis.retrieval_diag import diagnose_retrieval
-from engine.metrics import account_outcomes, estimate_proportion
-from engine.models import NeedIntent, Outcome, Sentiment, StopReason
-from engine.scheduler import NeedSurfaceMetric
 
 
 def make_metric(k: int, n: int, *, refused: int = 0, failed: int = 0) -> NeedSurfaceMetric:

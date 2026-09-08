@@ -19,7 +19,7 @@ from diagnosis.messages import render_msg
 from diagnosis.recommender import EvidenceEntry, load_evidence_registry
 from engine.envfile import load_env_file
 from engine.loader import build_adapters
-from engine.models import BrandSpec, InformationNeed, NeedIntent
+from engine.models import BrandSpec, CompetitorSuggestion, InformationNeed, NeedIntent
 from engine.needs import NeedCandidate, draft_need_candidates
 from report import runner
 from report.i18n import INTENT_LABELS, MESSAGES, resolve_lang
@@ -96,7 +96,7 @@ def create_app(
             domains=[domain] if domain else [],
         )
         candidates: list[NeedCandidate] = []
-        competitors_suggested = []
+        competitors_suggested: list[CompetitorSuggestion] = []
         if generate and adapters:
             generation_adapter = next(
                 (a for a in adapters.values() if a.meta().capabilities.supports_citations), None

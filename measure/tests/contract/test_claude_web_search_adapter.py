@@ -268,9 +268,8 @@ def test_timeout_raises_transient():
 
 @respx.mock
 def test_auth_failure_raises_permanent():
-    respx.post(MSG_URL).mock(
-        return_value=httpx.Response(401, json={"type": "error", "error": {"type": "authentication_error", "message": "invalid x-api-key"}})
-    )
+    body = {"type": "error", "error": {"type": "authentication_error", "message": "invalid x-api-key"}}
+    respx.post(MSG_URL).mock(return_value=httpx.Response(401, json=body))
     with pytest.raises(AdapterPermanentError) as exc_info:
         ClaudeWebSearchAdapter(api_key="bad-key").ask(make_request())
     assert exc_info.value.http_status == 401
@@ -301,9 +300,8 @@ def test_healthcheck_minimal_request_without_tools():
     sent = json.loads(route.calls[0].request.content)
     assert "tools" not in sent and sent["max_tokens"] == 1  # 验 key,成本近零
 
-    respx.post(MSG_URL).mock(
-        return_value=httpx.Response(401, json={"type": "error", "error": {"type": "authentication_error", "message": "bad"}})
-    )
+    bad = {"type": "error", "error": {"type": "authentication_error", "message": "bad"}}
+    respx.post(MSG_URL).mock(return_value=httpx.Response(401, json=bad))
     assert ClaudeWebSearchAdapter(api_key="bad-key").healthcheck() is False
 
 

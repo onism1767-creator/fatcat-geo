@@ -117,6 +117,6 @@ class SurfaceAdapter(ABC):
     def healthcheck(self) -> bool:
         """key 有效性、配额可用性。"""
 
-    def close(self) -> None:
+    def close(self) -> None:  # noqa: B027 —— 刻意的可选钩子,不设为抽象方法
         """释放底层连接。持有 httpx.Client 的适配器必须覆写;
         默认无资源可释放(测试替身/模拟适配器无需实现)。"""

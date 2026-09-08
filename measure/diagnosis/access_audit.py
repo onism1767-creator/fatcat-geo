@@ -27,11 +27,12 @@ from __future__ import annotations
 import argparse
 import re
 import sys
+from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import StrEnum
 from html.parser import HTMLParser
 from pathlib import Path
-from typing import Callable, Final
+from typing import Final
 from urllib import robotparser
 from urllib.parse import urljoin, urlsplit
 
@@ -327,7 +328,9 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
 
     # 6. HTML 内容(JS 白板):优先以爬虫视角判定
     browser_chars = (
-        visible_text_length(baseline.text) if baseline_ok and _is_html(baseline) else None
+        visible_text_length(baseline.text)
+        if baseline_ok and baseline is not None and _is_html(baseline)
+        else None
     )
     bot_views = [(p.bot, p.visible_text_chars) for p in probes if p.visible_text_chars is not None]
     label: Msg | str = ""

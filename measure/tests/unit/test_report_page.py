@@ -14,8 +14,8 @@ from fastapi.testclient import TestClient
 from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
 from diagnosis.citation_diag import VerificationSummary, diagnose_citation
 from diagnosis.diagnose import access_finding, diagnose_need
-from diagnosis.recommender import load_evidence_registry
 from diagnosis.generative_retrieval import diagnose_generative_retrieval
+from diagnosis.recommender import load_evidence_registry
 from diagnosis.representation_diag import diagnose_representation
 from diagnosis.retrieval_dependency import diagnose_retrieval_dependency
 from diagnosis.retrieval_diag import diagnose_retrieval

@@ -13,7 +13,6 @@ SearchTrace.retrieved_sources(rank = 平台给出的位次,1 起)。
 
 from __future__ import annotations
 
-from typing import Any
 from urllib.parse import urlsplit
 
 import httpx

@@ -23,6 +23,7 @@ from engine.detectors.citation import CitationDetector  # noqa: E402
 from engine.detectors.retrieval_rank import RetrievalRankDetector  # noqa: E402
 from engine.detectors.runner import observe_runs  # noqa: E402
 from engine.detectors.sentiment import SentimentDetector  # noqa: E402
+from engine.envfile import load_env_file  # noqa: E402
 from engine.loader import build_adapters  # noqa: E402
 from engine.models import (  # noqa: E402
     BrandSpec,
@@ -40,7 +41,6 @@ from engine.scheduler import (  # noqa: E402
 )
 from engine.storage import Storage  # noqa: E402
 from engine.variants import generate_variants  # noqa: E402
-from engine.envfile import load_env_file  # noqa: E402
 
 DEFAULT_DB = "postgresql://geo@localhost:5433/geo_tool"
 POLICY = SamplingPolicy(min_n=5, max_n=6, ci_width_threshold=0.35, budget_usd=0.10)
@@ -101,7 +101,7 @@ def main() -> int:
     for surface, (label, detector, extract) in CHANNEL_HIT_DETECTORS.items():
         adapter = adapters[surface]
 
-        def hit_fn(run: SurfaceRun) -> bool | None:
+        def hit_fn(run: SurfaceRun, detector=detector, extract=extract) -> bool | None:
             observation = detector.detect(run, BRAND)
             return None if observation is None else extract(observation)
 

@@ -4,10 +4,8 @@
 """
 
 import httpx
-import pytest
 import respx
 
-from diagnosis.messages import render_msg
 from diagnosis.access_audit import (
     DEFAULT_CRAWLERS_PATH,
     CheckStatus,
@@ -16,6 +14,7 @@ from diagnosis.access_audit import (
     load_crawlers,
     visible_text_length,
 )
+from diagnosis.messages import render_msg
 
 SITE = "https://example.com"
 

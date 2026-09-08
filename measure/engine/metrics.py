@@ -14,7 +14,7 @@ k=0 时下界取 0,k=n 时上界取 1——否则区间不覆盖点估计,
 from __future__ import annotations
 
 from collections import Counter
-from typing import Iterable
+from collections.abc import Iterable
 
 from scipy.stats import beta
 

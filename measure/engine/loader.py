@@ -11,8 +11,8 @@
 from __future__ import annotations
 
 import importlib
+from collections.abc import Mapping
 from pathlib import Path
-from typing import Mapping
 
 import structlog
 import yaml

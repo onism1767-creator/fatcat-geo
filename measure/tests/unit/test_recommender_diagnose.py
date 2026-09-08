@@ -18,13 +18,13 @@ from diagnosis.recommender import (
     load_evidence_registry,
     recommend,
 )
+from engine.models import InformationNeed, NeedIntent
+
+REGISTRY = load_evidence_registry()
 
 
 def zh_cautions(diagnosis) -> list[str]:
     return [render_msg(c, "zh") for c in diagnosis.cautions]
-from engine.models import InformationNeed, NeedIntent
-
-REGISTRY = load_evidence_registry()
 
 NEED = InformationNeed(need_id="need-1", statement="测试需求", intent=NeedIntent.DISCOVERY)
 

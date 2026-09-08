@@ -52,7 +52,7 @@ def diagnose_citation(
     metric: NeedSurfaceMetric | None,
     competitors: list[tuple[str, ProportionEstimate]] | None = None,
     thresholds: DiagnosisThresholds = DiagnosisThresholds(),
-    verification: "VerificationSummary | None" = None,
+    verification: VerificationSummary | None = None,
 ) -> StageFinding:
     if metric is None or metric.estimate is None:
         return StageFinding(

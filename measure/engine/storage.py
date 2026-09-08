@@ -188,7 +188,7 @@ class Storage:
     def close(self) -> None:
         self._conn.close()
 
-    def __enter__(self) -> "Storage":
+    def __enter__(self) -> Storage:
         return self
 
     def __exit__(self, *exc_info: object) -> None:
@@ -340,7 +340,7 @@ class Storage:
             "SELECT max(detector_version) FROM derived_observation WHERE detector_name = %s",
             (detector_name,),
         ).fetchone()
-        return row[0]
+        return row[0] if row is not None else None
 
 
 def _row_to_run(row: tuple) -> SurfaceRun:

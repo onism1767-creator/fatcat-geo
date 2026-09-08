@@ -9,9 +9,9 @@ from fastapi.testclient import TestClient
 
 from engine.models import BrandSpec, InformationNeed, NeedIntent, PromptOrigin
 from engine.variants import generate_variants
+from report.app import create_app
 from tests.unit.test_needs import COMPETITORS_OK, RecordingAdapter
 from tests.unit.test_report_page import REGISTRY, DummyAdapter, finished_job
-from report.app import create_app
 
 BRAND = BrandSpec(name="AuroraCRM", domains=["aurora-crm.com"])
 

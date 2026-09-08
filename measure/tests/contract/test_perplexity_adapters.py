@@ -145,7 +145,8 @@ def test_agent_undeclared_capabilities_raise_explicitly():
 
 @respx.mock
 def test_agent_healthcheck():
-    respx.post(CHAT_URL).mock(return_value=httpx.Response(200, json=golden("perplexity_agent", "success_empty_citations.json")))
+    body = golden("perplexity_agent", "success_empty_citations.json")
+    respx.post(CHAT_URL).mock(return_value=httpx.Response(200, json=body))
     assert PerplexityAgentAdapter(api_key="test-key").healthcheck() is True
     respx.post(CHAT_URL).mock(return_value=httpx.Response(401, json={"error": "bad key"}))
     assert PerplexityAgentAdapter(api_key="bad-key").healthcheck() is False

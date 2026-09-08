@@ -26,6 +26,7 @@ from engine.models import (
     SearchTrace,
     SurfaceRun,
 )
+
 BRAND = BrandSpec(name="极光CRM", domains=["aurora-crm.com"])
 # storage 夹具:tests/unit/conftest.py(会话级共享测试库)
 

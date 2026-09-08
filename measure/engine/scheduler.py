@@ -20,8 +20,9 @@ from __future__ import annotations
 import random
 import time
 from collections import deque
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Callable, Protocol
+from typing import Protocol
 from uuid import uuid4
 
 import structlog
@@ -219,8 +220,8 @@ class SequentialSampler:
             # ── 采样后检查(统计停止条件,7.2 顺序)────────────────────
             n_valid = len(hits)
             if n_valid >= policy.min_n:
-                estimate = estimate_proportion(sum(hits), n_valid)
-                if estimate.width <= policy.ci_width_threshold:
+                interim = estimate_proportion(sum(hits), n_valid)
+                if interim.width <= policy.ci_width_threshold:
                     stop_reason = StopReason.CI_CONVERGED
                     break
             if n_valid >= policy.max_n:
