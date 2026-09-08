@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
 from diagnosis.citation_diag import VerificationSummary, diagnose_citation
-from diagnosis.diagnose import access_finding, diagnose_need
+from diagnosis.diagnose import access_finding, diagnose_need, diagnose_surface
 from diagnosis.generative_retrieval import diagnose_generative_retrieval
 from diagnosis.recommender import load_evidence_registry
 from diagnosis.representation_diag import diagnose_representation
@@ -64,9 +64,11 @@ def make_metric(k: int, n: int) -> NeedSurfaceMetric:
 def finished_job() -> DiagnosisJob:
     brand = BrandSpec(name="极光CRM", domains=["aurora-crm.com"])
     need = InformationNeed(statement="中小团队用什么 CRM 好?", intent=NeedIntent.DISCOVERY)
-    diagnosis = diagnose_need(
-        need,
-        access=access_finding(None),
+    access = access_finding(None)
+    # v0.4.11 分家:两家 surface 各自分诊——s1 借裸检索视角,s2 自带生成端链路
+    bare_block = diagnose_surface(
+        provider="test_provider", surface="s1", model="m1",
+        access=access,
         retrieval=diagnose_retrieval(make_metric(0, 30), []),
         citation=diagnose_citation(
             make_metric(0, 30),
@@ -79,17 +81,25 @@ def finished_job() -> DiagnosisJob:
         representation=diagnose_representation(
             NeedIntent.DISCOVERY, make_metric(20, 30), {Sentiment.POSITIVE: 5}
         ),
-        registry=REGISTRY,
+        intent=NeedIntent.DISCOVERY, registry=REGISTRY,
         # 开卷 20/30 vs 闭卷 2/30:区间分离且闭卷上界不足开卷下界一半 → HIGH
         retrieval_dependency=diagnose_retrieval_dependency(
             make_metric(20, 30), make_metric(2, 30)
         ),
-        # 生成端通道:在场 0/30 → FAIL,与裸检索一致(无分歧警示);漏斗/检索词/触发率齐备
-        retrieval_generative=diagnose_generative_retrieval(
+    )
+    generative_block = diagnose_surface(
+        provider="test_provider", surface="s2", model="m2",
+        access=access,
+        # 生成端链路作为该家自己的 RETRIEVAL:在场 0/30 → FAIL
+        retrieval=diagnose_generative_retrieval(
             make_metric(0, 30), [],
             estimate_proportion(1, 30), estimate_proportion(0, 30), estimate_proportion(25, 30),
         ),
+        citation=diagnose_citation(make_metric(0, 30), [], verification=None),
+        representation=diagnose_representation(NeedIntent.DISCOVERY, make_metric(20, 30), {}),
+        intent=NeedIntent.DISCOVERY, registry=REGISTRY,
     )
+    diagnosis = diagnose_need(need, access=access, surfaces=[bare_block, generative_block])
     job = DiagnosisJob(brand=brand, website="https://aurora-crm.com", category="CRM",
                        locale="zh-CN", candidates=[], competitors_suggested=[])
     job.freeze(needs=[need], competitors=[], surfaces=["s1"], tier_id="quick",

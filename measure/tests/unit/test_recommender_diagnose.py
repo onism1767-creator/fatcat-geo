@@ -10,7 +10,7 @@ import pytest
 import yaml
 
 from diagnosis.access_audit import AccessAuditResult, CheckStatus
-from diagnosis.diagnose import access_finding, diagnose_need, localize_failure
+from diagnosis.diagnose import access_finding, diagnose_surface, localize_failure
 from diagnosis.findings import Msg, Stage, StageFinding, StageStatus
 from diagnosis.messages import render_msg
 from diagnosis.recommender import (
@@ -18,15 +18,13 @@ from diagnosis.recommender import (
     load_evidence_registry,
     recommend,
 )
-from engine.models import InformationNeed, NeedIntent
+from engine.models import NeedIntent
 
 REGISTRY = load_evidence_registry()
 
 
 def zh_cautions(diagnosis) -> list[str]:
     return [render_msg(c, "zh") for c in diagnosis.cautions]
-
-NEED = InformationNeed(need_id="need-1", statement="测试需求", intent=NeedIntent.DISCOVERY)
 
 
 def make_finding(stage: Stage, status: StageStatus) -> StageFinding:
@@ -41,6 +39,14 @@ def findings_for(access=StageStatus.PASS, retrieval=StageStatus.PASS,
         retrieval=make_finding(Stage.RETRIEVAL, retrieval),
         citation=make_finding(Stage.CITATION, citation),
         representation=make_finding(Stage.REPRESENTATION, representation),
+    )
+
+
+def diagnose(**statuses):
+    """按状态表构造一家 surface 的分诊(v0.4.11:定位与药方以 surface 为单位)。"""
+    return diagnose_surface(
+        provider="test_provider", surface="s1", model="m1",
+        intent=NeedIntent.DISCOVERY, registry=REGISTRY, **findings_for(**statuses),
     )
 
 
@@ -126,9 +132,7 @@ def test_localize_failure_table(statuses, expected):
 
 
 def test_upstream_fail_yields_only_upstream_recommendations():
-    diagnosis = diagnose_need(NEED, registry=REGISTRY,
-                              **findings_for(access=StageStatus.FAIL,
-                                             citation=StageStatus.FAIL))
+    diagnosis = diagnose(access=StageStatus.FAIL, citation=StageStatus.FAIL)
     assert diagnosis.primary_failure is Stage.ACCESS
     assert diagnosis.recommendations, "ACCESS FAIL 应有准入修复建议"
     assert all(rec.stage is Stage.ACCESS for rec in diagnosis.recommendations)
@@ -136,9 +140,7 @@ def test_upstream_fail_yields_only_upstream_recommendations():
 
 def test_retrieval_failure_warns_against_rewriting():
     # 引用阶段未 PASS(WEAK)时,检索 FAIL 的定位成立
-    diagnosis = diagnose_need(NEED, registry=REGISTRY,
-                              **findings_for(retrieval=StageStatus.FAIL,
-                                             citation=StageStatus.WEAK))
+    diagnosis = diagnose(retrieval=StageStatus.FAIL, citation=StageStatus.WEAK)
     assert diagnosis.primary_failure is Stage.RETRIEVAL
     assert any("不建议】进行全页" in caution for caution in zh_cautions(diagnosis))
     assert all(rec.stage is Stage.RETRIEVAL for rec in diagnosis.recommendations)
@@ -146,8 +148,7 @@ def test_retrieval_failure_warns_against_rewriting():
 
 def test_retrieval_fail_contradicted_by_citation_pass_is_channel_divergence():
     """被引必先被检索:引用 PASS 时检索 FAIL 不得定位为失败(风险 #5)。"""
-    diagnosis = diagnose_need(NEED, registry=REGISTRY,
-                              **findings_for(retrieval=StageStatus.FAIL))
+    diagnosis = diagnose(retrieval=StageStatus.FAIL)
     assert diagnosis.primary_failure is None  # 其余全 PASS → 无失败可定位
     assert any("观测通道" in caution and "不据此定位" in caution
                for caution in zh_cautions(diagnosis))
@@ -155,22 +156,19 @@ def test_retrieval_fail_contradicted_by_citation_pass_is_channel_divergence():
 
 
 def test_divergent_retrieval_skipped_but_downstream_weak_still_localizes():
-    diagnosis = diagnose_need(NEED, registry=REGISTRY,
-                              **findings_for(retrieval=StageStatus.FAIL,
-                                             representation=StageStatus.WEAK))
+    diagnosis = diagnose(retrieval=StageStatus.FAIL, representation=StageStatus.WEAK)
     assert diagnosis.primary_failure is Stage.REPRESENTATION
 
 
 def test_all_pass_yields_no_recommendations():
-    diagnosis = diagnose_need(NEED, registry=REGISTRY, **findings_for())
+    diagnosis = diagnose()
     assert diagnosis.primary_failure is None
     assert diagnosis.recommendations == []
     assert any("无需药方" in caution for caution in zh_cautions(diagnosis))
 
 
 def test_not_observable_stages_are_named_in_cautions():
-    diagnosis = diagnose_need(NEED, registry=REGISTRY,
-                              **findings_for(retrieval=StageStatus.NOT_OBSERVABLE))
+    diagnosis = diagnose(retrieval=StageStatus.NOT_OBSERVABLE)
     assert any("RETRIEVAL" in caution for caution in zh_cautions(diagnosis))
 
 

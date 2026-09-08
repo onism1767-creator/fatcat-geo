@@ -119,15 +119,14 @@ def test_all_diagnosis_output_renders_in_both_languages():
 
     job = finished_job()
     diagnosis = job.need_reports[0].diagnosis
-    messages = [f.headline for f in diagnosis.findings]
-    messages += [line for f in diagnosis.findings for line in f.evidence_lines]
-    messages += diagnosis.cautions
-    if diagnosis.retrieval_dependency is not None:
-        messages.append(diagnosis.retrieval_dependency.headline)
-        messages += diagnosis.retrieval_dependency.evidence_lines
-    for channel in diagnosis.retrieval_channels:
-        messages.append(channel.headline)
-        messages += channel.evidence_lines
+    messages = [diagnosis.access.headline, *diagnosis.access.evidence_lines]
+    for sd in diagnosis.surfaces:
+        messages += [f.headline for f in sd.findings]
+        messages += [line for f in sd.findings for line in f.evidence_lines]
+        messages += sd.cautions
+        if sd.retrieval_dependency is not None:
+            messages.append(sd.retrieval_dependency.headline)
+            messages += sd.retrieval_dependency.evidence_lines
     assert messages
     for lang in ("zh", "en"):
         for message in messages:

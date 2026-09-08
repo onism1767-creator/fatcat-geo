@@ -61,23 +61,6 @@ class StageFinding(FrozenModel):
     low_confidence: bool = False
 
 
-class RetrievalChannel(StrEnum):
-    """RETRIEVAL 阶段的双通道架构(v0.4.8):两台仪器、两个口径,并列展示。"""
-
-    STANDARDIZED = "STANDARDIZED"  # 标准化裸检索:受控查询直查索引(仪器口径)
-    GENERATIVE = "GENERATIVE"  # 生成端检索:模型自拟检索词 × 本平台索引(自然行为口径)
-
-
-class ChannelFinding(FrozenModel):
-    """一条检索通道的独立结论。通道各判各的,禁止跨通道合成指标。"""
-
-    channel: RetrievalChannel
-    status: StageStatus
-    headline: Msg
-    evidence_lines: list[Msg] = []
-    low_confidence: bool = False
-
-
 def estimate_params(estimate: ProportionEstimate) -> dict[str, Any]:
     return {
         "point": estimate.point,

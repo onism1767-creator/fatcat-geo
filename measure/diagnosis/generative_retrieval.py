@@ -20,10 +20,10 @@ from __future__ import annotations
 from statistics import median
 
 from diagnosis.findings import (
-    ChannelFinding,
     DiagnosisThresholds,
     Msg,
-    RetrievalChannel,
+    Stage,
+    StageFinding,
     StageStatus,
     caliber_msg,
     estimate_params,
@@ -51,13 +51,12 @@ def diagnose_generative_retrieval(
     cited_estimate: ProportionEstimate | None,
     triggered_estimate: ProportionEstimate | None,
     thresholds: DiagnosisThresholds = DiagnosisThresholds(),
-) -> ChannelFinding | None:
-    """无该通道(所选 surface 均不暴露检索链路)→ None,报告不出通道拆分。"""
-    if presence_metric is None:
-        return None
-    if presence_metric.estimate is None:
-        return ChannelFinding(
-            channel=RetrievalChannel.GENERATIVE,
+) -> StageFinding:
+    """产出该 AI 自己的 RETRIEVAL 阶段结论(v0.4.11 分家:与引用同仪器,
+    直接作为该 surface 漏斗的检索环节参与定位)。无有效样本 → NOT_OBSERVABLE。"""
+    if presence_metric is None or presence_metric.estimate is None:
+        return StageFinding(
+            stage=Stage.RETRIEVAL,
             status=StageStatus.NOT_OBSERVABLE,
             headline=msg("genret.headline.not_observable"),
         )
@@ -93,8 +92,8 @@ def diagnose_generative_retrieval(
                         fail=thresholds.retrieval_fail_ci_high,
                         pass_=thresholds.retrieval_pass_ci_low))
     evidence.extend(notes)
-    return ChannelFinding(
-        channel=RetrievalChannel.GENERATIVE,
+    return StageFinding(
+        stage=Stage.RETRIEVAL,
         status=status,
         headline=msg(_HEADLINES[status]),
         evidence_lines=evidence,

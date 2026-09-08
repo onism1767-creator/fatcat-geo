@@ -32,9 +32,28 @@
     {{ nr.need.statement }}</h2>
   <p class="kv">{{ t["sampled_variants"] }}:{% for vt in nr.variant_texts %}「{{ vt }}」{% endfor %}</p>
 
-  {% for finding in d.findings if finding.stage.value != "ACCESS" %}
-  <h3>■ {{ finding.stage.value }}
-    <span class="chip {{ finding.status.value }}">{{ finding.status.value }}</span></h3>
+  {# AI × 阶段总览矩阵(v0.4.11 分家):各家仪器并列,一眼跨 AI 对比 #}
+  <table>
+    <tr><th>{{ t["matrix_surface"] }}</th><th>RETRIEVAL</th><th>CITATION</th>
+      <th>REPRESENTATION</th><th>{{ t["dep_short"] }}</th></tr>
+    {% for sd in d.surfaces %}
+    <tr>
+      <td>{{ sd.surface }}<span class="muted"> · {{ sd.model }}</span></td>
+      {% for finding in sd.findings %}
+      <td><span class="chip {{ finding.status.value }}">{{ finding.status.value }}</span></td>
+      {% endfor %}
+      <td>{% if sd.retrieval_dependency %}<span class="chip {{ sd.retrieval_dependency.level.value }}">{{ sd.retrieval_dependency.level.value }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+
+  {% for sd in d.surfaces %}
+  <h3 style="border-top:1px solid #e4e9f0; padding-top:10px">◆ {{ sd.surface }}
+    <span class="muted" style="font-weight:400">model={{ sd.model }} · provider={{ sd.provider }}</span></h3>
+
+  {% for finding in sd.findings %}
+  <h4 style="margin:10px 0 2px">■ {{ finding.stage.value }}
+    <span class="chip {{ finding.status.value }}">{{ finding.status.value }}</span></h4>
   <p style="margin:4px 0">{{ finding.headline|msg(lang) }}</p>
   {% if finding.evidence_lines %}
   <details {{ "open" if finding.status.value in ("FAIL", "WEAK") else "" }}>
@@ -42,28 +61,12 @@
     <ul class="ev">{% for line in finding.evidence_lines %}<li>{{ line|msg(lang) }}</li>{% endfor %}</ul>
   </details>
   {% endif %}
-  {% if finding.stage.value == "RETRIEVAL" and d.retrieval_channels %}
-  {# 双通道架构(v0.4.8):两台仪器、两个口径,并列展示,各判各的 #}
-  {% for ch in d.retrieval_channels %}
-  <div style="margin-left:16px">
-    <h4 style="margin:8px 0 2px">▸ {{ t["channel_" + ch.channel.value] }}
-      <span class="chip {{ ch.status.value }}">{{ ch.status.value }}</span></h4>
-    <p style="margin:2px 0">{{ ch.headline|msg(lang) }}</p>
-    {% if ch.evidence_lines %}
-    <details {{ "open" if ch.status.value in ("FAIL", "WEAK") else "" }}>
-      <summary>{{ t["evidence_summary"] }}</summary>
-      <ul class="ev">{% for line in ch.evidence_lines %}<li>{{ line|msg(lang) }}</li>{% endfor %}</ul>
-    </details>
-    {% endif %}
-  </div>
-  {% endfor %}
-  {% endif %}
   {% endfor %}
 
-  {% if d.retrieval_dependency %}
-  {% set dep = d.retrieval_dependency %}
-  <h3>■ {{ t["dep_section"] }}
-    <span class="chip {{ dep.level.value }}">{{ dep.level.value }}</span></h3>
+  {% if sd.retrieval_dependency %}
+  {% set dep = sd.retrieval_dependency %}
+  <h4 style="margin:10px 0 2px">■ {{ t["dep_section"] }}
+    <span class="chip {{ dep.level.value }}">{{ dep.level.value }}</span></h4>
   <p style="margin:4px 0">{{ dep.headline|msg(lang) }}</p>
   <details {{ "open" if dep.level.value in ("HIGH", "MEDIUM") else "" }}>
     <summary>{{ t["evidence_summary"] }}</summary>
@@ -71,14 +74,14 @@
   </details>
   {% endif %}
 
-  <h3>{{ t["localization_title"] }}</h3>
-  <p>{% if d.primary_failure %}{{ t["loc_pre"] }} <b>{{ d.primary_failure.value }}</b> {{ t["loc_post"] }}
+  <h4 style="margin:10px 0 2px">{{ t["localization_title"] }}</h4>
+  <p>{% if sd.primary_failure %}{{ t["loc_pre"] }} <b>{{ sd.primary_failure.value }}</b> {{ t["loc_post"] }}
      {% else %}{{ t["no_failure"] }}{% endif %}</p>
-  {% for caution in d.cautions %}<div class="caution">{{ caution|msg(lang) }}</div>{% endfor %}
+  {% for caution in sd.cautions %}<div class="caution">{{ caution|msg(lang) }}</div>{% endfor %}
 
-  {% if d.recommendations %}
-  <h3>{{ t["recs_title"] }}</h3>
-  {% for rec in d.recommendations %}
+  {% if sd.recommendations %}
+  <h4 style="margin:10px 0 2px">{{ t["recs_title"] }}</h4>
+  {% for rec in sd.recommendations %}
   <div class="rec">
     <span class="id">{{ rec.evidence_id }}</span> · {{ t["level_word"] }} {{ rec.evidence_level }}<br>
     {{ rec.hypothesis[lang] }}{% if rec.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}
@@ -88,6 +91,7 @@
   </div>
   {% endfor %}
   {% endif %}
+  {% endfor %}
 </div>
 {% endfor %}
 

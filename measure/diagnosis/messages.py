@@ -122,10 +122,6 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": f"检索触发率:{_EST};未触发检索的运行计入各分母——不检索本身就是自然行为的一部分",
         "en": f"Search trigger rate: {_EST_EN}; runs without search count in denominators — not searching is itself part of natural behavior",
     },
-    "retrieval.channel_basis": {
-        "zh": "定位依据:生成端检索通道(与引用同仪器,「被引必先被检索」在同仪器内严格成立);标准化裸检索通道结论并列展示,不参与定位(风险 #5:跨仪器观测通道不当真值)",
-        "en": "Localization basis: the generative-side channel (same instrument as citations, where \"cited requires retrieved\" holds strictly); the standardized bare-search channel is shown alongside but not used for localization (risk #5: cross-instrument observation channels are not ground truth)",
-    },
     # ── CITATION ─────────────────────────────────────────────────────
     "citation.headline.fail": {
         "zh": "品牌域名基本不进引用集",
@@ -480,15 +476,6 @@ CATALOG: dict[str, dict[str, str]] = {
               "is not equivalent to the generator's actual retrieval (query rewriting, multilingual fan-out); "
               "the retrieval result is treated as channel divergence and not used for failure localization "
               "(architecture risk #5: observation channels are not ground truth)",
-    },
-    "caution.channel_divergence": {
-        "zh": "两条检索通道结论分歧(标准化裸检索 {std} vs 生成端 {gen})。两通道测的不是同一个量:"
-              "受控查询×另一家索引 vs 模型自拟检索词×本平台索引,分歧本身是信息而非矛盾;"
-              "定位只采信与引用同仪器的生成端通道",
-        "en": "The two retrieval channels disagree (standardized bare-search {std} vs generative {gen}). "
-              "They measure different quantities — a controlled query against another index vs model-authored "
-              "queries against this platform's index; the divergence is information, not contradiction. "
-              "Localization trusts only the generative channel (same instrument as citations)",
     },
     "caution.unobservable": {
         "zh": "以下阶段不可观测,未参与定位:{stages}",

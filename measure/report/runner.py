@@ -26,7 +26,7 @@ from diagnosis.citation_verify import (
     is_soft_miss,
     normalize_url,
 )
-from diagnosis.diagnose import access_finding, diagnose_need
+from diagnosis.diagnose import SurfaceDiagnosis, access_finding, diagnose_need, diagnose_surface
 from diagnosis.generative_retrieval import diagnose_generative_retrieval
 from diagnosis.recommender import EvidenceEntry
 from diagnosis.representation_diag import diagnose_representation
@@ -266,83 +266,89 @@ def _execute(
     truncated = False
 
     for need in job.needs:
-        citation_metric: NeedSurfaceMetric | None = None
-        mention_metric: NeedSurfaceMetric | None = None
-        retrieval_metric: NeedSurfaceMetric | None = None
-        verification: VerificationSummary | None = None
-        best_ranks: list[int] = []
-        sentiment_counts: Counter = Counter()
-        competitor_estimates: list = []
         need_runs: list[SurfaceRun] = []
-        dependency = None
-        generative = None
+        blocks: list[SurfaceDiagnosis] = []
 
+        # ── 第一遍:公共收集 + 裸检索类 surface 的检索指标(按 provider 归属)──
+        # 裸检索通道是某家 provider 自己的仪器(如 perplexity 双通道),
+        # 归入同 provider 的 AI 块作其检索视角;无家可归时独立成块。
+        bare_by_provider: dict[str, tuple[str, NeedSurfaceMetric, list[int]]] = {}
         for surface_name, adapter in selected.items():
             plan_results = results[(need.need_id, surface_name, SearchMode.DEFAULT)]
             truncated |= any(r.stop_reason in _TRUNCATION_REASONS for r in plan_results)
             runs = runs_by[(need.need_id, surface_name)]
             need_runs += runs + offline_runs_by[(need.need_id, surface_name)]
-            capabilities = adapter.meta().capabilities
-            if capabilities.supports_retrieval_rank and retrieval_metric is None:
-                retrieval_metric = aggregate_need_surface(plan_results, metric_label=rank_det.name)
-                best_ranks = [
+            closed_key = (need.need_id, surface_name, SearchMode.SEARCH_DISABLED)
+            if closed_key in results:
+                truncated |= any(
+                    r.stop_reason in _TRUNCATION_REASONS for r in results[closed_key]
+                )
+            if adapter.meta().capabilities.supports_retrieval_rank:
+                bare_metric = aggregate_need_surface(plan_results, metric_label=rank_det.name)
+                bare_ranks = [
                     r_obs.best_rank
                     for run in runs
                     if (r_obs := rank_det.detect(run, job.brand)) and r_obs.best_rank is not None
                 ]
-            elif capabilities.supports_citations and citation_metric is None:
-                citation_metric = aggregate_need_surface(plan_results, metric_label=citation_det.name)
-                mention_obs = [
-                    m_obs for run in runs if (m_obs := mention_det.detect(run, job.brand))
-                ]
-                k_mention = sum(obs.mentioned for obs in mention_obs)
-                mention_metric = NeedSurfaceMetric(
-                    information_need_id=need.need_id,
-                    provider=citation_metric.provider,
-                    surface=citation_metric.surface,
-                    model=citation_metric.model,
-                    metric_label=mention_det.name,
-                    k_hits=k_mention,
-                    estimate=estimate_proportion(k_mention, len(mention_obs)) if mention_obs else None,
-                    accounting=citation_metric.accounting,
-                    stop_reasons=citation_metric.stop_reasons,
-                    per_variant=[],
-                )
-                sentiment_counts = Counter(
-                    s_obs.sentiment for run in runs if (s_obs := sentiment_det.detect(run, job.brand))
-                )
-                cited_runs_urls = [(run, brand_cited_urls(run)) for run in runs]
-                need_urls = {normalize_url(u) for _, us in cited_runs_urls for u in us}
-                k_verified = sum(
-                    any(
-                        brand_verified(evidence_map[normalize_url(u)], job.brand.name)
-                        for u in us
-                        if normalize_url(u) in evidence_map
-                    )
-                    for _, us in cited_runs_urls
-                )
-                need_evidence = [evidence_map[n] for n in need_urls if n in evidence_map]
-                verification = VerificationSummary(
-                    estimate=(
-                        estimate_proportion(k_verified, citation_metric.estimate.n)
-                        if citation_metric.estimate is not None else None
-                    ),
-                    checked_urls=len(need_evidence),
-                    unreachable=sum(not e.reachable for e in need_evidence),
-                    soft_misses=sum(is_soft_miss(e, job.brand.name) for e in need_evidence),
-                )
-                for competitor in job.competitors:
-                    comp_obs = [
-                        c_obs for run in runs if (c_obs := citation_det.detect(run, competitor))
-                    ]
-                    if comp_obs:
-                        competitor_estimates.append((
-                            competitor.name,
-                            estimate_proportion(sum(o.cited for o in comp_obs), len(comp_obs)),
-                        ))
+                bare_by_provider[adapter.meta().provider] = (surface_name, bare_metric, bare_ranks)
 
-            # 生成端检索通道(v0.4.8):检索词/候选可观测的 surface,与引用同仪器
-            if generative is None and capabilities.supports_query_trace:
+        # ── 第二遍:AI 通道逐家分诊(v0.4.11 分家:各家自己的漏斗与药方)──
+        absorbed_bare: set[str] = set()
+        for surface_name, adapter in selected.items():
+            capabilities = adapter.meta().capabilities
+            if not capabilities.supports_citations:
+                continue
+            plan_results = results[(need.need_id, surface_name, SearchMode.DEFAULT)]
+            runs = runs_by[(need.need_id, surface_name)]
+
+            citation_metric = aggregate_need_surface(plan_results, metric_label=citation_det.name)
+            mention_obs = [
+                m_obs for run in runs if (m_obs := mention_det.detect(run, job.brand))
+            ]
+            k_mention = sum(obs.mentioned for obs in mention_obs)
+            mention_metric = citation_metric.model_copy(update={
+                "metric_label": mention_det.name,
+                "k_hits": k_mention,
+                "estimate": estimate_proportion(k_mention, len(mention_obs)) if mention_obs else None,
+                "per_variant": [],
+            })
+            sentiment_counts = Counter(
+                s_obs.sentiment for run in runs if (s_obs := sentiment_det.detect(run, job.brand))
+            )
+            cited_runs_urls = [(run, brand_cited_urls(run)) for run in runs]
+            need_urls = {normalize_url(u) for _, us in cited_runs_urls for u in us}
+            k_verified = sum(
+                any(
+                    brand_verified(evidence_map[normalize_url(u)], job.brand.name)
+                    for u in us
+                    if normalize_url(u) in evidence_map
+                )
+                for _, us in cited_runs_urls
+            )
+            need_evidence = [evidence_map[n] for n in need_urls if n in evidence_map]
+            verification = VerificationSummary(
+                estimate=(
+                    estimate_proportion(k_verified, citation_metric.estimate.n)
+                    if citation_metric.estimate is not None else None
+                ),
+                checked_urls=len(need_evidence),
+                unreachable=sum(not e.reachable for e in need_evidence),
+                soft_misses=sum(is_soft_miss(e, job.brand.name) for e in need_evidence),
+            )
+            competitor_estimates = []
+            for competitor in job.competitors:
+                comp_obs = [
+                    c_obs for run in runs if (c_obs := citation_det.detect(run, competitor))
+                ]
+                if comp_obs:
+                    competitor_estimates.append((
+                        competitor.name,
+                        estimate_proportion(sum(o.cited for o in comp_obs), len(comp_obs)),
+                    ))
+
+            # RETRIEVAL:优先本仪器的生成端链路(与引用同仪器);
+            # 无检索观测的 AI(如 perplexity 生成通道)借同 provider 的裸检索通道
+            if capabilities.supports_query_trace:
                 presence_obs = [p_obs for run in runs if (p_obs := rank_det.detect(run, job.brand))]
                 presence_metric = None
                 if presence_obs:
@@ -363,7 +369,7 @@ def _execute(
                     for run in runs
                     if run.outcome is Outcome.SUCCESS and run.search_trace.search_triggered != UNKNOWN
                 ]
-                generative = diagnose_generative_retrieval(
+                retrieval = diagnose_generative_retrieval(
                     presence_metric,
                     [obs.best_rank for obs in presence_obs if obs.best_rank is not None],
                     estimate_proportion(sum(o.present for o in query_obs), len(query_obs))
@@ -373,43 +379,60 @@ def _execute(
                     estimate_proportion(sum(bool(f) for f in triggered_flags), len(triggered_flags))
                     if triggered_flags else None,
                 )
+            elif adapter.meta().provider in bare_by_provider:
+                bare_name, bare_metric, bare_ranks = bare_by_provider[adapter.meta().provider]
+                retrieval = diagnose_retrieval(bare_metric, bare_ranks)
+                absorbed_bare.add(bare_name)
+            else:
+                retrieval = diagnose_retrieval(None, [])
 
-            # 检索依赖对照(第 9 章):同 surface 的开卷/闭卷提及率区间并比
+            # 检索依赖对照(第 9 章):本 surface 的开卷/闭卷提及率区间并比
+            dependency = None
             closed_key = (need.need_id, surface_name, SearchMode.SEARCH_DISABLED)
-            if dependency is None and closed_key in results:
-                closed_results = results[closed_key]
-                truncated |= any(r.stop_reason in _TRUNCATION_REASONS for r in closed_results)
-                closed_metric = aggregate_need_surface(closed_results, metric_label=mention_det.name)
-                open_obs = [om_obs for run in runs if (om_obs := mention_det.detect(run, job.brand))]
-                k_open = sum(o.mentioned for o in open_obs)
-                open_metric = aggregate_need_surface(
-                    plan_results, metric_label=mention_det.name
-                ).model_copy(update={  # 开卷腿收敛判据是引用,提及数须按判定器重算
-                    "k_hits": k_open,
-                    "estimate": estimate_proportion(k_open, len(open_obs)) if open_obs else None,
-                    "per_variant": [],
-                })
-                dependency = diagnose_retrieval_dependency(open_metric, closed_metric)
+            if closed_key in results:
+                closed_metric = aggregate_need_surface(
+                    results[closed_key], metric_label=mention_det.name
+                )
+                dependency = diagnose_retrieval_dependency(mention_metric, closed_metric)
+
+            blocks.append(diagnose_surface(
+                provider=citation_metric.provider,
+                surface=citation_metric.surface,
+                model=citation_metric.model,
+                access=access,
+                retrieval=retrieval,
+                citation=diagnose_citation(citation_metric, competitor_estimates,
+                                           verification=verification),
+                representation=diagnose_representation(
+                    need.intent, mention_metric, dict(sentiment_counts)
+                ),
+                intent=need.intent,
+                registry=evidence,
+                retrieval_dependency=dependency,
+            ))
+
+        # ── 第三遍:未被吸收的裸检索 surface 独立成块(仅检索视角)──────
+        for provider, (bare_name, bare_metric, bare_ranks) in bare_by_provider.items():
+            if bare_name in absorbed_bare:
+                continue
+            blocks.append(diagnose_surface(
+                provider=provider,
+                surface=bare_name,
+                model=bare_metric.model,
+                access=access,
+                retrieval=diagnose_retrieval(bare_metric, bare_ranks),
+                citation=diagnose_citation(None, [], verification=None),
+                representation=diagnose_representation(need.intent, None, {}),
+                intent=need.intent,
+                registry=evidence,
+            ))
 
         observe_runs(storage, need_runs,
                      [mention_det, citation_det, rank_det, sentiment_det, query_det], job.brand)
-        diagnosis = diagnose_need(
-            need,
-            access=access,
-            retrieval=diagnose_retrieval(retrieval_metric, best_ranks),
-            citation=diagnose_citation(citation_metric, competitor_estimates,
-                                       verification=verification),
-            representation=diagnose_representation(
-                need.intent, mention_metric, dict(sentiment_counts)
-            ),
-            registry=evidence,
-            retrieval_dependency=dependency,
-            retrieval_generative=generative,
-        )
         job.need_reports.append(NeedReport(
             need=need,
             variant_texts=[v.prompt_text for v in variants_by_need[need.need_id]],
-            diagnosis=diagnosis,
+            diagnosis=diagnose_need(need, access=access, surfaces=blocks),
         ))
 
     job.state = JobState.PARTIAL if truncated else JobState.DONE
