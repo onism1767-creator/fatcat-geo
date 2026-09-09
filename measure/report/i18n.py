@@ -104,6 +104,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "auto_refresh": "页面每 3 秒自动刷新;结果一致时会提前停,实际会比预估快。",
         "job_failed": "出错了",
         "view_report_btn": "看报告",
+        "report_meta": "本版报告生成于 {when},第 {n} 版(程序版本 {code});点首页「重新生成报告」会追加新版本,旧版本留档",
         # 报告页
         "report_title": "AI 可见度报告",
         "started_word": "起测", "cost_word": "实际花费",
@@ -212,6 +213,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "auto_refresh": "Auto-refreshes every 3 s; consistent answers stop early, so it usually finishes faster than estimated.",
         "job_failed": "Something went wrong",
         "view_report_btn": "Open the report",
+        "report_meta": "This report version was generated at {when}, version {n} (program build {code}); \"Regenerate report\" on the home page appends a new version and keeps the old ones",
         "report_title": "AI Visibility Report",
         "started_word": "started", "cost_word": "actual cost",
         "partial_note": "PARTIAL (breaker-truncated; see stop_reasons per metric)",

@@ -230,19 +230,17 @@ def create_app(
 
     @app.post("/jobs/{job_id}/resume")
     async def resume(request: Request, job_id: str):
-        """幂等续跑(v0.4.9):中断/失败任务补缺口;重启恢复的完成任务重算报告。
-        执行器可重入,已存样本按幂等键复用——已花的钱不重花。"""
+        """幂等续跑(v0.4.9):中断/失败任务补缺口;已完成任务重新生成报告
+        (v0.4.16:追加一版报告快照,旧版本留档)。执行器可重入,已存样本按幂等键
+        复用——已花的钱不重花。"""
         job = registry.get(job_id)
         if job is None:
             return not_found(request)
-        resumable = job.state in (JobState.INTERRUPTED, JobState.FAILED) or (
-            job.finished and not job.need_reports
-        )
-        if not resumable:
+        if not (job.state in (JobState.INTERRUPTED, JobState.FAILED) or job.finished):
             return redirect(request, f"/jobs/{job.job_id}")
         missing = [s for s in job.surfaces if s not in adapters]
         if missing:
-            return redirect(request, f"/?error=续跑缺 surface(对应 key 未配?):{', '.join(missing)}")
+            return redirect(request, f"/?error=有的 AI 没接入(缺 API key),不能接着跑:{', '.join(missing)}")
         threading.Thread(
             target=job_runner,
             kwargs=dict(job=job, adapters=adapters, dsn=dsn, evidence=evidence),

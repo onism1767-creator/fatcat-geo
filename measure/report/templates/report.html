@@ -160,7 +160,8 @@
   <p class="muted" style="margin-top:14px">{{ t["fingerprint_word"] }} {{ job.fingerprint }} · {{ t["tier_" + job.tier_id] }} ·
     {{ t["locale_word"] }} {{ job.locale }} · {{ job.created_at.strftime("%Y-%m-%d %H:%M") }} {{ t["started_word"] }} ·
     {{ t["cost_word"] }} ${{ "%.4f"|format(job.spent_usd) }}
-    {% if job.state.value == "PARTIAL" %} · <b>{{ t["partial_note"] }}</b>{% endif %}</p>
+    {% if job.state.value == "PARTIAL" %} · <b>{{ t["partial_note"] }}</b>{% endif %}
+    {% if job.report_meta %} · {{ t["report_meta"].format(when=job.report_meta.created_at.strftime("%Y-%m-%d %H:%M"), n=job.report_meta.versions, code=job.report_meta.code_version or "—") }}{% endif %}</p>
   <p class="muted">{{ t["footer"] }}</p>
 </div>
 {% endblock %}

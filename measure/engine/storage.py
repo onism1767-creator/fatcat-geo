@@ -178,6 +178,30 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
         BEFORE TRUNCATE ON recompute_event
         FOR EACH STATEMENT EXECUTE FUNCTION reject_mutation()
     """,
+    # 报告快照(v0.4.16):派生层的档案——每次生成报告追加一版,永不改写;
+    # payload 对 L2 不透明,结构由 L4 report/jobs.py 定义。原始层仍是唯一底账。
+    """
+    CREATE TABLE IF NOT EXISTS report_snapshot (
+        snapshot_id text PRIMARY KEY,
+        job_id text NOT NULL,
+        created_at timestamptz NOT NULL,
+        fingerprint text NOT NULL,
+        code_version text,
+        spent_usd double precision NOT NULL,
+        payload jsonb NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS report_snapshot_job_idx ON report_snapshot (job_id, created_at DESC)",
+    """
+    CREATE OR REPLACE TRIGGER report_snapshot_append_only
+        BEFORE UPDATE OR DELETE ON report_snapshot
+        FOR EACH ROW EXECUTE FUNCTION reject_mutation()
+    """,
+    """
+    CREATE OR REPLACE TRIGGER report_snapshot_no_truncate
+        BEFORE TRUNCATE ON report_snapshot
+        FOR EACH STATEMENT EXECUTE FUNCTION reject_mutation()
+    """,
 )
 
 _RUN_COLUMNS = (
@@ -349,6 +373,35 @@ class Storage:
             "SELECT snapshot FROM diagnosis_job ORDER BY created_at"
         ).fetchall()
         return [row[0] for row in rows]
+
+    # ── 报告快照(v0.4.16,只追加)────────────────────────────────────────
+
+    def insert_report_snapshot(
+        self, *, job_id: str, fingerprint: str, code_version: str | None,
+        spent_usd: float, payload: dict[str, Any],
+    ) -> None:
+        """追加一版报告。payload 对 L2 不透明(结构由 L4 定义)。"""
+        self._conn.execute(
+            "INSERT INTO report_snapshot "
+            "(snapshot_id, job_id, created_at, fingerprint, code_version, spent_usd, payload) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
+            (str(uuid4()), job_id, datetime.now(UTC), fingerprint, code_version, spent_usd, Jsonb(payload)),
+        )
+
+    def latest_report_snapshot(self, job_id: str) -> dict[str, Any] | None:
+        """该任务最新一版报告(含版本序号);没有则 None。"""
+        row = self._conn.execute(
+            "SELECT created_at, fingerprint, code_version, spent_usd, payload, count(*) OVER () "
+            "FROM report_snapshot WHERE job_id = %s ORDER BY created_at DESC LIMIT 1",
+            (job_id,),
+        ).fetchone()
+        if row is None:
+            return None
+        created_at, fingerprint, code_version, spent_usd, payload, versions = row
+        return {
+            "created_at": created_at, "fingerprint": fingerprint, "code_version": code_version,
+            "spent_usd": spent_usd, "payload": payload, "versions": versions,
+        }
 
     def variants_for_need(self, need_id: str) -> list[PromptVariant]:
         """续跑复用已存问法(不重烧起草费)。按创建时间序:用户原话先于生成变体。"""

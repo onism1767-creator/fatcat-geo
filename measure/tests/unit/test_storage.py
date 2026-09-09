@@ -72,6 +72,22 @@ def test_job_snapshot_upsert_load_and_overwrite(storage):
     assert loaded[0]["extra"] == {"nested": 1}  # 快照对 L2 不透明,原样往返
 
 
+def test_report_snapshot_is_versioned_and_append_only(storage):
+    """报告快照(v0.4.16):同一任务多版并存,latest 取最新并报版本数;库层拒绝改写。"""
+    assert storage.latest_report_snapshot("job-r1") is None
+    storage.insert_report_snapshot(job_id="job-r1", fingerprint="f1", code_version="abc1234",
+                                   spent_usd=1.5, payload={"need_reports": [], "v": 1})
+    storage.insert_report_snapshot(job_id="job-r1", fingerprint="f1", code_version=None,
+                                   spent_usd=1.5, payload={"need_reports": [], "v": 2})
+    latest = storage.latest_report_snapshot("job-r1")
+    assert latest["payload"]["v"] == 2 and latest["versions"] == 2 and latest["spent_usd"] == 1.5
+    assert latest["code_version"] is None  # 拿不到程序版本就如实为空,不编
+    with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
+        storage._conn.execute("UPDATE report_snapshot SET spent_usd = 0")
+    with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
+        storage._conn.execute("DELETE FROM report_snapshot")
+
+
 def test_observation_exactly_once_per_run_detector_version(storage):
     """幂等续跑重复评分不产生重复观测行(同 run × 判定器 × 版本至多一条)。"""
     storage.insert_information_need(

@@ -377,11 +377,46 @@ def test_resume_endpoint_relaunches_interrupted_job(client_and_job):
     assert calls == [job.job_id]  # 执行器被再次触发(可重入,只补缺口)
 
 
-def test_resume_endpoint_rejects_completed_job_with_report(client_and_job):
-    client, job, calls = client_and_job  # 夹具任务:DONE 且报告在手 → 无缺可补
+def test_resume_endpoint_regenerates_completed_job(client_and_job):
+    """v0.4.16:已完成任务也可「重新生成报告」——追加一版快照,旧版本留档。"""
+    client, job, calls = client_and_job
     resp = client.post(f"/jobs/{job.job_id}/resume", follow_redirects=False)
     assert resp.status_code == 303
-    assert calls == []
+    assert calls == [job.job_id]
+
+
+def test_report_payload_round_trip_rehydrates_messages():
+    """报告快照往返(v0.4.16):结论以码 + 参数存,嵌套 Msg 从 JSON 复活,渲染逐字一致。"""
+    import json
+
+    from diagnosis.messages import render_msg
+
+    job = finished_job()
+    payload = json.loads(json.dumps(job.report_payload()))  # 走一遍真实的 JSON 序列化
+    restored = DiagnosisJob.from_snapshot(job.to_snapshot())
+    restored.load_report(payload)
+    assert restored.need_reports == job.need_reports
+    assert restored.surface_verdicts == job.surface_verdicts
+    original = job.need_reports[0].diagnosis.surfaces[0]
+    revived = restored.need_reports[0].diagnosis.surfaces[0]
+    assert [render_msg(c, "zh") for c in revived.cautions] == [render_msg(c, "zh") for c in original.cautions]
+    assert any("ACCESS" in render_msg(c, "zh") for c in revived.cautions)  # 嵌套阶段码复活后可渲染
+
+
+def test_attach_latest_report_restores_report_and_spend(storage):
+    """启动恢复(v0.4.16):已完成任务从库里装回最新一版报告与花费,首页直接「看报告」。"""
+    from report.jobs import attach_latest_report
+
+    job = finished_job()
+    job.spent_usd = 6.46
+    restored = DiagnosisJob.from_snapshot(job.to_snapshot())
+    attach_latest_report(restored, storage)
+    assert restored.need_reports == [] and restored.report_meta is None  # 没有快照就保持空,不编
+    storage.insert_report_snapshot(job_id=job.job_id, fingerprint=job.fingerprint, code_version="t",
+                                   spent_usd=job.spent_usd, payload=job.report_payload())
+    attach_latest_report(restored, storage)
+    assert restored.need_reports == job.need_reports and restored.spent_usd == 6.46
+    assert restored.report_meta.versions == 1 and restored.report_meta.code_version == "t"
 
 
 def test_fingerprint_sensitive_to_dependency_flag():

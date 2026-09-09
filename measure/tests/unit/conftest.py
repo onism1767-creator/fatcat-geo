@@ -24,7 +24,7 @@ def storage():
     admin.close()
 
     cleaner = psycopg.connect(TEST_DSN, autocommit=True)
-    for table in ("citation_evidence", "derived_observation", "recompute_event",
+    for table in ("citation_evidence", "derived_observation", "recompute_event", "report_snapshot",
                   "surface_run", "prompt_variant", "information_need", "diagnosis_job"):
         cleaner.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
     cleaner.close()

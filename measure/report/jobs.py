@@ -8,9 +8,11 @@ from __future__ import annotations
 
 import hashlib
 import json
+import subprocess
 import threading
 from datetime import UTC, datetime
 from enum import StrEnum
+from pathlib import Path
 from uuid import uuid4
 
 from diagnosis.access_audit import AccessAuditResult
@@ -93,6 +95,26 @@ class NeedReport(FrozenModel):
     diagnosis: NeedDiagnosis
 
 
+class ReportMeta(FrozenModel):
+    """报告快照的档案信息(v0.4.16):生成时间、第几版、生成时的程序版本。"""
+
+    created_at: datetime
+    versions: int
+    code_version: str | None
+
+
+def current_code_version() -> str | None:
+    """生成报告时的程序版本(git 短哈希);拿不到就 None,不编。"""
+    try:
+        out = subprocess.run(
+            ["git", "rev-parse", "--short", "HEAD"], capture_output=True, text=True, timeout=5,
+            cwd=Path(__file__).resolve().parents[1],
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return out.stdout.strip() or None if out.returncode == 0 else None
+
+
 class DiagnosisJob:
     def __init__(
         self,
@@ -130,6 +152,7 @@ class DiagnosisJob:
         self.access_result: AccessAuditResult | None = None
         self.need_reports: list[NeedReport] = []
         self.surface_verdicts: list[SurfaceVerdict] = []  # 每家 AI 一句话(v0.4.14),与 need_reports 同生命周期
+        self.report_meta: ReportMeta | None = None  # 最新一版报告快照的档案信息(v0.4.16)
         self.error: str | None = None
         self.finished_at: datetime | None = None
 
@@ -206,6 +229,29 @@ class DiagnosisJob:
             "fingerprint": self.fingerprint,
         }
 
+    def report_payload(self) -> dict:
+        """报告快照(v0.4.16):派生层的结构化档案,只追加落库;结论以码 + 参数存,
+        措辞随当前目录渲染,判定冻结在生成那一刻。"""
+        return {
+            "access_result": (
+                self.access_result.model_dump(mode="json") if self.access_result is not None else None
+            ),
+            "need_reports": [r.model_dump(mode="json") for r in self.need_reports],
+            "surface_verdicts": [v.model_dump(mode="json") for v in self.surface_verdicts],
+            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
+        }
+
+    def load_report(self, payload: dict) -> None:
+        self.access_result = (
+            AccessAuditResult.model_validate(payload["access_result"])
+            if payload["access_result"] is not None else None
+        )
+        self.need_reports = [NeedReport.model_validate(r) for r in payload["need_reports"]]
+        self.surface_verdicts = [SurfaceVerdict.model_validate(v) for v in payload["surface_verdicts"]]
+        self.finished_at = (
+            datetime.fromisoformat(payload["finished_at"]) if payload["finished_at"] else None
+        )
+
     @classmethod
     def from_snapshot(cls, snapshot: dict) -> DiagnosisJob:
         job = cls(
@@ -255,7 +301,8 @@ class JobRegistry:
 def restore_registry(dsn: str) -> JobRegistry:
     """启动恢复(v0.4.9):从库中快照重建任务登记处。
     上次进程死亡时正在跑或待跑的任务(CONFIRMED/RUNNING)标为 INTERRUPTED,
-    等用户点「续跑」——花钱的动作永远由用户触发。"""
+    等用户点「接着跑」——花钱的动作永远由用户触发。
+    已完成的任务顺带装回最新一版报告快照(v0.4.16),重启后报告直接可看。"""
     from engine.storage import Storage
 
     registry = JobRegistry()
@@ -267,5 +314,19 @@ def restore_registry(dsn: str) -> JobRegistry:
                 job.state = JobState.INTERRUPTED
                 job.phase = "phase_interrupted"
                 storage.upsert_job_snapshot(job.to_snapshot())
+            elif job.finished:
+                attach_latest_report(job, storage)
             registry.add(job)
     return registry
+
+
+def attach_latest_report(job: DiagnosisJob, storage) -> None:
+    """把库里最新一版报告快照装回任务;没有快照就保持空报告(首页显示「重新生成报告」)。"""
+    row = storage.latest_report_snapshot(job.job_id)
+    if row is None:
+        return
+    job.load_report(row["payload"])
+    job.spent_usd = row["spent_usd"]
+    job.report_meta = ReportMeta(
+        created_at=row["created_at"], versions=row["versions"], code_version=row["code_version"],
+    )

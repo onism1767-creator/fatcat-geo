@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, field_validator
 
 
 class Msg(BaseModel):
@@ -21,6 +21,26 @@ class Msg(BaseModel):
 
     code: str
     params: dict[str, Any] = {}
+
+    @field_validator("params", mode="after")
+    @classmethod
+    def _rehydrate(cls, params: dict[str, Any]) -> dict[str, Any]:
+        """报告快照落库后从 JSON 回水(v0.4.16):嵌套的 {code, params} 字典复活为 Msg,
+        否则渲染器只能把它当普通值打印成字典。"""
+        return {key: _rehydrate_value(value) for key, value in params.items()}
+
+
+def _rehydrate_value(value: Any) -> Any:
+    if (
+        isinstance(value, dict)
+        and set(value) == {"code", "params"}
+        and isinstance(value["code"], str)
+        and isinstance(value["params"], dict)
+    ):
+        return Msg(code=value["code"], params=value["params"])
+    if isinstance(value, list):
+        return [_rehydrate_value(item) for item in value]
+    return value
 
 
 def msg(code: str, **params: Any) -> Msg:

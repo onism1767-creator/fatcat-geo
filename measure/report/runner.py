@@ -63,7 +63,15 @@ from engine.scheduler import (
 )
 from engine.storage import Storage
 from engine.variants import generate_variants
-from report.jobs import PLAN_CONCURRENCY, TIERS, DiagnosisJob, JobState, NeedReport
+from report.jobs import (
+    PLAN_CONCURRENCY,
+    TIERS,
+    DiagnosisJob,
+    JobState,
+    NeedReport,
+    attach_latest_report,
+    current_code_version,
+)
 
 log = structlog.get_logger("report.runner")
 
@@ -484,6 +492,11 @@ def _execute(
     job.phase = "phase_partial" if truncated else "phase_done"
     job.finished_at = datetime.now(UTC)
     storage.upsert_job_snapshot(job.to_snapshot())
+    storage.insert_report_snapshot(  # v0.4.16:报告档案只追加,「重新生成报告」即追加新版本
+        job_id=job.job_id, fingerprint=job.fingerprint, code_version=current_code_version(),
+        spent_usd=job.spent_usd, payload=job.report_payload(),
+    )
+    attach_latest_report(job, storage)  # 装回档案信息(第几版、生成时间)
     storage.close()
     log.info("job_finished", job_id=job.job_id, state=job.state.value,
              plans=job.total_plans, spent_usd=round(job.spent_usd, 4))
