@@ -16,6 +16,7 @@ from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from diagnosis.access_audit import AccessLayer
+from diagnosis.findings import Stage
 from diagnosis.messages import msg, render_msg
 from diagnosis.recommender import EvidenceEntry, load_evidence_registry
 from engine.envfile import load_env_file
@@ -23,7 +24,7 @@ from engine.loader import build_adapters
 from engine.models import BrandSpec, CompetitorSuggestion, InformationNeed, NeedIntent
 from engine.needs import NeedCandidate, draft_need_candidates
 from report import runner
-from report.i18n import INTENT_LABELS, MESSAGES, resolve_lang
+from report.i18n import ACCESS_LABELS, DEP_LABELS, INTENT_LABELS, LEVEL_LABELS, MESSAGES, STATUS_LABELS, resolve_lang
 from report.jobs import (
     AVG_SECONDS_PER_CALL,
     PLAN_CONCURRENCY,
@@ -57,6 +58,10 @@ def create_app(
     templates.env.filters["msg"] = render_msg  # 结论码 → 当前界面语言的成句
     templates.env.globals["access_layers"] = list(AccessLayer)  # 报告按证据层分组(v0.4.13 条目 6)
     templates.env.globals["layer_msg"] = lambda layer: msg(f"access.layer.{layer.value}")
+    # 用户视图(v0.4.14):人话渲染器 + 阶段人话标签;技术目录只在「检测依据与方法」
+    templates.env.filters["plain"] = lambda message, lang: render_msg(message, lang, "plain")
+    templates.env.globals["funnel_stages"] = [Stage.RETRIEVAL, Stage.CITATION, Stage.REPRESENTATION]
+    templates.env.globals["stage_msg"] = lambda stage: msg(f"stage.{stage.value}")
     registry = registry or JobRegistry()
     app.state.registry = registry
     app.state.adapters = adapters
@@ -66,6 +71,10 @@ def create_app(
         context.setdefault("lang", lang)
         context.setdefault("t", MESSAGES[lang])
         context.setdefault("intent_labels", INTENT_LABELS[lang])
+        context.setdefault("status_labels", STATUS_LABELS[lang])
+        context.setdefault("access_labels", ACCESS_LABELS[lang])
+        context.setdefault("dep_labels", DEP_LABELS[lang])
+        context.setdefault("level_labels", LEVEL_LABELS[lang])
         return templates.TemplateResponse(request, name, context)
 
     def redirect(request: Request, path: str) -> RedirectResponse:
@@ -242,6 +251,10 @@ def create_app(
             return not_found(request)
         if not job.finished:
             return redirect(request, f"/jobs/{job.job_id}")
-        return render(request, "report.html", job=job, summary=summarize(job.need_reports))
+        display_names = {name: adapter.meta().display_name for name, adapter in adapters.items()}
+        return render(
+            request, "report.html", job=job, display_names=display_names,
+            summary=summarize(job.need_reports, job.surface_verdicts, display_names),
+        )
 
     return app

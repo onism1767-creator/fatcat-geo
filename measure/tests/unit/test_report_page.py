@@ -20,6 +20,7 @@ from diagnosis.recommender import load_evidence_registry
 from diagnosis.representation_diag import diagnose_representation
 from diagnosis.retrieval_dependency import diagnose_retrieval_dependency
 from diagnosis.retrieval_diag import diagnose_retrieval
+from diagnosis.verdict import SurfaceVerdict
 from engine.metrics import account_outcomes, estimate_proportion
 from engine.models import (
     BrandSpec,
@@ -111,6 +112,11 @@ def finished_job() -> DiagnosisJob:
     job.finished_at = datetime(2026, 8, 24, tzinfo=UTC)
     job.need_reports = [NeedReport(need=need, variant_texts=["中小团队用什么 CRM 好?"],
                                    diagnosis=diagnosis)]
+    job.surface_verdicts = [  # 每家 AI 一句话(v0.4.14):s2 缺「直接问起」场景,句尾说明
+        SurfaceVerdict(surface="s1", code="verdict.only_when_named", missing=[]),
+        SurfaceVerdict(surface="s2", code="verdict.known_sometimes_site_rare",
+                       missing=["verdict.missing.probe"]),
+    ]
     return job
 
 
@@ -158,29 +164,59 @@ def test_report_recommendations_carry_evidence_ids(client_and_job):
     assert "证据等级" in html
 
 
-def test_report_decision_view_dedups_actions_and_groups_bottlenecks(client_and_job):
-    """v0.4.13 条目 8:决策视图在前——三句话摘要、去重后的优先动作(标支持数)、各 AI 四行;
-    审计细节折叠在后。finished_job 两家 surface 同定位 RETRIEVAL → 同一证据条目只出一次、支持数 2。"""
+USER_VIEW_FORBIDDEN = (  # v0.4.14 强制词典:主视图可见正文不得出现引擎内部语言(技术词只在「检测依据与方法」)
+    "NOT_OBSERVABLE", "N_valid", "stop_reasons", "Jeffreys", "冻结问法集", "候选在场率", "入场率",
+    "操作阈值", "EVIDENCE_", "surface=", "资格门", "瓶颈", "探针", "口径",
+)
+
+
+def user_view_of(html: str) -> str:
+    """用户视图的可见正文 = 「检测依据与方法」之前,去掉样式块与折叠块,再剥掉标签。"""
+    head = html.split('id="methods"')[0]
+    head = re.sub(r"<style.*?</style>", "", head, flags=re.S)
+    head = re.sub(r"<details.*?</details>", "", head, flags=re.S)
+    return re.sub(r"<[^>]+>", " ", head)
+
+
+def test_user_view_leads_with_plain_language(client_and_job):
+    """v0.4.14:用户视图在前,全是人话——官网抓取一句、每家 AI 一句话(用显示名)、
+    红绿灯状态、去重后的建议(标支持数);技术记录折叠在最后。"""
     client, job, _ = client_and_job
     html = client.get(f"/jobs/{job.job_id}/report").text
-    assert "① 决策摘要" in html and "④ 各 AI 四行" in html and "⑥ 审计与方法学附录" in html
-    assert html.index("① 决策摘要") < html.index("⑥ 审计与方法学附录")
-    assert "被 2 个诊断支持" in html
-    assert "<b>RETRIEVAL</b>: s1, s2" in html  # 瓶颈分组:阶段 → 哪几家 AI
+    assert "这次检测告诉了我们什么" in html and html.index("这次检测告诉了我们什么") < html.index('id="methods"')
+    assert "用户主动问起时 S1 能介绍你,但用户不提你时 S1 几乎不会想到你" in html  # 显示名代入
+    assert "用户直接问起你时的表现本次没测" in html  # 缺项句尾说明
+    assert "🔴 较弱" in html and "🟡 不够稳定" in html  # 红绿灯 + 定性词(夹具无 PASS 项)
+    assert "有 2 处检测结果支持这条建议" in html
     assert html.count('class="rec"') == 3  # 去重:两家 × 三条 → 三条动作
+    assert "用户没有点名品牌时(品类推荐)" in html  # 场景人话
+    assert "AI 搜索时有没有找到你(RETRIEVAL)" in html  # 人话(技术词)双写
+    assert "本次 30 次搜索里,0 次结果中出现了你的官网" in html  # 比例用原始计数
+
+
+def test_user_view_has_no_engine_jargon(client_and_job):
+    client, job, _ = client_and_job
+    html = client.get(f"/jobs/{job.job_id}/report").text
+    user_view = user_view_of(html)
+    for token in USER_VIEW_FORBIDDEN:
+        assert token not in user_view, token
+    assert not re.search(r"(PASS|WEAK|FAIL)", user_view)  # 状态只以红绿灯 + 定性词出现
+    assert "N_valid" in html and "EVIDENCE_" in html  # 技术记录仍完整保留在折叠区
 
 
 def test_summarize_orders_by_evidence_level_then_support():
     from report.summary import summarize
 
     job = finished_job()
-    summary = summarize(job.need_reports)
+    summary = summarize(job.need_reports, job.surface_verdicts, {"s1": "S1", "s2": "S2"})
     levels = [a.recommendation.evidence_level for a in summary.actions]
     assert levels == sorted(levels)
     assert all(a.support_count == 2 for a in summary.actions)
     (brief_s1, brief_s2) = summary.engines[job.needs[0].need_id]
     assert brief_s1.primary is brief_s2.primary is Stage.RETRIEVAL
-    assert brief_s1.strongest_evidence is not None and brief_s1.experiments
+    assert brief_s1.display == "S1" and brief_s1.strongest_evidence is not None and brief_s1.experiments
+    assert [v.display for v in summary.verdicts] == ["S1", "S2"]
+    assert summarize([], [], {}).verdicts == []
 
 
 def test_report_shows_upstream_caution_and_competitor_gap(client_and_job):

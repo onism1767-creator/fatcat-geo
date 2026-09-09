@@ -95,7 +95,7 @@ def test_report_page_fully_english():
     app.state.registry.add(job)
     client = TestClient(app)
     html = client.get(f"/jobs/{job.job_id}/report?lang=en").text
-    assert "Four-Stage Diagnosis Report" in html
+    assert "AI Visibility Report" in html
     assert "largely absent from retrieval candidates" in html  # L3 结论英文化
     assert "Significantly behind competitor" in html
     assert "NOT recommended" in html  # 不建议全页改写的英文警示
