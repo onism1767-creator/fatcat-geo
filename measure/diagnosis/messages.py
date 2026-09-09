@@ -573,20 +573,154 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": "未见瓶颈信号:各可观测阶段均无 FAIL/WEAK,无需药方",
         "en": "No bottleneck signal: no FAIL/WEAK among observable stages — no remedy needed",
     },
+    # ── 阶段名(v0.4.14:技术名在审计视图,人话在用户视图)────────────────
+    "stage.ACCESS": {"zh": "ACCESS", "en": "ACCESS"},
+    "stage.RETRIEVAL": {"zh": "RETRIEVAL", "en": "RETRIEVAL"},
+    "stage.CITATION": {"zh": "CITATION", "en": "CITATION"},
+    "stage.REPRESENTATION": {"zh": "REPRESENTATION", "en": "REPRESENTATION"},
+    # ── 每家 AI 一句话(v0.4.14,规则表经用户拍板;{ai} 由报告层代入显示名)────
+    "verdict.known_recommends_cites": {
+        "zh": "{ai} 知道你,会主动推荐你,也会引用你的官网",
+        "en": "{ai} knows you, recommends you unprompted, and cites your site",
+    },
+    "verdict.known_recommends_site_rare": {
+        "zh": "{ai} 知道你,会主动推荐你,但很少把你的官网当作信息来源",
+        "en": "{ai} knows you and recommends you unprompted, but rarely uses your site as a source",
+    },
+    "verdict.known_sometimes_site_rare": {
+        "zh": "{ai} 知道你,但用户没提到你时不一定会推荐你,官网也很少被用作来源",
+        "en": "{ai} knows you, but does not reliably recommend you when users do not name you, and rarely uses your site as a source",
+    },
+    "verdict.known_sometimes_site_used": {
+        "zh": "{ai} 知道你,官网也会被引用,但用户没提到你时不一定会推荐你",
+        "en": "{ai} knows you and cites your site, but does not reliably recommend you when users do not name you",
+    },
+    "verdict.only_when_named": {
+        "zh": "用户主动问起时 {ai} 能介绍你,但用户不提你时 {ai} 几乎不会想到你",
+        "en": "{ai} can describe you when users ask about you directly, but almost never brings you up otherwise",
+    },
+    "verdict.only_when_named_site_used": {
+        "zh": "用户主动问起时 {ai} 能介绍你并引用官网,但用户不提你时 {ai} 几乎不会想到你",
+        "en": "{ai} can describe you and cite your site when users ask directly, but almost never brings you up otherwise",
+    },
+    "verdict.barely_known": {
+        "zh": "连用户直接问起时,{ai} 都不能稳定地介绍你,说明它对你的了解本身就不够",
+        "en": "Even when users ask about you directly, {ai} cannot describe you consistently — it barely knows you",
+    },
+    "verdict.known_site_used": {
+        "zh": "{ai} 知道你,也会引用你的官网",
+        "en": "{ai} knows you and cites your site",
+    },
+    "verdict.known_site_rare": {
+        "zh": "{ai} 知道你,但很少把你的官网当作信息来源",
+        "en": "{ai} knows you, but rarely uses your site as a source",
+    },
+    "verdict.unnamed_often_site_used": {
+        "zh": "用户没提到你时 {ai} 经常主动推荐你,也会引用你的官网",
+        "en": "When users do not name you, {ai} often recommends you and cites your site",
+    },
+    "verdict.unnamed_often_site_rare": {
+        "zh": "用户没提到你时 {ai} 经常主动推荐你,但很少引用你的官网",
+        "en": "When users do not name you, {ai} often recommends you but rarely cites your site",
+    },
+    "verdict.unnamed_sometimes_site_used": {
+        "zh": "用户没提到你时 {ai} 有时会推荐你,官网也会被引用",
+        "en": "When users do not name you, {ai} sometimes recommends you and cites your site",
+    },
+    "verdict.unnamed_sometimes_site_rare": {
+        "zh": "用户没提到你时 {ai} 有时会推荐你,但官网很少被引用",
+        "en": "When users do not name you, {ai} sometimes recommends you but rarely cites your site",
+    },
+    "verdict.unnamed_rare_site_used": {
+        "zh": "用户没提到你时 {ai} 几乎不会想到你,虽然官网偶尔会被引用",
+        "en": "When users do not name you, {ai} almost never brings you up, though it occasionally cites your site",
+    },
+    "verdict.unnamed_rare_site_rare": {
+        "zh": "用户没提到你时 {ai} 几乎不会想到你,官网也很少被用作来源",
+        "en": "When users do not name you, {ai} almost never brings you up, and rarely uses your site as a source",
+    },
+    "verdict.no_data": {
+        "zh": "{ai} 本次没有可用的观测",
+        "en": "No usable observations for {ai} this time",
+    },
+    "verdict.missing.probe": {
+        "zh": "用户直接问起你时的表现本次没测",
+        "en": "how it behaves when users ask about you directly was not tested this time",
+    },
+    "verdict.missing.organic": {
+        "zh": "用户没提到你时的表现本次没测",
+        "en": "how it behaves when users do not name you was not tested this time",
+    },
+    "verdict.missing.site": {
+        "zh": "官网有没有被用上这一项本次看不到",
+        "en": "whether your site was used could not be observed this time",
+    },
 }
 
 
-def render_msg(message: Msg | str, lang: str) -> str:
-    """按语言组句;参数中的 Msg / Msg 列表递归渲染后代入。"""
+# 人话目录(v0.4.14 用户视图):同一结论码的品牌方版本。缺席即回落到技术版——
+# 回落是否出现在用户视图,由 tests/unit/test_report_page.py 的禁技术词测试把守。
+# 比例一律用「本次 N 次里 k 次」的原始计数表达,不出单点概率(铁律 8 用户层口径)。
+PLAIN: dict[str, dict[str, str]] = {
+    "stage.ACCESS": {"zh": "爬虫能不能进入你的网站(ACCESS)", "en": "Can crawlers reach your site (ACCESS)"},
+    "stage.RETRIEVAL": {"zh": "AI 搜索时有没有找到你(RETRIEVAL)", "en": "Does the AI find you when it searches (RETRIEVAL)"},
+    "stage.CITATION": {"zh": "AI 有没有把你的网站当作来源(CITATION)", "en": "Does the AI cite your site as a source (CITATION)"},
+    "stage.REPRESENTATION": {"zh": "AI 回答里有没有提到你、怎么评价你(REPRESENTATION)", "en": "Does the AI mention you, and how (REPRESENTATION)"},
+    "retrieval.headline.fail": {"zh": "AI 搜索时基本没有找到你的官网", "en": "The AI's searches basically never find your site"},
+    "retrieval.headline.weak": {"zh": "AI 搜索时有时能找到你的官网,不稳定", "en": "The AI's searches sometimes find your site, not reliably"},
+    "retrieval.headline.pass": {"zh": "AI 搜索时能稳定找到你的官网", "en": "The AI's searches reliably find your site"},
+    "retrieval.headline.not_observable": {"zh": "这家 AI 不公开搜索结果,这一项本次看不到", "en": "This AI does not expose its search results; this item could not be observed"},
+    "genret.headline.fail": {"zh": "AI 按自己的习惯搜索时,基本没有找到你的官网", "en": "Searching its own way, the AI basically never finds your site"},
+    "genret.headline.weak": {"zh": "AI 按自己的习惯搜索时,有时能找到你的官网,不稳定", "en": "Searching its own way, the AI sometimes finds your site, not reliably"},
+    "genret.headline.pass": {"zh": "AI 按自己的习惯搜索时,能稳定找到你的官网", "en": "Searching its own way, the AI reliably finds your site"},
+    "genret.headline.not_observable": {"zh": "这家 AI 不公开搜索结果,这一项本次看不到", "en": "This AI does not expose its search results; this item could not be observed"},
+    "citation.headline.fail": {"zh": "AI 基本没有把你的官网当作来源", "en": "The AI basically never uses your site as a source"},
+    "citation.headline.weak": {"zh": "AI 有时引用你的官网,不稳定", "en": "The AI sometimes cites your site, not reliably"},
+    "citation.headline.weak_zero": {"zh": "本次没有看到 AI 引用你的官网,但测试次数还不够下结论", "en": "No citations of your site were seen this time, but there were too few tests to conclude"},
+    "citation.headline.pass": {"zh": "AI 稳定引用你的官网", "en": "The AI reliably cites your site"},
+    "citation.headline.not_observable": {"zh": "这家 AI 不公开引用来源,这一项本次看不到", "en": "This AI does not expose its sources; this item could not be observed"},
+    "repr.headline.not_observable": {"zh": "没有拿到可分析的回答,这一项本次看不到", "en": "No analyzable answers; this item could not be observed"},
+    "repr.headline.probe_none": {"zh": "用户直接问起你时,回答里没有出现你的品牌名(不正常,建议检查测试)", "en": "Your brand name did not appear even when users asked directly (abnormal; check the test)"},
+    "repr.headline.probe_fail": {"zh": "用户直接问起你时,AI 对你的评价以负面为主", "en": "When users ask about you directly, the AI's description is mostly negative"},
+    "repr.headline.probe_weak": {"zh": "用户直接问起你时,AI 对你的评价里有明显负面内容", "en": "When users ask about you directly, the AI's description contains clearly negative content"},
+    "repr.headline.probe_pass": {"zh": "用户直接问起你时,AI 会正常介绍你,评价以中性或正面为主", "en": "When users ask about you directly, the AI describes you normally, mostly neutral or positive"},
+    "repr.headline.neutral_fail": {"zh": "用户没提到你时,AI 基本不会主动提到你", "en": "When users do not name you, the AI basically never brings you up"},
+    "repr.headline.neutral_weak": {"zh": "用户没提到你时,AI 有时会提到你,不稳定", "en": "When users do not name you, the AI sometimes mentions you, not reliably"},
+    "repr.headline.neutral_pass": {"zh": "用户没提到你时,AI 经常主动提到你,评价以中性或正面为主", "en": "When users do not name you, the AI often mentions you, mostly neutral or positive"},
+    "access.headline.pass": {"zh": "没有发现阻碍爬虫进入官网的设置(这是我们自己的检测工具看到的;真实 AI 爬虫是否顺利,还需要网站技术团队确认)", "en": "No setting was found that blocks crawlers from your site (as seen by our own probe; whether real AI crawlers get through still needs your web team to confirm)"},
+    "access.headline.fail": {"zh": "发现了阻碍爬虫进入官网的设置(robots.txt 明确禁止,或我们的检测完全无法访问)", "en": "A setting that blocks crawlers from your site was found (an explicit robots.txt disallow, or our probe could not access the site at all)"},
+    "access.headline.unknown": {"zh": "目前无法确认真实 AI 爬虫能否正常访问官网:我们的自动检测有请求被网站安全系统拦截,建议由网站技术团队查看 CDN 或服务器日志", "en": "We cannot confirm whether real AI crawlers can access your site: some of our automated requests were blocked by the site's security layer — ask your web team to check the CDN or server logs"},
+    "access.headline.missing": {"zh": "本次没有检测官网抓取情况", "en": "Site crawlability was not checked this time"},
+    "dependency.headline.high": {"zh": "不用联网搜索时,AI 几乎不提你:目前的曝光主要靠联网搜索撑着", "en": "Without web search the AI barely mentions you: your current exposure relies mainly on live search"},
+    "dependency.headline.medium": {"zh": "不用联网搜索时,AI 提到你的次数明显变少", "en": "Without web search the AI mentions you noticeably less"},
+    "dependency.headline.low": {"zh": "用不用联网搜索,AI 提到你的次数差不多", "en": "With or without web search, the AI mentions you about as often"},
+    "dependency.headline.inconclusive": {"zh": "联网与不联网的差别本次看不出来", "en": "The difference with and without web search could not be determined this time"},
+    "caution.divergence": {"zh": "搜索结果里没看到你的官网,但回答却引用了它:说明 AI 实际执行的搜索和我们能看到的不完全一样,这一项不作为问题依据", "en": "Your site was absent from the visible search results yet cited in the answer: the AI's actual search differs from what we can see, so this item is not used as evidence of a problem"},
+    "caution.unobservable": {"zh": "以下项目本次看不到,没有参与判断:{stages}", "en": "The following items could not be observed and were not used: {stages}"},
+    "caution.no_rewrite": {"zh": "问题主要出在「AI 能不能找到你」这一步,现在不建议大规模改写官网正文", "en": "The problem sits at \"can the AI find you\"; a large-scale rewrite of your site's copy is not advised now"},
+    "caution.none": {"zh": "没有发现明显问题", "en": "No obvious problem found"},
+    "retrieval.presence": {"zh": "本次 {n} 次搜索里,{k} 次结果中出现了你的官网", "en": "Your site appeared in {k} of {n} searches this time"},
+    "genret.presence": {"zh": "本次 {n} 次搜索里,{k} 次结果中出现了你的官网", "en": "Your site appeared in {k} of {n} searches this time"},
+    "genret.query_entry": {"zh": "AI 自己拟的搜索词里,{k}/{n} 次带上了你的品牌名", "en": "The AI's own search queries included your brand name in {k} of {n} runs"},
+    "citation.rate": {"zh": "本次 {n} 次回答里,{k} 次引用了你的官网", "en": "Your site was cited in {k} of {n} answers this time"},
+    "repr.mention_rate": {"zh": "本次 {n} 次回答里,{k} 次提到了你", "en": "You were mentioned in {k} of {n} answers this time"},
+    "dependency.pair": {"zh": "用联网搜索时 {on_n} 次回答里 {on_k} 次提到你;不用联网搜索时 {off_n} 次里 {off_k} 次提到你", "en": "With web search you were mentioned in {on_k} of {on_n} answers; without it, in {off_k} of {off_n}"},
+}
+
+
+def render_msg(message: Msg | str, lang: str, register: str | None = None) -> str:
+    """按语言组句;参数中的 Msg / Msg 列表递归渲染后代入。
+    register="plain" 取用户视图人话版本(PLAIN),该码无人话版本即回落技术版。"""
     if isinstance(message, str):
         return message
-    template = CATALOG[message.code][lang]
+    versions = PLAIN.get(message.code) if register == "plain" else None
+    template = (versions or CATALOG[message.code])[lang]
     rendered: dict[str, Any] = {}
     for key, value in message.params.items():
         if isinstance(value, Msg):
-            rendered[key] = render_msg(value, lang)
+            rendered[key] = render_msg(value, lang, register)
         elif isinstance(value, list) and value and all(isinstance(v, Msg) for v in value):
-            rendered[key] = "、".join(render_msg(v, lang) for v in value)
+            rendered[key] = "、".join(render_msg(v, lang, register) for v in value)
         else:
             rendered[key] = value
     return template.format(**rendered)

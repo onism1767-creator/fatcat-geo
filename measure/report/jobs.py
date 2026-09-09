@@ -15,6 +15,7 @@ from uuid import uuid4
 
 from diagnosis.access_audit import AccessAuditResult
 from diagnosis.diagnose import NeedDiagnosis
+from diagnosis.verdict import SurfaceVerdict
 from engine.models import BrandSpec, CompetitorSuggestion, FrozenModel, InformationNeed
 from engine.needs import NeedCandidate
 from engine.scheduler import SamplingPolicy
@@ -125,6 +126,7 @@ class DiagnosisJob:
         self.spent_usd = 0.0
         self.access_result: AccessAuditResult | None = None
         self.need_reports: list[NeedReport] = []
+        self.surface_verdicts: list[SurfaceVerdict] = []  # 每家 AI 一句话(v0.4.14),与 need_reports 同生命周期
         self.error: str | None = None
         self.finished_at: datetime | None = None
 

@@ -99,6 +99,7 @@ class OpenAIWebSearchAdapter(SurfaceAdapter):
         return SurfaceMeta(
             provider="openai",
             surface="openai_web_search",
+            display_name="OpenAI",
             models=list(_TOKEN_PRICES_PER_MTOK),  # 以官方模型页为准,与价目表同步核对
             default_model=_DEFAULT_MODEL,
             capabilities=_CAPABILITIES,

@@ -106,11 +106,31 @@ def test_report_page_fully_english():
 
 def test_catalog_bilingual_completeness():
     """每个结论码必须 zh/en 双版齐备——组句永不静默缺语言。"""
-    from diagnosis.messages import CATALOG
+    from diagnosis.messages import CATALOG, PLAIN
 
     for code, versions in CATALOG.items():
         assert set(versions) == {"zh", "en"}, code
         assert versions["zh"].strip() and versions["en"].strip(), code
+    for code, versions in PLAIN.items():  # 人话目录(v0.4.14):码必须存在于技术目录,且双语齐备
+        assert code in CATALOG, code
+        assert set(versions) == {"zh", "en"} and versions["zh"].strip() and versions["en"].strip(), code
+
+
+def test_plain_register_renders_counts_and_falls_back():
+    """用户视图人话版:比例用「N 次里 k 次」的原始计数,不出单点概率;无人话版的码回落技术版。"""
+    from diagnosis.findings import estimate_params
+    from diagnosis.messages import msg, render_msg
+    from engine.metrics import estimate_proportion
+
+    line = msg("citation.rate", **estimate_params(estimate_proportion(7, 16)))
+    assert render_msg(line, "zh", "plain") == "本次 16 次回答里,7 次引用了你的官网"
+    assert "%" not in render_msg(line, "zh", "plain")
+    assert "95% 可信区间" in render_msg(line, "zh")  # 审计视图不变
+    nested = msg("caution.unobservable", stages=[msg("stage.ACCESS"), msg("stage.RETRIEVAL")])
+    assert "爬虫能不能进入你的网站(ACCESS)" in render_msg(nested, "zh", "plain")
+    assert render_msg(nested, "zh") == "以下阶段不可观测,未参与瓶颈定位:ACCESS、RETRIEVAL"
+    assert render_msg(msg("common.caliber", surface="s", model="m", n_variants=1, n_valid=1, n_total=1,
+                          stop_reasons="", refusal=0.0, failure=0.0), "zh", "plain").startswith("口径")
 
 
 def test_all_diagnosis_output_renders_in_both_languages():

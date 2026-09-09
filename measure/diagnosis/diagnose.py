@@ -123,9 +123,11 @@ def diagnose_surface(
         skip = frozenset({Stage.RETRIEVAL})
         cautions.append(msg("caution.divergence"))
     primary = localize_failure(findings, skip=skip)
-    unobservable = [s.value for s in findings if findings[s].status is StageStatus.NOT_OBSERVABLE]
+    unobservable = [s for s in findings if findings[s].status is StageStatus.NOT_OBSERVABLE]
     if unobservable:
-        cautions.append(msg("caution.unobservable", stages=", ".join(unobservable)))
+        cautions.append(msg(
+            "caution.unobservable", stages=[msg(f"stage.{s.value}") for s in unobservable]
+        ))
     if primary in (Stage.ACCESS, Stage.RETRIEVAL):
         cautions.append(msg("caution.no_rewrite"))
     if primary is None:

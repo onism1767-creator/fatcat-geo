@@ -67,6 +67,7 @@ def estimate_params(estimate: ProportionEstimate) -> dict[str, Any]:
         "low": estimate.ci_low,
         "high": estimate.ci_high,
         "n": estimate.n,
+        "k": estimate.k,  # 用户视图用原始计数「N 次里 k 次」,不出单点概率
     }
 
 

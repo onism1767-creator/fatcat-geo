@@ -85,6 +85,7 @@ class CapabilityRegistry(FrozenModel):
 class SurfaceMeta(FrozenModel):
     provider: str
     surface: str
+    display_name: str  # 用户报告里的产品名(v0.4.14);厂商名只许出现在适配器与配置
     models: list[str]
     default_model: str
     capabilities: CapabilityRegistry

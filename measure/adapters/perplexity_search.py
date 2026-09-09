@@ -50,6 +50,7 @@ class PerplexitySearchAdapter(SurfaceAdapter):
         return SurfaceMeta(
             provider="perplexity",
             surface="perplexity_search",
+            display_name="Perplexity Search API",
             models=[_MODEL_LABEL],
             default_model=_MODEL_LABEL,
             capabilities=_CAPABILITIES,

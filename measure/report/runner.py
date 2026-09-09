@@ -29,11 +29,13 @@ from diagnosis.citation_verify import (
     normalize_url,
 )
 from diagnosis.diagnose import SurfaceDiagnosis, access_finding, diagnose_need, diagnose_surface
+from diagnosis.findings import DiagnosisThresholds, StageStatus, interval_status
 from diagnosis.generative_retrieval import diagnose_generative_retrieval
 from diagnosis.recommender import EvidenceEntry
 from diagnosis.representation_diag import diagnose_representation
 from diagnosis.retrieval_dependency import diagnose_retrieval_dependency
 from diagnosis.retrieval_diag import diagnose_retrieval
+from diagnosis.verdict import VerdictInput, band_of, surface_verdict
 from engine.detectors.brand_mention import BrandMentionDetector
 from engine.detectors.citation import CitationDetector
 from engine.detectors.matching import matches_any_brand_domain
@@ -153,6 +155,7 @@ def _execute(
     job.completed_plans = 0
     job.spent_usd = 0.0
     job.need_reports = []
+    job.surface_verdicts = []
     job.error = None
     job.access_result = access_audit.audit(job.website)
 
@@ -285,6 +288,8 @@ def _execute(
     sentiment_det = SentimentDetector()
     query_det = QueryTraceDetector()
     truncated = False
+    thresholds = DiagnosisThresholds()
+    verdict_inputs: dict[str, list[VerdictInput]] = {}  # surface → 逐需求观测(每家 AI 一句话)
 
     for need in job.needs:
         need_runs: list[SurfaceRun] = []
@@ -417,7 +422,7 @@ def _execute(
                 )
                 dependency = diagnose_retrieval_dependency(mention_metric, closed_metric)
 
-            blocks.append(diagnose_surface(
+            block = diagnose_surface(
                 provider=citation_metric.provider,
                 surface=citation_metric.surface,
                 model=citation_metric.model,
@@ -431,6 +436,23 @@ def _execute(
                 intent=need.intent,
                 registry=evidence,
                 retrieval_dependency=dependency,
+            )
+            blocks.append(block)
+            # 每家 AI 一句话的原料:提及档位 = 提及率区间三态的直接映射;官网被用上 = 检索或引用任一 PASS
+            mention_band = None
+            if mention_metric.estimate is not None:
+                mention_status, _ = interval_status(
+                    mention_metric.estimate,
+                    low_confidence=mention_metric.accounting.low_confidence,
+                    fail_ci_high=thresholds.mention_fail_ci_high,
+                    pass_ci_low=thresholds.mention_pass_ci_low,
+                )
+                mention_band = band_of(mention_status)
+            site_findings = [f for f in block.findings[:2] if f.status is not StageStatus.NOT_OBSERVABLE]
+            verdict_inputs.setdefault(surface_name, []).append(VerdictInput(
+                intent=need.intent,
+                mention=mention_band,
+                site_used=any(f.status is StageStatus.PASS for f in site_findings) if site_findings else None,
             ))
 
         # ── 第三遍:未被吸收的裸检索 surface 独立成块(仅检索视角)──────
@@ -457,6 +479,7 @@ def _execute(
             diagnosis=diagnose_need(need, access=access, surfaces=blocks),
         ))
 
+    job.surface_verdicts = [surface_verdict(name, inputs) for name, inputs in verdict_inputs.items()]
     job.state = JobState.PARTIAL if truncated else JobState.DONE
     job.phase = "phase_partial" if truncated else "phase_done"
     job.finished_at = datetime.now(UTC)

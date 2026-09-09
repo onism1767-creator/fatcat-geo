@@ -80,6 +80,7 @@ class PerplexityAgentAdapter(SurfaceAdapter):
         return SurfaceMeta(
             provider="perplexity",
             surface="perplexity_agent",
+            display_name="Perplexity",
             models=["sonar", "sonar-pro"],  # 以官方模型页为准,定期核对
             default_model="sonar",
             capabilities=_CAPABILITIES,
