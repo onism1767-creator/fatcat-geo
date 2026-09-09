@@ -94,7 +94,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "est_note": "3 个同时进行;结果一致时提前停,只会更快更省",
         "confirm_submit": "确认,开始检测(从这里开始计费)",
         # 任务页
-        "job_title": "检测进行中",
+        "job_title": "检测",
         "fingerprint_word": "编号", "tier_word": "档",
         "needs_word": "个问题", "variants_word": "种说法", "surfaces_word": "个 AI",
         "progress_word": "进度", "plans_word": "已完成",
@@ -202,7 +202,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "est_min_word": "min",
         "est_note": "3 run at once; consistent answers stop early, which only makes it faster and cheaper",
         "confirm_submit": "Confirm and start (billing starts here)",
-        "job_title": "Check in progress",
+        "job_title": "Check",
         "fingerprint_word": "ID", "tier_word": "tier",
         "needs_word": "questions", "variants_word": "phrasings", "surfaces_word": "AIs",
         "progress_word": "Progress", "plans_word": "done",
