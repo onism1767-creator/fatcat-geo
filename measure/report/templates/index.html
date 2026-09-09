@@ -12,8 +12,8 @@
     <div><label>{{ t["category"] }}</label><input type="text" name="category" required placeholder="{{ t['category_ph'] }}"></div>
     <div><label>{{ t["locale_label"] }}</label>
       <select name="locale">
-        <option value="zh-CN" {{ "selected" if lang == "zh" else "" }}>zh-CN 中文</option>
-        <option value="en-US" {{ "selected" if lang == "en" else "" }}>en-US English</option>
+        <option value="zh-CN" {{ "selected" if lang == "zh" else "" }}>中文</option>
+        <option value="en-US" {{ "selected" if lang == "en" else "" }}>English</option>
       </select>
     </div>
   </div>
@@ -35,7 +35,7 @@
   {% for j in jobs %}
   <tr>
     <td>{{ j.brand.name }}<span class="muted"> · {{ j.category }} · {{ j.locale }}</span></td>
-    <td>{{ j.state.value }}</td>
+    <td>{{ state_labels[j.state.value] }}</td>
     <td>{{ t.get(j.phase, j.phase) }}</td>
     <td>${{ "%.4f"|format(j.spent_usd) }}</td>
     <td>

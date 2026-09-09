@@ -4,10 +4,9 @@
 {% if job.state.value in ("CONFIRMED", "RUNNING") %}<meta http-equiv="refresh" content="3">{% endif %}
 <h1>{{ t["job_title"] }} · {{ job.brand.name }}</h1>
 <div class="card">
-  <p><b>{{ job.state.value }}</b> · {{ t.get(job.phase, job.phase) }}
-     <span class="muted">{{ t["fingerprint_word"] }} {{ job.fingerprint or "—" }} ·
-     {{ t["tier_" + job.tier_id] }} · {{ job.locale }} ·
-     {{ job.needs|length }} {{ t["needs_word"] }} × {{ job.variants_per_need }} {{ t["variants_word"] }} × {{ job.surfaces|length }} {{ t["surfaces_word"] }}</span></p>
+  <p><b>{{ state_labels[job.state.value] }}</b> · {{ t.get(job.phase, job.phase) }}
+     <span class="muted">{{ job.needs|length }} {{ t["needs_word"] }} × {{ job.variants_per_need }} {{ t["variants_word"] }} × {{ job.surfaces|length }} {{ t["surfaces_word"] }}
+     · {{ t["fingerprint_word"] }} {{ job.fingerprint or "—" }}</span></p>
   <div class="bar"><div style="width: {{ job.progress_pct }}%"></div></div>
   <p class="kv">{{ t["progress_word"] }} {{ job.progress_pct }}%({{ t["plans_word"] }} {{ job.completed_plans }}/{{ job.total_plans }})
      · {{ t["spent_word"] }} ${{ "%.4f"|format(job.spent_usd) }}{% if job.budget_usd %} / {{ t["budget_word"] }} ${{ job.budget_usd }}{% endif %}</p>
@@ -16,12 +15,15 @@
 
 {% if job.access_result %}
 <div class="card">
-  <h3>{{ t["access_early"] }} <span class="chip {{ job.access_result.overall.value }}">{{ job.access_result.overall.value }}</span></h3>
+  <h3>{{ t["access_early"] }} <span class="chip {{ job.access_result.overall.value }}">{{ access_labels[job.access_result.overall.value] }}</span></h3>
+  <p style="margin:4px 0">{{ access_headline(job.access_result.overall)|plain(lang) }}</p>
+  <details><summary>{{ t["access_detail"] }}</summary>
   <ul class="ev">
     {% for check in job.access_result.checks if check.gating %}
     <li>[{{ check.status.value }}] {{ check.check }} — {{ check.detail|msg(lang) }}</li>
     {% endfor %}
   </ul>
+  </details>
 </div>
 {% endif %}
 

@@ -22,6 +22,9 @@ from engine.scheduler import SamplingPolicy
 
 PLAN_CONCURRENCY = 3  # 采样计划并发路数(16.1)
 
+# 档位(v0.4.15,用户拍板方案 1):按次数定义——「每问法最多 max_n 次,前 N 次结果完全一样
+# 就提前停」。宽度阈值在实际参数下与之等价(混合结果永不提前停),
+# tests/unit/test_report_page.py 用 Jeffreys 算术机械核对标签里的数字。
 # 预估口径(16.4 / v0.4.6):成本按 surface 分价——单价由各适配器 meta 声明
 # (est_cost_per_call_usd,实测均值或推导上界);时间仍用双通道实测均值,
 # 留待多 surface 实测后一并校准。
@@ -47,11 +50,11 @@ class Tier(FrozenModel):
 
 TIERS: dict[str, Tier] = {
     "standard": Tier(
-        id="standard", label="标准档(区间宽度目标 ≤0.20,最多 20 次)",
+        id="standard", label="标准档:每个问题最多问 20 次,前 11 次结果完全一样就提前停",
         policy=SamplingPolicy(), expected_calls_per_plan=18.0,
     ),
     "quick": Tier(
-        id="quick", label="快扫档(区间宽度目标 ≤0.35,最多 8 次)",
+        id="quick", label="快扫档:每个问题最多问 8 次,前 6 次结果完全一样就提前停",
         policy=SamplingPolicy(min_n=5, max_n=8, ci_width_threshold=0.35),
         expected_calls_per_plan=7.5,
     ),

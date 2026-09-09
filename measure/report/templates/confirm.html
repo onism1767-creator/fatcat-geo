@@ -39,7 +39,7 @@
     <div class="row">
       <div><label>{{ t["surfaces_label"] }}</label>
         {% for s in surfaces %}
-        <label style="font-weight:400"><input type="checkbox" name="surfaces_selected" value="{{ s }}" checked> {{ s }}</label>
+        <label style="font-weight:400"><input type="checkbox" name="surfaces_selected" value="{{ s }}" data-display="{{ display_names.get(s, s) }}" checked> {{ display_names.get(s, s) }}</label>
         {% endfor %}
       </div>
       <div><label>{{ t["tier_label"] }}</label>
@@ -83,7 +83,7 @@ function recalc() {
   const parts = checked.map(el => {
     let per = C.surface_costs[el.value] * perLegCalls;
     if (depOn && el.value in C.dependency) per += C.dependency[el.value] * perLegCalls;
-    return el.value + ' ≈ $' + per.toFixed(2);
+    return el.dataset.display + ' ≈ $' + per.toFixed(2);
   });
   document.getElementById('est-breakdown').textContent = parts.length ? parts.join(' · ') : '–';
   document.getElementById('est-calls').textContent = Math.round(calls);

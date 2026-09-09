@@ -33,7 +33,7 @@ from engine.models import (
 from engine.needs import NeedCandidate
 from engine.scheduler import NeedSurfaceMetric
 from report.app import create_app
-from report.jobs import DiagnosisJob, JobState, NeedReport, estimate_job
+from report.jobs import TIERS, DiagnosisJob, JobState, NeedReport, estimate_job
 
 REGISTRY = load_evidence_registry()
 
@@ -208,6 +208,63 @@ def test_user_view_has_no_engine_jargon(client_and_job):
     assert "N_valid" in html and "EVIDENCE_" in html  # 技术记录仍完整保留在折叠区
 
 
+UI_FORBIDDEN = (  # v0.4.15:首页 / 确认页 / 任务页同样不得出现引擎内部语言
+    "surface", "口径", "序贯", "指纹", "熔断", "探针", "变体", "闭卷", "开卷", "语境", "采样",
+    "ACCESS 审计", "RUNNING", "DONE", "CONFIRMED", "INTERRUPTED",
+)
+
+
+def visible_text(html: str) -> str:
+    body = html.split("<main", 1)[1]
+    body = re.sub(r"<script.*?</script>", "", body, flags=re.S)
+    body = re.sub(r"<details.*?</details>", "", body, flags=re.S)
+    return re.sub(r"<[^>]+>", " ", body)
+
+
+def test_interactive_pages_use_plain_language(client_and_job):
+    """用户明令(2026-09-09):所有面向用户的页面只用简单中文,技术词只进折叠区。"""
+    client, job, _ = client_and_job
+    resp = client.post("/jobs", data={
+        "brand_name": "极光CRM", "aliases": "", "website": "aurora-crm.com", "category": "CRM",
+        "questions": "问题一?", "generate": "",
+    }, follow_redirects=False)
+    pages = [client.get("/").text, client.get(resp.headers["location"]).text,
+             client.get(f"/jobs/{job.job_id}").text]
+    for html in pages:
+        text = visible_text(html)
+        for token in UI_FORBIDDEN:
+            assert token not in text, (token, text[:200])
+    assert "S1" in pages[1]  # 确认页用 AI 产品名,不用内部名
+    assert "完成" in visible_text(pages[2]) and "DONE" not in visible_text(pages[2])
+
+
+def test_tier_labels_match_policy_arithmetic():
+    """v0.4.15 档位按次数定义:宽度阈值在实际参数下等价于「前 N 次完全一样才提前停」,
+    混合结果永不提前停;标签里的数字必须与策略算出的一致。"""
+    from engine.metrics import jeffreys_interval
+    from report.i18n import MESSAGES
+
+    def width(k: int, n: int) -> float:
+        lo, hi = jeffreys_interval(k, n)
+        return hi - lo
+
+    for tier_id, expected in (("quick", (8, 6)), ("standard", (20, 11))):
+        policy = TIERS[tier_id].policy
+        unanimous = next(
+            n for n in range(policy.min_n, policy.max_n + 1) if width(0, n) <= policy.ci_width_threshold
+        )
+        assert (policy.max_n, unanimous) == expected
+        assert all(
+            width(k, n) > policy.ci_width_threshold
+            for n in range(policy.min_n, policy.max_n + 1)
+            for k in range(1, n)
+        ), tier_id  # 混合结果永不提前停
+        for lang in ("zh", "en"):
+            label = MESSAGES[lang][f"tier_{tier_id}"]
+            assert str(policy.max_n) in label and str(unanimous) in label, (tier_id, lang)
+        assert str(policy.max_n) in TIERS[tier_id].label and str(unanimous) in TIERS[tier_id].label
+
+
 def test_summarize_orders_by_evidence_level_then_support():
     from report.summary import summarize
 
@@ -236,7 +293,7 @@ def test_report_shows_upstream_caution_and_competitor_gap(client_and_job):
 def test_index_renders_form(client_and_job):
     client, _, _ = client_and_job
     html = client.get("/").text
-    assert "品牌名" in html and "目标问题" in html
+    assert "品牌名" in html and "希望 AI 在回答哪些问题时提到你" in html
 
 
 def test_manual_flow_to_confirm_and_launch(client_and_job):
@@ -249,7 +306,7 @@ def test_manual_flow_to_confirm_and_launch(client_and_job):
     assert resp.status_code == 303
     confirm_url = resp.headers["location"]
     html = client.get(confirm_url).text
-    assert "问题一?" in html and "确认并开始采样" in html
+    assert "问题一?" in html and "确认,开始检测" in html
 
     resp = client.post(confirm_url, data={
         "needs_selected": ["0", "1"], "surfaces_selected": ["s1"],

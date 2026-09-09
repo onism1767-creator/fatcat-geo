@@ -24,7 +24,16 @@ from engine.loader import build_adapters
 from engine.models import BrandSpec, CompetitorSuggestion, InformationNeed, NeedIntent
 from engine.needs import NeedCandidate, draft_need_candidates
 from report import runner
-from report.i18n import ACCESS_LABELS, DEP_LABELS, INTENT_LABELS, LEVEL_LABELS, MESSAGES, STATUS_LABELS, resolve_lang
+from report.i18n import (
+    ACCESS_LABELS,
+    DEP_LABELS,
+    INTENT_LABELS,
+    JOB_STATE_LABELS,
+    LEVEL_LABELS,
+    MESSAGES,
+    STATUS_LABELS,
+    resolve_lang,
+)
 from report.jobs import (
     AVG_SECONDS_PER_CALL,
     PLAN_CONCURRENCY,
@@ -62,6 +71,8 @@ def create_app(
     templates.env.filters["plain"] = lambda message, lang: render_msg(message, lang, "plain")
     templates.env.globals["funnel_stages"] = [Stage.RETRIEVAL, Stage.CITATION, Stage.REPRESENTATION]
     templates.env.globals["stage_msg"] = lambda stage: msg(f"stage.{stage.value}")
+    templates.env.globals["access_headline"] = lambda overall: msg(f"access.headline.{overall.value.lower()}")
+    display_names = {name: adapter.meta().display_name for name, adapter in adapters.items()}
     registry = registry or JobRegistry()
     app.state.registry = registry
     app.state.adapters = adapters
@@ -75,6 +86,8 @@ def create_app(
         context.setdefault("access_labels", ACCESS_LABELS[lang])
         context.setdefault("dep_labels", DEP_LABELS[lang])
         context.setdefault("level_labels", LEVEL_LABELS[lang])
+        context.setdefault("state_labels", JOB_STATE_LABELS[lang])
+        context.setdefault("display_names", display_names)  # AI 产品名(适配器 meta 声明)
         return templates.TemplateResponse(request, name, context)
 
     def redirect(request: Request, path: str) -> RedirectResponse:
@@ -251,9 +264,8 @@ def create_app(
             return not_found(request)
         if not job.finished:
             return redirect(request, f"/jobs/{job.job_id}")
-        display_names = {name: adapter.meta().display_name for name, adapter in adapters.items()}
         return render(
-            request, "report.html", job=job, display_names=display_names,
+            request, "report.html", job=job,
             summary=summarize(job.need_reports, job.surface_verdicts, display_names),
         )
 
