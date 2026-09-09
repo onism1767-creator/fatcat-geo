@@ -8,11 +8,14 @@ import respx
 
 from diagnosis.access_audit import (
     DEFAULT_CRAWLERS_PATH,
+    AccessLayer,
     CheckStatus,
     CrawlerBot,
+    PathProbe,
     audit,
     load_crawlers,
     visible_text_length,
+    with_path_probes,
 )
 from diagnosis.messages import render_msg
 
@@ -139,6 +142,46 @@ def test_bot_protection_403_yields_unknown_not_fail():
     assert "机器人防护" in render_msg(reach.detail, "zh")
     assert result.overall is CheckStatus.UNKNOWN  # 资格门不可观测,不判死
     assert not any(c.status is CheckStatus.FAIL for c in result.checks if c.gating)
+
+
+@respx.mock
+def test_layers_assigned_and_unobservable_layers_placeholded():
+    """v0.4.13 条目 6:每条检查带证据层;v1 不可观测的三层显式 UNKNOWN 占位且不进资格门。"""
+    mock_site()
+    respx.get(f"{SITE}/sitemap.xml").mock(return_value=httpx.Response(404))
+    result = audit(SITE, BOTS)
+    assert all(c.layer in AccessLayer for c in result.checks)
+    assert {c.check for c in result.checks_in(AccessLayer.POLICY)} == {"robots_txt", "sitemap"}
+    assert {c.check for c in result.checks_in(AccessLayer.GENERIC_FETCH)} >= {
+        "reachability", "redirects", "ua_differential", "html_content"}
+    for layer, name in [(AccessLayer.RENDERED_FETCH, "rendered_fetch"),
+                        (AccessLayer.OFFICIAL_IDENTITY, "official_identity"),
+                        (AccessLayer.WAF_EVIDENCE, "waf_evidence")]:
+        (check,) = result.checks_in(layer)
+        assert check.check == name and check.status is CheckStatus.UNKNOWN and not check.gating
+    assert result.overall is CheckStatus.PASS  # 占位层不进资格门
+    assert "站点侧" in render_msg(check.detail, "zh") or "不可观测" in render_msg(check.detail, "zh")
+
+
+@respx.mock
+def test_path_probes_join_generic_fetch_without_touching_gate():
+    """按路径探针(引用核验重抓)并入 GENERIC_FETCH:机器人防护按路径拦截时,首页探针不代表全站。"""
+    mock_site()
+    respx.get(f"{SITE}/sitemap.xml").mock(return_value=httpx.Response(404))
+    result = audit(SITE, BOTS)
+    assert with_path_probes(result, []) is result
+    mixed = with_path_probes(result, [
+        PathProbe(url=f"{SITE}/a", http_status=200),
+        PathProbe(url=f"{SITE}/b", http_status=403),
+        PathProbe(url=f"{SITE}/c", error="ConnectError"),
+    ])
+    path = check_by_name(mixed, "path_fetch")
+    assert path.layer is AccessLayer.GENERIC_FETCH and not path.gating
+    assert path.status is CheckStatus.UNKNOWN and path.evidence == {"ok": 1, "blocked": 1, "other": 1}
+    assert "1 条疑似机器人防护" in render_msg(path.detail, "zh")
+    assert mixed.overall is result.overall and len(mixed.path_probes) == 3
+    clean = with_path_probes(result, [PathProbe(url=f"{SITE}/a", http_status=200)])
+    assert check_by_name(clean, "path_fetch").status is CheckStatus.PASS
 
 
 @respx.mock

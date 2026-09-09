@@ -278,24 +278,68 @@ CATALOG: dict[str, dict[str, str]] = {
     },
     # ── ACCESS(诊断结论)──────────────────────────────────────────────
     "access.headline.pass": {
-        "zh": "站点对 AI 爬虫可达,资格门通过",
-        "en": "The site is reachable by AI crawlers — the access gate passes",
+        "zh": "站点侧证据未见准入阻断(本工具探针视角,非官方爬虫身份;真实爬虫是否放行须站长侧核验)",
+        "en": "Site-side evidence shows no access block (this tool's probe vantage, not an official crawler "
+              "identity; whether real crawlers are admitted needs site-owner verification)",
     },
     "access.headline.fail": {
-        "zh": "站点存在准入阻断,AI 爬虫无法正常获取内容",
-        "en": "Access is blocked — AI crawlers cannot properly fetch the site",
+        "zh": "站点侧证据存在准入阻断(robots 显式禁止或探针硬失败)",
+        "en": "Site-side evidence shows an access block (explicit robots disallow or a hard probe failure)",
     },
     "access.headline.unknown": {
-        "zh": "资格门存在无法判定项",
-        "en": "The access gate has undeterminable checks",
+        "zh": "站点侧证据有无法判定项,资格门不可观测",
+        "en": "Site-side evidence has undeterminable items; the access gate is not observable",
     },
     "access.headline.missing": {
         "zh": "未执行 ACCESS 审计",
         "en": "The ACCESS audit was not run",
     },
     "access.unknown_note": {
-        "zh": "存在无法判定的检查项,资格门记为不可观测,需站长侧核验",
-        "en": "Some checks are undeterminable; the gate is recorded as not observable and needs site-owner verification",
+        "zh": "存在无法判定的检查项(常见为机器人防护拦截本工具探针),资格门记为不可观测,"
+              "需站长在 CDN 后台或服务器日志侧核验官方爬虫是否放行",
+        "en": "Some checks are undeterminable (typically bot protection blocking this tool's probe); the gate is "
+              "recorded as not observable — verify in the CDN console or server logs whether official crawlers are admitted",
+    },
+    # ── ACCESS(证据层,v0.4.13 条目 6)──────────────────────────────────
+    "access.layer.POLICY": {
+        "zh": "POLICY — 站点公开政策(robots.txt / sitemap,站点单方声明)",
+        "en": "POLICY — published site policy (robots.txt / sitemap; unilateral declaration)",
+    },
+    "access.layer.GENERIC_FETCH": {
+        "zh": "GENERIC_FETCH — 本工具探针可达性(普通网络、非官方爬虫身份)",
+        "en": "GENERIC_FETCH — this tool's probe reachability (regular network, not an official crawler identity)",
+    },
+    "access.layer.RENDERED_FETCH": {
+        "zh": "RENDERED_FETCH — 真实浏览器渲染视角",
+        "en": "RENDERED_FETCH — real-browser rendered view",
+    },
+    "access.layer.OFFICIAL_IDENTITY": {
+        "zh": "OFFICIAL_IDENTITY — 官方爬虫真身访问证据(站长日志)",
+        "en": "OFFICIAL_IDENTITY — verified official-crawler visits (site-owner logs)",
+    },
+    "access.layer.WAF_EVIDENCE": {
+        "zh": "WAF_EVIDENCE — CDN/WAF 侧拦截证据(站长后台)",
+        "en": "WAF_EVIDENCE — CDN/WAF-side blocking evidence (site-owner console)",
+    },
+    "access.rendered.not_observable": {
+        "zh": "v1 不做真实浏览器渲染(Playwright 预留 v2),JS 渲染后的可索引正文不可观测",
+        "en": "v1 does no real-browser rendering (Playwright reserved for v2); JS-rendered indexable text is not observable",
+    },
+    "access.official.not_observable": {
+        "zh": "官方爬虫以来源 IP / 反向 DNS 验真身,本工具无法冒充;须站长提供服务器日志中的真实访问记录,v1 记不可观测",
+        "en": "Official crawlers are verified by source IP / reverse DNS and cannot be impersonated by this tool; "
+              "real visit records from server logs are required — not observable in v1",
+    },
+    "access.waf.not_observable": {
+        "zh": "CDN/WAF 是否拦截对应爬虫须站长后台或日志核验,v1 记不可观测",
+        "en": "Whether the CDN/WAF blocks the corresponding crawler must be verified in the site-owner console or logs — not observable in v1",
+    },
+    "access.path.summary": {
+        "zh": "按路径探针(来自引用核验重抓,同一探针视角):{total} 条品牌 URL,{ok} 条 2xx,"
+              "{blocked} 条疑似机器人防护(401/403/429/503),{other} 条其他失败——机器人防护常按路径拦截,首页探针不代表全站",
+        "en": "Per-path probes (from citation re-fetches, same probe vantage): {total} brand URL(s), {ok} 2xx, "
+              "{blocked} suspected bot protection (401/403/429/503), {other} other failures — bot protection often "
+              "blocks per path, so the homepage probe does not represent the whole site",
     },
     # ── ACCESS(审计器检查详情)────────────────────────────────────────
     "access.reach.ok": {

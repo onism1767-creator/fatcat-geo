@@ -3,6 +3,16 @@
 自带轻量爬取器,不走 L1/L2,可独立运行(依赖方向铁律的唯一例外)。
 资格门,不打分:输出 PASS / FAIL / UNKNOWN。
 
+分层的站点侧准入证据(v0.4.13 条目 6):伪装 UA 的探针只能证明「本工具客户端在此
+条件下得到的响应」,不能证明官方爬虫得到同样响应(各家均以来源 IP / 反向 DNS 验真身)。
+因此每条检查都标注所属证据层:
+- POLICY:robots.txt / sitemap,站点单方声明;
+- GENERIC_FETCH:本工具探针可达性(首页 + 引用核验重抓的按路径结果);
+- RENDERED_FETCH / OFFICIAL_IDENTITY / WAF_EVIDENCE:v1 一律 NOT_OBSERVABLE 占位,
+  分别待 Playwright(v2)、站长日志、CDN 后台证据。
+资格门只由 POLICY 显式禁止与 GENERIC_FETCH 的非防护类硬失败触发;报告措辞是
+「站点侧证据」,不称「AI 爬虫可达 PASS/FAIL」。
+
 v1.1 起,检查详情与口径以结论码(Msg)输出,组句在 diagnosis/messages.py
 的双语目录中完成;本模块仅引用零依赖的 messages(不破坏独立性)。
 
@@ -70,6 +80,25 @@ class CheckStatus(StrEnum):
     UNKNOWN = "UNKNOWN"
 
 
+class AccessLayer(StrEnum):
+    """站点侧准入证据层(v0.4.13 条目 6),报告按层分组呈现。"""
+
+    POLICY = "POLICY"
+    GENERIC_FETCH = "GENERIC_FETCH"
+    RENDERED_FETCH = "RENDERED_FETCH"
+    OFFICIAL_IDENTITY = "OFFICIAL_IDENTITY"
+    WAF_EVIDENCE = "WAF_EVIDENCE"
+
+
+class PathProbe(FrozenModel):
+    """按路径的探针结果(来自引用核验重抓,同一探针视角):机器人防护常按路径拦截,
+    首页探针不代表全站——香奈儿首测 21 条被引 URL 16 条 200、5 条 403。"""
+
+    url: str
+    http_status: int | None = None  # None = 网络层失败
+    error: str | None = None
+
+
 class CrawlerBot(FrozenModel):
     name: str
     robots_token: str
@@ -81,6 +110,7 @@ class CrawlerBot(FrozenModel):
 
 class CheckResult(FrozenModel):
     check: str
+    layer: AccessLayer
     status: CheckStatus
     gating: bool  # 是否参与资格门聚合;False = 仅提示
     detail: Msg
@@ -104,6 +134,28 @@ class AccessAuditResult(FrozenModel):
     bots: list[BotProbe]
     caveats: list[Msg]
     audited_at: datetime
+    path_probes: list[PathProbe] = []  # 采样后由 with_path_probes 追加(非资格门)
+
+    def checks_in(self, layer: AccessLayer) -> list[CheckResult]:
+        return [c for c in self.checks if c.layer is layer]
+
+
+def with_path_probes(result: AccessAuditResult, probes: list[PathProbe]) -> AccessAuditResult:
+    """把按路径探针结果并入 GENERIC_FETCH 层(仅提示,不改资格门)。没有探针则原样返回。"""
+    if not probes:
+        return result
+    ok = sum(1 for p in probes if p.http_status is not None and 200 <= p.http_status < 300)
+    blocked = sum(1 for p in probes if p.http_status in PROTECTION_SUSPECT_STATUSES)
+    other = len(probes) - ok - blocked
+    check = CheckResult(
+        check="path_fetch", layer=AccessLayer.GENERIC_FETCH,
+        status=CheckStatus.PASS if ok == len(probes) else CheckStatus.UNKNOWN, gating=False,
+        detail=msg("access.path.summary", total=len(probes), ok=ok, blocked=blocked, other=other),
+        evidence={"ok": ok, "blocked": blocked, "other": other},
+    )
+    return result.model_copy(update={
+        "checks": [*result.checks, check], "path_probes": [*result.path_probes, *probes],
+    })
 
 
 # ── HTML 可见文本 ──────────────────────────────────────────────────────
@@ -210,7 +262,8 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
         redirect_chain = [f"{r.status_code} {r.url}" for r in baseline.history]
         if baseline.is_success:
             reach = CheckResult(
-                check="reachability", status=CheckStatus.PASS, gating=True,
+                check="reachability", layer=AccessLayer.GENERIC_FETCH,
+                status=CheckStatus.PASS, gating=True,
                 detail=msg("access.reach.ok", status=baseline.status_code),
                 evidence={"status": baseline.status_code, "final_url": final_url},
             )
@@ -220,24 +273,28 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
             # 香奈儿首测复盘:真实浏览器可开,一切自动化客户端被 Akamai 403)。
             # 三种真相在本审计视角下不可区分,只能 UNKNOWN,不许判死。
             reach = CheckResult(
-                check="reachability", status=CheckStatus.UNKNOWN, gating=True,
+                check="reachability", layer=AccessLayer.GENERIC_FETCH,
+                status=CheckStatus.UNKNOWN, gating=True,
                 detail=msg("access.reach.blocked", status=baseline.status_code),
                 evidence={"status": baseline.status_code, "final_url": final_url},
             )
         else:
             reach = CheckResult(
-                check="reachability", status=CheckStatus.FAIL, gating=True,
+                check="reachability", layer=AccessLayer.GENERIC_FETCH,
+                status=CheckStatus.FAIL, gating=True,
                 detail=msg("access.reach.bad", status=baseline.status_code),
                 evidence={"status": baseline.status_code, "final_url": final_url},
             )
     except httpx.TooManyRedirects:
         reach = CheckResult(
-            check="reachability", status=CheckStatus.FAIL, gating=True,
+            check="reachability", layer=AccessLayer.GENERIC_FETCH,
+            status=CheckStatus.FAIL, gating=True,
             detail=msg("access.reach.redirect_loop"),
         )
     except httpx.HTTPError as exc:
         reach = CheckResult(
-            check="reachability", status=CheckStatus.UNKNOWN, gating=True,
+            check="reachability", layer=AccessLayer.GENERIC_FETCH,
+            status=CheckStatus.UNKNOWN, gating=True,
             detail=msg("access.reach.error", error=type(exc).__name__),
         )
     checks.append(reach)
@@ -255,12 +312,14 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
             else msg("access.redirects.chain", **chain_params)
         )
         checks.append(CheckResult(
-            check="redirects", status=CheckStatus.PASS, gating=False,
+            check="redirects", layer=AccessLayer.GENERIC_FETCH,
+            status=CheckStatus.PASS, gating=False,
             detail=detail, evidence={"chain": redirect_chain, "final_url": final_url},
         ))
     else:
         checks.append(CheckResult(
-            check="redirects", status=CheckStatus.PASS, gating=False,
+            check="redirects", layer=AccessLayer.GENERIC_FETCH,
+            status=CheckStatus.PASS, gating=False,
             detail=msg("access.redirects.none"),
         ))
 
@@ -291,7 +350,8 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
     # 4. robots 聚合
     if allowed_fn is None:
         checks.append(CheckResult(
-            check="robots_txt", status=CheckStatus.UNKNOWN, gating=True,
+            check="robots_txt", layer=AccessLayer.POLICY,
+            status=CheckStatus.UNKNOWN, gating=True,
             detail=msg("access.robots.unknown", note=robots_note),
         ))
     else:
@@ -302,13 +362,15 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
         )
         if denied_gating:
             checks.append(CheckResult(
-                check="robots_txt", status=CheckStatus.FAIL, gating=True,
+                check="robots_txt", layer=AccessLayer.POLICY,
+                status=CheckStatus.FAIL, gating=True,
                 detail=msg("access.robots.fail", denied=", ".join(denied_gating), info=info),
                 evidence={"denied": denied_gating, "denied_non_gating": denied_info},
             ))
         else:
             checks.append(CheckResult(
-                check="robots_txt", status=CheckStatus.PASS, gating=True,
+                check="robots_txt", layer=AccessLayer.POLICY,
+                status=CheckStatus.PASS, gating=True,
                 detail=msg("access.robots.pass",
                            note=robots_note, n=sum(p.gating for p in probes), info=info),
                 evidence={"denied_non_gating": denied_info},
@@ -323,18 +385,21 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
     ]
     if not baseline_ok:
         checks.append(CheckResult(
-            check="ua_differential", status=CheckStatus.UNKNOWN, gating=True,
+            check="ua_differential", layer=AccessLayer.GENERIC_FETCH,
+            status=CheckStatus.UNKNOWN, gating=True,
             detail=msg("access.ua.no_baseline"),
         ))
     elif blocked:
         checks.append(CheckResult(
-            check="ua_differential", status=CheckStatus.UNKNOWN, gating=True,
+            check="ua_differential", layer=AccessLayer.GENERIC_FETCH,
+            status=CheckStatus.UNKNOWN, gating=True,
             detail=msg("access.ua.blocked", blocked=", ".join(blocked)),
             evidence={"blocked": blocked},
         ))
     else:
         checks.append(CheckResult(
-            check="ua_differential", status=CheckStatus.PASS, gating=True,
+            check="ua_differential", layer=AccessLayer.GENERIC_FETCH,
+            status=CheckStatus.PASS, gating=True,
             detail=msg("access.ua.pass", n=len(probed)),
         ))
 
@@ -356,7 +421,8 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
         chars = -1
     if chars < 0:
         checks.append(CheckResult(
-            check="html_content", status=CheckStatus.UNKNOWN, gating=True,
+            check="html_content", layer=AccessLayer.GENERIC_FETCH,
+            status=CheckStatus.UNKNOWN, gating=True,
             detail=msg("access.content.none"),
         ))
     elif chars >= MIN_VISIBLE_TEXT_CHARS:
@@ -366,7 +432,8 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
             else ""
         )
         checks.append(CheckResult(
-            check="html_content", status=CheckStatus.PASS, gating=True,
+            check="html_content", layer=AccessLayer.GENERIC_FETCH,
+            status=CheckStatus.PASS, gating=True,
             detail=msg("access.content.pass", chars=chars, label=label, prerender=prerender),
             evidence={"visible_chars": chars, "browser_chars": browser_chars},
         ))
@@ -377,7 +444,8 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
             else ""
         )
         checks.append(CheckResult(
-            check="html_content", status=CheckStatus.FAIL, gating=True,
+            check="html_content", layer=AccessLayer.GENERIC_FETCH,
+            status=CheckStatus.FAIL, gating=True,
             detail=msg("access.content.fail", chars=chars, label=label,
                        threshold=MIN_VISIBLE_TEXT_CHARS, reverse=reverse),
             evidence={"visible_chars": chars, "browser_chars": browser_chars},
@@ -386,7 +454,8 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
     # 7. sitemap(仅提示,不进资格门)
     if sitemap_urls:
         checks.append(CheckResult(
-            check="sitemap", status=CheckStatus.PASS, gating=False,
+            check="sitemap", layer=AccessLayer.POLICY,
+            status=CheckStatus.PASS, gating=False,
             detail=msg("access.sitemap.declared", urls=", ".join(sitemap_urls[:3])),
             evidence={"sitemaps": sitemap_urls},
         ))
@@ -396,19 +465,35 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
             resp = client.get(sitemap_url, headers={"User-Agent": BROWSER_UA})
             if resp.is_success:
                 checks.append(CheckResult(
-                    check="sitemap", status=CheckStatus.PASS, gating=False,
+                    check="sitemap", layer=AccessLayer.POLICY,
+                    status=CheckStatus.PASS, gating=False,
                     detail=msg("access.sitemap.fallback", url=sitemap_url),
                 ))
             else:
                 checks.append(CheckResult(
-                    check="sitemap", status=CheckStatus.FAIL, gating=False,
+                    check="sitemap", layer=AccessLayer.POLICY,
+                    status=CheckStatus.FAIL, gating=False,
                     detail=msg("access.sitemap.missing", url=sitemap_url, status=resp.status_code),
                 ))
         except httpx.HTTPError as exc:
             checks.append(CheckResult(
-                check="sitemap", status=CheckStatus.UNKNOWN, gating=False,
+                check="sitemap", layer=AccessLayer.POLICY,
+                status=CheckStatus.UNKNOWN, gating=False,
                 detail=msg("access.sitemap.error", error=type(exc).__name__),
             ))
+
+    # 7b. v1 不可观测的证据层显式占位(铁律 7:不可观测就记下来,不留空白让人脑补)
+    checks.extend([
+        CheckResult(check="rendered_fetch", layer=AccessLayer.RENDERED_FETCH,
+                    status=CheckStatus.UNKNOWN, gating=False,
+                    detail=msg("access.rendered.not_observable")),
+        CheckResult(check="official_identity", layer=AccessLayer.OFFICIAL_IDENTITY,
+                    status=CheckStatus.UNKNOWN, gating=False,
+                    detail=msg("access.official.not_observable")),
+        CheckResult(check="waf_evidence", layer=AccessLayer.WAF_EVIDENCE,
+                    status=CheckStatus.UNKNOWN, gating=False,
+                    detail=msg("access.waf.not_observable")),
+    ])
 
     # 8. 资格门聚合:任一 gating 检查 FAIL → FAIL;否则有 UNKNOWN → UNKNOWN;否则 PASS
     gating = [c.status for c in checks if c.gating]
@@ -429,13 +514,15 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
 
 
 def render_text(result: AccessAuditResult) -> str:
-    lines = [f"■ ACCESS — {result.overall}   {result.site}"]
+    lines = [f"■ ACCESS — {result.overall}   {result.site}(站点侧准入证据,本工具探针视角)"]
     if result.final_url and result.final_url != result.site:
         lines.append(f"  最终地址:{result.final_url}")
-    lines.append("")
-    for check in result.checks:
-        tag = "" if check.gating else "(提示)"
-        lines.append(f"  [{check.status}]{tag} {check.check} — {render_msg(check.detail, 'zh')}")
+    for layer in AccessLayer:
+        lines.append("")
+        lines.append(f"  ▸ {render_msg(msg(f'access.layer.{layer.value}'), 'zh')}")
+        for check in result.checks_in(layer):
+            tag = "" if check.gating else "(提示)"
+            lines.append(f"    [{check.status}]{tag} {check.check} — {render_msg(check.detail, 'zh')}")
     lines.append("")
     lines.append("  爬虫探测明细:")
     for probe in result.bots:
@@ -457,7 +544,7 @@ def render_text(result: AccessAuditResult) -> str:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description="ACCESS 审计:站点对 AI 爬虫的可达性资格门")
+    parser = argparse.ArgumentParser(description="ACCESS 审计:分层的站点侧准入证据(本工具探针视角)")
     parser.add_argument("url", help="待审计的站点地址")
     parser.add_argument("--json", action="store_true", help="输出机器可读 JSON")
     parser.add_argument("--config", type=Path, default=DEFAULT_CRAWLERS_PATH, help="爬虫名单配置")

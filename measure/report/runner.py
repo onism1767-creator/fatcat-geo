@@ -20,6 +20,7 @@ import structlog
 
 from adapters.base import SurfaceAdapter
 from diagnosis import access_audit
+from diagnosis.access_audit import PathProbe, with_path_probes
 from diagnosis.citation_diag import VerificationSummary, diagnose_citation
 from diagnosis.citation_verify import (
     CitationVerifier,
@@ -270,6 +271,11 @@ def _execute(
         evidence_map = verifier.verify(all_cited_urls, [job.brand])
     finally:
         verifier.close()
+    if job.access_result is not None:  # 按路径探针并入 ACCESS 的 GENERIC_FETCH 层(v0.4.13 条目 6)
+        job.access_result = with_path_probes(job.access_result, [
+            PathProbe(url=e.normalized_url, http_status=e.http_status, error=e.error)
+            for e in evidence_map.values()
+        ])
 
     job.phase = "phase_scoring"
     access = access_finding(job.access_result)
