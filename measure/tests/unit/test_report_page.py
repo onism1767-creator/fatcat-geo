@@ -194,6 +194,7 @@ def test_user_view_leads_with_plain_language(client_and_job):
     assert "AI 搜索时有没有找到你(RETRIEVAL)" in html  # 人话(技术词)双写
     assert "本次 30 次搜索里,0 次结果中出现了你的官网" in html  # 比例用原始计数
     assert "让 AI 搜索时更容易找到你" in html  # 建议用人话版(注册表 plain)
+    assert "建议先试" not in html  # 各 AI 详情不再重复列建议:「建议先做的事」已去重并标支持来源
     assert "研究主张原句" in html and "提高语义覆盖" in html  # 原句仍在「为什么这么建议」里
 
 
@@ -217,7 +218,7 @@ def test_summarize_orders_by_evidence_level_then_support():
     assert all(a.support_count == 2 for a in summary.actions)
     (brief_s1, brief_s2) = summary.engines[job.needs[0].need_id]
     assert brief_s1.primary is brief_s2.primary is Stage.RETRIEVAL
-    assert brief_s1.display == "S1" and brief_s1.strongest_evidence is not None and brief_s1.experiments
+    assert brief_s1.display == "S1" and brief_s1.strongest_evidence is not None
     assert [v.display for v in summary.verdicts] == ["S1", "S2"]
     assert summarize([], [], {}).verdicts == []
 

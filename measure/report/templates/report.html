@@ -52,14 +52,13 @@
   <h2 style="margin-top:0">{{ t["sec3_title"] }} · {{ intent_labels[nr.need.intent] }}</h2>
   <p class="kv">「{{ nr.need.statement }}」</p>
   <table class="brief">
-    <tr><th>{{ t["col_ai"] }}</th><th>{{ t["col_seen"] }}</th><th>{{ t["col_basis"] }}</th><th>{{ t["col_notes"] }}</th><th>{{ t["col_try"] }}</th></tr>
+    <tr><th>{{ t["col_ai"] }}</th><th>{{ t["col_seen"] }}</th><th>{{ t["col_basis"] }}</th><th>{{ t["col_notes"] }}</th></tr>
     {% for eb in summary.engines[nr.need.need_id] %}
     <tr>
       <td><b>{{ eb.display }}</b></td>
       <td>{{ eb.phenomenon|plain(lang) }}</td>
       <td>{% if eb.strongest_evidence %}{{ eb.strongest_evidence|plain(lang) }}{% else %}<span class="muted">—</span>{% endif %}</td>
       <td>{% for c in eb.limitations %}{{ c|plain(lang) }}{% if not loop.last %}<br>{% endif %}{% else %}<span class="muted">—</span>{% endfor %}</td>
-      <td>{% for rec in eb.experiments %}{{ rec.plain[lang] }}{% if not loop.last %}<br>{% endif %}{% else %}<span class="muted">—</span>{% endfor %}</td>
     </tr>
     {% endfor %}
   </table>

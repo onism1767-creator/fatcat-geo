@@ -35,7 +35,8 @@ class NeedBrief(FrozenModel):
 
 
 class EngineBrief(FrozenModel):
-    """每家 AI 四行:看到了什么 / 依据 / 需要注意 / 建议先试(全部引用 L3 既有输出)。"""
+    """每家 AI 三行:看到了什么 / 依据 / 需要注意(全部引用 L3 既有输出)。
+    建议不在此重复——「建议先做的事」已跨需求与 AI 去重并标支持来源。"""
 
     surface: str
     display: str
@@ -45,7 +46,6 @@ class EngineBrief(FrozenModel):
     phenomenon: Msg
     strongest_evidence: Msg | None
     limitations: list[Msg]
-    experiments: list[Recommendation]
 
 
 class PriorityAction(FrozenModel):
@@ -71,7 +71,7 @@ class ReportSummary(FrozenModel):
     verdicts: list[VerdictLine]
     needs: list[NeedBrief]
     actions: list[PriorityAction]
-    engines: dict[str, list[EngineBrief]]  # need_id → 各家四行
+    engines: dict[str, list[EngineBrief]]  # need_id → 各家三行
 
 
 def _engine_brief(sd: SurfaceDiagnosis, display: str) -> EngineBrief:
@@ -88,7 +88,6 @@ def _engine_brief(sd: SurfaceDiagnosis, display: str) -> EngineBrief:
             finding.evidence_lines[0] if finding is not None and finding.evidence_lines else None
         ),
         limitations=[c for c in sd.cautions if c.code != "caution.none"],
-        experiments=list(sd.recommendations),
     )
 
 
