@@ -15,7 +15,8 @@ from fastapi import FastAPI, Form, Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
-from diagnosis.messages import render_msg
+from diagnosis.access_audit import AccessLayer
+from diagnosis.messages import msg, render_msg
 from diagnosis.recommender import EvidenceEntry, load_evidence_registry
 from engine.envfile import load_env_file
 from engine.loader import build_adapters
@@ -31,6 +32,7 @@ from report.jobs import (
     JobRegistry,
     JobState,
 )
+from report.summary import summarize
 
 DEFAULT_DSN = "postgresql://geo@localhost:5433/geo_tool"
 
@@ -53,6 +55,8 @@ def create_app(
     app = FastAPI(title="GEO 诊断")
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
     templates.env.filters["msg"] = render_msg  # 结论码 → 当前界面语言的成句
+    templates.env.globals["access_layers"] = list(AccessLayer)  # 报告按证据层分组(v0.4.13 条目 6)
+    templates.env.globals["layer_msg"] = lambda layer: msg(f"access.layer.{layer.value}")
     registry = registry or JobRegistry()
     app.state.registry = registry
     app.state.adapters = adapters
@@ -238,6 +242,6 @@ def create_app(
             return not_found(request)
         if not job.finished:
             return redirect(request, f"/jobs/{job.job_id}")
-        return render(request, "report.html", job=job)
+        return render(request, "report.html", job=job, summary=summarize(job.need_reports))
 
     return app

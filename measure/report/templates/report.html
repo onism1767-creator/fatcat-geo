@@ -10,33 +10,38 @@
 {% if job.state.value == "PARTIAL" %} · <b>{{ t["partial_note"] }}</b>{% endif %}</p>
 
 {% set access = job.access_result %}
-<div class="card">
-  <h2 style="margin-top:0">{{ t["access_section"] }}
-    {% if access %}<span class="chip {{ access.overall.value }}">{{ access.overall.value }}</span>{% endif %}</h2>
-  {% if access %}
-  <ul class="ev">
-    {% for check in access.checks %}
-    <li>[{{ check.status.value }}]{{ "(提示)" if not check.gating and lang == "zh" else (" (info)" if not check.gating else "") }} {{ check.check }} — {{ check.detail|msg(lang) }}</li>
+{% set info_tag = "(提示)" if lang == "zh" else " (info)" %}
+
+{# ══ 决策视图(v0.4.13 条目 8):三个问题 → 矩阵 → 优先动作 → 各 AI 四行 → 准入预检 ══ #}
+
+<div class="card exec">
+  <h2 style="margin-top:0">{{ t["exec_title"] }}</h2>
+  <p class="muted">{{ t["exec_scope"] }}</p>
+  <p><b>{{ t["exec_access"] }}:</b>
+    {% if access %}<span class="chip {{ access.overall.value }}">{{ access.overall.value }}</span>{% endif %}
+    {% if summary.access %}{{ summary.access.headline|msg(lang) }}{% else %}{{ t["access_missing"] }}{% endif %}</p>
+  {% for nb in summary.needs %}
+  <p><b><span class="chip intent">{{ intent_labels[nb.intent] }}</span> 「{{ nb.statement }}」</b><br>
+    {% for g in nb.groups %}
+    {% if g.stage %}<b>{{ g.stage.value }}</b>{% else %}<b>{{ t["exec_bottleneck_none"] }}</b>{% endif %}: {{ g.surfaces|join(", ") }}{% if not loop.last %} · {% endif %}
+    {% endfor %}</p>
+  {% endfor %}
+  <p><b>{{ t["exec_next"] }}:</b>
+    {% if summary.actions %}
+    {% for a in summary.actions[:3] %}
+    {{ a.recommendation.hypothesis[lang] }}{% if a.recommendation.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}
+    <span class="muted">[{{ a.recommendation.evidence_id }} · {{ t["supported_by"].format(n=a.support_count) }}]</span>{% if not loop.last %};{% endif %}
     {% endfor %}
-  </ul>
-  <details><summary>{{ t["caveats_summary"] }}</summary>
-    <ul class="ev">{% for caveat in access.caveats %}<li>{{ caveat|msg(lang) }}</li>{% endfor %}</ul>
-  </details>
-  {% else %}<p class="muted">{{ t["access_missing"] }}</p>{% endif %}
+    {% else %}{{ t["no_actions"] }}{% endif %}</p>
 </div>
 
 {% for nr in job.need_reports %}
 {% set d = nr.diagnosis %}
+{% if d.surfaces|length > 1 %}
 <div class="card">
-  <h2 style="margin-top:0"><span class="chip intent">{{ intent_labels[nr.need.intent] }}</span>
-    {{ nr.need.statement }}</h2>
-  <p class="kv">{{ t["sampled_variants"] }}:{% for vt in nr.variant_texts %}「{{ vt }}」{% endfor %}</p>
-
-  {# AI × 阶段总览矩阵(v0.4.11 分家):各家仪器并列,一眼跨 AI 对比;
-     单 AI 任务(单 AI 版报告)无对比可言,不出矩阵 #}
-  {% if d.surfaces|length > 1 %}
+  <h2 style="margin-top:0">{{ t["matrix_title"] }} · <span class="chip intent">{{ intent_labels[nr.need.intent] }}</span> {{ nr.need.statement }}</h2>
   <table>
-    <tr><th>{{ t["matrix_surface"] }}</th><th>RETRIEVAL</th><th>CITATION</th>
+    <tr><th>{{ t["matrix_surface"] }}</th><th>{{ t["retrieval_col"] }}</th><th>CITATION</th>
       <th>REPRESENTATION</th><th>{{ t["dep_short"] }}</th></tr>
     {% for sd in d.surfaces %}
     <tr>
@@ -48,7 +53,77 @@
     </tr>
     {% endfor %}
   </table>
-  {% endif %}
+  <p class="muted" style="margin:6px 0 0">{{ t["matrix_note"] }}</p>
+</div>
+{% endif %}
+{% endfor %}
+
+<div class="card">
+  <h2 style="margin-top:0">{{ t["actions_title"] }}</h2>
+  {% if summary.actions %}
+  {% for a in summary.actions %}
+  {% set rec = a.recommendation %}
+  <div class="rec">
+    <span class="id">{{ rec.evidence_id }}</span> · {{ t["level_word"] }} {{ rec.evidence_level }} ·
+    <b>{{ t["supported_by"].format(n=a.support_count) }}</b><br>
+    {{ rec.hypothesis[lang] }}{% if rec.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}
+    <div class="kv">{{ t["sources_word"] }}:{{ "; ".join(rec.sources[lang]) }}
+      {% if rec.guardrail %}<br>{{ t["guardrail_word"] }}:{{ rec.guardrail[lang] }}{% endif %}
+      {% if rec.contraindications[lang] %}<br>{{ t["contra_word"] }}:{{ "; ".join(rec.contraindications[lang]) }}{% endif %}</div>
+    <details><summary>{{ t["supporters_summary"] }}</summary>
+      <ul class="ev">{% for statement, surface in a.supporters %}<li>「{{ statement }}」× {{ surface }}</li>{% endfor %}</ul>
+    </details>
+  </div>
+  {% endfor %}
+  {% else %}<p class="muted">{{ t["no_actions"] }}</p>{% endif %}
+</div>
+
+{% for nr in job.need_reports %}
+<div class="card">
+  <h2 style="margin-top:0">{{ t["engine_title"] }} · <span class="chip intent">{{ intent_labels[nr.need.intent] }}</span> {{ nr.need.statement }}</h2>
+  <table class="brief">
+    <tr><th>{{ t["col_engine"] }}</th><th>{{ t["col_phen"] }}</th><th>{{ t["col_evidence"] }}</th><th>{{ t["col_limits"] }}</th><th>{{ t["col_exp"] }}</th></tr>
+    {% for eb in summary.engines[nr.need.need_id] %}
+    <tr>
+      <td>{{ eb.surface }}<span class="muted"> · {{ eb.model }}</span></td>
+      <td>{% if eb.primary %}<b>{{ eb.primary.value }}</b> — {% endif %}{{ eb.phenomenon|msg(lang) }}</td>
+      <td>{% if eb.strongest_evidence %}{{ eb.strongest_evidence|msg(lang) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td>{% for c in eb.limitations %}{{ c|msg(lang) }}{% if not loop.last %}<br>{% endif %}{% else %}<span class="muted">—</span>{% endfor %}</td>
+      <td>{% for eid in eb.experiments %}<span class="id">{{ eid }}</span>{% if not loop.last %}<br>{% endif %}{% else %}<span class="muted">—</span>{% endfor %}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endfor %}
+
+<div class="card">
+  <h2 style="margin-top:0">{{ t["preflight_title"] }}
+    {% if access %}<span class="chip {{ access.overall.value }}">{{ access.overall.value }}</span>{% endif %}</h2>
+  {% if access %}
+  <p style="margin:4px 0">{% if summary.access %}{{ summary.access.headline|msg(lang) }}{% endif %}</p>
+  <details><summary>{{ t["preflight_detail"] }}</summary>
+    {% for layer in access_layers %}
+    <div class="layer">▸ {{ layer_msg(layer)|msg(lang) }}</div>
+    <ul class="ev">
+      {% for check in access.checks_in(layer) %}
+      <li>[{{ check.status.value }}]{{ info_tag if not check.gating else "" }} {{ check.check }} — {{ check.detail|msg(lang) }}</li>
+      {% endfor %}
+    </ul>
+    {% endfor %}
+    <div class="layer">{{ t["caveats_summary"] }}</div>
+    <ul class="ev">{% for caveat in access.caveats %}<li>{{ caveat|msg(lang) }}</li>{% endfor %}</ul>
+  </details>
+  {% else %}<p class="muted">{{ t["access_missing"] }}</p>{% endif %}
+</div>
+
+{# ══ 审计视图:全部细节保留,默认折叠 ══ #}
+
+<h2>{{ t["audit_title"] }}</h2>
+{% for nr in job.need_reports %}
+{% set d = nr.diagnosis %}
+<details class="card audit">
+  <summary><b><span class="chip intent">{{ intent_labels[nr.need.intent] }}</span> {{ nr.need.statement }}</b> — {{ t["audit_open"] }}</summary>
+  <p class="kv">{{ t["sampled_variants"] }}:{% for vt in nr.variant_texts %}「{{ vt }}」{% endfor %}</p>
 
   {% for sd in d.surfaces %}
   <h3 style="border-top:1px solid #e4e9f0; padding-top:10px">◆ {{ sd.surface }}
@@ -59,7 +134,7 @@
     <span class="chip {{ finding.status.value }}">{{ finding.status.value }}</span></h4>
   <p style="margin:4px 0">{{ finding.headline|msg(lang) }}</p>
   {% if finding.evidence_lines %}
-  <details {{ "open" if finding.status.value in ("FAIL", "WEAK") else "" }}>
+  <details>
     <summary>{{ t["evidence_summary"] }}</summary>
     <ul class="ev">{% for line in finding.evidence_lines %}<li>{{ line|msg(lang) }}</li>{% endfor %}</ul>
   </details>
@@ -71,7 +146,7 @@
   <h4 style="margin:10px 0 2px">■ {{ t["dep_section"] }}
     <span class="chip {{ dep.level.value }}">{{ dep.level.value }}</span></h4>
   <p style="margin:4px 0">{{ dep.headline|msg(lang) }}</p>
-  <details {{ "open" if dep.level.value in ("HIGH", "MEDIUM") else "" }}>
+  <details>
     <summary>{{ t["evidence_summary"] }}</summary>
     <ul class="ev">{% for line in dep.evidence_lines %}<li>{{ line|msg(lang) }}</li>{% endfor %}</ul>
   </details>
@@ -84,18 +159,13 @@
 
   {% if sd.recommendations %}
   <h4 style="margin:10px 0 2px">{{ t["recs_title"] }}</h4>
-  {% for rec in sd.recommendations %}
-  <div class="rec">
-    <span class="id">{{ rec.evidence_id }}</span> · {{ t["level_word"] }} {{ rec.evidence_level }}<br>
-    {{ rec.hypothesis[lang] }}{% if rec.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}
-    <div class="kv">{{ t["sources_word"] }}:{{ "; ".join(rec.sources[lang]) }}
-      {% if rec.guardrail %}<br>{{ t["guardrail_word"] }}:{{ rec.guardrail[lang] }}{% endif %}
-      {% if rec.contraindications[lang] %}<br>{{ t["contra_word"] }}:{{ "; ".join(rec.contraindications[lang]) }}{% endif %}</div>
-  </div>
-  {% endfor %}
+  <ul class="ev">{% for rec in sd.recommendations %}
+    <li><span class="id">{{ rec.evidence_id }}</span> · {{ t["level_word"] }} {{ rec.evidence_level }} ·
+      {{ rec.hypothesis[lang] }}{% if rec.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}</li>
+  {% endfor %}</ul>
   {% endif %}
   {% endfor %}
-</div>
+</details>
 {% endfor %}
 
 <p class="muted">{{ t["footer"] }}</p>

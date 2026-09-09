@@ -14,6 +14,7 @@ from fastapi.testclient import TestClient
 from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
 from diagnosis.citation_diag import VerificationSummary, diagnose_citation
 from diagnosis.diagnose import access_finding, diagnose_need, diagnose_surface
+from diagnosis.findings import Stage
 from diagnosis.generative_retrieval import diagnose_generative_retrieval
 from diagnosis.recommender import load_evidence_registry
 from diagnosis.representation_diag import diagnose_representation
@@ -155,6 +156,31 @@ def test_report_recommendations_carry_evidence_ids(client_and_job):
     assert "EVIDENCE_STRUCT_V1" in html  # RETRIEVAL FAIL → 结构信号建议(B 级)
     assert "建议实验验证" in html  # C 级以下强制标注
     assert "证据等级" in html
+
+
+def test_report_decision_view_dedups_actions_and_groups_bottlenecks(client_and_job):
+    """v0.4.13 条目 8:决策视图在前——三句话摘要、去重后的优先动作(标支持数)、各 AI 四行;
+    审计细节折叠在后。finished_job 两家 surface 同定位 RETRIEVAL → 同一证据条目只出一次、支持数 2。"""
+    client, job, _ = client_and_job
+    html = client.get(f"/jobs/{job.job_id}/report").text
+    assert "① 决策摘要" in html and "④ 各 AI 四行" in html and "⑥ 审计与方法学附录" in html
+    assert html.index("① 决策摘要") < html.index("⑥ 审计与方法学附录")
+    assert "被 2 个诊断支持" in html
+    assert "<b>RETRIEVAL</b>: s1, s2" in html  # 瓶颈分组:阶段 → 哪几家 AI
+    assert html.count('class="rec"') == 3  # 去重:两家 × 三条 → 三条动作
+
+
+def test_summarize_orders_by_evidence_level_then_support():
+    from report.summary import summarize
+
+    job = finished_job()
+    summary = summarize(job.need_reports)
+    levels = [a.recommendation.evidence_level for a in summary.actions]
+    assert levels == sorted(levels)
+    assert all(a.support_count == 2 for a in summary.actions)
+    (brief_s1, brief_s2) = summary.engines[job.needs[0].need_id]
+    assert brief_s1.primary is brief_s2.primary is Stage.RETRIEVAL
+    assert brief_s1.strongest_evidence is not None and brief_s1.experiments
 
 
 def test_report_shows_upstream_caution_and_competitor_gap(client_and_job):
