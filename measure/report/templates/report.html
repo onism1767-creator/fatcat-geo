@@ -163,5 +163,9 @@
     {% if job.state.value == "PARTIAL" %} · <b>{{ t["partial_note"] }}</b>{% endif %}
     {% if job.report_meta %} · {{ t["report_meta"].format(when=job.report_meta.created_at.strftime("%Y-%m-%d %H:%M"), n=job.report_meta.versions, code=job.report_meta.code_version or "—") }}{% endif %}</p>
   <p class="muted">{{ t["footer"] }}</p>
+  <form method="post" action="/jobs/{{ job.job_id }}/resume?lang={{ lang }}" style="margin-top:10px">
+    <button type="submit" style="margin:0;padding:4px 12px;font-weight:400">{{ t["btn_recompute"] }}</button>
+    <span class="muted"> {{ t["regen_hint"] }}</span>
+  </form>
 </div>
 {% endblock %}
