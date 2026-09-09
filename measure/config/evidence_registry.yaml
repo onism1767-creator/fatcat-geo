@@ -6,7 +6,9 @@
 #   D=描述性关联 E=无支持(E 级永不作为建议输出,仅存档);
 # - C 级及以下的建议渲染时必须带「建议实验验证」字样;
 # - 吸收新研究 = 增改本表条目,零代码改动;
-# - v1.1 起展示字段(hypothesis/guardrail/contraindications/sources)为 zh/en 双语。
+# - v1.1 起展示字段(hypothesis/guardrail/contraindications/sources)为 zh/en 双语;
+# - v0.4.14 起每条带 plain(人话版,只换说法不换主张):用户视图读 plain,
+#   「为什么这么建议」与审计视图读 hypothesis 原句。
 #
 # 主要来源:KDD2024(arXiv:2311.09735)、C-SEO-Bench(arXiv:2506.11097)、
 # SAGEO-Arena(arXiv:2602.12187)、各平台官方爬虫文档。详见架构书 5.3。
@@ -18,6 +20,9 @@ entries:
     hypothesis:
       zh: 在 robots.txt 中放行检索类与用户触发类 AI 爬虫,是进入 AI 检索链路的前提
       en: Allowing retrieval and user-triggered AI crawlers in robots.txt is a precondition for entering AI retrieval pipelines
+    plain:
+      zh: "在 robots.txt 里允许 AI 搜索类爬虫访问你的网站,这是 AI 能找到你的前提"
+      en: "Allow AI search crawlers in your robots.txt — without it, AI search cannot reach your site at all"
     evidence_level: A
     sources:
       zh: [各平台官方爬虫文档]
@@ -38,6 +43,9 @@ entries:
     hypothesis:
       zh: CDN/WAF 侧按官方 IP 段核验放行真实爬虫,而非按 UA 一刀切封禁
       en: Verify real crawlers by official IP ranges at the CDN/WAF instead of blanket UA blocking
+    plain:
+      zh: "让网站的安全系统(CDN / 防火墙)按官方 IP 名单放行真实的 AI 爬虫,而不是一刀切拦掉所有机器人"
+      en: "Have your CDN / firewall admit real AI crawlers by their official IP lists instead of blocking every bot"
     evidence_level: A
     sources:
       zh: [各平台官方 IP 段文档, 主流 CDN verified-bots 机制文档]
@@ -58,6 +66,9 @@ entries:
     hypothesis:
       zh: 关键内容以服务端渲染/预渲染提供,不依赖客户端 JS 执行
       en: Serve key content via server-side rendering / prerendering rather than client-side JS
+    plain:
+      zh: "把关键内容直接放在网页 HTML 里,不要只靠浏览器脚本加载,因为多数 AI 爬虫不运行脚本"
+      en: "Put key content directly in the page HTML rather than loading it with browser scripts — most AI crawlers do not run scripts"
     evidence_level: A
     sources:
       zh: [各平台官方爬虫文档(主流 AI 爬虫不执行 JS)]
@@ -78,6 +89,9 @@ entries:
     hypothesis:
       zh: 提供 sitemap 与规范链接可能有助于收录完整性
       en: Providing a sitemap and canonical links may help indexing completeness
+    plain:
+      zh: "提供网站地图(sitemap)和规范链接,可能帮助 AI 更完整地收录你的页面"
+      en: "Provide a sitemap and canonical links; this may help AI index your pages more completely"
     evidence_level: D
     sources:
       zh: [传统搜索引擎收录实践的描述性外推]
@@ -99,6 +113,9 @@ entries:
     hypothesis:
       zh: 标题/heading/schema 等结构信号与目标需求语义对齐,有利于检索阶段存活
       en: Aligning structural signals (title/headings/schema) with the target need helps survival at the retrieval stage
+    plain:
+      zh: "让页面标题、小标题和结构化标记直接说明这页回答的是什么问题,AI 搜索时更容易把它挑出来"
+      en: "Make page titles, headings and structured markup say plainly which question the page answers, so AI search can pick it out"
     evidence_level: B
     sources:
       zh: [SAGEO-Arena(支持:结构化信息利于检索), C-SEO-Bench(检索位次效应显著)]
@@ -119,6 +136,9 @@ entries:
     hypothesis:
       zh: 为目标需求创建直接作答的专门页面(提高语义覆盖)可能改善进入候选的概率
       en: Creating dedicated pages that directly answer the target need (better semantic coverage) may improve candidate entry
+    plain:
+      zh: "为用户真正会问的问题写专门的页面、直接作答,让 AI 搜索时更容易找到你"
+      en: "Write dedicated pages that directly answer the questions users actually ask, so AI search is more likely to find you"
     evidence_level: C
     sources:
       zh: [SAGEO-Arena(间接支持), 传统检索共识(描述性)]
@@ -139,6 +159,9 @@ entries:
     hypothesis:
       zh: 进入检索存在感高的第三方内容(测评/榜单/对比文)可为品牌获得检索层在场
       en: Getting covered by third-party content with strong retrieval presence (reviews/rankings/comparisons) can earn retrieval-stage presence
+    plain:
+      zh: "争取出现在 AI 常引用的第三方内容里(测评、榜单、对比文章),借它们进入 AI 的搜索结果"
+      en: "Get covered by the third-party content AI tends to cite (reviews, rankings, comparisons) and enter AI search results through them"
     evidence_level: C
     sources:
       zh: [本项目实测观察(检索候选集由第三方内容主导,描述性), C-SEO-Bench(来源位次效应)]
@@ -160,6 +183,9 @@ entries:
     hypothesis:
       zh: 增加可核验的量化证据可能提高生成阶段被引用概率
       en: Adding verifiable quantitative evidence may increase citation probability at the generation stage
+    plain:
+      zh: "在页面里给出可以核实的具体数据,可能让 AI 更愿意引用你"
+      en: "Include verifiable, specific numbers on the page; AI may be more willing to cite you"
     evidence_level: C
     sources:
       zh: [KDD2024(支持), C-SEO-Bench(削弱:跨域复测多数无效)]
@@ -180,6 +206,9 @@ entries:
     hypothesis:
       zh: 提供清晰、可直接引述的结论句/定义句可能提高被引用概率
       en: Providing clear, directly quotable conclusion/definition sentences may increase citation probability
+    plain:
+      zh: "把结论写成清楚、可以直接引用的句子,可能让 AI 更愿意引用你"
+      en: "Write conclusions as clear sentences that can be quoted directly; AI may be more willing to cite you"
     evidence_level: C
     sources:
       zh: [KDD2024(引述类改写有正效应), C-SEO-Bench(多数改写基本无效)]
@@ -200,6 +229,9 @@ entries:
     hypothesis:
       zh: FAQ 化组织内容,在需求意图为问答式时可能利于被选为引用
       en: Organizing content as FAQs may help citation selection when the need intent is question-answering
+    plain:
+      zh: "当用户的问题本身就是问答式时,把内容整理成问答形式,可能更容易被 AI 选作来源"
+      en: "When users' questions are Q&A-style, organizing content as Q&A may make it more likely to be picked as a source"
     evidence_level: D
     sources:
       zh: [描述性关联,无对照研究]
@@ -221,6 +253,9 @@ entries:
     hypothesis:
       zh: 官网维护清晰稳定的品牌事实陈述(定位/定价/差异点),便于模型正确描述品牌
       en: Maintaining clear, stable brand fact statements on the official site (positioning/pricing/differentiators) helps models describe the brand correctly
+    plain:
+      zh: "在官网维护一份清楚、稳定的品牌基本事实(定位、价格、与同类的差别),让 AI 介绍你时不出错"
+      en: "Keep a clear, stable statement of brand basics on your site (positioning, pricing, how you differ) so AI describes you correctly"
     evidence_level: D
     sources:
       zh: [描述性关联]
@@ -241,6 +276,9 @@ entries:
     hypothesis:
       zh: 修正高被引第三方来源中的过时/错误信息,可能减少 AI 对品牌的错误描述
       en: Correcting outdated/incorrect information in highly-cited third-party sources may reduce AI misdescriptions of the brand
+    plain:
+      zh: "找到 AI 常引用的第三方页面里过时或错误的信息,请对方更正,减少 AI 说错你"
+      en: "Find outdated or wrong information about you on the third-party pages AI cites most, and ask them to correct it"
     evidence_level: D
     sources:
       zh: [描述性关联(回答内容大量取材于被引第三方,本项目引用观测)]
@@ -262,6 +300,9 @@ entries:
     hypothesis:
       zh: 部署 llms.txt 能改善 AI 可见度
       en: Deploying llms.txt improves AI visibility
+    plain:
+      zh: "部署 llms.txt 文件能改善 AI 可见度(没有证据,不作为建议)"
+      en: "Deploying an llms.txt file improves AI visibility (no evidence; never recommended)"
     evidence_level: E
     sources:
       zh: [无平台确认采用的证据]
@@ -282,6 +323,9 @@ entries:
     hypothesis:
       zh: 关键词堆砌能提升 AI 检索可见度
       en: Keyword stuffing improves AI retrieval visibility
+    plain:
+      zh: "在页面里堆砌关键词能提升 AI 搜索可见度(反证:会全面变差,禁止)"
+      en: "Stuffing keywords into pages improves AI search visibility (counter-evidence: makes things worse; forbidden)"
     evidence_level: E
     sources:
       zh: [SAGEO-Arena(反证:仅优化正文使检索/重排/引用全面下降)]

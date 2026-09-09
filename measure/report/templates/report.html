@@ -23,7 +23,7 @@
   </ul>
   {% endif %}
   <p><b>{{ t["first_word"] }}:</b>
-    {% if summary.actions %}{% for a in summary.actions[:3] %}{{ a.recommendation.hypothesis[lang] }}{% if a.recommendation.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}{% if not loop.last %};{% endif %}{% endfor %}{% else %}{{ t["no_actions"] }}{% endif %}</p>
+    {% if summary.actions %}{% for a in summary.actions[:3] %}{{ a.recommendation.plain[lang] }}{% if a.recommendation.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}{% if not loop.last %};{% endif %}{% endfor %}{% else %}{{ t["no_actions"] }}{% endif %}</p>
 </div>
 
 {% for nr in job.need_reports %}
@@ -59,7 +59,7 @@
       <td>{{ eb.phenomenon|plain(lang) }}</td>
       <td>{% if eb.strongest_evidence %}{{ eb.strongest_evidence|plain(lang) }}{% else %}<span class="muted">—</span>{% endif %}</td>
       <td>{% for c in eb.limitations %}{{ c|plain(lang) }}{% if not loop.last %}<br>{% endif %}{% else %}<span class="muted">—</span>{% endfor %}</td>
-      <td>{% for rec in eb.experiments %}{{ rec.hypothesis[lang] }}{% if not loop.last %}<br>{% endif %}{% else %}<span class="muted">—</span>{% endfor %}</td>
+      <td>{% for rec in eb.experiments %}{{ rec.plain[lang] }}{% if not loop.last %}<br>{% endif %}{% else %}<span class="muted">—</span>{% endfor %}</td>
     </tr>
     {% endfor %}
   </table>
@@ -72,10 +72,11 @@
   {% for a in summary.actions %}
   {% set rec = a.recommendation %}
   <div class="rec">
-    <b>{{ loop.index }}. {{ rec.hypothesis[lang] }}</b>{% if rec.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}<br>
+    <b>{{ loop.index }}. {{ rec.plain[lang] }}</b>{% if rec.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}<br>
     <span class="muted">{{ t["supported_by"].format(n=a.support_count) }}</span>
     <details><summary>{{ t["why_summary"] }}</summary>
       <div class="kv">{{ level_labels[rec.evidence_level] }} · {{ t["evidence_id_word"] }} <span class="id">{{ rec.evidence_id }}</span><br>
+        {{ t["claim_word"] }}:{{ rec.hypothesis[lang] }}<br>
         {{ t["sources_word"] }}:{{ "; ".join(rec.sources[lang]) }}
         {% if rec.guardrail %}<br>{{ t["guardrail_word"] }}:{{ rec.guardrail[lang] }}{% endif %}
         {% if rec.contraindications[lang] %}<br>{{ t["contra_word"] }}:{{ "; ".join(rec.contraindications[lang]) }}{% endif %}

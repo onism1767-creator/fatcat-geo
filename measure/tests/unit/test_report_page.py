@@ -167,6 +167,7 @@ def test_report_recommendations_carry_evidence_ids(client_and_job):
 USER_VIEW_FORBIDDEN = (  # v0.4.14 强制词典:主视图可见正文不得出现引擎内部语言(技术词只在「检测依据与方法」)
     "NOT_OBSERVABLE", "N_valid", "stop_reasons", "Jeffreys", "冻结问法集", "候选在场率", "入场率",
     "操作阈值", "EVIDENCE_", "surface=", "资格门", "瓶颈", "探针", "口径",
+    "语义对齐", "语义覆盖", "检索阶段", "生成阶段", "检索层", "候选",  # 研究主张原句只在「为什么这么建议」与审计区
 )
 
 
@@ -192,6 +193,8 @@ def test_user_view_leads_with_plain_language(client_and_job):
     assert "用户没有点名品牌时(品类推荐)" in html  # 场景人话
     assert "AI 搜索时有没有找到你(RETRIEVAL)" in html  # 人话(技术词)双写
     assert "本次 30 次搜索里,0 次结果中出现了你的官网" in html  # 比例用原始计数
+    assert "让 AI 搜索时更容易找到你" in html  # 建议用人话版(注册表 plain)
+    assert "研究主张原句" in html and "提高语义覆盖" in html  # 原句仍在「为什么这么建议」里
 
 
 def test_user_view_has_no_engine_jargon(client_and_job):

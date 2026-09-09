@@ -59,6 +59,24 @@ def test_registry_loads_with_all_stages_covered():
     assert len(REGISTRY) >= 12
 
 
+def test_registry_entries_carry_plain_wording():
+    """v0.4.14:每条必带人话版(zh/en),且与研究主张原句不同——用户视图读 plain,审计读原句。"""
+    for entry in REGISTRY:
+        assert set(entry.plain) == {"zh", "en"} and entry.plain["zh"].strip() and entry.plain["en"].strip(), entry.id
+        assert entry.plain["zh"] != entry.hypothesis["zh"], entry.id
+    recs = recommend(REGISTRY, stage=Stage.RETRIEVAL, intent=NeedIntent.DISCOVERY)
+    assert all(rec.plain[lang] for rec in recs for lang in ("zh", "en"))
+
+
+def test_registry_rejects_entry_without_plain(tmp_path):
+    data = yaml.safe_load(DEFAULT_REGISTRY_PATH.read_text(encoding="utf-8"))
+    del data["entries"][0]["plain"]
+    path = tmp_path / "registry.yaml"
+    path.write_text(yaml.safe_dump(data, allow_unicode=True), encoding="utf-8")
+    with pytest.raises(ValueError, match="plain"):
+        load_evidence_registry(path)
+
+
 def test_registry_rejects_duplicate_ids(tmp_path):
     data = yaml.safe_load(DEFAULT_REGISTRY_PATH.read_text(encoding="utf-8"))
     data["entries"].append(dict(data["entries"][0]))
