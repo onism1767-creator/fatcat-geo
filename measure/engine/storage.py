@@ -24,6 +24,7 @@ from engine.models import (
     Answer,
     CitationEvidence,
     DerivedObservation,
+    FrozenModel,
     InformationNeed,
     PromptVariant,
     RunError,
@@ -211,6 +212,16 @@ _RUN_COLUMNS = (
 )
 
 
+class CallStat(FrozenModel):
+    """一个 surface × 模式的历史调用统计(v0.4.17):确认页预估用实测均值,不再拍脑袋。"""
+
+    surface: str
+    search_mode: str
+    n: int
+    avg_cost_usd: float
+    avg_latency_ms: float
+
+
 def _observation_type(observation: DerivedObservation) -> str:
     name = type(observation).__name__.removesuffix("Observation")
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
@@ -373,6 +384,20 @@ class Storage:
             "SELECT snapshot FROM diagnosis_job ORDER BY created_at"
         ).fetchall()
         return [row[0] for row in rows]
+
+    # ── 调用统计(v0.4.17 预估口径)──────────────────────────────────────
+
+    def call_stats(self) -> list[CallStat]:
+        """按 surface × 模式的历史实测均价与均时(全部运行,含失败),供确认页预估。"""
+        rows = self._conn.execute(
+            "SELECT surface, search_mode, count(*), avg(cost_usd), avg(latency_ms) "
+            "FROM surface_run GROUP BY surface, search_mode"
+        ).fetchall()
+        return [
+            CallStat(surface=surface, search_mode=mode, n=n,
+                     avg_cost_usd=float(cost or 0.0), avg_latency_ms=float(latency or 0.0))
+            for surface, mode, n, cost, latency in rows
+        ]
 
     # ── 报告快照(v0.4.16,只追加)────────────────────────────────────────
 

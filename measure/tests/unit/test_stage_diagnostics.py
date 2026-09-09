@@ -115,7 +115,10 @@ def test_citation_small_sample_zero_is_only_weak():
 
 
 def test_citation_stable_passes():
-    assert diagnose_citation(make_metric(15, 30)).status is StageStatus.PASS
+    """普世线(v0.4.17):整个区间 ≥ 50% 才 PASS——25/30(区间下界 ≈ 66%)过线,
+    15/30(下界 ≈ 31%)只能 WEAK。"""
+    assert diagnose_citation(make_metric(25, 30)).status is StageStatus.PASS
+    assert diagnose_citation(make_metric(15, 30)).status is StageStatus.WEAK
 
 
 def test_citation_verification_lines():

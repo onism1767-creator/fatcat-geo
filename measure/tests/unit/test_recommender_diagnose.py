@@ -65,7 +65,9 @@ def test_registry_entries_carry_plain_wording():
         assert set(entry.plain) == {"zh", "en"} and entry.plain["zh"].strip() and entry.plain["en"].strip(), entry.id
         assert entry.plain["zh"] != entry.hypothesis["zh"], entry.id
     recs = recommend(REGISTRY, stage=Stage.RETRIEVAL, intent=NeedIntent.DISCOVERY)
-    assert all(rec.plain[lang] for rec in recs for lang in ("zh", "en"))
+    assert all(rec.plain[lang] and rec.verify[lang] for rec in recs for lang in ("zh", "en"))
+    for entry in REGISTRY:  # v0.4.17:做完之后怎么检查效果,人话
+        assert set(entry.verify) == {"zh", "en"} and entry.verify["zh"].strip(), entry.id
 
 
 def test_registry_rejects_entry_without_plain(tmp_path):

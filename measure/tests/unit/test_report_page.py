@@ -129,7 +129,7 @@ def client_and_job():
         job.state = JobState.DONE
         job.phase = "完成"
 
-    app = create_app(adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+    app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=stub_runner)
     job = finished_job()
     app.state.registry.add(job)
@@ -196,6 +196,7 @@ def test_user_view_leads_with_plain_language(client_and_job):
     assert "让 AI 搜索时更容易找到你" in html  # 建议用人话版(注册表 plain)
     assert "建议先试" not in html  # 各 AI 详情不再重复列建议:「建议先做的事」已去重并标支持来源
     assert "研究主张原句" in html and "提高语义覆盖" in html  # 原句仍在「为什么这么建议」里
+    assert "做完之后怎么检查效果" in html and "这一格有没有从 🔴 变 🟡 或 🟢" in html  # v0.4.17 两列
 
 
 def test_user_view_has_no_engine_jargon(client_and_job):
@@ -236,6 +237,22 @@ def test_interactive_pages_use_plain_language(client_and_job):
             assert token not in text, (token, text[:200])
     assert "S1" in pages[1]  # 确认页用 AI 产品名,不用内部名
     assert "完成" in visible_text(pages[2]) and "DONE" not in visible_text(pages[2])
+
+
+def test_job_page_shows_remaining_time_from_actual_pace(client_and_job):
+    """v0.4.17:运行中的任务页按实际速度算剩余时间(已用时 ÷ 已完成 × 未完成)。"""
+    from datetime import UTC, datetime, timedelta
+
+    client, job, _ = client_and_job
+    job.state = JobState.RUNNING
+    job.phase = "phase_sampling"
+    job.started_at = datetime.now(UTC) - timedelta(minutes=10)
+    job.total_plans, job.completed_plans = 16, 4
+    html = client.get(f"/jobs/{job.job_id}").text
+    assert "预计还需约 30." in html  # 10 分钟完成 4/16 → 还需 30 分钟
+    job.completed_plans = 0
+    assert "第一批结果还没回来" in client.get(f"/jobs/{job.job_id}").text
+    job.state, job.phase = JobState.DONE, "phase_done"
 
 
 def test_tier_labels_match_policy_arithmetic():
@@ -345,6 +362,27 @@ def test_unfinished_report_redirects_to_status(client_and_job):
 # ── 预估与指纹 ────────────────────────────────────────────────────────
 
 
+def test_confirm_estimate_prefers_measured_history():
+    """预估口径(v0.4.17):有足量历史按实测均价与均时,没有的 AI 按声明单价,并在确认页说明依据。"""
+    from engine.storage import CallStat
+
+    def run(stats):
+        app = create_app(call_stats=lambda: stats, adapters={"s1": DummyAdapter()},
+                         dsn="postgresql://unused", evidence=REGISTRY, job_runner=lambda **kw: None)
+        client = TestClient(app)
+        resp = client.post("/jobs", data={"brand_name": "极光CRM", "aliases": "", "website": "aurora-crm.com",
+                                          "category": "CRM", "questions": "问题一?", "generate": ""},
+                           follow_redirects=False)
+        return client.get(resp.headers["location"]).text
+
+    measured = run([CallStat(surface="s1", search_mode="default", n=12, avg_cost_usd=0.02, avg_latency_ms=15000)])
+    assert '"s1": 0.02' in measured and '"seconds_per_call": 15.0' in measured
+    assert "预估按过去实测的平均费用和耗时算:S1" in measured
+    declared = run([CallStat(surface="s1", search_mode="default", n=3, avg_cost_usd=0.02, avg_latency_ms=15000)])
+    assert '"s1": 0.005' in declared and '"seconds_per_call": 20.0' in declared  # 历史不足:声明单价 + 兜底时长
+    assert "S1 还没有足够的历史记录" in declared
+
+
 def test_estimate_job_arithmetic():
     # 按 surface 分价(v0.4.6):便宜通道与贵通道混选,成本逐个计价求和
     est = estimate_job(3, 2, [0.005, 0.17], "quick")
@@ -354,6 +392,7 @@ def test_estimate_job_arithmetic():
     est_dep = estimate_job(3, 2, [0.005, 0.17], "quick", dependency_costs=[0.04])
     assert est_dep.calls == 135  # 多一条闭卷腿
     assert est_dep.cost_usd == pytest.approx(3 * 2 * 7.5 * (0.005 + 0.17 + 0.04))
+    assert estimate_job(3, 2, [0.005], "quick", seconds_per_call=30).minutes == pytest.approx(45 * 30 / 60 / 3)
 
 
 def test_job_snapshot_round_trip():
@@ -417,6 +456,25 @@ def test_attach_latest_report_restores_report_and_spend(storage):
     attach_latest_report(restored, storage)
     assert restored.need_reports == job.need_reports and restored.spent_usd == 6.46
     assert restored.report_meta.versions == 1 and restored.report_meta.code_version == "t"
+
+
+def test_attach_latest_report_skips_unreadable_snapshot(storage):
+    """报告结构演进后旧快照读不动(v0.4.17 真实发生):不加兼容层,花费照常装回,
+    报告留空让用户重新生成;不能让服务起不来。"""
+    from report.jobs import attach_latest_report
+
+    job = finished_job()
+    stale = job.report_payload()
+    for report in stale["need_reports"]:
+        for surface in report["diagnosis"]["surfaces"]:
+            for rec in surface["recommendations"]:
+                del rec["verify"]  # 模拟旧代码存的快照
+    storage.insert_report_snapshot(job_id="stale-job", fingerprint="f", code_version="old",
+                                   spent_usd=3.0, payload=stale)
+    restored = DiagnosisJob.from_snapshot(job.to_snapshot())
+    restored.job_id = "stale-job"
+    attach_latest_report(restored, storage)
+    assert restored.need_reports == [] and restored.report_meta is None and restored.spent_usd == 3.0
 
 
 def test_fingerprint_sensitive_to_dependency_flag():

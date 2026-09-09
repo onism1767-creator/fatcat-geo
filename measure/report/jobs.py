@@ -15,12 +15,17 @@ from enum import StrEnum
 from pathlib import Path
 from uuid import uuid4
 
+import structlog
+from pydantic import ValidationError
+
 from diagnosis.access_audit import AccessAuditResult
 from diagnosis.diagnose import NeedDiagnosis
 from diagnosis.verdict import SurfaceVerdict
 from engine.models import BrandSpec, CompetitorSuggestion, FrozenModel, InformationNeed
 from engine.needs import NeedCandidate
 from engine.scheduler import SamplingPolicy
+
+log = structlog.get_logger("report.jobs")
 
 PLAN_CONCURRENCY = 3  # 采样计划并发路数(16.1)
 
@@ -30,7 +35,8 @@ PLAN_CONCURRENCY = 3  # 采样计划并发路数(16.1)
 # 预估口径(16.4 / v0.4.6):成本按 surface 分价——单价由各适配器 meta 声明
 # (est_cost_per_call_usd,实测均值或推导上界);时间仍用双通道实测均值,
 # 留待多 surface 实测后一并校准。
-AVG_SECONDS_PER_CALL = 4.0
+# 兜底值(v0.4.17):库里没有足量历史时用;有历史即按 surface 实测均值(香奈儿首单加权均值 20.2 s)
+AVG_SECONDS_PER_CALL = 20.0
 
 
 class JobState(StrEnum):
@@ -75,17 +81,18 @@ def estimate_job(
     surface_costs: list[float],
     tier_id: str,
     dependency_costs: list[float] | None = None,
+    seconds_per_call: float = AVG_SECONDS_PER_CALL,
 ) -> Estimate:
-    """surface_costs = 所选各 surface 的单次调用期望成本(适配器 meta 声明);
+    """surface_costs = 所选各 surface 的单次调用期望成本(有历史按实测均值,否则适配器声明);
     dependency_costs = 启用检索依赖对照时各支持 surface 的闭卷腿单价
-    (闭卷腿与开卷同采样策略,故每腿期望调用数相同)。"""
+    (闭卷腿与开卷同采样策略,故每腿期望调用数相同);seconds_per_call 同理按实测。"""
     dependency_costs = dependency_costs or []
     per_leg_calls = n_needs * variants_per_need * TIERS[tier_id].expected_calls_per_plan
     calls = per_leg_calls * (len(surface_costs) + len(dependency_costs))
     return Estimate(
         calls=round(calls),
         cost_usd=per_leg_calls * (sum(surface_costs) + sum(dependency_costs)),
-        minutes=calls * AVG_SECONDS_PER_CALL / 60 / PLAN_CONCURRENCY,
+        minutes=calls * seconds_per_call / 60 / PLAN_CONCURRENCY,
     )
 
 
@@ -153,6 +160,7 @@ class DiagnosisJob:
         self.need_reports: list[NeedReport] = []
         self.surface_verdicts: list[SurfaceVerdict] = []  # 每家 AI 一句话(v0.4.14),与 need_reports 同生命周期
         self.report_meta: ReportMeta | None = None  # 最新一版报告快照的档案信息(v0.4.16)
+        self.started_at: datetime | None = None  # 本次执行开始时刻(任务页按实际速度算剩余时间)
         self.error: str | None = None
         self.finished_at: datetime | None = None
 
@@ -321,12 +329,23 @@ def restore_registry(dsn: str) -> JobRegistry:
 
 
 def attach_latest_report(job: DiagnosisJob, storage) -> None:
-    """把库里最新一版报告快照装回任务;没有快照就保持空报告(首页显示「重新生成报告」)。"""
+    """把库里最新一版报告快照装回任务;没有快照就保持空报告(首页显示「重新生成报告」)。
+
+    报告结构随代码演进,旧快照可能读不动(v0.4.17 首次发生:建议新增 verify 字段):
+    这时不加兼容层、不猜——记警告,花费照常装回,报告留空让用户「重新生成报告」
+    (追加新版本,旧快照仍留档)。"""
     row = storage.latest_report_snapshot(job.job_id)
     if row is None:
         return
-    job.load_report(row["payload"])
     job.spent_usd = row["spent_usd"]
+    try:
+        job.load_report(row["payload"])
+    except ValidationError as exc:
+        log.warning("report_snapshot_unreadable", job_id=job.job_id,
+                    code_version=row["code_version"], errors=exc.error_count())
+        job.need_reports = []
+        job.surface_verdicts = []
+        return
     job.report_meta = ReportMeta(
         created_at=row["created_at"], versions=row["versions"], code_version=row["code_version"],
     )

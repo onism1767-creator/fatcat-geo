@@ -68,21 +68,26 @@
 <div class="card">
   <h2 style="margin-top:0">{{ t["sec4_title"] }}</h2>
   {% if summary.actions %}
-  {% for a in summary.actions %}
-  {% set rec = a.recommendation %}
-  <div class="rec">
-    <b>{{ loop.index }}. {{ rec.plain[lang] }}</b>{% if rec.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}<br>
-    <span class="muted">{{ t["supported_by"].format(n=a.support_count) }}</span>
-    <details><summary>{{ t["why_summary"] }}</summary>
-      <div class="kv">{{ level_labels[rec.evidence_level] }} · {{ t["evidence_id_word"] }} <span class="id">{{ rec.evidence_id }}</span><br>
-        {{ t["claim_word"] }}:{{ rec.hypothesis[lang] }}<br>
-        {{ t["sources_word"] }}:{{ "; ".join(rec.sources[lang]) }}
-        {% if rec.guardrail %}<br>{{ t["guardrail_word"] }}:{{ rec.guardrail[lang] }}{% endif %}
-        {% if rec.contraindications[lang] %}<br>{{ t["contra_word"] }}:{{ "; ".join(rec.contraindications[lang]) }}{% endif %}
-        <br>{{ t["supporters_summary"] }}:{% for statement, display in a.supporters %}「{{ statement }}」× {{ display }}{% if not loop.last %};{% endif %}{% endfor %}</div>
-    </details>
-  </div>
-  {% endfor %}
+  <table class="brief">
+    <tr><th></th><th>{{ t["col_do"] }}</th><th>{{ t["col_verify"] }}</th></tr>
+    {% for a in summary.actions %}
+    {% set rec = a.recommendation %}
+    <tr class="rec">
+      <td>{{ loop.index }}</td>
+      <td><b>{{ rec.plain[lang] }}</b>{% if rec.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}<br>
+        <span class="muted">{{ t["supported_by"].format(n=a.support_count) }}</span>
+        <details><summary>{{ t["why_summary"] }}</summary>
+          <div class="kv">{{ level_labels[rec.evidence_level] }} · {{ t["evidence_id_word"] }} <span class="id">{{ rec.evidence_id }}</span><br>
+            {{ t["claim_word"] }}:{{ rec.hypothesis[lang] }}<br>
+            {{ t["sources_word"] }}:{{ "; ".join(rec.sources[lang]) }}
+            {% if rec.guardrail %}<br>{{ t["guardrail_word"] }}:{{ rec.guardrail[lang] }}{% endif %}
+            {% if rec.contraindications[lang] %}<br>{{ t["contra_word"] }}:{{ "; ".join(rec.contraindications[lang]) }}{% endif %}
+            <br>{{ t["supporters_summary"] }}:{% for statement, display in a.supporters %}「{{ statement }}」× {{ display }}{% if not loop.last %};{% endif %}{% endfor %}</div>
+        </details></td>
+      <td>{{ rec.verify[lang] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
   {% else %}<p class="muted">{{ t["no_actions"] }}</p>{% endif %}
 </div>
 

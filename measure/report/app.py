@@ -8,6 +8,8 @@ from __future__ import annotations
 import json
 import os
 import threading
+from collections.abc import Callable
+from datetime import UTC, datetime
 from pathlib import Path
 from urllib.parse import urlsplit
 
@@ -21,8 +23,9 @@ from diagnosis.messages import msg, render_msg
 from diagnosis.recommender import EvidenceEntry, load_evidence_registry
 from engine.envfile import load_env_file
 from engine.loader import build_adapters
-from engine.models import BrandSpec, CompetitorSuggestion, InformationNeed, NeedIntent
+from engine.models import BrandSpec, CompetitorSuggestion, InformationNeed, NeedIntent, SearchMode
 from engine.needs import NeedCandidate, draft_need_candidates
+from engine.storage import CallStat, Storage
 from report import runner
 from report.i18n import (
     ACCESS_LABELS,
@@ -47,9 +50,13 @@ from report.summary import summarize
 DEFAULT_DSN = "postgresql://geo@localhost:5433/geo_tool"
 
 
+MIN_STAT_SAMPLES = 10  # 少于这么多次历史调用不算数,仍用声明单价(v0.4.17)
+
+
 def create_app(
     *,
     adapters: dict | None = None,
+    call_stats: Callable[[], list[CallStat]] | None = None,  # 预估用的历史统计;None = 查库
     dsn: str | None = None,
     evidence: list[EvidenceEntry] | None = None,
     job_runner=None,
@@ -59,6 +66,12 @@ def create_app(
         load_env_file()
         adapters = build_adapters(os.environ)
     dsn = dsn or os.environ.get("GEO_DATABASE_URL", DEFAULT_DSN)
+
+    def measured_call_stats() -> list[CallStat]:
+        with Storage(dsn) as store:
+            return store.call_stats()
+
+    stats_provider = call_stats or measured_call_stats
     evidence = evidence if evidence is not None else load_evidence_registry()
     job_runner = job_runner or runner.execute_job
 
@@ -154,22 +167,49 @@ def create_app(
             return not_found(request)
         if job.state is not JobState.DRAFT:
             return redirect(request, f"/jobs/{job.job_id}")
+        # 预估口径(v0.4.17):有足量历史就按该 surface 的实测均价与均时,否则用适配器声明的单价
+        stats = {(st.surface, st.search_mode): st for st in stats_provider()}
+
+        def unit_price(name: str, mode: SearchMode, declared: float) -> tuple[float, bool]:
+            stat = stats.get((name, mode.value))
+            if stat is not None and stat.n >= MIN_STAT_SAMPLES:
+                return stat.avg_cost_usd, True
+            return declared, False
+
+        surface_costs: dict[str, float] = {}
+        measured_names: list[str] = []
+        declared_names: list[str] = []
+        for name, a in adapters.items():
+            price, is_measured = unit_price(name, SearchMode.DEFAULT, a.meta().est_cost_per_call_usd)
+            surface_costs[name] = price
+            (measured_names if is_measured else declared_names).append(display_names[name])
+        dependency = {
+            name: unit_price(name, SearchMode.SEARCH_DISABLED, declared)[0]
+            for name, a in adapters.items()
+            if (declared := a.meta().est_cost_per_call_search_disabled_usd) is not None
+        }
+        timed = [st for st in stats.values() if st.n >= MIN_STAT_SAMPLES]
+        seconds_per_call = (
+            sum(st.avg_latency_ms * st.n for st in timed) / sum(st.n for st in timed) / 1000
+            if timed else AVG_SECONDS_PER_CALL
+        )
         estimate_constants = json.dumps({
             "tier_calls": {tid: t.expected_calls_per_plan for tid, t in TIERS.items()},
-            # 按 surface 分价(v0.4.6):单价由各适配器 meta 声明,前端按勾选求和
-            "surface_costs": {name: a.meta().est_cost_per_call_usd for name, a in adapters.items()},
-            # 检索依赖对照的闭卷腿单价:仅支持 search_disabled 的 surface 在此出现
-            "dependency": {
-                name: price
-                for name, a in adapters.items()
-                if (price := a.meta().est_cost_per_call_search_disabled_usd) is not None
-            },
-            "seconds_per_call": AVG_SECONDS_PER_CALL,
+            "surface_costs": surface_costs,
+            "dependency": dependency,
+            "seconds_per_call": round(seconds_per_call, 1),
             "concurrency": PLAN_CONCURRENCY,
         })
+        lang = resolve_lang(request.query_params.get("lang"))
+        basis = []
+        if measured_names:
+            basis.append(MESSAGES[lang]["est_basis_measured"].format(names="、".join(measured_names)))
+        if declared_names:
+            basis.append(MESSAGES[lang]["est_basis_declared"].format(names="、".join(declared_names)))
+        basis.append(MESSAGES[lang]["est_basis_tail"])
         return render(request, "confirm.html", job=job, tiers=TIERS,
                       surfaces=sorted(adapters), estimate_constants=estimate_constants,
-                      error=error)
+                      est_basis=" ".join(basis), error=error)
 
     @app.post("/jobs/{job_id}/confirm")
     async def confirm(
@@ -253,7 +293,13 @@ def create_app(
         job = registry.get(job_id)
         if job is None:
             return not_found(request)
-        return render(request, "job.html", job=job)
+        # 运行中按实际速度算剩余时间(v0.4.17):已用时 ÷ 已完成计划 × 未完成计划
+        eta_minutes = elapsed_minutes = None
+        if job.state is JobState.RUNNING and job.started_at is not None:
+            elapsed_minutes = (datetime.now(UTC) - job.started_at).total_seconds() / 60
+            if job.completed_plans and job.total_plans:
+                eta_minutes = elapsed_minutes / job.completed_plans * (job.total_plans - job.completed_plans)
+        return render(request, "job.html", job=job, elapsed_minutes=elapsed_minutes, eta_minutes=eta_minutes)
 
     @app.get("/jobs/{job_id}/report", response_class=HTMLResponse)
     async def job_report(request: Request, job_id: str):

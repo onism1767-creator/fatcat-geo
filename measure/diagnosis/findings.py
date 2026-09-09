@@ -33,18 +33,21 @@ class StageStatus(StrEnum):
 
 
 class DiagnosisThresholds(FrozenModel):
-    """阶段判定阈值(可配;默认值为 v1 产品口径,随结论自报)。
+    """阶段判定阈值(可配;默认值为 v1 操作阈值,随结论自报)。
 
     判定一律基于 95% 区间端点而非点估计:FAIL 要求区间上界都低于阈值
     (确信缺席),PASS 要求区间下界都高于阈值(确信在场),两者之间 WEAK。
+
+    v0.4.17(用户拍板):三项统一为「普世线」——整个区间 ≤ 20% 才 FAIL,整个区间
+    ≥ 50% 才 PASS,中间黄区留宽;红绿灯在所有项目上含义一致,行业差异靠竞品对比
+    体现而非靠线。样本少时 k=0 的上界收不进 20%(0/8 ≈ 0.26)只判 WEAK——
+    样本越少越不敢下定论,这是特性不是缺陷。
     """
 
     retrieval_fail_ci_high: float = 0.20
-    retrieval_pass_ci_low: float = 0.40
-    # 0.15:k=0 时上界随 n 收窄(0/20≈0.13 → FAIL;0/14≈0.20 → 仅 WEAK)
-    # ——样本越少越不敢下定论,这是特性不是缺陷
-    citation_fail_ci_high: float = 0.15
-    citation_pass_ci_low: float = 0.25
+    retrieval_pass_ci_low: float = 0.50
+    citation_fail_ci_high: float = 0.20
+    citation_pass_ci_low: float = 0.50
     mention_fail_ci_high: float = 0.20
     mention_pass_ci_low: float = 0.50
     negative_share_weak: float = 0.30  # 情感负面占比超此值,状态封顶 WEAK

@@ -11,6 +11,9 @@
   <div class="bar"><div style="width: {{ job.progress_pct }}%"></div></div>
   <p class="kv">{{ t["progress_word"] }} {{ job.progress_pct }}%({{ t["plans_word"] }} {{ job.completed_plans }}/{{ job.total_plans }})
      · {{ t["spent_word"] }} ${{ "%.4f"|format(job.spent_usd) }}{% if job.budget_usd %} / {{ t["budget_word"] }} ${{ job.budget_usd }}{% endif %}</p>
+  {% if elapsed_minutes is not none %}
+  <p class="kv">{% if eta_minutes is not none %}{{ t["eta_line"].format(elapsed=elapsed_minutes|round(1), eta=eta_minutes|round(1)) }}{% else %}{{ t["eta_waiting"].format(elapsed=elapsed_minutes|round(1)) }}{% endif %}</p>
+  {% endif %}
   {% if job.error %}<div class="err">{{ t["job_failed"] }}:{{ job.error }}</div>{% endif %}
 </div>
 

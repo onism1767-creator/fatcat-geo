@@ -72,6 +72,14 @@ def test_job_snapshot_upsert_load_and_overwrite(storage):
     assert loaded[0]["extra"] == {"nested": 1}  # 快照对 L2 不透明,原样往返
 
 
+def test_call_stats_average_cost_and_latency(storage):
+    """预估口径(v0.4.17):按 surface × 模式的历史均价与均时,来自真实运行档案。"""
+    storage.insert_surface_run(make_run("run-stat-1"))
+    storage.insert_surface_run(make_run("run-stat-2", cited=False))
+    stat = next(s for s in storage.call_stats() if s.surface == "test_surface" and s.search_mode == "default")
+    assert stat.n >= 2 and stat.avg_cost_usd > 0 and stat.avg_latency_ms > 0
+
+
 def test_report_snapshot_is_versioned_and_append_only(storage):
     """报告快照(v0.4.16):同一任务多版并存,latest 取最新并报版本数;库层拒绝改写。"""
     assert storage.latest_report_snapshot("job-r1") is None

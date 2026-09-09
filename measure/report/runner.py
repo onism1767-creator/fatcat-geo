@@ -164,6 +164,7 @@ def _execute(
     job.spent_usd = 0.0
     job.need_reports = []
     job.surface_verdicts = []
+    job.started_at = datetime.now(UTC)
     job.error = None
     job.access_result = access_audit.audit(job.website)
 

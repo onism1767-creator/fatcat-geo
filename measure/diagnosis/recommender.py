@@ -8,7 +8,8 @@
 - v1.1 起注册表的展示字段(hypothesis/guardrail/contraindications/sources)
   为 zh/en 双语字典,语言选择发生在渲染层;
 - v0.4.14 起每条必带 plain(人话版,只换说法不换主张):用户视图读 plain,
-  「为什么这么建议」与审计视图读 hypothesis 原句。
+  「为什么这么建议」与审计视图读 hypothesis 原句;
+- v0.4.17 起每条必带 verify(做完之后怎么检查效果,人话),报告建议表第二列。
 """
 
 from __future__ import annotations
@@ -39,6 +40,7 @@ class EvidenceEntry(FrozenModel):
     stage: Stage
     hypothesis: dict[str, str]
     plain: dict[str, str]  # 人话版(v0.4.14)
+    verify: dict[str, str]  # 做完之后怎么检查效果(v0.4.17)
     evidence_level: str
     sources: dict[str, list[str]]
     supported_intents: list[NeedIntent] = []
@@ -48,7 +50,7 @@ class EvidenceEntry(FrozenModel):
     guardrail: dict[str, str] | None = None
     version: int = 1
 
-    @field_validator("hypothesis", "plain", "sources", "contraindications")
+    @field_validator("hypothesis", "plain", "verify", "sources", "contraindications")
     @classmethod
     def _localized(cls, value: dict, info) -> dict:
         _require_langs(value, info.field_name)
@@ -68,6 +70,7 @@ class Recommendation(FrozenModel):
     evidence_level: str
     hypothesis: dict[str, str]
     plain: dict[str, str]
+    verify: dict[str, str]
     sources: dict[str, list[str]]
     contraindications: dict[str, list[str]]
     guardrail: dict[str, str] | None
@@ -102,6 +105,7 @@ def recommend(
             evidence_level=entry.evidence_level,
             hypothesis=entry.hypothesis,
             plain=entry.plain,
+            verify=entry.verify,
             sources=entry.sources,
             contraindications=entry.contraindications,
             guardrail=entry.guardrail,

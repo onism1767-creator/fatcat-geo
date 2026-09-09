@@ -8,7 +8,8 @@
 # - 吸收新研究 = 增改本表条目,零代码改动;
 # - v1.1 起展示字段(hypothesis/guardrail/contraindications/sources)为 zh/en 双语;
 # - v0.4.14 起每条带 plain(人话版,只换说法不换主张):用户视图读 plain,
-#   「为什么这么建议」与审计视图读 hypothesis 原句。
+#   「为什么这么建议」与审计视图读 hypothesis 原句;
+# - v0.4.17 起每条带 verify(做完之后怎么检查效果,人话),报告建议表第二列。
 #
 # 主要来源:KDD2024(arXiv:2311.09735)、C-SEO-Bench(arXiv:2506.11097)、
 # SAGEO-Arena(arXiv:2602.12187)、各平台官方爬虫文档。详见架构书 5.3。
@@ -23,6 +24,9 @@ entries:
     plain:
       zh: "在 robots.txt 里允许 AI 搜索类爬虫访问你的网站,这是 AI 能找到你的前提"
       en: "Allow AI search crawlers in your robots.txt — without it, AI search cannot reach your site at all"
+    verify:
+      zh: "改完后重新检测一次,看「官网抓取情况」有没有变成 🟢;真正确认要看网站后台或日志里官方 AI 爬虫是否访问成功"
+      en: "Re-run the check and see whether 'Site crawlability' turns 🟢; the real confirmation is whether official AI crawlers succeed in your server logs"
     evidence_level: A
     sources:
       zh: [各平台官方爬虫文档]
@@ -46,6 +50,9 @@ entries:
     plain:
       zh: "让网站的安全系统(CDN / 防火墙)按官方 IP 名单放行真实的 AI 爬虫,而不是一刀切拦掉所有机器人"
       en: "Have your CDN / firewall admit real AI crawlers by their official IP lists instead of blocking every bot"
+    verify:
+      zh: "在 CDN 后台确认官方爬虫的访问不再被拦,再重新检测一次看「官网抓取情况」"
+      en: "Confirm in the CDN console that official crawlers are no longer blocked, then re-run the check and look at 'Site crawlability'"
     evidence_level: A
     sources:
       zh: [各平台官方 IP 段文档, 主流 CDN verified-bots 机制文档]
@@ -69,6 +76,9 @@ entries:
     plain:
       zh: "把关键内容直接放在网页 HTML 里,不要只靠浏览器脚本加载,因为多数 AI 爬虫不运行脚本"
       en: "Put key content directly in the page HTML rather than loading it with browser scripts — most AI crawlers do not run scripts"
+    verify:
+      zh: "用不运行脚本的方式打开页面(比如查看网页源代码),确认正文在里面;再重新检测看「官网抓取情况」"
+      en: "Open the page without scripts (e.g. view page source) and confirm the text is there; then re-run the check and look at 'Site crawlability'"
     evidence_level: A
     sources:
       zh: [各平台官方爬虫文档(主流 AI 爬虫不执行 JS)]
@@ -92,6 +102,9 @@ entries:
     plain:
       zh: "提供网站地图(sitemap)和规范链接,可能帮助 AI 更完整地收录你的页面"
       en: "Provide a sitemap and canonical links; this may help AI index your pages more completely"
+    verify:
+      zh: "提交后过两周重新检测;这一项只是提示,变化不一定看得出来"
+      en: "Re-run the check two weeks after submitting; this item is informational and a change may not be visible"
     evidence_level: D
     sources:
       zh: [传统搜索引擎收录实践的描述性外推]
@@ -116,6 +129,9 @@ entries:
     plain:
       zh: "让页面标题、小标题和结构化标记直接说明这页回答的是什么问题,AI 搜索时更容易把它挑出来"
       en: "Make page titles, headings and structured markup say plainly which question the page answers, so AI search can pick it out"
+    verify:
+      zh: "改完后等 2–4 周,用同一批问题再测一次,看「AI 搜索时有没有找到你」这一格有没有从 🔴 变 🟡 或 🟢;一次只改一件事再测,才知道是哪个起了作用"
+      en: "Wait 2–4 weeks, re-test with the same questions and see whether 'Does the AI find you when it searches' moves from 🔴 to 🟡 or 🟢; change one thing at a time so you know what worked"
     evidence_level: B
     sources:
       zh: [SAGEO-Arena(支持:结构化信息利于检索), C-SEO-Bench(检索位次效应显著)]
@@ -139,6 +155,9 @@ entries:
     plain:
       zh: "为用户真正会问的问题写专门的页面、直接作答,让 AI 搜索时更容易找到你"
       en: "Write dedicated pages that directly answer the questions users actually ask, so AI search is more likely to find you"
+    verify:
+      zh: "新页面上线 2–4 周后,用同一批问题再测一次,看「AI 搜索时有没有找到你」这一格有没有变好"
+      en: "2–4 weeks after the new pages go live, re-test with the same questions and see whether 'Does the AI find you when it searches' improves"
     evidence_level: C
     sources:
       zh: [SAGEO-Arena(间接支持), 传统检索共识(描述性)]
@@ -162,6 +181,9 @@ entries:
     plain:
       zh: "争取出现在 AI 常引用的第三方内容里(测评、榜单、对比文章),借它们进入 AI 的搜索结果"
       en: "Get covered by the third-party content AI tends to cite (reviews, rankings, comparisons) and enter AI search results through them"
+    verify:
+      zh: "第三方内容发布 2–4 周后,用同一批问题再测一次,看「AI 搜索时有没有找到你」这一格,以及 AI 引用的来源里有没有出现那些第三方页面"
+      en: "2–4 weeks after the third-party content is published, re-test with the same questions; watch 'Does the AI find you when it searches' and whether those third-party pages appear among the AI's sources"
     evidence_level: C
     sources:
       zh: [本项目实测观察(检索候选集由第三方内容主导,描述性), C-SEO-Bench(来源位次效应)]
@@ -186,6 +208,9 @@ entries:
     plain:
       zh: "在页面里给出可以核实的具体数据,可能让 AI 更愿意引用你"
       en: "Include verifiable, specific numbers on the page; AI may be more willing to cite you"
+    verify:
+      zh: "改完后等 2–4 周,用同一批问题再测一次,看「AI 有没有引用你的官网」这一格有没有从 🔴 变 🟡 或 🟢"
+      en: "Wait 2–4 weeks, re-test with the same questions and see whether 'Does the AI cite your site' moves from 🔴 to 🟡 or 🟢"
     evidence_level: C
     sources:
       zh: [KDD2024(支持), C-SEO-Bench(削弱:跨域复测多数无效)]
@@ -209,6 +234,9 @@ entries:
     plain:
       zh: "把结论写成清楚、可以直接引用的句子,可能让 AI 更愿意引用你"
       en: "Write conclusions as clear sentences that can be quoted directly; AI may be more willing to cite you"
+    verify:
+      zh: "改完后等 2–4 周,用同一批问题再测一次,看「AI 有没有引用你的官网」这一格有没有变好"
+      en: "Wait 2–4 weeks, re-test with the same questions and see whether 'Does the AI cite your site' improves"
     evidence_level: C
     sources:
       zh: [KDD2024(引述类改写有正效应), C-SEO-Bench(多数改写基本无效)]
@@ -232,6 +260,9 @@ entries:
     plain:
       zh: "当用户的问题本身就是问答式时,把内容整理成问答形式,可能更容易被 AI 选作来源"
       en: "When users' questions are Q&A-style, organizing content as Q&A may make it more likely to be picked as a source"
+    verify:
+      zh: "改完后等 2–4 周,用同一批问答式的问题再测一次,看「AI 有没有引用你的官网」这一格有没有变好"
+      en: "Wait 2–4 weeks, re-test with the same Q&A-style questions and see whether 'Does the AI cite your site' improves"
     evidence_level: D
     sources:
       zh: [描述性关联,无对照研究]
@@ -256,6 +287,9 @@ entries:
     plain:
       zh: "在官网维护一份清楚、稳定的品牌基本事实(定位、价格、与同类的差别),让 AI 介绍你时不出错"
       en: "Keep a clear, stable statement of brand basics on your site (positioning, pricing, how you differ) so AI describes you correctly"
+    verify:
+      zh: "改完后等 2–4 周,用「用户直接询问品牌时」的问题再测一次,看 AI 的介绍有没有变准确、评价有没有变好"
+      en: "Wait 2–4 weeks, re-test with the 'when users ask about the brand directly' questions and see whether the AI's description becomes accurate and its tone improves"
     evidence_level: D
     sources:
       zh: [描述性关联]
@@ -279,6 +313,9 @@ entries:
     plain:
       zh: "找到 AI 常引用的第三方页面里过时或错误的信息,请对方更正,减少 AI 说错你"
       en: "Find outdated or wrong information about you on the third-party pages AI cites most, and ask them to correct it"
+    verify:
+      zh: "对方更正后等 2–4 周再测一次,看 AI 的介绍里还有没有那条错误说法"
+      en: "2–4 weeks after the source corrects it, re-test and check whether the wrong statement still appears in the AI's description"
     evidence_level: D
     sources:
       zh: [描述性关联(回答内容大量取材于被引第三方,本项目引用观测)]
@@ -303,6 +340,9 @@ entries:
     plain:
       zh: "部署 llms.txt 文件能改善 AI 可见度(没有证据,不作为建议)"
       en: "Deploying an llms.txt file improves AI visibility (no evidence; never recommended)"
+    verify:
+      zh: "不适用(不作为建议)"
+      en: "Not applicable (never recommended)"
     evidence_level: E
     sources:
       zh: [无平台确认采用的证据]
@@ -326,6 +366,9 @@ entries:
     plain:
       zh: "在页面里堆砌关键词能提升 AI 搜索可见度(反证:会全面变差,禁止)"
       en: "Stuffing keywords into pages improves AI search visibility (counter-evidence: makes things worse; forbidden)"
+    verify:
+      zh: "不适用(禁止项)"
+      en: "Not applicable (forbidden)"
     evidence_level: E
     sources:
       zh: [SAGEO-Arena(反证:仅优化正文使检索/重排/引用全面下降)]
