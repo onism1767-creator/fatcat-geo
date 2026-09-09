@@ -74,8 +74,8 @@ def finished_job() -> DiagnosisJob:
             make_metric(0, 30),
             [("竞品甲", estimate_proportion(20, 30))],
             verification=VerificationSummary(
-                estimate=estimate_proportion(0, 30), checked_urls=2,
-                unreachable=1, soft_misses=1,
+                attempted=2, verified_match=0, content_mismatch=1,
+                fetch_blocked=1, unparsed=0, unreachable=0,
             ),
         ),
         representation=diagnose_representation(
@@ -142,8 +142,9 @@ def test_report_metrics_carry_caliber(client_and_job):
     client, job, _ = client_and_job
     html = client.get(f"/jobs/{job.job_id}/report").text
     assert "N_valid" in html and "stop_reasons" in html
-    assert "95% 区间(Jeffreys)" in html
-    assert "判定阈值" in html  # 阈值口径自报
+    assert "95% 可信区间(Jeffreys 先验)" in html  # v0.4.13:可信区间,不冒充频率学派置信区间
+    assert "操作阈值(v1 初始值,未经校准)" in html  # 阈值口径自报,且标明未校准
+    assert "最强瓶颈信号在" in html and "失败最可能" not in html  # 定位措辞去因果
     assert job.fingerprint in html  # 任务快照指纹
 
 

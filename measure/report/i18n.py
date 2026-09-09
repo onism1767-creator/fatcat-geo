@@ -56,8 +56,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "plan_title": "采样计划",
         "surfaces_label": "观测 surface",
         "tier_label": "档位",
-        "tier_standard": "标准档(精度约 ±10%)",
-        "tier_quick": "快扫档(精度约 ±17%)",
+        "tier_standard": "标准档(区间宽度目标 ≤0.20,最多 20 次)",
+        "tier_quick": "快扫档(区间宽度目标 ≤0.35,最多 8 次)",
         "variants_label": "每需求问法数(原话 + AI 改写)",
         "budget_label": "预算上限(USD,可空 = 不限;超限自动熔断)",
         "dep_label": "闭卷测试开关(开启后会加测 AI 不联网状态)",
@@ -92,8 +92,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "matrix_surface": "AI / surface",
         "dep_short": "检索依赖",
         "dep_section": "检索依赖(开卷 vs 闭卷,挂靠观测,不参与定位)",
-        "localization_title": "▶ 诊断定位",
-        "loc_pre": "失败最可能发生在", "loc_post": "阶段。",
+        "localization_title": "▶ 瓶颈定位(可观测证据)",
+        "loc_pre": "当前可观测证据中,最强瓶颈信号在", "loc_post": "阶段。",
         "no_failure": "各可观测阶段均无 FAIL/WEAK。",
         "recs_title": "▶ 下一步实验建议(每条挂证据条目,无证据不出建议)",
         "level_word": "证据等级",
@@ -112,8 +112,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "phase_interrupted": "已中断(可续跑,已花的钱不重花)",
         "btn_resume": "续跑(只补缺口)",
         "btn_recompute": "重算报告",
-        "footer": "本报告不打分:各阶段结论 = 概率 + 95% 区间(Jeffreys)+ 完整口径"
-                  "(surface / model / N / stop_reasons / 拒答率 / 失败率 / 判定阈值)。"
+        "footer": "本报告不打分:各阶段结论 = 概率 + 95% 可信区间(Jeffreys 先验)+ 完整口径"
+                  "(surface / model / N / stop_reasons / 拒答率 / 失败率 / 操作阈值)。"
                   "原始观测只追加留档,判定器升级后可全量重算复核。",
     },
     "en": {
@@ -144,8 +144,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "plan_title": "Sampling plan",
         "surfaces_label": "Surfaces",
         "tier_label": "Tier",
-        "tier_standard": "Standard (≈ ±10% precision)",
-        "tier_quick": "Quick scan (≈ ±17% precision)",
+        "tier_standard": "Standard (interval width ≤0.20, max 20 runs)",
+        "tier_quick": "Quick scan (interval width ≤0.35, max 8 runs)",
         "variants_label": "Phrasings per question (original + AI rewrites)",
         "budget_label": "Budget cap (USD, empty = unlimited; hard-stops when exceeded)",
         "dep_label": "Closed-book test switch (when on, also tests the AI without web search)",
@@ -179,8 +179,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "matrix_surface": "AI / surface",
         "dep_short": "Retrieval dependency",
         "dep_section": "Retrieval dependency (search-on vs search-off; piggyback observation, not used for localization)",
-        "localization_title": "▶ Failure localization",
-        "loc_pre": "The failure most likely occurs at the", "loc_post": "stage.",
+        "localization_title": "▶ Bottleneck localization (observable evidence)",
+        "loc_pre": "Among observable evidence, the strongest bottleneck signal is at the", "loc_post": "stage.",
         "no_failure": "No FAIL/WEAK among observable stages.",
         "recs_title": "▶ Next experiments (every item cites an evidence entry — no evidence, no advice)",
         "level_word": "evidence level",
@@ -199,7 +199,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "phase_interrupted": "Interrupted (resumable; money already spent is not re-spent)",
         "btn_resume": "Resume (fill gaps only)",
         "btn_recompute": "Recompute report",
-        "footer": "This report has no scores: every stage conclusion = probability + 95% interval (Jeffreys) "
+        "footer": "This report has no scores: every stage conclusion = probability + 95% credible interval (Jeffreys prior) "
                   "+ full caliber (surface / model / N / stop_reasons / refusal & failure rates / thresholds). "
                   "Raw observations are append-only; detector upgrades recompute all history.",
     },

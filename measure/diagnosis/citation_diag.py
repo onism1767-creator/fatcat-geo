@@ -40,12 +40,27 @@ def _compare_line(focal: ProportionEstimate, name: str, competitor: ProportionEs
 
 
 class VerificationSummary(FrozenModel):
-    """三档证据「已核验」层的需求级汇总(独立重抓被引 URL 的结果)。"""
+    """三档证据「已核验」层的需求级汇总:被引 URL 的四态计数(v0.4.13 条目 5)。
 
-    estimate: ProportionEstimate | None  # 已核验被引概率(分母与被引指标一致)
-    checked_urls: int
+    URL 级而非运行级——「已核验被引概率」已撤销,它把「平台有没有引用」与
+    「本工具能不能再抓到」混成一个数。只有 content_mismatch 是负面证据。
+    """
+
+    attempted: int  # 尝试核验的唯一 URL 数
+    verified_match: int
+    content_mismatch: int
+    fetch_blocked: int
+    unparsed: int
     unreachable: int
-    soft_misses: int  # 可达但正文未见品牌(疑似软 404/错标)
+
+    @property
+    def decidable(self) -> int:
+        return self.verified_match + self.content_mismatch
+
+    @property
+    def coverage(self) -> float | None:
+        """核验覆盖率 = 可判定 / 尝试;没尝试过则 None。"""
+        return self.decidable / self.attempted if self.attempted else None
 
 
 def diagnose_citation(
@@ -76,14 +91,22 @@ def diagnose_citation(
     ]
     if verification is not None:
         evidence.append(msg("citation.tier_note"))
-        if verification.estimate is not None:
-            evidence.append(msg("citation.verified_rate", **estimate_params(verification.estimate)))
         evidence.append(msg(
-            "citation.verify_summary",
-            checked=verification.checked_urls,
+            "citation.verify_tally",
+            attempted=verification.attempted,
+            match=verification.verified_match,
+            mismatch=verification.content_mismatch,
+            blocked=verification.fetch_blocked,
+            unparsed=verification.unparsed,
             unreachable=verification.unreachable,
-            soft=verification.soft_misses,
         ))
+        if verification.coverage is not None:
+            evidence.append(msg(
+                "citation.verify_coverage",
+                decidable=verification.decidable,
+                attempted=verification.attempted,
+                coverage=verification.coverage,
+            ))
     evidence.extend(_compare_line(estimate, name, comp) for name, comp in (competitors or []))
     evidence.extend(notes)
     headline_code = _HEADLINES[status]

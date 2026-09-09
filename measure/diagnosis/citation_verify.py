@@ -1,8 +1,13 @@
 """引用独立核验:三档证据「提及 → 被引 → 已核验」的第三档(v0.4.2 附录条目 1)。
 
 不轻信平台引用:对被引 URL 自行重抓,核验 (a) 可达 (b) 可见正文确实
-出现品牌清晰名——「可达但正文无品牌」是软 404/张冠李戴的典型指纹,
-不算核验通过(Potato 实测教训)。
+出现品牌清晰名——「HTML 可达但正文无品牌」是软 404/张冠李戴的典型指纹,
+是唯一的负面证据(Potato 实测教训)。
+
+核验结果四态 + 一(v0.4.13 条目 5):抓不到 ≠ 引用无效——核验器与 ACCESS 探针
+同样是「本工具客户端在此条件下得到的响应」,被机器人防护拦截(FETCH_BLOCKED)、
+非 HTML 未解析(UNPARSED)、其余失败(UNREACHABLE)都只是核验器缺数据,
+不得解读为平台引用错标。
 
 - 与 access_audit 同类:自带爬取器的诊断仪器(L3),存储走 L2 Storage;
 - 抓回页面一律视为不可信数据:只做机械文本匹配,绝不回喂任何模型(防注入);
@@ -15,13 +20,14 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from enum import StrEnum
 from typing import Protocol
 from urllib.parse import urlsplit, urlunsplit
 
 import httpx
 import structlog
 
-from diagnosis.access_audit import BROWSER_UA, extract_visible_text
+from diagnosis.access_audit import BROWSER_UA, PROTECTION_SUSPECT_STATUSES, extract_visible_text
 from engine.detectors.matching import find_first_alias
 from engine.models import BrandSpec, CitationEvidence
 
@@ -45,17 +51,32 @@ def normalize_url(url: str) -> str:
     return urlunsplit((parts.scheme.lower(), netloc, parts.path or "/", parts.query, ""))
 
 
-def brand_verified(evidence: CitationEvidence, brand_name: str) -> bool:
-    return evidence.reachable and brand_name in evidence.brands_found
+class VerificationOutcome(StrEnum):
+    """一条被引 URL 对某品牌的核验结果。只有 CONTENT_MISMATCH 是负面证据;
+    FETCH_BLOCKED / UNPARSED / UNREACHABLE 是核验器缺数据(不可观测),不进任何负面口径。"""
+
+    VERIFIED_MATCH = "VERIFIED_MATCH"      # HTML 可达且可见正文出现品牌清晰名
+    CONTENT_MISMATCH = "CONTENT_MISMATCH"  # HTML 可达、查过该品牌、正文未见——软 404/错标指纹
+    FETCH_BLOCKED = "FETCH_BLOCKED"        # 401/403/429/503:疑似机器人防护拦截本工具客户端
+    UNPARSED = "UNPARSED"                  # 可达但非 HTML(如 PDF),v1 不解析
+    UNREACHABLE = "UNREACHABLE"            # 其余非成功状态或网络层失败(404、超时、DNS…)
 
 
-def is_soft_miss(evidence: CitationEvidence, brand_name: str) -> bool:
-    """可达、查过该品牌、但正文未见——疑似软 404 / 页面并未真正提及。"""
-    return (
-        evidence.reachable
-        and brand_name in evidence.checked_brands
-        and brand_name not in evidence.brands_found
-    )
+def classify(evidence: CitationEvidence, brand_name: str) -> VerificationOutcome:
+    """把一条核验记录判为四态之一。没查过该品牌的记录不可解读——那是调用方缓存复用的 bug。"""
+    if brand_name not in evidence.checked_brands:
+        raise ValueError(
+            f"核验记录未查过品牌 {brand_name},缺席不可解读:{evidence.normalized_url}"
+        )
+    if evidence.reachable:
+        if evidence.visible_chars is None:
+            return VerificationOutcome.UNPARSED
+        if brand_name in evidence.brands_found:
+            return VerificationOutcome.VERIFIED_MATCH
+        return VerificationOutcome.CONTENT_MISMATCH
+    if evidence.http_status in PROTECTION_SUSPECT_STATUSES:
+        return VerificationOutcome.FETCH_BLOCKED
+    return VerificationOutcome.UNREACHABLE
 
 
 class CitationVerifier:

@@ -48,7 +48,7 @@ BROWSER_UA: Final = (
 )
 TIMEOUT_S: Final = 15.0
 # 疑似机器人防护的拒绝状态(401/403/429/503):探针被拒不可判定为全站不可达
-_PROTECTION_SUSPECT_STATUSES: Final = (401, 403, 429, 503)
+PROTECTION_SUSPECT_STATUSES: Final = (401, 403, 429, 503)
 MIN_VISIBLE_TEXT_CHARS: Final = 200  # 低于此值视为 JS 白板嫌疑
 MAX_PARSED_BYTES: Final = 2_000_000
 DEFAULT_CRAWLERS_PATH: Final = Path(__file__).resolve().parents[1] / "config" / "crawlers.yaml"
@@ -214,7 +214,7 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
                 detail=msg("access.reach.ok", status=baseline.status_code),
                 evidence={"status": baseline.status_code, "final_url": final_url},
             )
-        elif baseline.status_code in _PROTECTION_SUSPECT_STATUSES:
+        elif baseline.status_code in PROTECTION_SUSPECT_STATUSES:
             # 铁律 7:探针被拒 ≠ 真人被拒 ≠ 爬虫被拒。带浏览器 UA 仍被 401/403/429/503
             # 拒绝,典型为 CDN 机器人防护按客户端指纹拦截非浏览器客户端(2026-09
             # 香奈儿首测复盘:真实浏览器可开,一切自动化客户端被 Akamai 403)。

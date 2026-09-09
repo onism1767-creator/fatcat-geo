@@ -46,11 +46,11 @@ class Tier(FrozenModel):
 
 TIERS: dict[str, Tier] = {
     "standard": Tier(
-        id="standard", label="标准档(精度约 ±10%)",
+        id="standard", label="标准档(区间宽度目标 ≤0.20,最多 20 次)",
         policy=SamplingPolicy(), expected_calls_per_plan=18.0,
     ),
     "quick": Tier(
-        id="quick", label="快扫档(精度约 ±17%)",
+        id="quick", label="快扫档(区间宽度目标 ≤0.35,最多 8 次)",
         policy=SamplingPolicy(min_n=5, max_n=8, ci_width_threshold=0.35),
         expected_calls_per_plan=7.5,
     ),

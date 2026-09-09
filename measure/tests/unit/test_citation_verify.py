@@ -10,8 +10,8 @@ import respx
 
 from diagnosis.citation_verify import (
     CitationVerifier,
-    brand_verified,
-    is_soft_miss,
+    VerificationOutcome,
+    classify,
     normalize_url,
 )
 from engine.models import BrandSpec
@@ -57,15 +57,15 @@ def test_three_tiers_and_append(storage):
     assert soft.call_count == 1 and dead.call_count == 1
 
     verified = evidence["https://site-a.com/review"]
-    assert verified.reachable and brand_verified(verified, BRAND.name)
+    assert classify(verified, BRAND.name) is VerificationOutcome.VERIFIED_MATCH
 
     soft_ev = evidence["https://site-b.com/soft404"]
-    assert soft_ev.reachable and not brand_verified(soft_ev, BRAND.name)
-    assert is_soft_miss(soft_ev, BRAND.name)  # 可达但正文无品牌 → 软 404 指纹
+    # HTML 可达但正文无品牌 → 软 404 指纹,唯一的负面证据
+    assert classify(soft_ev, BRAND.name) is VerificationOutcome.CONTENT_MISMATCH
 
     dead_ev = evidence["https://site-c.com/gone"]
     assert not dead_ev.reachable and dead_ev.http_status == 404
-    assert not brand_verified(dead_ev, BRAND.name)
+    assert classify(dead_ev, BRAND.name) is VerificationOutcome.UNREACHABLE
 
     count = storage._conn.execute("SELECT count(*) FROM citation_evidence").fetchone()[0]
     assert count == 3  # 三个唯一 URL 各一条证据(含失败,不蒸发)
@@ -78,7 +78,7 @@ def test_alias_counts_as_brand_found(storage):
     verifier = CitationVerifier(storage)
     evidence = verifier.verify(["https://site-d.com/alias"], [BRAND])
     verifier.close()
-    assert brand_verified(evidence["https://site-d.com/alias"], BRAND.name)
+    assert classify(evidence["https://site-d.com/alias"], BRAND.name) is VerificationOutcome.VERIFIED_MATCH
 
 
 @respx.mock
@@ -93,7 +93,7 @@ def test_cache_reuse_across_verifier_instances(storage):
     evidence = second.verify(["https://site-e.com/cached"], [BRAND])
     second.close()
     assert route.call_count == 1
-    assert brand_verified(evidence["https://site-e.com/cached"], BRAND.name)
+    assert classify(evidence["https://site-e.com/cached"], BRAND.name) is VerificationOutcome.VERIFIED_MATCH
 
 
 @respx.mock
@@ -115,6 +115,40 @@ def test_fetch_error_recorded_not_evaporated(storage):
     verifier.close()
     ev = evidence["https://site-g.com/err"]
     assert not ev.reachable and ev.error == "ConnectError"
+    assert classify(ev, BRAND.name) is VerificationOutcome.UNREACHABLE
+
+
+@respx.mock
+def test_bot_protection_and_pdf_are_missing_data_not_negative_evidence(storage):
+    """v0.4.13 条目 5:抓不到 ≠ 引用无效。403 是机器人防护拦截本工具客户端(与 ACCESS
+    事故同构),PDF 可达但 v1 不解析——两者都不是软 404,不得进负面口径。"""
+    respx.get("https://site-h.com/blocked").mock(return_value=httpx.Response(403, text="denied"))
+    respx.get("https://site-h.com/paper.pdf").mock(
+        return_value=httpx.Response(
+            200, content=b"%PDF-1.7 binary", headers={"content-type": "application/pdf"}
+        )
+    )
+    verifier = CitationVerifier(storage)
+    evidence = verifier.verify(["https://site-h.com/blocked", "https://site-h.com/paper.pdf"], [BRAND])
+    verifier.close()
+    assert classify(evidence["https://site-h.com/blocked"], BRAND.name) is VerificationOutcome.FETCH_BLOCKED
+    pdf = evidence["https://site-h.com/paper.pdf"]
+    assert pdf.reachable and pdf.visible_chars is None
+    assert classify(pdf, BRAND.name) is VerificationOutcome.UNPARSED
+
+
+def test_classify_refuses_unchecked_brand():
+    """没查过的品牌缺席不可解读——分类器直接拒绝,不猜。"""
+    from datetime import UTC, datetime
+
+    from engine.models import CitationEvidence
+
+    ev = CitationEvidence(
+        url="https://x.com/", normalized_url="https://x.com/", fetched_at=datetime.now(UTC),
+        reachable=True, http_status=200, checked_brands=["Other"], brands_found=[], visible_chars=500,
+    )
+    with pytest.raises(ValueError, match="未查过品牌"):
+        classify(ev, BRAND.name)
 
 
 def test_citation_evidence_is_append_only(storage):

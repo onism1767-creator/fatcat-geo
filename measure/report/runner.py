@@ -22,8 +22,8 @@ from diagnosis import access_audit
 from diagnosis.citation_diag import VerificationSummary, diagnose_citation
 from diagnosis.citation_verify import (
     CitationVerifier,
-    brand_verified,
-    is_soft_miss,
+    VerificationOutcome,
+    classify,
     normalize_url,
 )
 from diagnosis.diagnose import SurfaceDiagnosis, access_finding, diagnose_need, diagnose_surface
@@ -315,25 +315,17 @@ def _execute(
             sentiment_counts = Counter(
                 s_obs.sentiment for run in runs if (s_obs := sentiment_det.detect(run, job.brand))
             )
-            cited_runs_urls = [(run, brand_cited_urls(run)) for run in runs]
-            need_urls = {normalize_url(u) for _, us in cited_runs_urls for u in us}
-            k_verified = sum(
-                any(
-                    brand_verified(evidence_map[normalize_url(u)], job.brand.name)
-                    for u in us
-                    if normalize_url(u) in evidence_map
-                )
-                for _, us in cited_runs_urls
+            need_urls = {normalize_url(u) for run in runs for u in brand_cited_urls(run)}
+            outcomes = Counter(
+                classify(evidence_map[n], job.brand.name) for n in need_urls if n in evidence_map
             )
-            need_evidence = [evidence_map[n] for n in need_urls if n in evidence_map]
             verification = VerificationSummary(
-                estimate=(
-                    estimate_proportion(k_verified, citation_metric.estimate.n)
-                    if citation_metric.estimate is not None else None
-                ),
-                checked_urls=len(need_evidence),
-                unreachable=sum(not e.reachable for e in need_evidence),
-                soft_misses=sum(is_soft_miss(e, job.brand.name) for e in need_evidence),
+                attempted=sum(outcomes.values()),
+                verified_match=outcomes[VerificationOutcome.VERIFIED_MATCH],
+                content_mismatch=outcomes[VerificationOutcome.CONTENT_MISMATCH],
+                fetch_blocked=outcomes[VerificationOutcome.FETCH_BLOCKED],
+                unparsed=outcomes[VerificationOutcome.UNPARSED],
+                unreachable=outcomes[VerificationOutcome.UNREACHABLE],
             )
             competitor_estimates = []
             for competitor in job.competitors:

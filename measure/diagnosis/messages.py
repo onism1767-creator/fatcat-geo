@@ -27,8 +27,8 @@ def msg(code: str, **params: Any) -> Msg:
     return Msg(code=code, params=params)
 
 
-_EST = "{point:.0%} [95% 区间(Jeffreys): {low:.0%}–{high:.0%}](N={n})"
-_EST_EN = "{point:.0%} [95% CI (Jeffreys): {low:.0%}–{high:.0%}] (N={n})"
+_EST = "{point:.0%} [95% 可信区间(Jeffreys 先验): {low:.0%}–{high:.0%}](N={n})"
+_EST_EN = "{point:.0%} [95% credible interval (Jeffreys prior): {low:.0%}–{high:.0%}] (N={n})"
 
 CATALOG: dict[str, dict[str, str]] = {
     # ── 公共 ──────────────────────────────────────────────────────────
@@ -76,8 +76,8 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "The brand domain never entered the retrieval candidate set (k=0)",
     },
     "retrieval.thresholds": {
-        "zh": "判定阈值:FAIL 上界≤{fail:.0%},PASS 下界≥{pass_:.0%}",
-        "en": "Verdict thresholds: FAIL if CI upper ≤{fail:.0%}, PASS if CI lower ≥{pass_:.0%}",
+        "zh": "操作阈值(v1 初始值,未经校准):FAIL 上界≤{fail:.0%},PASS 下界≥{pass_:.0%}",
+        "en": "Operating thresholds (v1 initial values, uncalibrated): FAIL if CI upper ≤{fail:.0%}, PASS if CI lower ≥{pass_:.0%}",
     },
     # ── RETRIEVAL 生成端通道(v0.4.8 双通道架构)───────────────────────
     "genret.headline.fail": {
@@ -148,27 +148,34 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": f"Citation probability: {_EST_EN}",
     },
     "citation.thresholds": {
-        "zh": "判定阈值:FAIL 上界≤{fail:.0%},PASS 下界≥{pass_:.0%}",
-        "en": "Verdict thresholds: FAIL if CI upper ≤{fail:.0%}, PASS if CI lower ≥{pass_:.0%}",
+        "zh": "操作阈值(v1 初始值,未经校准):FAIL 上界≤{fail:.0%},PASS 下界≥{pass_:.0%}",
+        "en": "Operating thresholds (v1 initial values, uncalibrated): FAIL if CI upper ≤{fail:.0%}, PASS if CI lower ≥{pass_:.0%}",
     },
     "citation.tier_note": {
         "zh": "三档证据口径:提及 → 被引 → 已核验。「已核验」= 本工具自行重抓被引 URL,"
-              "确认可达且页面可见正文出现品牌清晰名——不轻信平台引用,可达但无品牌的"
-              "软 404 不计",
+              "确认 HTML 可达且可见正文出现品牌清晰名——不轻信平台引用。抓不到"
+              "(被拦截 / 未解析 / 不可达)只是核验器缺数据,不算引用无效;唯一的负面证据是"
+              "页面可达但正文未见品牌(软 404/错标指纹)",
         "en": "Three-tier evidence: mentioned → cited → verified. \"Verified\" = this tool "
-              "independently re-fetches each cited URL and confirms it is reachable AND the "
-              "visible page text contains the brand's clear name — platform citations are not "
-              "trusted blindly; reachable soft-404s without the brand do not count",
+              "independently re-fetches each cited URL and confirms the HTML is reachable AND the "
+              "visible text contains the brand's clear name — platform citations are not trusted "
+              "blindly. A failed fetch (blocked / unparsed / unreachable) is missing verifier data, "
+              "not an invalid citation; the only negative evidence is a reachable page whose text "
+              "lacks the brand (soft-404 / mislabel fingerprint)",
     },
-    "citation.verified_rate": {
-        "zh": f"已核验被引概率:{_EST}",
-        "en": f"Verified citation probability: {_EST_EN}",
+    "citation.verify_tally": {
+        "zh": "核验四态(URL 级,{attempted} 条唯一被引 URL):正文见品牌 {match};"
+              "正文未见品牌 {mismatch};被拦截(401/403/429/503){blocked};非 HTML 未解析 {unparsed};"
+              "其余不可达 {unreachable}",
+        "en": "Verification outcomes (per URL, {attempted} unique cited URL(s)): brand found {match}; "
+              "brand absent {mismatch}; fetch blocked (401/403/429/503) {blocked}; non-HTML unparsed "
+              "{unparsed}; otherwise unreachable {unreachable}",
     },
-    "citation.verify_summary": {
-        "zh": "核验明细:重抓被引 URL {checked} 条;不可达 {unreachable} 条;"
-              "可达但正文未见品牌(疑似软 404/错标){soft} 条",
-        "en": "Verification detail: re-fetched {checked} cited URL(s); {unreachable} unreachable; "
-              "{soft} reachable but brand absent from visible text (likely soft-404/mislabel)",
+    "citation.verify_coverage": {
+        "zh": "核验覆盖率:{decidable}/{attempted} = {coverage:.0%}(可判定 ÷ 尝试核验);"
+              "覆盖率低说明本工具核验器视角受限,不说明平台引用有问题",
+        "en": "Verification coverage: {decidable}/{attempted} = {coverage:.0%} (decidable ÷ attempted); "
+              "low coverage reflects this tool's verifier vantage, not a platform citation problem",
     },
     "citation.compare.behind": {
         "zh": f"显著落后于竞品 {{name}}(其被引 {_EST})",
@@ -234,12 +241,12 @@ CATALOG: dict[str, dict[str, str]] = {
               "stop_reasons=[{stop_reasons}] intent={intent}",
     },
     "repr.thresholds.neutral": {
-        "zh": "判定阈值:FAIL 上界≤{fail:.0%},PASS 下界≥{pass_:.0%},负面占比 >{neg:.0%} 封顶 WEAK",
-        "en": "Verdict thresholds: FAIL if CI upper ≤{fail:.0%}, PASS if CI lower ≥{pass_:.0%}; negative share >{neg:.0%} caps at WEAK",
+        "zh": "操作阈值(v1 初始值,未经校准):FAIL 上界≤{fail:.0%},PASS 下界≥{pass_:.0%},负面占比 >{neg:.0%} 封顶 WEAK",
+        "en": "Operating thresholds (v1 initial values, uncalibrated): FAIL if CI upper ≤{fail:.0%}, PASS if CI lower ≥{pass_:.0%}; negative share >{neg:.0%} caps at WEAK",
     },
     "repr.thresholds.probe": {
-        "zh": "判定阈值:负面占比 >{weak:.0%} 为 WEAK,≥{fail:.0%} 为 FAIL(探针需求提及率不参与判定)",
-        "en": "Verdict thresholds: negative share >{weak:.0%} → WEAK, ≥{fail:.0%} → FAIL (mention rate is not judged for probe questions)",
+        "zh": "操作阈值(v1 初始值,未经校准):负面占比 >{weak:.0%} 为 WEAK,≥{fail:.0%} 为 FAIL(探针需求提及率不参与判定)",
+        "en": "Operating thresholds (v1 initial values, uncalibrated): negative share >{weak:.0%} → WEAK, ≥{fail:.0%} → FAIL (mention rate is not judged for probe questions)",
     },
     "repr.negative_cap": {
         "zh": "提及充分但负面占比 {share:.0%} 超阈值,状态封顶 WEAK",
@@ -424,29 +431,32 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "Retrieval dependency: HIGH — with search disabled the mention rate falls below half of the search-on lower bound; visibility relies mainly on live retrieval",
     },
     "dependency.headline.medium": {
-        "zh": "检索依赖:中——禁用检索后提及率显著下降,实时检索贡献了可观的可见度增量",
-        "en": "Retrieval dependency: MEDIUM — the mention rate drops significantly with search disabled; live retrieval contributes a substantial share of visibility",
+        "zh": "检索依赖:中——禁用检索工具后提及率显著下降,两种模式下的观测差异明显",
+        "en": "Retrieval dependency: MEDIUM — the mention rate drops significantly with the search tool disabled; the observed gap between modes is substantial",
     },
     "dependency.headline.low": {
-        "zh": "检索依赖:低——开卷与闭卷提及率无法区分,可见度不依赖临场检索",
-        "en": "Retrieval dependency: LOW — search-on and search-off mention rates are indistinguishable; visibility does not depend on live retrieval",
+        "zh": "检索依赖:低——开卷与闭卷提及率无法区分,两种模式下未观测到差异",
+        "en": "Retrieval dependency: LOW — search-on and search-off mention rates are indistinguishable; no gap observed between modes",
     },
     "dependency.headline.inconclusive": {
         "zh": "检索依赖:无法判定",
         "en": "Retrieval dependency: INCONCLUSIVE",
     },
     "dependency.pair": {
-        "zh": "开卷(正常检索)提及:{on_point:.0%} [95% 区间(Jeffreys): {on_low:.0%}–{on_high:.0%}](N={on_n});"
-              "闭卷(禁用检索)提及:{off_point:.0%} [95% 区间(Jeffreys): {off_low:.0%}–{off_high:.0%}](N={off_n})",
-        "en": "Search-on mention: {on_point:.0%} [95% CI (Jeffreys): {on_low:.0%}–{on_high:.0%}] (N={on_n}); "
-              "search-off mention: {off_point:.0%} [95% CI (Jeffreys): {off_low:.0%}–{off_high:.0%}] (N={off_n})",
+        "zh": "开卷(正常检索)提及:{on_point:.0%} [95% 可信区间(Jeffreys 先验): {on_low:.0%}–{on_high:.0%}](N={on_n});"
+              "闭卷(禁用检索)提及:{off_point:.0%} [95% 可信区间(Jeffreys 先验): {off_low:.0%}–{off_high:.0%}](N={off_n})",
+        "en": "Search-on mention: {on_point:.0%} [95% credible interval (Jeffreys prior): {on_low:.0%}–{on_high:.0%}] (N={on_n}); "
+              "search-off mention: {off_point:.0%} [95% credible interval (Jeffreys prior): {off_low:.0%}–{off_high:.0%}] (N={off_n})",
     },
     "dependency.note.meaning": {
-        "zh": "口径说明:闭卷 = 同一问法在不提供检索工具下重复采样;闭卷能答不等于「AI 记住了品牌」,"
-              "仅说明可见度不依赖临场检索(第 9 章)。本观测不参与失败定位",
+        "zh": "口径说明:闭卷 = 同一问法在不提供检索工具下重复采样;闭卷能答不等于「AI 记住了品牌」。"
+              "禁用检索工具同时可能改变平台的路由与回答风格,差异是两种模式下的观测差异,"
+              "不解读为实时检索的因果增量(第 9 章)。本观测不参与瓶颈定位",
         "en": "Caliber note: search-off = the same prompts re-sampled without the search tool; answering "
-              "search-off does not mean the AI \"remembers\" the brand — only that visibility does not depend "
-              "on live retrieval (§9). This observation does not participate in failure localization",
+              "search-off does not mean the AI \"remembers\" the brand. Disabling the tool may also change "
+              "the platform's routing and answer style, so the gap is an observed difference between modes, "
+              "not a causal increment of live retrieval (§9). This observation does not participate in "
+              "bottleneck localization",
     },
     "dependency.note.absent_online": {
         "zh": "开卷提及本身处于缺席水平(区间上界不高于缺席阈值),依赖度无从谈起",
@@ -478,26 +488,26 @@ CATALOG: dict[str, dict[str, str]] = {
     "caution.divergence": {
         "zh": "检索观测通道显示品牌缺席,但引用阶段 PASS——被引必先被检索,两通道结论矛盾。"
               "这说明裸检索观测通道与生成端实际执行的检索(含查询改写与多语言扩展)不等同,"
-              "检索结论按观测通道分歧处理,不据此定位失败(架构书风险 #5:观测通道不当真值)",
+              "检索结论按观测通道分歧处理,不据此定位瓶颈(架构书风险 #5:观测通道不当真值)",
         "en": "The retrieval observation channel shows the brand absent, yet the citation stage PASSes — "
               "being cited requires being retrieved, so the two channels contradict. The bare-search channel "
               "is not equivalent to the generator's actual retrieval (query rewriting, multilingual fan-out); "
-              "the retrieval result is treated as channel divergence and not used for failure localization "
+              "the retrieval result is treated as channel divergence and not used for bottleneck localization "
               "(architecture risk #5: observation channels are not ground truth)",
     },
     "caution.unobservable": {
-        "zh": "以下阶段不可观测,未参与定位:{stages}",
-        "en": "The following stages are not observable and were excluded from localization: {stages}",
+        "zh": "以下阶段不可观测,未参与瓶颈定位:{stages}",
+        "en": "The following stages are not observable and were excluded from bottleneck localization: {stages}",
     },
     "caution.no_rewrite": {
-        "zh": "失败定位在准入/检索层:当前证据不足以表明问题出在引用或生成阶段,"
+        "zh": "最强瓶颈信号在准入/检索层:当前证据不足以表明问题出在引用或生成阶段,"
               "因此【不建议】进行全页内容改写(依据见架构书 5.3)",
-        "en": "The failure is localized at the access/retrieval layer: current evidence does not indicate a "
+        "en": "The strongest bottleneck signal is at the access/retrieval layer: current evidence does not indicate a "
               "citation- or generation-stage problem, so full-page content rewriting is NOT recommended (see architecture §5.3)",
     },
     "caution.none": {
-        "zh": "未定位到失败阶段:各可观测阶段均无 FAIL/WEAK,无需药方",
-        "en": "No failure stage localized: no FAIL/WEAK among observable stages — no remedy needed",
+        "zh": "未见瓶颈信号:各可观测阶段均无 FAIL/WEAK,无需药方",
+        "en": "No bottleneck signal: no FAIL/WEAK among observable stages — no remedy needed",
     },
 }
 

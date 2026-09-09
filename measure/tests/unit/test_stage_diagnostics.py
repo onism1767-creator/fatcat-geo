@@ -54,7 +54,7 @@ def test_retrieval_absent_fails_with_rank_evidence():
     finding = diagnose_retrieval(make_metric(0, 30), [])
     assert finding.status is StageStatus.FAIL
     assert any("从未进入检索候选" in line for line in zh_lines(finding))
-    assert any("判定阈值" in line for line in zh_lines(finding))  # 阈值自报进口径
+    assert any("操作阈值(v1 初始值,未经校准)" in line for line in zh_lines(finding))  # 阈值自报进口径
 
 
 def test_retrieval_stable_presence_passes_with_rank_summary():
@@ -95,13 +95,27 @@ def test_citation_verification_lines():
     from diagnosis.citation_diag import VerificationSummary
 
     verification = VerificationSummary(
-        estimate=estimate_proportion(3, 30), checked_urls=5, unreachable=1, soft_misses=2,
+        attempted=5, verified_match=1, content_mismatch=1, fetch_blocked=2, unparsed=1, unreachable=0,
     )
+    assert verification.decidable == 2 and verification.coverage == 0.4
     finding = diagnose_citation(make_metric(6, 30), verification=verification)
     lines = "\n".join(zh_lines(finding))
     assert "三档证据口径" in lines and "不轻信平台引用" in lines
-    assert "已核验被引概率" in lines
-    assert "不可达 1 条" in lines and "疑似软 404" in lines
+    assert "已核验被引概率" not in lines  # v0.4.13:运行级核验概率已撤销
+    assert "正文见品牌 1" in lines and "被拦截(401/403/429/503)2" in lines and "非 HTML 未解析 1" in lines
+    assert "核验覆盖率:2/5 = 40%" in lines
+    assert "不说明平台引用有问题" in lines  # 抓不到 ≠ 引用无效
+
+
+def test_citation_verification_coverage_none_when_nothing_attempted():
+    from diagnosis.citation_diag import VerificationSummary
+
+    verification = VerificationSummary(
+        attempted=0, verified_match=0, content_mismatch=0, fetch_blocked=0, unparsed=0, unreachable=0,
+    )
+    assert verification.coverage is None
+    lines = "\n".join(zh_lines(diagnose_citation(make_metric(0, 30), verification=verification)))
+    assert "核验覆盖率" not in lines and "0 条唯一被引 URL" in lines
 
 
 def test_citation_competitor_comparison_lines():
