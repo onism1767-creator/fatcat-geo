@@ -29,6 +29,7 @@ from diagnosis.findings import (
     estimate_params,
     interval_status,
     msg,
+    variant_msgs,
 )
 from engine.metrics import ProportionEstimate
 from engine.scheduler import NeedSurfaceMetric
@@ -88,6 +89,7 @@ def diagnose_generative_retrieval(
     if triggered_estimate is not None:
         evidence.append(msg("genret.triggered", **estimate_params(triggered_estimate)))
     evidence.append(caliber_msg(presence_metric))
+    evidence.extend(variant_msgs(presence_metric))
     evidence.append(msg("retrieval.thresholds",
                         fail=thresholds.retrieval_fail_ci_high,
                         pass_=thresholds.retrieval_pass_ci_low))

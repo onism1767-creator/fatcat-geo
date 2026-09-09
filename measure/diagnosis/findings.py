@@ -81,7 +81,30 @@ def caliber_msg(metric: NeedSurfaceMetric) -> Msg:
         stop_reasons=", ".join(r.value for r in metric.stop_reasons),
         refusal=accounting.refusal_rate,
         failure=accounting.failure_rate,
+        n_variants=len(metric.variant_estimates),
     )
+
+
+def variant_msgs(metric: NeedSurfaceMetric) -> list[Msg]:
+    """问法并列 + 措辞敏感警示(v0.4.13 条目 2)。问法是语义层的独立单位,需求层
+    合并估计只是冻结问法集上的观测率;任意两问法可信区间不重叠即措辞敏感。
+    单问法无并列可言,返回空。"""
+    items = [
+        msg("common.variant_item", idx=i, **estimate_params(e))
+        if e is not None else msg("common.variant_item_none", idx=i)
+        for i, e in enumerate(metric.variant_estimates, start=1)
+    ]
+    if len(items) < 2:
+        return []
+    lines = [msg("common.per_variant", items=items)]
+    estimates = [e for e in metric.variant_estimates if e is not None]
+    if any(
+        a.ci_high < b.ci_low or b.ci_high < a.ci_low
+        for i, a in enumerate(estimates)
+        for b in estimates[i + 1:]
+    ):
+        lines.append(msg("common.variant_sensitive"))
+    return lines
 
 
 def interval_status(

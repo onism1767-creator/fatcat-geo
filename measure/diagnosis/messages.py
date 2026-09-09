@@ -37,10 +37,29 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "Invalid-sample share exceeds threshold (LOW_CONFIDENCE); definitive verdicts are downgraded to WEAK (§7.3)",
     },
     "common.caliber": {
-        "zh": "口径:surface={surface} model={model} N_valid={n_valid}/{n_total} "
-              "stop_reasons=[{stop_reasons}] 拒答率={refusal:.0%} 失败率={failure:.0%}",
-        "en": "Caliber: surface={surface} model={model} N_valid={n_valid}/{n_total} "
+        "zh": "口径(冻结问法集上的观测率,不外推到需求总体):surface={surface} model={model} "
+              "问法数={n_variants} N_valid={n_valid}/{n_total} stop_reasons=[{stop_reasons}] "
+              "拒答率={refusal:.0%} 失败率={failure:.0%}",
+        "en": "Caliber (observed rate on the frozen prompt set; not extrapolated to the need population): "
+              "surface={surface} model={model} prompts={n_variants} N_valid={n_valid}/{n_total} "
               "stop_reasons=[{stop_reasons}] refusal={refusal:.0%} failure={failure:.0%}",
+    },
+    "common.per_variant": {
+        "zh": "各问法并列(问法是语义层的独立单位,运行只是问法内重复):{items}",
+        "en": "Per prompt (prompts are the independent semantic units; runs only repeat within a prompt): {items}",
+    },
+    "common.variant_item": {
+        "zh": "问法{idx} {point:.0%} [{low:.0%}–{high:.0%}](N={n})",
+        "en": "prompt {idx} {point:.0%} [{low:.0%}–{high:.0%}] (N={n})",
+    },
+    "common.variant_item_none": {
+        "zh": "问法{idx} 无有效样本",
+        "en": "prompt {idx} no valid samples",
+    },
+    "common.variant_sensitive": {
+        "zh": "问法间可信区间不重叠:措辞敏感,需求层合并估计不稳,建议增加问法数后复测(v0.4.13 条目 2)",
+        "en": "Credible intervals of different prompts do not overlap: wording-sensitive — the pooled "
+              "need-level estimate is unstable; add prompts and re-measure (v0.4.13 item 2)",
     },
     # ── RETRIEVAL ────────────────────────────────────────────────────
     "retrieval.headline.fail": {
@@ -235,9 +254,10 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "Sentiment analysis: not applicable — insufficient mention samples",
     },
     "repr.caliber": {
-        "zh": "口径:surface={surface} model={model} N_valid={n_valid}/{n_total} "
-              "stop_reasons=[{stop_reasons}] 意图={intent}",
-        "en": "Caliber: surface={surface} model={model} N_valid={n_valid}/{n_total} "
+        "zh": "口径(冻结问法集上的观测率,不外推到需求总体):surface={surface} model={model} "
+              "问法数={n_variants} N_valid={n_valid}/{n_total} stop_reasons=[{stop_reasons}] 意图={intent}",
+        "en": "Caliber (observed rate on the frozen prompt set; not extrapolated to the need population): "
+              "surface={surface} model={model} prompts={n_variants} N_valid={n_valid}/{n_total} "
               "stop_reasons=[{stop_reasons}] intent={intent}",
     },
     "repr.thresholds.neutral": {

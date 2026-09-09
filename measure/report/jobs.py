@@ -115,7 +115,7 @@ class DiagnosisJob:
         self.competitors: list[BrandSpec] = []
         self.surfaces: list[str] = []
         self.tier_id = "quick"
-        self.variants_per_need = 2
+        self.variants_per_need = 3  # v0.4.13 条目 2:问法是语义层独立单位,默认 3
         self.budget_usd: float | None = None
         self.dependency_enabled = False  # 检索依赖对照(第 9 章挂靠),默认关
         self.fingerprint = ""

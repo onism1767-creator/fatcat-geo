@@ -35,6 +35,7 @@ def metric(
         accounting=account_outcomes([Outcome.SUCCESS] * 10),
         stop_reasons=[StopReason.CI_CONVERGED],
         per_variant=[],
+        variant_estimates=[estimate],
     )
 
 

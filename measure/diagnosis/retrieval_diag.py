@@ -20,6 +20,7 @@ from diagnosis.findings import (
     estimate_params,
     interval_status,
     msg,
+    variant_msgs,
 )
 from engine.scheduler import NeedSurfaceMetric
 
@@ -60,6 +61,7 @@ def diagnose_retrieval(
         msg("retrieval.presence", **estimate_params(estimate)),
         rank_line,
         caliber_msg(metric),
+        *variant_msgs(metric),
         msg("retrieval.thresholds",
             fail=thresholds.retrieval_fail_ci_high, pass_=thresholds.retrieval_pass_ci_low),
         *notes,

@@ -154,7 +154,7 @@ def create_app(
         competitors_selected: list[int] = Form([]),
         surfaces_selected: list[str] = Form([]),
         tier: str = Form("quick"),
-        variants: int = Form(2),
+        variants: int = Form(3),
         budget: str = Form(""),
         dependency: str = Form(""),
     ):
@@ -182,7 +182,7 @@ def create_app(
         surfaces = [s for s in surfaces_selected if s in adapters]
         if not surfaces:
             return back("至少选择一个 surface")
-        if tier not in TIERS or not 1 <= variants <= 3:
+        if tier not in TIERS or not 1 <= variants <= 5:
             return back("参数非法")
         budget_usd = float(budget) if budget.strip() else None
 

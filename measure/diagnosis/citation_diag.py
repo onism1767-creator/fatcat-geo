@@ -17,6 +17,7 @@ from diagnosis.findings import (
     estimate_params,
     interval_status,
     msg,
+    variant_msgs,
 )
 from engine.metrics import ProportionEstimate
 from engine.models import FrozenModel
@@ -86,6 +87,7 @@ def diagnose_citation(
     evidence = [
         msg("citation.rate", **estimate_params(estimate)),
         caliber_msg(metric),
+        *variant_msgs(metric),
         msg("citation.thresholds",
             fail=thresholds.citation_fail_ci_high, pass_=thresholds.citation_pass_ci_low),
     ]

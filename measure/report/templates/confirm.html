@@ -47,7 +47,7 @@
           <option value="{{ tid }}" {{ "selected" if tid == "quick" else "" }}>{{ t["tier_" + tid] }}</option>
         {% endfor %}</select>
         <label>{{ t["variants_label"] }}</label>
-        <select name="variants"><option>1</option><option selected>2</option><option>3</option></select>
+        <select name="variants"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select>
       </div>
       <div><label>{{ t["budget_label"] }}</label>
         <input type="number" name="budget" step="0.1" min="0.1" placeholder="2.0">

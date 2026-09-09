@@ -33,6 +33,7 @@ def presence_metric(estimate: ProportionEstimate | None) -> NeedSurfaceMetric:
         accounting=account_outcomes([Outcome.SUCCESS] * 20),
         stop_reasons=[StopReason.CI_CONVERGED],
         per_variant=[],
+        variant_estimates=[estimate] if estimate is not None else [],
     )
 
 

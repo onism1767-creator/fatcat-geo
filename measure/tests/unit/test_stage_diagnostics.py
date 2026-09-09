@@ -38,7 +38,34 @@ def make_metric(k: int, n: int, *, refused: int = 0, failed: int = 0) -> NeedSur
         accounting=account_outcomes(outcomes),
         stop_reasons=[StopReason.CI_CONVERGED],
         per_variant=[],
+        variant_estimates=[estimate_proportion(k, n)] if n else [],
     )
+
+
+def test_variant_lines_and_wording_sensitivity():
+    """v0.4.13 条目 2:问法并列;任意两问法可信区间不重叠 → 措辞敏感警示;单问法无并列。"""
+    from diagnosis.findings import variant_msgs
+
+    stable = make_metric(6, 16).model_copy(update={
+        "variant_estimates": [estimate_proportion(3, 8), estimate_proportion(3, 8)],
+    })
+    lines = [render_msg(m, "zh") for m in variant_msgs(stable)]
+    assert len(lines) == 1 and "问法1 38%" in lines[0] and "问法2 38%" in lines[0]
+
+    sensitive = make_metric(8, 16).model_copy(update={
+        "variant_estimates": [estimate_proportion(8, 8), estimate_proportion(0, 8)],
+    })
+    lines = [render_msg(m, "zh") for m in variant_msgs(sensitive)]
+    assert len(lines) == 2 and "措辞敏感" in lines[1]
+
+    with_gap = make_metric(3, 8).model_copy(update={
+        "variant_estimates": [estimate_proportion(3, 8), None],
+    })
+    assert "问法2 无有效样本" in render_msg(variant_msgs(with_gap)[0], "zh")
+
+    assert variant_msgs(make_metric(3, 8)) == []
+    caliber = "\n".join(zh_lines(diagnose_citation(make_metric(3, 8))))
+    assert "冻结问法集上的观测率" in caliber and "问法数=1" in caliber
 
 
 # ── RETRIEVAL ────────────────────────────────────────────────────────

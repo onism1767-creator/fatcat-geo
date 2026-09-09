@@ -93,8 +93,10 @@ class SamplingResult(FrozenModel):
 
 class NeedSurfaceMetric(FrozenModel):
     """需求层指标(第 3 章步骤 7):同一 InformationNeed 在一个 surface 上
-    跨全部问法的合并观测。合并是各问法命中的混合比例——问法间的差异
-    保留在 per_variant 明细里,报告可展开。"""
+    跨全部问法的合并观测。合并是各问法命中的混合比例,正式名称是
+    「冻结问法集上的观测率」(v0.4.13 条目 2):问法是语义层的独立单位,运行只是
+    问法内的重复,合并估计不外推到需求总体;问法间的差异靠 variant_estimates
+    并列展示,per_variant 保留完整明细。"""
 
     information_need_id: str
     provider: str
@@ -106,6 +108,7 @@ class NeedSurfaceMetric(FrozenModel):
     accounting: SampleAccounting
     stop_reasons: list[StopReason]  # 逐问法,随口径进报告
     per_variant: list[SamplingResult]
+    variant_estimates: list[ProportionEstimate | None]  # 逐问法,与问法同序;分母为空则 None
 
 
 def aggregate_need_surface(
@@ -130,6 +133,7 @@ def aggregate_need_surface(
         accounting=merge_accounting(r.accounting for r in results),
         stop_reasons=[r.stop_reason for r in results],
         per_variant=results,
+        variant_estimates=[r.estimate for r in results],
     )
 
 

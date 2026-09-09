@@ -58,6 +58,7 @@ def make_metric(k: int, n: int) -> NeedSurfaceMetric:
         accounting=account_outcomes([Outcome.SUCCESS] * n),
         stop_reasons=[StopReason.CI_CONVERGED, StopReason.MAX_N_REACHED],
         per_variant=[],
+        variant_estimates=[estimate_proportion(k, n)],
     )
 
 

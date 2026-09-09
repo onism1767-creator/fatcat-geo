@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import threading
 from collections import Counter
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
@@ -39,7 +40,7 @@ from engine.detectors.query_trace import QueryTraceDetector
 from engine.detectors.retrieval_rank import RetrievalRankDetector
 from engine.detectors.runner import observe_runs
 from engine.detectors.sentiment import SentimentDetector
-from engine.metrics import estimate_proportion
+from engine.metrics import ProportionEstimate, estimate_proportion
 from engine.models import (
     UNKNOWN,
     BrandSpec,
@@ -90,6 +91,20 @@ def _hit_fn_for(adapter: SurfaceAdapter, brand: BrandSpec):
 
         return cited
     raise ValueError(f"surface {adapter.meta().surface} 未声明可作收敛判据的能力")
+
+
+def _variant_estimates(
+    runs: list[SurfaceRun],
+    variant_ids: list[str],
+    hit: Callable[[SurfaceRun], bool | None],
+) -> list[ProportionEstimate | None]:
+    """按问法分组的估计(与问法同序),供需求层指标并列展示问法间分歧(v0.4.13 条目 2)。"""
+    hits: dict[str, list[bool]] = {vid: [] for vid in variant_ids}
+    for run in runs:
+        value = hit(run)
+        if value is not None and run.prompt_variant_id in hits:
+            hits[run.prompt_variant_id].append(value)
+    return [estimate_proportion(sum(v), len(v)) if v else None for v in hits.values()]
 
 
 def _mention_hit_fn(brand: BrandSpec):
@@ -268,6 +283,7 @@ def _execute(
     for need in job.needs:
         need_runs: list[SurfaceRun] = []
         blocks: list[SurfaceDiagnosis] = []
+        variant_ids = [v.variant_id for v in variants_by_need[need.need_id]]
 
         # ── 第一遍:公共收集 + 裸检索类 surface 的检索指标(按 provider 归属)──
         # 裸检索通道是某家 provider 自己的仪器(如 perplexity 双通道),
@@ -311,6 +327,10 @@ def _execute(
                 "k_hits": k_mention,
                 "estimate": estimate_proportion(k_mention, len(mention_obs)) if mention_obs else None,
                 "per_variant": [],
+                "variant_estimates": _variant_estimates(
+                    runs, variant_ids,
+                    lambda run: None if (o := mention_det.detect(run, job.brand)) is None else o.mentioned,
+                ),
             })
             sentiment_counts = Counter(
                 s_obs.sentiment for run in runs if (s_obs := sentiment_det.detect(run, job.brand))
@@ -351,6 +371,10 @@ def _execute(
                         "k_hits": k_presence,
                         "estimate": estimate_proportion(k_presence, len(presence_obs)),
                         "per_variant": [],
+                        "variant_estimates": _variant_estimates(
+                            runs, variant_ids,
+                            lambda run: None if (o := rank_det.detect(run, job.brand)) is None else o.present,
+                        ),
                     })
                 query_obs = [q_obs for run in runs if (q_obs := query_det.detect(run, job.brand))]
                 gen_cited_obs = [

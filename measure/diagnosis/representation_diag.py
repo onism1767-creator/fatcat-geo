@@ -22,6 +22,7 @@ from diagnosis.findings import (
     estimate_params,
     interval_status,
     msg,
+    variant_msgs,
 )
 from engine.models import NeedIntent, Sentiment
 from engine.scheduler import NeedSurfaceMetric
@@ -52,6 +53,7 @@ def _caliber(metric: NeedSurfaceMetric, intent: NeedIntent) -> Msg:
         n_total=accounting.n_total,
         stop_reasons=", ".join(r.value for r in metric.stop_reasons),
         intent=intent.value,
+        n_variants=len(metric.variant_estimates),
     )
 
 
@@ -82,6 +84,7 @@ def diagnose_representation(
                 evidence_lines=[
                     msg("repr.mention_rate", **estimate_params(estimate)),
                     caliber,
+                    *variant_msgs(mention_metric),
                     msg("repr.claims_note"),
                 ],
             )
@@ -100,6 +103,7 @@ def diagnose_representation(
                 msg("repr.thresholds.probe",
                     weak=thresholds.negative_share_weak, fail=thresholds.negative_share_fail),
                 caliber,
+                *variant_msgs(mention_metric),
                 msg("repr.claims_note"),
             ],
             low_confidence=accounting.low_confidence,
@@ -137,6 +141,7 @@ def diagnose_representation(
                 fail=thresholds.mention_fail_ci_high, pass_=thresholds.mention_pass_ci_low,
                 neg=thresholds.negative_share_weak),
             caliber,
+            *variant_msgs(mention_metric),
             msg("repr.claims_note"),
             *notes,
         ],

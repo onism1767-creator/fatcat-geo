@@ -166,6 +166,7 @@ def test_aggregate_pools_hits_and_denominators():
     assert metric.accounting.n_total == 14
     assert metric.stop_reasons == [StopReason.CI_CONVERGED, StopReason.MAX_N_REACHED]
     assert len(metric.per_variant) == 2
+    assert [e.n for e in metric.variant_estimates] == [8, 6]  # 逐问法估计与问法同序
 
 
 def test_aggregate_rejects_mixed_heads():
