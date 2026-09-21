@@ -8,6 +8,7 @@ LLM 辅助任务同样走适配器(第 11 章),不绕过 L1。生成调用是辅
 from __future__ import annotations
 
 import re
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import structlog
@@ -77,7 +78,11 @@ def generate_variants(
     if not lines:
         raise ValueError("变体生成失败:回答中解析不出任何问法")
     log.info("variants_generated", need_id=need.need_id, requested=count, parsed=len(lines))
+    # 同批逐条错开 1 微秒:库里按 created_at 排问法,而 Windows 上 Python 时钟粒度毫秒级,
+    # 不错开则同批平局,续跑 / 重新生成报告时问法顺序看运气
+    batch_start = datetime.now(UTC)
     return [
-        PromptVariant(need_id=need.need_id, prompt_text=line, origin=PromptOrigin.ASSISTED)
-        for line in lines
+        PromptVariant(need_id=need.need_id, prompt_text=line, origin=PromptOrigin.ASSISTED,
+                      created_at=batch_start + timedelta(microseconds=index))
+        for index, line in enumerate(lines)
     ]

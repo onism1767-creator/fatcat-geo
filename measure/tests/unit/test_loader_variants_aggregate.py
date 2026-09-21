@@ -129,6 +129,16 @@ def test_generate_variants_end_to_end():
     assert all(v.origin is PromptOrigin.ASSISTED and v.need_id == "need-v" for v in variants)
 
 
+def test_generated_variants_keep_generation_order_through_storage_sort():
+    """库里按 created_at 排问法;同批生成的几条时间戳必须严格递增,否则平局后顺序看运气
+    (Windows 上 Python 时钟粒度毫秒级,一次列表推导里的几条会撞成同一时刻)。"""
+    need = InformationNeed(need_id="need-v", statement="中小团队 CRM 选型", intent=NeedIntent.DISCOVERY)
+    adapter = _FakeGenAdapter("问法甲\n问法乙\n问法丙\n问法丁\n")
+    variants = generate_variants(adapter, need, count=4)
+    stamps = [v.created_at for v in variants]
+    assert all(later > earlier for earlier, later in zip(stamps, stamps[1:], strict=False))
+
+
 def test_generate_variants_fails_loudly_on_refusal():
     need = InformationNeed(need_id="need-v", statement="测试", intent=NeedIntent.DISCOVERY)
     with pytest.raises(ValueError, match="变体生成失败"):
