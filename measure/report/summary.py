@@ -17,7 +17,7 @@ from diagnosis.findings import Msg, Stage, StageFinding, msg
 from diagnosis.recommender import Recommendation
 from diagnosis.verdict import SurfaceVerdict
 from engine.models import FrozenModel, NeedIntent
-from report.jobs import NeedReport
+from report.jobs import NeedReport, Target
 
 _STAGE_ORDER = (Stage.ACCESS, Stage.RETRIEVAL, Stage.CITATION, Stage.REPRESENTATION)
 
@@ -91,10 +91,15 @@ def _engine_brief(sd: SurfaceDiagnosis, display: str) -> EngineBrief:
     )
 
 
+def _display(sd_surface: str, sd_model: str, names: dict[str, str]) -> str:
+    """被测对象(仪器 × 型号,v0.4.19)的显示名;名单里没有(型号已下架等)时如实用内部名,不猜。"""
+    return names.get(Target(surface=sd_surface, model=sd_model).key, f"{sd_surface} · {sd_model}")
+
+
 def _need_brief(report: NeedReport, names: dict[str, str]) -> NeedBrief:
     by_stage: dict[Stage | None, list[str]] = defaultdict(list)
     for sd in report.diagnosis.surfaces:
-        by_stage[sd.primary_failure].append(names.get(sd.surface, sd.surface))
+        by_stage[sd.primary_failure].append(_display(sd.surface, sd.model, names))
     groups = [
         BottleneckGroup(stage=stage, surfaces=by_stage[stage])
         for stage in (*_STAGE_ORDER, None)
@@ -111,23 +116,23 @@ def _need_brief(report: NeedReport, names: dict[str, str]) -> NeedBrief:
 def summarize(
     reports: list[NeedReport],
     verdicts: list[SurfaceVerdict],
-    display_names: dict[str, str],
+    target_names: dict[str, str],
 ) -> ReportSummary:
     """跨需求、跨 AI 去重建议:同一证据条目只出现一次,记下被哪些(需求 × AI)诊断支持;
-    排序 = 证据等级强者在前,同级按支持数多者在前。显示名缺失时如实用 surface 名,不猜。"""
+    排序 = 证据等级强者在前,同级按支持数多者在前。target_names 的键是 Target.key(仪器 × 型号)。"""
     seen: dict[str, Recommendation] = {}
     supporters: dict[str, list[tuple[str, str]]] = defaultdict(list)
     engines: dict[str, list[EngineBrief]] = {}
     for report in reports:
         engines[report.need.need_id] = [
-            _engine_brief(sd, display_names.get(sd.surface, sd.surface))
+            _engine_brief(sd, _display(sd.surface, sd.model, target_names))
             for sd in report.diagnosis.surfaces
         ]
         for sd in report.diagnosis.surfaces:
             for rec in sd.recommendations:
                 seen.setdefault(rec.evidence_id, rec)
                 supporters[rec.evidence_id].append(
-                    (report.need.statement, display_names.get(sd.surface, sd.surface))
+                    (report.need.statement, _display(sd.surface, sd.model, target_names))
                 )
     actions = sorted(
         (PriorityAction(recommendation=rec, supporters=supporters[eid]) for eid, rec in seen.items()),
@@ -138,13 +143,13 @@ def summarize(
         verdicts=[
             VerdictLine(
                 surface=v.surface,
-                display=display_names.get(v.surface, v.surface),
-                message=msg(v.code, ai=display_names.get(v.surface, v.surface)),
+                display=_display(v.surface, v.model, target_names),
+                message=msg(v.code, ai=_display(v.surface, v.model, target_names)),
                 missing=[msg(code) for code in v.missing],
             )
             for v in verdicts
         ],
-        needs=[_need_brief(r, display_names) for r in reports],
+        needs=[_need_brief(r, target_names) for r in reports],
         actions=actions,
         engines=engines,
     )

@@ -90,12 +90,14 @@ class SurfaceMeta(FrozenModel):
     default_model: str
     capabilities: CapabilityRegistry
     unit_prices: dict[str, float] = {}  # 计费单价,键为该 surface 的计费口径(如每千输入 token)
-    # 单次调用期望成本,确认页预估用(v0.4.6):由适配器自行声明,单一真相源;
-    # 口径二选一且须在适配器内注明——实测均值 或 推导上界。真实计费仍以 SurfaceRun.cost_usd 为准。
-    est_cost_per_call_usd: float
-    # search_disabled 模式(检索依赖诊断闭卷腿)的单次期望成本(v0.4.7):
+    # 单次调用期望成本,确认页预估用(v0.4.6;v0.4.19 起按型号报价):键 = models 里的每个型号
+    # (加载器强制全覆盖——型号是口径的一部分,各测各的,漏报一个预估就静默漏计)。
+    # 由适配器自行声明,单一真相源;口径二选一且须在适配器内注明——实测均值 或 推导上界。
+    # 真实计费仍以 SurfaceRun.cost_usd 为准。
+    est_cost_per_call_usd: dict[str, float]
+    # search_disabled 模式(检索依赖诊断闭卷腿)的单次期望成本(v0.4.7),同样按型号:
     # 声明 supports_search_disabled 的适配器必须报价(加载器强制),否则为 None。
-    est_cost_per_call_search_disabled_usd: float | None = None
+    est_cost_per_call_search_disabled_usd: dict[str, float] | None = None
 
 
 class SurfaceAdapter(ABC):

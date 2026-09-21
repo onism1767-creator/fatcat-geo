@@ -97,11 +97,17 @@ class GeminiGroundingAdapter(SurfaceAdapter):
                 "output_usd_per_mtok": _TOKEN_PRICES_PER_MTOK[_DEFAULT_MODEL][1],
                 "search_usd_per_query": _SEARCH_USD_PER_QUERY,
             },
-            # 口径:推导上界(默认模型,按 3 条检索词 + 探针实测 token 量):
-            # 3×$0.014 + (200×$0.75 + 3000×$3.75)/1e6 ≈ $0.054 → 取 $0.06,待实测校准
-            est_cost_per_call_usd=0.06,
-            # 闭卷腿口径:同源推导,无检索项:(2300+950)×$3.75/1e6 ≈ $0.012 → $0.015
-            est_cost_per_call_search_disabled_usd=0.015,
+            # 口径:推导上界,按型号各算(3 条检索词 + 探针实测 token 量),有足量实测后
+            # 确认页改读实测均值:默认型号 3×$0.014 + (200×$0.75 + 3000×$3.75)/1e6 ≈ $0.054
+            est_cost_per_call_usd={
+                model: round(3 * _SEARCH_USD_PER_QUERY + (200 * price_in + 3000 * price_out) / 1e6, 3)
+                for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
+            },
+            # 闭卷腿口径:同源推导,无检索项:默认型号 (2300+950)×$3.75/1e6 ≈ $0.012
+            est_cost_per_call_search_disabled_usd={
+                model: round((2300 + 950) * price_out / 1e6, 3)
+                for model, (_, price_out) in _TOKEN_PRICES_PER_MTOK.items()
+            },
         )
 
     def ask(self, request: AskRequest) -> SurfaceRun:

@@ -79,6 +79,17 @@ def build_adapters(
                 f"{entry.name} 声明了 supports_search_disabled 但未报闭卷单价"
                 "(est_cost_per_call_search_disabled_usd)——预估会静默漏计,禁止带病运行"
             )
+        # 型号是口径的一部分(v0.4.19):每个型号各测各的,报价必须逐型号全覆盖
+        for label, prices in (("est_cost_per_call_usd", meta.est_cost_per_call_usd),
+                              ("est_cost_per_call_search_disabled_usd",
+                               meta.est_cost_per_call_search_disabled_usd)):
+            if prices is not None and set(prices) != set(meta.models):
+                raise ValueError(
+                    f"{entry.name} 的 {label} 与型号清单不一致:报价 {sorted(prices)} vs "
+                    f"型号 {sorted(meta.models)}——漏报的型号预估会静默漏计,禁止带病运行"
+                )
+        if meta.default_model not in meta.models:
+            raise ValueError(f"{entry.name} 的默认型号 {meta.default_model!r} 不在型号清单里")
         adapters[entry.name] = adapter
         log.info("surface_loaded", surface=entry.name, provider=entry.provider)
     return adapters

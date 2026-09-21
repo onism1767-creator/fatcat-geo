@@ -54,6 +54,7 @@ class VerdictInput(FrozenModel):
 
 class SurfaceVerdict(FrozenModel):
     surface: str
+    model: str  # 型号是口径的一部分(v0.4.19):同一 surface 的每个型号各有一句话
     code: str  # verdict.* 结论码,参数 ai 由报告层代入显示名
     missing: list[str]  # verdict.missing.* 结论码
 
@@ -79,7 +80,7 @@ def _lookup(probe: Band | None, organic: Band | None, site: bool | None) -> str:
     return table[organic][0 if used else 1]
 
 
-def surface_verdict(surface: str, inputs: list[VerdictInput]) -> SurfaceVerdict:
+def surface_verdict(surface: str, model: str, inputs: list[VerdictInput]) -> SurfaceVerdict:
     probe = combine([i.mention for i in inputs if i.intent in PROBE_INTENTS and i.mention is not None])
     organic = combine([
         i.mention for i in inputs if i.intent not in PROBE_INTENTS and i.mention is not None
@@ -95,4 +96,4 @@ def surface_verdict(surface: str, inputs: list[VerdictInput]) -> SurfaceVerdict:
         )
         if absent
     ]
-    return SurfaceVerdict(surface=surface, code=_lookup(probe, organic, site), missing=missing)
+    return SurfaceVerdict(surface=surface, model=model, code=_lookup(probe, organic, site), missing=missing)

@@ -49,6 +49,24 @@ class JobState(StrEnum):
     INTERRUPTED = "INTERRUPTED"  # 进程中断(重启后自快照恢复),可续跑(v0.4.9)
 
 
+class Target(FrozenModel):
+    """一个被测对象 = 一台仪器(surface)上的一个型号(v0.4.19,用户拍板:每家 AI 的全部型号一起测)。
+    型号是口径的一部分:同一家 AI 的不同型号回答不同,各测各的、各报各的,样本与指标不合并。"""
+
+    surface: str
+    model: str
+
+    @property
+    def key(self) -> str:
+        """表单值 / 模板字典键(surface 名与型号名都不含 "::")。"""
+        return f"{self.surface}::{self.model}"
+
+    @classmethod
+    def parse(cls, key: str) -> Target:
+        surface, _, model = key.partition("::")
+        return cls(surface=surface, model=model)
+
+
 class Tier(FrozenModel):
     """档位。次数按「每种说法」计(调度器逐问法执行策略);面向用户的说明在 report/i18n.py。"""
 
@@ -155,7 +173,7 @@ class DiagnosisJob:
         self.phase = "phase_draft"
         self.needs: list[InformationNeed] = []
         self.competitors: list[BrandSpec] = []
-        self.surfaces: list[str] = []
+        self.targets: list[Target] = []  # 被测对象(仪器 × 型号),确认时冻结
         self.tier_id = "quick"
         self.variants_per_need = 3  # v0.4.13 条目 2:问法是语义层独立单位,默认 3
         self.budget_usd: float | None = None
@@ -190,7 +208,7 @@ class DiagnosisJob:
         *,
         needs: list[InformationNeed],
         competitors: list[BrandSpec],
-        surfaces: list[str],
+        targets: list[Target],
         tier_id: str,
         variants_per_need: int,
         budget_usd: float | None,
@@ -199,7 +217,7 @@ class DiagnosisJob:
         """确认即冻结:任务快照 + config_fingerprint(16.3)。改题 = 新任务新基线。"""
         self.needs = needs
         self.competitors = competitors
-        self.surfaces = surfaces
+        self.targets = targets
         self.tier_id = tier_id
         self.variants_per_need = variants_per_need
         self.budget_usd = budget_usd
@@ -211,7 +229,7 @@ class DiagnosisJob:
             "locale": self.locale,
             "needs": [{"statement": n.statement, "intent": n.intent.value} for n in needs],
             "competitors": [c.model_dump() for c in competitors],
-            "surfaces": surfaces,
+            "targets": [t.model_dump() for t in targets],
             "tier": tier_id,
             "variants_per_need": variants_per_need,
             "budget_usd": budget_usd,
@@ -238,7 +256,7 @@ class DiagnosisJob:
             "locale": self.locale,
             "needs": [n.model_dump(mode="json") for n in self.needs],
             "competitors": [c.model_dump(mode="json") for c in self.competitors],
-            "surfaces": self.surfaces,
+            "targets": [t.model_dump() for t in self.targets],
             "tier_id": self.tier_id,
             "variants_per_need": self.variants_per_need,
             "budget_usd": self.budget_usd,
@@ -284,7 +302,7 @@ class DiagnosisJob:
         job.state = JobState(snapshot["state"])
         job.needs = [InformationNeed.model_validate(n) for n in snapshot["needs"]]
         job.competitors = [BrandSpec.model_validate(c) for c in snapshot["competitors"]]
-        job.surfaces = list(snapshot["surfaces"])
+        job.targets = [Target.model_validate(t) for t in snapshot["targets"]]
         job.tier_id = snapshot["tier_id"]
         job.variants_per_need = snapshot["variants_per_need"]
         job.budget_usd = snapshot["budget_usd"]

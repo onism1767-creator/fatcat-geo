@@ -44,8 +44,14 @@ def test_build_adapters_with_key_and_capability_consistency():
         "openai_web_search", "gemini_grounding",
     }
     for name, adapter in adapters.items():
-        assert adapter.meta().surface == name  # 身份与能力一致性校验已通过
-        assert adapter.meta().est_cost_per_call_usd > 0  # 预估分价:每个 surface 必须报价
+        meta = adapter.meta()
+        assert meta.surface == name  # 身份与能力一致性校验已通过
+        # 预估分价(v0.4.19 按型号):每个型号都必须报价且为正——漏一个,预估就静默漏计
+        assert set(meta.est_cost_per_call_usd) == set(meta.models)
+        assert all(price > 0 for price in meta.est_cost_per_call_usd.values())
+        if meta.est_cost_per_call_search_disabled_usd is not None:
+            assert set(meta.est_cost_per_call_search_disabled_usd) == set(meta.models)
+        assert meta.default_model in meta.models
 
 
 def test_build_adapters_skips_surfaces_without_key():

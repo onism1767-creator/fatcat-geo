@@ -35,7 +35,7 @@
     <tr><th>{{ t["col_ai"] }}</th>{% for stage in funnel_stages %}<th>{{ stage_msg(stage)|plain(lang) }}</th>{% endfor %}<th>{{ t["dep_col"] }}</th></tr>
     {% for sd in d.surfaces %}
     <tr>
-      <td><b>{{ display_names.get(sd.surface, sd.surface) }}</b></td>
+      <td><b>{{ target_names.get(sd.surface ~ "::" ~ sd.model, sd.surface ~ " · " ~ sd.model) }}</b></td>
       {% for finding in sd.findings %}
       <td><span class="chip {{ finding.status.value }}">{{ status_labels[finding.status.value] }}</span></td>
       {% endfor %}

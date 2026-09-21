@@ -108,12 +108,19 @@ class OpenAIWebSearchAdapter(SurfaceAdapter):
                 "output_usd_per_mtok": _TOKEN_PRICES_PER_MTOK[_DEFAULT_MODEL][1],
                 "search_usd_per_call": _SEARCH_USD_PER_CALL,
             },
-            # 口径:推导上界(默认模型;无检索次数上限参数,按 3 次检索、每次
-            # 约 1.2 万检索内容 token 的 Potato 校准值估):
-            # (2000 + 3×12000)/1e6×$2 + 2000/1e6×$12 + 3×$0.01 ≈ $0.13,待实测校准
-            est_cost_per_call_usd=0.13,
-            # 闭卷腿口径:同源推导上界,无检索项:(2000×$2 + 2000×$12)/1e6 ≈ $0.03
-            est_cost_per_call_search_disabled_usd=0.03,
+            # 口径:推导上界,按型号各算(无检索次数上限参数,按 3 次检索、每次约 1.2 万
+            # 检索内容 token 的 Potato 校准值估),有足量实测后确认页改读实测均值:
+            # 默认型号 (2000 + 3×12000)/1e6×$2 + 2000/1e6×$12 + 3×$0.01 ≈ $0.13
+            est_cost_per_call_usd={
+                model: round((2000 + 3 * 12000) / 1e6 * price_in + 2000 / 1e6 * price_out
+                             + 3 * _SEARCH_USD_PER_CALL, 3)
+                for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
+            },
+            # 闭卷腿口径:同源推导上界,无检索项:默认型号 (2000×$2 + 2000×$12)/1e6 ≈ $0.03
+            est_cost_per_call_search_disabled_usd={
+                model: round((2000 * price_in + 2000 * price_out) / 1e6, 3)
+                for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
+            },
         )
 
     def ask(self, request: AskRequest) -> SurfaceRun:

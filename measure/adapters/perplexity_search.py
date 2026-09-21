@@ -55,7 +55,7 @@ class PerplexitySearchAdapter(SurfaceAdapter):
             default_model=_MODEL_LABEL,
             capabilities=_CAPABILITIES,
             unit_prices={"request_usd": 0.005},  # 按每千次请求价目折算,待官方价目核对
-            est_cost_per_call_usd=0.005,  # 口径:按请求计费,固定价即期望值
+            est_cost_per_call_usd={_MODEL_LABEL: 0.005},  # 口径:按请求计费,固定价即期望值
         )
 
     def ask(self, request: AskRequest) -> SurfaceRun:

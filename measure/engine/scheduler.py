@@ -165,7 +165,8 @@ class SequentialSampler:
     ) -> SamplingResult:
         """prior_runs:幂等续跑(v0.4.9)——本计划已落库的运行按时间序作为前缀,
         指标、成本、熔断窗口与预算合并计算;既有样本已满足停止条件时零新调用。
-        幂等键 = (问法 × surface × 检索模式),尝试序号由时间戳顺序隐含。"""
+        幂等键 = (问法 × surface × 型号 × 检索模式),尝试序号由时间戳顺序隐含;
+        调用方传入的 prior_runs 必须已按这四项筛过(型号是口径的一部分,v0.4.19)。"""
         policy = policy or SamplingPolicy()
         meta = adapter.meta()
         resolved_model = model or meta.default_model

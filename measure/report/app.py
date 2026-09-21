@@ -45,6 +45,7 @@ from report.jobs import (
     DiagnosisJob,
     JobRegistry,
     JobState,
+    Target,
     preselect_candidates,
 )
 from report.summary import summarize
@@ -88,6 +89,14 @@ def create_app(
     templates.env.globals["stage_msg"] = lambda stage: msg(f"stage.{stage.value}")
     templates.env.globals["access_headline"] = lambda overall: msg(f"access.headline.{overall.value.lower()}")
     display_names = {name: adapter.meta().display_name for name, adapter in adapters.items()}
+    # 被测对象(仪器 × 型号,v0.4.19)的显示名:只有一个型号的仪器直接用产品名,否则「产品名 · 型号」
+    target_names = {
+        Target(surface=name, model=model).key: (
+            display_names[name] if len(adapter.meta().models) == 1 else f"{display_names[name]} · {model}"
+        )
+        for name, adapter in adapters.items()
+        for model in adapter.meta().models
+    }
     registry = registry or JobRegistry()
     app.state.registry = registry
     app.state.adapters = adapters
@@ -103,6 +112,7 @@ def create_app(
         context.setdefault("level_labels", LEVEL_LABELS[lang])
         context.setdefault("state_labels", JOB_STATE_LABELS[lang])
         context.setdefault("display_names", display_names)  # AI 产品名(适配器 meta 声明)
+        context.setdefault("target_names", target_names)
         return templates.TemplateResponse(request, name, context)
 
     def redirect(request: Request, path: str) -> RedirectResponse:
@@ -170,27 +180,33 @@ def create_app(
             return not_found(request)
         if job.state is not JobState.DRAFT:
             return redirect(request, f"/jobs/{job.job_id}")
-        # 预估口径(v0.4.17):有足量历史就按该 surface 的实测均价与均时,否则用适配器声明的单价
-        stats = {(st.surface, st.search_mode): st for st in stats_provider()}
+        # 预估口径(v0.4.17;v0.4.19 按型号):有足量历史就按该对象的实测均价与均时,否则用适配器声明的单价
+        stats = {(st.surface, st.model, st.search_mode): st for st in stats_provider()}
 
-        def unit_price(name: str, mode: SearchMode, declared: float) -> tuple[float, bool]:
-            stat = stats.get((name, mode.value))
+        def unit_price(target: Target, mode: SearchMode, declared: float) -> tuple[float, bool]:
+            stat = stats.get((target.surface, target.model, mode.value))
             if stat is not None and stat.n >= MIN_STAT_SAMPLES:
                 return stat.avg_cost_usd, True
             return declared, False
 
-        surface_costs: dict[str, float] = {}
+        target_costs: dict[str, float] = {}
+        dependency: dict[str, float] = {}
         measured_names: list[str] = []
         declared_names: list[str] = []
-        for name, a in adapters.items():
-            price, is_measured = unit_price(name, SearchMode.DEFAULT, a.meta().est_cost_per_call_usd)
-            surface_costs[name] = price
-            (measured_names if is_measured else declared_names).append(display_names[name])
-        dependency = {
-            name: unit_price(name, SearchMode.SEARCH_DISABLED, declared)[0]
-            for name, a in adapters.items()
-            if (declared := a.meta().est_cost_per_call_search_disabled_usd) is not None
-        }
+        target_groups: list[tuple[str, list[Target]]] = []  # 按 AI 分组列出全部型号(默认全勾)
+        for name in sorted(adapters):
+            meta = adapters[name].meta()
+            group = [Target(surface=name, model=model) for model in meta.models]
+            target_groups.append((display_names[name], group))
+            for target in group:
+                price, is_measured = unit_price(
+                    target, SearchMode.DEFAULT, meta.est_cost_per_call_usd[target.model])
+                target_costs[target.key] = price
+                (measured_names if is_measured else declared_names).append(target_names[target.key])
+                if meta.est_cost_per_call_search_disabled_usd is not None:
+                    dependency[target.key] = unit_price(
+                        target, SearchMode.SEARCH_DISABLED,
+                        meta.est_cost_per_call_search_disabled_usd[target.model])[0]
         timed = [st for st in stats.values() if st.n >= MIN_STAT_SAMPLES]
         seconds_per_call = (
             sum(st.avg_latency_ms * st.n for st in timed) / sum(st.n for st in timed) / 1000
@@ -198,7 +214,7 @@ def create_app(
         )
         estimate_constants = json.dumps({
             "tier_calls": {tid: t.expected_calls_per_plan for tid, t in TIERS.items()},
-            "surface_costs": surface_costs,
+            "target_costs": target_costs,
             "dependency": dependency,
             "seconds_per_call": round(seconds_per_call, 1),
             "concurrency": PLAN_CONCURRENCY,
@@ -211,7 +227,7 @@ def create_app(
             basis.append(MESSAGES[lang]["est_basis_declared"].format(names="、".join(declared_names)))
         basis.append(MESSAGES[lang]["est_basis_tail"])
         return render(request, "confirm.html", job=job, tiers=TIERS, tier_table=TIER_TABLE[lang],
-                      surfaces=sorted(adapters), estimate_constants=estimate_constants,
+                      target_groups=target_groups, estimate_constants=estimate_constants,
                       est_basis=" ".join(basis), error=error)
 
     @app.post("/jobs/{job_id}/confirm")
@@ -221,7 +237,7 @@ def create_app(
         needs_selected: list[int] = Form([]),
         custom: str = Form(""),
         competitors_selected: list[int] = Form([]),
-        surfaces_selected: list[str] = Form([]),
+        targets_selected: list[str] = Form([]),
         tier: str = Form("quick"),
         variants: int = Form(3),
         budget: str = Form(""),
@@ -248,9 +264,12 @@ def create_app(
 
         if not 1 <= len(needs) <= 10:
             return back("需求数量须在 1–10 个之间(架构口径建议 3–10)")
-        surfaces = [s for s in surfaces_selected if s in adapters]
-        if not surfaces:
-            return back("至少选择一个 surface")
+        targets = [
+            target for target in map(Target.parse, targets_selected)
+            if target.surface in adapters and target.model in adapters[target.surface].meta().models
+        ]
+        if not targets:
+            return back("至少选一个要测的 AI 型号")
         if tier not in TIERS or not 1 <= variants <= 5:
             return back("参数非法")
         budget_usd = float(budget) if budget.strip() else None
@@ -261,7 +280,7 @@ def create_app(
             if 0 <= i < len(job.competitors_suggested)
             for c in [job.competitors_suggested[i]]
         ]
-        job.freeze(needs=needs, competitors=competitors, surfaces=surfaces,
+        job.freeze(needs=needs, competitors=competitors, targets=targets,
                    tier_id=tier, variants_per_need=variants, budget_usd=budget_usd,
                    dependency_enabled=bool(dependency))
         threading.Thread(
@@ -281,7 +300,7 @@ def create_app(
             return not_found(request)
         if not (job.state in (JobState.INTERRUPTED, JobState.FAILED) or job.finished):
             return redirect(request, f"/jobs/{job.job_id}")
-        missing = [s for s in job.surfaces if s not in adapters]
+        missing = sorted({t.surface for t in job.targets if t.surface not in adapters})
         if missing:
             return redirect(request, f"/?error=有的 AI 没接入(缺 API key),不能接着跑:{', '.join(missing)}")
         threading.Thread(
@@ -313,7 +332,7 @@ def create_app(
             return redirect(request, f"/jobs/{job.job_id}")
         return render(
             request, "report.html", job=job,
-            summary=summarize(job.need_reports, job.surface_verdicts, display_names),
+            summary=summarize(job.need_reports, job.surface_verdicts, target_names),
         )
 
     return app

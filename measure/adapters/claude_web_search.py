@@ -141,12 +141,19 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
                 "output_usd_per_mtok": _TOKEN_PRICES_PER_MTOK[_DEFAULT_MODEL][1],
                 "search_usd_per_use": _SEARCH_USD_PER_USE,
             },
-            # 口径:推导上界(默认模型,满额 MAX_USES 次检索;每次检索约 1.2 万输入
-            # token 为 Potato 实测校准值),待本仪器实测后校准:
-            # (2000 + 3×12000)/1e6×$3 + 2000/1e6×$15 + 3×$0.01 ≈ $0.17
-            est_cost_per_call_usd=0.17,
-            # 闭卷腿口径:同源推导上界,无检索项:(2000×$3 + 2000×$15)/1e6 ≈ $0.04
-            est_cost_per_call_search_disabled_usd=0.04,
+            # 口径:推导上界,按型号各算(满额 MAX_USES 次检索;每次检索约 1.2 万输入
+            # token 为 Potato 实测校准值),有足量实测后确认页改读实测均值:
+            # 默认型号 (2000 + 3×12000)/1e6×$3 + 2000/1e6×$15 + 3×$0.01 ≈ $0.17
+            est_cost_per_call_usd={
+                model: round((2000 + MAX_USES * 12000) / 1e6 * price_in + 2000 / 1e6 * price_out
+                             + MAX_USES * _SEARCH_USD_PER_USE, 3)
+                for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
+            },
+            # 闭卷腿口径:同源推导上界,无检索项:默认型号 (2000×$3 + 2000×$15)/1e6 ≈ $0.04
+            est_cost_per_call_search_disabled_usd={
+                model: round((2000 * price_in + 2000 * price_out) / 1e6, 3)
+                for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
+            },
         )
 
     def ask(self, request: AskRequest) -> SurfaceRun:

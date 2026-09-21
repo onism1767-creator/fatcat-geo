@@ -38,20 +38,20 @@ def test_rule_table_rows():
         ([vi(P, Band.RARELY, False), vi(D, Band.RARELY, False)], "verdict.barely_known"),
     ]
     for inputs, code in rows:
-        verdict = surface_verdict("s", inputs)
+        verdict = surface_verdict("s", "m", inputs)
         assert verdict.code == code and verdict.missing == [], code
         text = render_msg(msg(code, ai="Claude"), "zh")
         assert "Claude" in text and "RETRIEVAL" not in text  # 人话,不带技术词
 
 
 def test_missing_scenarios_are_stated_not_guessed():
-    only_probe = surface_verdict("s", [vi(P, Band.OFTEN, False)])
+    only_probe = surface_verdict("s", "m", [vi(P, Band.OFTEN, False)])
     assert only_probe.code == "verdict.known_site_rare"
     assert only_probe.missing == ["verdict.missing.organic"]
-    only_organic = surface_verdict("s", [vi(D, Band.SOMETIMES, True)])
+    only_organic = surface_verdict("s", "m", [vi(D, Band.SOMETIMES, True)])
     assert only_organic.code == "verdict.unnamed_sometimes_site_used"
     assert only_organic.missing == ["verdict.missing.probe"]
-    nothing = surface_verdict("s", [vi(D, None, None)])
+    nothing = surface_verdict("s", "m", [vi(D, None, None)])
     assert nothing.code == "verdict.no_data"
     assert nothing.missing == ["verdict.missing.probe", "verdict.missing.organic", "verdict.missing.site"]
     assert "本次没测" in render_msg(msg("verdict.missing.probe"), "zh")

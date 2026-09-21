@@ -80,6 +80,32 @@ def test_call_stats_average_cost_and_latency(storage):
     assert stat.n >= 2 and stat.avg_cost_usd > 0 and stat.avg_latency_ms > 0
 
 
+def test_models_of_one_surface_are_kept_apart(storage):
+    """v0.4.19 型号是口径的一部分:同一 surface 的两个型号,取样本与算均价都必须分开——
+    否则续跑会拿甲型号的样本给乙型号当前缀,预估会把贵型号和便宜型号搅成一个价。"""
+    storage.insert_information_need(
+        InformationNeed(need_id="need-mm", statement="多型号", intent=NeedIntent.DISCOVERY)
+    )
+    storage.insert_prompt_variant(PromptVariant(
+        variant_id="variant-mm", need_id="need-mm", prompt_text="问?", origin=PromptOrigin.USER,
+    ))
+    for run_id, model, cost in (("run-mm-a1", "model-a", 0.01), ("run-mm-a2", "model-a", 0.03),
+                                ("run-mm-b1", "model-b", 0.50)):
+        storage.insert_surface_run(make_run(run_id).model_copy(update={
+            "information_need_id": "need-mm", "prompt_variant_id": "variant-mm",
+            "surface": "surface-mm", "model": model, "cost_usd": cost,
+        }))
+    by_model = {
+        model: {r.run_id for r in storage.runs_for_variant("variant-mm", surface="surface-mm", model=model)}
+        for model in ("model-a", "model-b")
+    }
+    assert by_model == {"model-a": {"run-mm-a1", "run-mm-a2"}, "model-b": {"run-mm-b1"}}
+    assert len(storage.runs_for_variant("variant-mm", surface="surface-mm")) == 3  # 不给型号 = 不筛
+    stats = {s.model: s for s in storage.call_stats() if s.surface == "surface-mm"}
+    assert stats["model-a"].n == 2 and stats["model-a"].avg_cost_usd == pytest.approx(0.02)
+    assert stats["model-b"].n == 1 and stats["model-b"].avg_cost_usd == pytest.approx(0.50)
+
+
 def test_report_snapshot_is_versioned_and_append_only(storage):
     """报告快照(v0.4.16):同一任务多版并存,latest 取最新并报版本数;库层拒绝改写。"""
     assert storage.latest_report_snapshot("job-r1") is None

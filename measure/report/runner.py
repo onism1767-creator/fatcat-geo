@@ -69,6 +69,7 @@ from report.jobs import (
     DiagnosisJob,
     JobState,
     NeedReport,
+    Target,
     attach_latest_report,
     current_code_version,
 )
@@ -171,9 +172,11 @@ def _execute(
     storage = Storage(dsn)
     storage.ensure_schema()
     storage.upsert_job_snapshot(job.to_snapshot())
-    selected = {name: adapters[name] for name in job.surfaces}
+    # 被测对象 = 仪器 × 型号(v0.4.19):型号是口径的一部分,计划、样本、指标、诊断块一律按对象分开
+    targets = job.targets
+    adapter_of = {target: adapters[target.surface] for target in targets}
     generation_adapter = next(
-        (a for a in selected.values() if a.meta().capabilities.supports_citations), None
+        (a for a in adapter_of.values() if a.meta().capabilities.supports_citations), None
     )
 
     job.phase = "phase_variants"
@@ -197,16 +200,16 @@ def _execute(
 
     # 检索依赖对照(第 9 章挂靠):启用时,为支持 search_disabled 的 surface
     # 追加闭卷腿计划——同一批问法、同采样策略,仅检索模式不同(模式即口径)
-    dependency_surfaces = [
-        name for name, adapter in selected.items()
+    dependency_targets = [
+        target for target, adapter in adapter_of.items()
         if job.dependency_enabled and adapter.meta().capabilities.supports_search_disabled
     ]
     plans = [
-        (need, surface_name, SearchMode.DEFAULT) for need in job.needs for surface_name in selected
+        (need, target, SearchMode.DEFAULT) for need in job.needs for target in targets
     ] + [
-        (need, surface_name, SearchMode.SEARCH_DISABLED)
+        (need, target, SearchMode.SEARCH_DISABLED)
         for need in job.needs
-        for surface_name in dependency_surfaces
+        for target in dependency_targets
     ]
     job.total_plans = len(plans)
     per_plan_budget = job.budget_usd / len(plans) if job.budget_usd else None
@@ -214,11 +217,11 @@ def _execute(
 
     job.phase = "phase_sampling"
     progress_lock = threading.Lock()
-    results: dict[tuple[str, str, SearchMode], list[SamplingResult]] = {}
+    results: dict[tuple[str, Target, SearchMode], list[SamplingResult]] = {}
 
-    def run_one(plan: tuple[InformationNeed, str, SearchMode]) -> None:
-        need, surface_name, mode = plan
-        adapter = selected[surface_name]
+    def run_one(plan: tuple[InformationNeed, Target, SearchMode]) -> None:
+        need, target, mode = plan
+        adapter = adapter_of[target]
         hit_fn = (
             _mention_hit_fn(job.brand)
             if mode is SearchMode.SEARCH_DISABLED
@@ -229,18 +232,20 @@ def _execute(
             sampler = SequentialSampler(plan_storage)
             plan_results = []
             for variant in variants_by_need[need.need_id]:
-                prior = [  # 幂等键 (问法 × surface × 模式) 下已存的运行,续跑作前缀
-                    r for r in plan_storage.runs_for_variant(variant.variant_id, surface=surface_name)
+                prior = [  # 幂等键 (问法 × surface × 型号 × 模式) 下已存的运行,续跑作前缀
+                    r for r in plan_storage.runs_for_variant(
+                        variant.variant_id, surface=target.surface, model=target.model)
                     if r.search_mode == mode
                 ]
                 plan_results.append(
                     sampler.run_plan(adapter, need, variant, hit_fn=hit_fn, policy=policy,
-                                     search_mode=mode, locale=job.locale, prior_runs=prior)
+                                     search_mode=mode, model=target.model, locale=job.locale,
+                                     prior_runs=prior)
                 )
         finally:
             plan_storage.close()
         with progress_lock:
-            results[(need.need_id, surface_name, mode)] = plan_results
+            results[(need.need_id, target, mode)] = plan_results
             job.completed_plans += 1
             job.spent_usd += sum(r.total_cost_usd for r in plan_results)
 
@@ -249,21 +254,21 @@ def _execute(
 
     # 预取全部运行,收集品牌被引 URL,统一独立核验(全局去重 + 库缓存)
     job.phase = "phase_verify"
-    runs_by: dict[tuple[str, str], list[SurfaceRun]] = {}
-    offline_runs_by: dict[tuple[str, str], list[SurfaceRun]] = {}
+    runs_by: dict[tuple[str, Target], list[SurfaceRun]] = {}
+    offline_runs_by: dict[tuple[str, Target], list[SurfaceRun]] = {}
     for need in job.needs:
         variant_ids = [v.variant_id for v in variants_by_need[need.need_id]]
-        for surface_name in selected:
+        for target in targets:
             all_runs = [
                 run
                 for vid in variant_ids
-                for run in storage.runs_for_variant(vid, surface=surface_name)
+                for run in storage.runs_for_variant(vid, surface=target.surface, model=target.model)
             ]
             # 闭卷腿单独归档:检索模式即口径,禁止混入开卷指标的分母
-            runs_by[(need.need_id, surface_name)] = [
+            runs_by[(need.need_id, target)] = [
                 run for run in all_runs if run.search_mode != SearchMode.SEARCH_DISABLED
             ]
-            offline_runs_by[(need.need_id, surface_name)] = [
+            offline_runs_by[(need.need_id, target)] = [
                 run for run in all_runs if run.search_mode == SearchMode.SEARCH_DISABLED
             ]
 
@@ -298,7 +303,7 @@ def _execute(
     query_det = QueryTraceDetector()
     truncated = False
     thresholds = DiagnosisThresholds()
-    verdict_inputs: dict[str, list[VerdictInput]] = {}  # surface → 逐需求观测(每家 AI 一句话)
+    verdict_inputs: dict[Target, list[VerdictInput]] = {}  # 被测对象 → 逐需求观测(每个型号一句话)
 
     for need in job.needs:
         need_runs: list[SurfaceRun] = []
@@ -308,34 +313,40 @@ def _execute(
         # ── 第一遍:公共收集 + 裸检索类 surface 的检索指标(按 provider 归属)──
         # 裸检索通道是某家 provider 自己的仪器(如 perplexity 双通道),
         # 归入同 provider 的 AI 块作其检索视角;无家可归时独立成块。
-        bare_by_provider: dict[str, tuple[str, NeedSurfaceMetric, list[int]]] = {}
-        for surface_name, adapter in selected.items():
-            plan_results = results[(need.need_id, surface_name, SearchMode.DEFAULT)]
+        bare_by_provider: dict[str, tuple[Target, NeedSurfaceMetric, list[int]]] = {}
+        for target, adapter in adapter_of.items():
+            plan_results = results[(need.need_id, target, SearchMode.DEFAULT)]
             truncated |= any(r.stop_reason in _TRUNCATION_REASONS for r in plan_results)
-            runs = runs_by[(need.need_id, surface_name)]
-            need_runs += runs + offline_runs_by[(need.need_id, surface_name)]
-            closed_key = (need.need_id, surface_name, SearchMode.SEARCH_DISABLED)
+            runs = runs_by[(need.need_id, target)]
+            need_runs += runs + offline_runs_by[(need.need_id, target)]
+            closed_key = (need.need_id, target, SearchMode.SEARCH_DISABLED)
             if closed_key in results:
                 truncated |= any(
                     r.stop_reason in _TRUNCATION_REASONS for r in results[closed_key]
                 )
             if adapter.meta().capabilities.supports_retrieval_rank:
+                provider = adapter.meta().provider
+                if provider in bare_by_provider:  # 单例槽位:一家只认一台裸检索仪器,多了不静默覆盖
+                    raise ValueError(
+                        f"{provider} 选了不止一个裸检索对象({bare_by_provider[provider][0].key}、"
+                        f"{target.key}):借用关系无法确定,请只保留一个"
+                    )
                 bare_metric = aggregate_need_surface(plan_results, metric_label=rank_det.name)
                 bare_ranks = [
                     r_obs.best_rank
                     for run in runs
                     if (r_obs := rank_det.detect(run, job.brand)) and r_obs.best_rank is not None
                 ]
-                bare_by_provider[adapter.meta().provider] = (surface_name, bare_metric, bare_ranks)
+                bare_by_provider[provider] = (target, bare_metric, bare_ranks)
 
-        # ── 第二遍:AI 通道逐家分诊(v0.4.11 分家:各家自己的漏斗与药方)──
-        absorbed_bare: set[str] = set()
-        for surface_name, adapter in selected.items():
+        # ── 第二遍:AI 通道逐个对象分诊(v0.4.11 分家;v0.4.19 每个型号各自的漏斗与药方)──
+        absorbed_bare: set[Target] = set()
+        for target, adapter in adapter_of.items():
             capabilities = adapter.meta().capabilities
             if not capabilities.supports_citations:
                 continue
-            plan_results = results[(need.need_id, surface_name, SearchMode.DEFAULT)]
-            runs = runs_by[(need.need_id, surface_name)]
+            plan_results = results[(need.need_id, target, SearchMode.DEFAULT)]
+            runs = runs_by[(need.need_id, target)]
 
             citation_metric = aggregate_need_surface(plan_results, metric_label=citation_det.name)
             mention_obs = [
@@ -416,15 +427,15 @@ def _execute(
                     if triggered_flags else None,
                 )
             elif adapter.meta().provider in bare_by_provider:
-                bare_name, bare_metric, bare_ranks = bare_by_provider[adapter.meta().provider]
+                bare_target, bare_metric, bare_ranks = bare_by_provider[adapter.meta().provider]
                 retrieval = diagnose_retrieval(bare_metric, bare_ranks)
-                absorbed_bare.add(bare_name)
+                absorbed_bare.add(bare_target)
             else:
                 retrieval = diagnose_retrieval(None, [])
 
-            # 检索依赖对照(第 9 章):本 surface 的开卷/闭卷提及率区间并比
+            # 检索依赖对照(第 9 章):本对象的开卷/闭卷提及率区间并比
             dependency = None
-            closed_key = (need.need_id, surface_name, SearchMode.SEARCH_DISABLED)
+            closed_key = (need.need_id, target, SearchMode.SEARCH_DISABLED)
             if closed_key in results:
                 closed_metric = aggregate_need_surface(
                     results[closed_key], metric_label=mention_det.name
@@ -458,20 +469,20 @@ def _execute(
                 )
                 mention_band = band_of(mention_status)
             site_findings = [f for f in block.findings[:2] if f.status is not StageStatus.NOT_OBSERVABLE]
-            verdict_inputs.setdefault(surface_name, []).append(VerdictInput(
+            verdict_inputs.setdefault(target, []).append(VerdictInput(
                 intent=need.intent,
                 mention=mention_band,
                 site_used=any(f.status is StageStatus.PASS for f in site_findings) if site_findings else None,
             ))
 
         # ── 第三遍:未被吸收的裸检索 surface 独立成块(仅检索视角)──────
-        for provider, (bare_name, bare_metric, bare_ranks) in bare_by_provider.items():
-            if bare_name in absorbed_bare:
+        for provider, (bare_target, bare_metric, bare_ranks) in bare_by_provider.items():
+            if bare_target in absorbed_bare:
                 continue
             blocks.append(diagnose_surface(
                 provider=provider,
-                surface=bare_name,
-                model=bare_metric.model,
+                surface=bare_target.surface,
+                model=bare_target.model,
                 access=access,
                 retrieval=diagnose_retrieval(bare_metric, bare_ranks),
                 citation=diagnose_citation(None, [], verification=None),
@@ -488,7 +499,9 @@ def _execute(
             diagnosis=diagnose_need(need, access=access, surfaces=blocks),
         ))
 
-    job.surface_verdicts = [surface_verdict(name, inputs) for name, inputs in verdict_inputs.items()]
+    job.surface_verdicts = [
+        surface_verdict(target.surface, target.model, inputs) for target, inputs in verdict_inputs.items()
+    ]
     job.state = JobState.PARTIAL if truncated else JobState.DONE
     job.phase = "phase_partial" if truncated else "phase_done"
     job.finished_at = datetime.now(UTC)

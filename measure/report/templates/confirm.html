@@ -38,8 +38,13 @@
     <h3>{{ t["plan_title"] }}</h3>
     <div class="row">
       <div><label>{{ t["surfaces_label"] }}</label>
-        {% for s in surfaces %}
-        <label style="font-weight:400"><input type="checkbox" name="surfaces_selected" value="{{ s }}" data-display="{{ display_names.get(s, s) }}" checked> {{ display_names.get(s, s) }}</label>
+        {% for ai_name, group in target_groups %}
+        <div style="margin-bottom:6px">
+          {% if group|length > 1 %}<span class="muted">{{ ai_name }}</span>{% endif %}
+          {% for target in group %}
+          <label style="font-weight:400"><input type="checkbox" name="targets_selected" value="{{ target.key }}" data-display="{{ target_names[target.key] }}" checked> {{ target.model if group|length > 1 else ai_name }}</label>
+          {% endfor %}
+        </div>
         {% endfor %}
       </div>
       <div><label>{{ t["tier_label"] }}</label>
@@ -77,7 +82,7 @@ const C = {{ estimate_constants | safe }};
 function recalc() {
   const n = document.querySelectorAll('input[name=needs_selected]:checked').length
           + document.querySelector('textarea[name=custom]').value.split('\n').filter(s => s.trim()).length;
-  const checked = Array.from(document.querySelectorAll('input[name=surfaces_selected]:checked'));
+  const checked = Array.from(document.querySelectorAll('input[name=targets_selected]:checked'));
   const v = parseInt(document.querySelector('select[name=variants]').value);
   const t = document.querySelector('select[name=tier]').value;
   const perLegCalls = n * v * C.tier_calls[t];
@@ -85,12 +90,12 @@ function recalc() {
   const depChecked = depOn ? checked.filter(el => el.value in C.dependency) : [];
   const calls = perLegCalls * (checked.length + depChecked.length);
   const cost = perLegCalls * (
-    checked.reduce((sum, el) => sum + C.surface_costs[el.value], 0)
+    checked.reduce((sum, el) => sum + C.target_costs[el.value], 0)
     + depChecked.reduce((sum, el) => sum + C.dependency[el.value], 0)
   );
-  // 各 AI 分项预估(v0.4.11 补):谁家花多少钱,勾选前看得见
+  // 各 AI 各型号分项预估(v0.4.11 补;v0.4.19 按型号):谁花多少钱,勾选前看得见
   const parts = checked.map(el => {
-    let per = C.surface_costs[el.value] * perLegCalls;
+    let per = C.target_costs[el.value] * perLegCalls;
     if (depOn && el.value in C.dependency) per += C.dependency[el.value] * perLegCalls;
     return el.dataset.display + ' ≈ $' + per.toFixed(2);
   });

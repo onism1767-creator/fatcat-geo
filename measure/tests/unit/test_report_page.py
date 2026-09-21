@@ -33,7 +33,7 @@ from engine.models import (
 from engine.needs import NeedCandidate
 from engine.scheduler import NeedSurfaceMetric
 from report.app import create_app
-from report.jobs import TIERS, DiagnosisJob, JobState, NeedReport, estimate_job
+from report.jobs import TIERS, DiagnosisJob, JobState, NeedReport, Target, estimate_job
 
 REGISTRY = load_evidence_registry()
 
@@ -43,7 +43,7 @@ class DummyAdapter(SurfaceAdapter):
         return SurfaceMeta(display_name="S1", provider="test_provider", surface="s1", models=["m1"],
                            default_model="m1",
                            capabilities=CapabilityRegistry(supports_citations=True),
-                           est_cost_per_call_usd=0.005)
+                           est_cost_per_call_usd={"m1": 0.005})
 
     def ask(self, request):
         raise AssertionError("测试不应触发真实采样")
@@ -105,7 +105,7 @@ def finished_job() -> DiagnosisJob:
     diagnosis = diagnose_need(need, access=access, surfaces=[bare_block, generative_block])
     job = DiagnosisJob(brand=brand, website="https://aurora-crm.com", category="CRM",
                        locale="zh-CN", candidates=[], competitors_suggested=[])
-    job.freeze(needs=[need], competitors=[], surfaces=["s1"], tier_id="quick",
+    job.freeze(needs=[need], competitors=[], targets=[Target(surface="s1", model="m1")], tier_id="quick",
                variants_per_need=2, budget_usd=1.0)
     job.state = JobState.DONE
     job.phase = "完成"
@@ -113,8 +113,8 @@ def finished_job() -> DiagnosisJob:
     job.need_reports = [NeedReport(need=need, variant_texts=["中小团队用什么 CRM 好?"],
                                    diagnosis=diagnosis)]
     job.surface_verdicts = [  # 每家 AI 一句话(v0.4.14):s2 缺「直接问起」场景,句尾说明
-        SurfaceVerdict(surface="s1", code="verdict.only_when_named", missing=[]),
-        SurfaceVerdict(surface="s2", code="verdict.known_sometimes_site_rare",
+        SurfaceVerdict(surface="s1", model="m1", code="verdict.only_when_named", missing=[]),
+        SurfaceVerdict(surface="s2", model="m2", code="verdict.known_sometimes_site_rare",
                        missing=["verdict.missing.probe"]),
     ]
     return job
@@ -324,7 +324,7 @@ def test_summarize_orders_by_evidence_level_then_support():
     from report.summary import summarize
 
     job = finished_job()
-    summary = summarize(job.need_reports, job.surface_verdicts, {"s1": "S1", "s2": "S2"})
+    summary = summarize(job.need_reports, job.surface_verdicts, {"s1::m1": "S1", "s2::m2": "S2"})
     levels = [a.recommendation.evidence_level for a in summary.actions]
     assert levels == sorted(levels)
     assert all(a.support_count == 2 for a in summary.actions)
@@ -364,7 +364,7 @@ def test_manual_flow_to_confirm_and_launch(client_and_job):
     assert "问题一?" in html and "确认,开始检测" in html
 
     resp = client.post(confirm_url, data={
-        "needs_selected": ["0", "1"], "surfaces_selected": ["s1"],
+        "needs_selected": ["0", "1"], "targets_selected": ["s1::m1"],
         "tier": "quick", "variants": "2", "budget": "1.0", "custom": "",
     }, follow_redirects=False)
     assert resp.status_code == 303
@@ -381,7 +381,7 @@ def test_confirm_rejects_empty_selection(client_and_job):
         "questions": "q1?", "generate": "",
     }, follow_redirects=False)
     confirm_url = resp.headers["location"]
-    resp = client.post(confirm_url, data={"surfaces_selected": ["s1"], "custom": ""},
+    resp = client.post(confirm_url, data={"targets_selected": ["s1::m1"], "custom": ""},
                        follow_redirects=False)
     assert resp.status_code == 303 and "error=" in resp.headers["location"]
 
@@ -413,11 +413,15 @@ def test_confirm_estimate_prefers_measured_history():
                            follow_redirects=False)
         return client.get(resp.headers["location"]).text
 
-    measured = run([CallStat(surface="s1", search_mode="default", n=12, avg_cost_usd=0.02, avg_latency_ms=15000)])
-    assert '"s1": 0.02' in measured and '"seconds_per_call": 15.0' in measured
+    def stat(n: int) -> CallStat:
+        return CallStat(surface="s1", model="m1", search_mode="default", n=n,
+                        avg_cost_usd=0.02, avg_latency_ms=15000)
+
+    measured = run([stat(12)])
+    assert '"s1::m1": 0.02' in measured and '"seconds_per_call": 15.0' in measured
     assert "预估按过去实测的平均费用和耗时算:S1" in measured
-    declared = run([CallStat(surface="s1", search_mode="default", n=3, avg_cost_usd=0.02, avg_latency_ms=15000)])
-    assert '"s1": 0.005' in declared and '"seconds_per_call": 20.0' in declared  # 历史不足:声明单价 + 兜底时长
+    declared = run([stat(3)])
+    assert '"s1::m1": 0.005' in declared and '"seconds_per_call": 20.0' in declared  # 历史不足:声明单价 + 兜底时长
     assert "S1 还没有足够的历史记录" in declared
 
 
@@ -441,7 +445,7 @@ def test_job_snapshot_round_trip():
     assert restored.fingerprint == job.fingerprint  # 同快照同指纹,续跑不换基线
     assert restored.state is JobState.DONE and restored.phase == "phase_done"
     assert [n.need_id for n in restored.needs] == [n.need_id for n in job.needs]
-    assert restored.surfaces == job.surfaces and restored.tier_id == job.tier_id
+    assert restored.targets == job.targets and restored.tier_id == job.tier_id
     assert restored.dependency_enabled == job.dependency_enabled
     assert restored.need_reports == []
 
@@ -523,7 +527,7 @@ def test_fingerprint_sensitive_to_dependency_flag():
         job.freeze(needs=[InformationNeed(need_id="fixed", statement="问法甲",
                                           intent=NeedIntent.DISCOVERY,
                                           created_at=datetime(2026, 8, 24, tzinfo=UTC))],
-                   competitors=[], surfaces=["s1"], tier_id="quick",
+                   competitors=[], targets=[Target(surface="s1", model="m1")], tier_id="quick",
                    variants_per_need=2, budget_usd=None,
                    dependency_enabled=dependency_enabled)
         return job.fingerprint
@@ -539,7 +543,7 @@ def test_fingerprint_stable_and_sensitive():
         job.freeze(needs=[InformationNeed(need_id="fixed", statement=statement,
                                           intent=NeedIntent.DISCOVERY,
                                           created_at=datetime(2026, 8, 24, tzinfo=UTC))],
-                   competitors=[], surfaces=["s1"], tier_id="quick",
+                   competitors=[], targets=[Target(surface="s1", model="m1")], tier_id="quick",
                    variants_per_need=2, budget_usd=None)
         return job.fingerprint
 
