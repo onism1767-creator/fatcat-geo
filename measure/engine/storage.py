@@ -405,12 +405,15 @@ class Storage:
         self, *, job_id: str, fingerprint: str, code_version: str | None,
         spent_usd: float, payload: dict[str, Any],
     ) -> None:
-        """追加一版报告。payload 对 L2 不透明(结构由 L4 定义)。"""
+        """追加一版报告。payload 对 L2 不透明(结构由 L4 定义)。
+
+        created_at 由数据库盖章(clock_timestamp,微秒级):「最新一版」靠它排序,
+        而 Windows 上 Python 时钟粒度是毫秒级,紧挨着的两版会撞成同一时刻。"""
         self._conn.execute(
             "INSERT INTO report_snapshot "
             "(snapshot_id, job_id, created_at, fingerprint, code_version, spent_usd, payload) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
-            (str(uuid4()), job_id, datetime.now(UTC), fingerprint, code_version, spent_usd, Jsonb(payload)),
+            "VALUES (%s, %s, clock_timestamp(), %s, %s, %s, %s)",
+            (str(uuid4()), job_id, fingerprint, code_version, spent_usd, Jsonb(payload)),
         )
 
     def latest_report_snapshot(self, job_id: str) -> dict[str, Any] | None:
