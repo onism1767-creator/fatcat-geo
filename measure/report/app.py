@@ -23,7 +23,7 @@ from diagnosis.messages import msg, render_msg
 from diagnosis.recommender import EvidenceEntry, load_evidence_registry
 from engine.envfile import load_env_file
 from engine.loader import build_adapters
-from engine.models import BrandSpec, CompetitorSuggestion, InformationNeed, NeedIntent, SearchMode
+from engine.models import BrandSpec, CompetitorSuggestion, InformationNeed, SearchMode
 from engine.needs import NeedCandidate, draft_need_candidates
 from engine.storage import CallStat, Storage
 from report import runner
@@ -46,6 +46,7 @@ from report.jobs import (
     JobRegistry,
     JobState,
     Target,
+    manual_intent,
     preselect_candidates,
 )
 from report.summary import summarize
@@ -159,7 +160,7 @@ def create_app(
                 )
         manual = [line.strip() for line in questions.splitlines() if line.strip()]
         candidates = candidates + [
-            NeedCandidate(intent=NeedIntent.DISCOVERY, text=text) for text in manual
+            NeedCandidate(intent=manual_intent(text, brand), text=text) for text in manual
         ]
         if not candidates:
             return render(request, "index.html", jobs=registry.recent(),
@@ -254,7 +255,7 @@ def create_app(
             for i in needs_selected
             if 0 <= i < len(job.candidates)
         ] + [
-            InformationNeed(statement=line.strip(), intent=NeedIntent.DISCOVERY)
+            InformationNeed(statement=line.strip(), intent=manual_intent(line, job.brand))
             for line in custom.splitlines()
             if line.strip()
         ]

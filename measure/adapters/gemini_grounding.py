@@ -68,6 +68,9 @@ _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "gemini-3.7-flash": (0.75, 3.75),
     "gemini-3.8-flash": (0.75, 3.75),
     "gemini-3.5-flash": (1.5, 9.0),
+    # ↓ 2026-09-21 补入(官方当前阵容;经 scripts/smoke_models.py 真实冒烟:请求形状被接受、观测窗在、回答未被截断)
+    "gemini-3.6-flash": (0.75, 3.75),
+    "gemini-3.1-pro-preview": (2.0, 12.0),
 }
 _SEARCH_USD_PER_QUERY = 14.0 / 1000.0  # 接地检索 $14 / 千条唯一查询
 _DEFAULT_MODEL = "gemini-3.7-flash"

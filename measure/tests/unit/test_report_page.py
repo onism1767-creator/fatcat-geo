@@ -302,6 +302,18 @@ def test_tier_table_matches_policy_arithmetic():
     assert round(0.95 ** 18, 1) == 0.4  # 「20 次里提到 1 次」快扫档亮红灯的把握:约 4 成
 
 
+def test_manual_question_naming_the_brand_is_a_brand_question():
+    """用户手填的问题:点了品牌名 / 别名 → 「直接询问品牌」;没点 → 「没有点名品牌」。
+    点名的问题提及率天然接近 100%,归错场景会把「AI 会主动推荐你」的结论虚高(2026-09-21 真实页面暴露)。"""
+    from engine.models import NeedIntent
+    from report.jobs import manual_intent
+
+    brand = BrandSpec(name="始祖鸟", aliases=["Arc'teryx"], domains=["arcteryx.com"])
+    assert manual_intent("始祖鸟的整体口碑和做工质量怎么样?", brand) is NeedIntent.BRAND_PROBE
+    assert manual_intent("is ARC'TERYX worth the price?", brand) is NeedIntent.BRAND_PROBE  # 别名,不分大小写
+    assert manual_intent("预算有限但想一步到位,哪些更值得先买?", brand) is NeedIntent.DISCOVERY
+
+
 def test_preselect_candidates_defaults_to_two_or_all_manual():
     """v0.4.18 默认报价要便宜:一道没手填 → 只勾第一个不点名品牌的题 + 第一个品牌题;
     手填了 → 手填的全勾、系统出的不勾。"""

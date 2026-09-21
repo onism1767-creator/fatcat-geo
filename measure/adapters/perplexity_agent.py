@@ -81,7 +81,9 @@ class PerplexityAgentAdapter(SurfaceAdapter):
             provider="perplexity",
             surface="perplexity_agent",
             display_name="Perplexity",
-            models=["sonar", "sonar-pro"],  # 以官方模型页为准,定期核对
+            # 以官方模型页为准(2026-09-21 核对;sonar-deep-research 是另一种产品形态——
+            # 单次分钟级、按检索次数另计费,不入清单)
+            models=["sonar", "sonar-pro", "sonar-reasoning-pro"],
             default_model="sonar",
             capabilities=_CAPABILITIES,
             unit_prices={"request_usd": 0.005},  # 检索附加费近似值,待官方价目核对
@@ -90,6 +92,9 @@ class PerplexityAgentAdapter(SurfaceAdapter):
                 # 口径:推导上界(官方价目页 2026-09-21:$3 / $15 每百万 token,低搜索上下文
                 # 请求费 $6 / 千次):$0.006 + 2000/1e6×$15 ≈ $0.036,待实测校准
                 "sonar-pro": 0.036,
+                # 口径:推导上界(同页:$2 / $8 每百万 token,请求费 $6 / 千次;推理 token 计入输出):
+                # $0.006 + 4000/1e6×$8 ≈ $0.038,待实测校准
+                "sonar-reasoning-pro": 0.038,
             },
         )
 

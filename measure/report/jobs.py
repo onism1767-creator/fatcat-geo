@@ -21,6 +21,7 @@ from pydantic import ValidationError
 from diagnosis.access_audit import AccessAuditResult
 from diagnosis.diagnose import NeedDiagnosis
 from diagnosis.verdict import SurfaceVerdict
+from engine.detectors.matching import find_first_alias
 from engine.models import BrandSpec, CompetitorSuggestion, FrozenModel, InformationNeed, NeedIntent
 from engine.needs import NeedCandidate
 from engine.scheduler import SamplingPolicy
@@ -82,6 +83,12 @@ TIERS: dict[str, Tier] = {
         expected_calls_per_plan=7.5,
     ),
 }
+
+
+def manual_intent(text: str, brand: BrandSpec) -> NeedIntent:
+    """用户手填的问题归哪个场景:点了品牌名或别名的就是「直接询问品牌」,否则按「没有点名品牌」。
+    点名的问题里品牌提及率天然接近 100%,混进「没点名」场景会把「AI 会主动推荐你」的结论虚高。"""
+    return NeedIntent.BRAND_PROBE if find_first_alias(text, brand) is not None else NeedIntent.DISCOVERY
 
 
 def preselect_candidates(candidates: list[NeedCandidate], *, n_manual: int) -> list[int]:

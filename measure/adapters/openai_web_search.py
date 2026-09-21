@@ -73,6 +73,8 @@ _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "gpt-5.6-terra": (2.0, 12.0),
     "gpt-5.6-luna": (0.2, 1.2),
     "gpt-5.6-sol": (4.0, 20.0),
+    # ↓ 2026-09-21 补入(官方当前阵容;经 scripts/smoke_models.py 真实冒烟:请求形状被接受、观测窗在、回答未被截断)
+    "gpt-6-astra": (10.0, 50.0),
 }
 _SEARCH_USD_PER_CALL = 10.0 / 1000.0  # web search $10 / 千次(仅 search 动作计费)
 _DEFAULT_MODEL = "gpt-5.6-terra"

@@ -81,6 +81,10 @@ _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
     "claude-opus-4-8": (5.0, 25.0),
+    # ↓ 2026-09-21 补入(官方当前阵容;经 scripts/smoke_models.py 真实冒烟:请求形状被接受、观测窗在、回答未被截断)
+    "claude-sonnet-5": (2.0, 10.0),
+    "claude-opus-5": (5.0, 25.0),
+    "claude-fable-5-1": (10.0, 50.0),
 }
 _SEARCH_USD_PER_USE = 10.0 / 1000.0  # web search $10 / 千次
 _DEFAULT_MODEL = "claude-sonnet-4-6"
