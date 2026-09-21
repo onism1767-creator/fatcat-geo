@@ -279,7 +279,45 @@ def test_tier_labels_match_policy_arithmetic():
         for lang in ("zh", "en"):
             label = MESSAGES[lang][f"tier_{tier_id}"]
             assert str(policy.max_n) in label and str(unanimous) in label, (tier_id, lang)
-        assert str(policy.max_n) in TIERS[tier_id].label and str(unanimous) in TIERS[tier_id].label
+
+
+def test_tier_table_matches_policy_arithmetic():
+    """v0.4.18 两档对照表:能精确算的部分用算术机械核对(其余数字来自 scripts/mc_tier_lights.py)。
+    表头写的「每个问题、每家 AI 一共问多少次」= 3 种说法 × [全一致即停的次数, 上限];
+    快扫档「从来不提才亮红灯」= 3 种说法全不中(18 次)够红,只要中 1 次(那种说法就得问满)就不够红。"""
+    from diagnosis.findings import DiagnosisThresholds
+    from engine.metrics import jeffreys_interval
+    from report.i18n import MESSAGES, TIER_TABLE
+
+    red_line = DiagnosisThresholds().mention_fail_ci_high
+    for lang in ("zh", "en"):
+        caption = MESSAGES[lang]["tier_table_caption"]
+        for tier_id, unanimous in (("quick", 6), ("standard", 11)):
+            assert f"{3 * unanimous}–{3 * TIERS[tier_id].policy.max_n}" in caption, (tier_id, lang)
+        assert all(len(row) == 3 for row in TIER_TABLE[lang])
+    assert len(TIER_TABLE["zh"]) == len(TIER_TABLE["en"])
+    quick = TIERS["quick"].policy
+    assert jeffreys_interval(0, 3 * 6)[1] <= red_line
+    assert jeffreys_interval(1, 2 * 6 + quick.max_n)[1] > red_line
+    assert round(0.95 ** 18, 1) == 0.4  # 「20 次里提到 1 次」快扫档亮红灯的把握:约 4 成
+
+
+def test_preselect_candidates_defaults_to_two_or_all_manual():
+    """v0.4.18 默认报价要便宜:一道没手填 → 只勾第一个不点名品牌的题 + 第一个品牌题;
+    手填了 → 手填的全勾、系统出的不勾。"""
+    from engine.models import NeedIntent
+    from engine.needs import NeedCandidate
+    from report.jobs import preselect_candidates
+
+    drafted = [NeedCandidate(intent=NeedIntent.DISCOVERY, text="a"),
+               NeedCandidate(intent=NeedIntent.COMPARISON, text="b"),
+               NeedCandidate(intent=NeedIntent.BRAND_PROBE, text="c"),
+               NeedCandidate(intent=NeedIntent.BRAND_PROBE, text="d")]
+    assert preselect_candidates(drafted, n_manual=0) == [0, 2]
+    manual = [NeedCandidate(intent=NeedIntent.DISCOVERY, text="m1"),
+              NeedCandidate(intent=NeedIntent.DISCOVERY, text="m2")]
+    assert preselect_candidates(drafted + manual, n_manual=2) == [4, 5]
+    assert preselect_candidates(manual, n_manual=2) == [0, 1]
 
 
 def test_summarize_orders_by_evidence_level_then_support():

@@ -13,7 +13,7 @@
     {% for cand in job.candidates %}
     <label style="font-weight:400">
       <input type="checkbox" name="needs_selected" value="{{ loop.index0 }}"
-             {{ "checked" if loop.index0 < 4 or cand.intent.value == "brand_probe" else "" }}>
+             {{ "checked" if loop.index0 in job.preselected else "" }}>
       <span class="chip intent">{{ intent_labels[cand.intent] }}</span> {{ cand.text }}
     </label>
     {% endfor %}
@@ -53,6 +53,14 @@
         <input type="number" name="budget" step="0.1" min="0.1" placeholder="2.0">
       </div>
     </div>
+    <table>
+      <caption class="muted" style="text-align:left">{{ t["tier_table_caption"] }}</caption>
+      <tr>{% for head in tier_table[0] %}<th>{{ head }}</th>{% endfor %}</tr>
+      {% for row in tier_table[1:] %}
+      <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
+      {% endfor %}
+    </table>
+    <p class="muted" style="margin:2px 0 8px">{{ t["tier_table_note"] }}</p>
     <label style="font-weight:400"><input type="checkbox" name="dependency" value="on"> {{ t["dep_label"] }}</label>
     <p class="muted" style="margin:2px 0 8px">{{ t["dep_hint"] }}</p>
     <p class="kv">{{ t["est_label"] }}<b><span id="est-calls">–</span></b> {{ t["est_calls_word"] }} ·

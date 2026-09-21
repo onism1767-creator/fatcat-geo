@@ -35,6 +35,7 @@ from report.i18n import (
     LEVEL_LABELS,
     MESSAGES,
     STATUS_LABELS,
+    TIER_TABLE,
     resolve_lang,
 )
 from report.jobs import (
@@ -44,6 +45,7 @@ from report.jobs import (
     DiagnosisJob,
     JobRegistry,
     JobState,
+    preselect_candidates,
 )
 from report.summary import summarize
 
@@ -157,6 +159,7 @@ def create_app(
             brand=brand, website=normalized, category=category, locale=locale,
             candidates=candidates, competitors_suggested=competitors_suggested,
         )
+        job.preselected = preselect_candidates(candidates, n_manual=len(manual))
         registry.add(job)
         return redirect(request, f"/jobs/{job.job_id}/confirm")
 
@@ -207,7 +210,7 @@ def create_app(
         if declared_names:
             basis.append(MESSAGES[lang]["est_basis_declared"].format(names="、".join(declared_names)))
         basis.append(MESSAGES[lang]["est_basis_tail"])
-        return render(request, "confirm.html", job=job, tiers=TIERS,
+        return render(request, "confirm.html", job=job, tiers=TIERS, tier_table=TIER_TABLE[lang],
                       surfaces=sorted(adapters), estimate_constants=estimate_constants,
                       est_basis=" ".join(basis), error=error)
 

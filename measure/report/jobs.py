@@ -21,7 +21,7 @@ from pydantic import ValidationError
 from diagnosis.access_audit import AccessAuditResult
 from diagnosis.diagnose import NeedDiagnosis
 from diagnosis.verdict import SurfaceVerdict
-from engine.models import BrandSpec, CompetitorSuggestion, FrozenModel, InformationNeed
+from engine.models import BrandSpec, CompetitorSuggestion, FrozenModel, InformationNeed, NeedIntent
 from engine.needs import NeedCandidate
 from engine.scheduler import SamplingPolicy
 
@@ -50,23 +50,31 @@ class JobState(StrEnum):
 
 
 class Tier(FrozenModel):
+    """档位。次数按「每种说法」计(调度器逐问法执行策略);面向用户的说明在 report/i18n.py。"""
+
     id: str
-    label: str
     policy: SamplingPolicy
     expected_calls_per_plan: float  # 蒙特卡洛/实测的每计划期望采样次数
 
 
 TIERS: dict[str, Tier] = {
-    "standard": Tier(
-        id="standard", label="标准档:每个问题最多问 20 次,前 11 次结果完全一样就提前停",
-        policy=SamplingPolicy(), expected_calls_per_plan=18.0,
-    ),
+    "standard": Tier(id="standard", policy=SamplingPolicy(), expected_calls_per_plan=18.0),
     "quick": Tier(
-        id="quick", label="快扫档:每个问题最多问 8 次,前 6 次结果完全一样就提前停",
-        policy=SamplingPolicy(min_n=5, max_n=8, ci_width_threshold=0.35),
+        id="quick", policy=SamplingPolicy(min_n=5, max_n=8, ci_width_threshold=0.35),
         expected_calls_per_plan=7.5,
     ),
 }
+
+
+def preselect_candidates(candidates: list[NeedCandidate], *, n_manual: int) -> list[int]:
+    """确认页默认勾哪几道题(v0.4.18):用户自己填的(列表末尾 n_manual 道)全勾;
+    一道没填就只勾 2 道——第一个不点名品牌的题 + 第一个直接问品牌的题。
+    默认报价必须便宜,想多测由用户自己勾(预估实时更新)。"""
+    if n_manual:
+        return list(range(len(candidates) - n_manual, len(candidates)))
+    first_open = next((i for i, c in enumerate(candidates) if c.intent is not NeedIntent.BRAND_PROBE), None)
+    first_brand = next((i for i, c in enumerate(candidates) if c.intent is NeedIntent.BRAND_PROBE), None)
+    return [i for i in (first_open, first_brand) if i is not None]
 
 
 class Estimate(FrozenModel):
@@ -140,6 +148,7 @@ class DiagnosisJob:
         self.category = category
         self.locale = locale
         self.candidates = candidates
+        self.preselected: list[int] = []  # 确认页默认勾选的候选题下标(建任务时由 preselect_candidates 定)
         self.competitors_suggested = competitors_suggested
 
         self.state = JobState.DRAFT

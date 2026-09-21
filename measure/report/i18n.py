@@ -48,6 +48,28 @@ LEVEL_LABELS: dict[str, dict[str, str]] = {
     "zh": {"A": "研究支持:强", "B": "研究支持:中等", "C": "研究支持:初步", "D": "研究支持:很弱", "E": "研究支持:无"},
     "en": {"A": "Research support: strong", "B": "Research support: moderate", "C": "Research support: preliminary", "D": "Research support: very weak", "E": "Research support: none"},
 }
+# 确认页「两个档位差在哪」对照表(v0.4.18),首行是表头。数字来自 scripts/mc_tier_lights.py
+# (真实停止规则 + 真实亮灯规则,每格模拟 2000 回);改档位策略或亮灯线后必须重跑并同步这里。
+TIER_TABLE: dict[str, list[list[str]]] = {
+    "zh": [
+        ["如果 AI 实际上……", "快扫档会亮什么灯", "标准档会亮什么灯"],
+        ["从来不提你", "一定亮红灯", "一定亮红灯"],
+        ["20 次里提到 1 次", "10 回里约 4 回亮红灯,其余亮黄灯", "10 回里约 9 回亮红灯,其余亮黄灯"],
+        ["10 次里提到 1 次", "多半亮黄灯(10 回里只有 1–2 回亮红灯)", "红灯、黄灯各一半"],
+        ["10 次里提到 3–4 次", "亮黄灯", "亮黄灯"],
+        ["10 次里提到 6–7 次", "10 回里约 3 回亮绿灯,其余亮黄灯", "10 回里约 6–7 回亮绿灯,其余亮黄灯"],
+        ["10 次里提到 8 次", "10 回里约 9 回亮绿灯,其余亮黄灯", "几乎一定亮绿灯"],
+    ],
+    "en": [
+        ["If the AI actually…", "Quick scan shows", "Standard shows"],
+        ["never mentions you", "always red", "always red"],
+        ["mentions you 1 time in 20", "red about 4 times in 10, otherwise yellow", "red about 9 times in 10, otherwise yellow"],
+        ["mentions you 1 time in 10", "mostly yellow (red only 1–2 times in 10)", "red and yellow about half each"],
+        ["mentions you 3–4 times in 10", "yellow", "yellow"],
+        ["mentions you 6–7 times in 10", "green about 3 times in 10, otherwise yellow", "green about 6–7 times in 10, otherwise yellow"],
+        ["mentions you 8 times in 10", "green about 9 times in 10, otherwise yellow", "almost always green"],
+    ],
+}
 
 MESSAGES: dict[str, dict[str, str]] = {
     "zh": {
@@ -74,14 +96,19 @@ MESSAGES: dict[str, dict[str, str]] = {
         "confirm_title": "确认要测的问题和方式",
         "confirm_note": "确认之前不会产生任何费用。问题怎么问对结果影响很大,请逐条看一遍。",
         "brand_word": "品牌", "category_word": "品类", "locale_word": "提问语言",
-        "candidates_title": "候选问题(勾 1–10 个,建议 3–10 个)",
+        "candidates_title": "候选问题(已先帮你勾了 2 个最有代表性的;最多勾 10 个,每多勾一个费用就多一份,下面的预估会跟着变)",
         "custom_label": "自己补充问题(每行一个;按「用户没有点名品牌时」处理)",
         "competitors_title": "要对比的竞品(勾选后报告会比较谁更常被 AI 引用)",
         "plan_title": "怎么测",
         "surfaces_label": "要测的 AI",
         "tier_label": "测多少次",
-        "tier_standard": "标准档:每个问题最多问 20 次,前 11 次结果完全一样就提前停;能把「有时」和「经常」分开一些,费用约为快扫档的 2.5 倍",
-        "tier_quick": "快扫档:每个问题最多问 8 次,前 6 次结果完全一样就提前停;能看出「几乎不」和「经常」,看不出中间状态,适合先查有没有大问题",
+        "tier_standard": "标准档:每种说法最多问 20 次,前 11 次结果完全一样就提前停;费用约为快扫档的 2–2.5 倍,「很少提」和「多半会提」也能分清",
+        "tier_quick": "快扫档:每种说法最多问 8 次,前 6 次结果完全一样就提前停;便宜、快,只能确认「从来不提」和「经常提」,适合先查有没有大问题",
+        "tier_table_caption": "两个档位差在哪(按每个问题换 3 种说法算:快扫档每个问题、每家 AI 一共问 18–24 次,标准档 33–60 次)",
+        "tier_table_note": "红灯 = 几乎不提你,绿灯 = 经常提你,黄灯 = 介于中间,或者问的次数还不够下结论。"
+                           "两个档位都不会把灯亮反(把「经常提」说成「几乎不提」,或者反过来):各模拟 2000 回,一回都没出现;"
+                           "看不清的时候只会亮黄灯。这张表是用电脑模拟算出来的,前提是「不管怎么问,AI 提到你的比例都一样」;"
+                           "如果换个问法结果就差很多,实际把握会比表里低。",
         "variants_label": "每个问题换几种说法问(原话 + AI 改写)",
         "budget_label": "费用上限(美元,可以不填;超过就自动停)",
         "dep_label": "同时测一遍不联网的 AI",
@@ -191,14 +218,19 @@ MESSAGES: dict[str, dict[str, str]] = {
         "confirm_title": "Confirm what to test and how",
         "confirm_note": "Nothing is billed before you confirm. How a question is worded strongly affects the result — please read each one.",
         "brand_word": "Brand", "category_word": "Category", "locale_word": "Question language",
-        "candidates_title": "Candidate questions (pick 1–10; 3–10 recommended)",
+        "candidates_title": "Candidate questions (the 2 most representative are pre-checked; pick up to 10 — each extra one adds cost, and the estimate below updates)",
         "custom_label": "Add your own questions (one per line; treated as \"when users don't name a brand\")",
         "competitors_title": "Competitors to compare (the report will show who gets cited more often)",
         "plan_title": "How to test",
         "surfaces_label": "AIs to test",
         "tier_label": "How many times to ask",
-        "tier_standard": "Standard: ask each question up to 20 times; stop early if the first 11 answers all agree. Separates \"sometimes\" from \"often\" somewhat; about 2.5× the cost of a quick scan",
-        "tier_quick": "Quick scan: ask each question up to 8 times; stop early if the first 6 answers all agree. Shows \"almost never\" vs \"often\", not the middle; good for a first look",
+        "tier_standard": "Standard: ask each phrasing up to 20 times; stop early if the first 11 answers all agree. About 2–2.5× the cost of a quick scan; also tells \"rarely\" from \"usually\"",
+        "tier_quick": "Quick scan: ask each phrasing up to 8 times; stop early if the first 6 answers all agree. Cheap and fast; only confirms \"never mentioned\" and \"often mentioned\" — good for a first look",
+        "tier_table_caption": "How the two tiers differ (with 3 phrasings per question: a quick scan asks each AI 18–24 times per question, standard 33–60 times)",
+        "tier_table_note": "Red = almost never mentions you, green = often mentions you, yellow = in between, or not enough asks to tell. "
+                           "Neither tier shows the opposite light (calling \"often\" \"almost never\" or the reverse): 0 cases in 2,000 simulated runs each; "
+                           "when unsure it shows yellow. This table comes from computer simulation and assumes the AI mentions you at the same rate however the question is worded; "
+                           "if rewording changes the result a lot, real-world certainty is lower than shown.",
         "variants_label": "Phrasings per question (original + AI rewrites)",
         "budget_label": "Spending cap (USD, optional; stops automatically when exceeded)",
         "dep_label": "Also test the AI without web search",
