@@ -42,6 +42,7 @@ from engine.metrics import (
     merge_accounting,
 )
 from engine.models import (
+    ACCOUNT_ERROR_TYPES,
     AskRequest,
     FrozenModel,
     InformationNeed,
@@ -59,15 +60,18 @@ log = structlog.get_logger("engine.scheduler")
 
 class AccountProblem(Exception):
     """我方账户问题(v0.4.21):认证失败 / 额度不足 / 欠费。这不是采样结果,是"发不出观测":
-    该次尝试已落库(error_type=ACCOUNT),然后整个任务应立即停下,等用户充值或换 key 后续跑。"""
+    该次尝试已落库(error_type 为两种账户类之一),然后整个任务应立即停下,等用户换 key 或充值后续跑。"""
 
-    def __init__(self, *, provider: str, surface: str, model: str, message: str) -> None:
+    def __init__(
+        self, *, provider: str, surface: str, model: str, error_type: RunErrorType, message: str,
+    ) -> None:
         super().__init__(f"{provider}/{surface}/{model}: {message}")
-        self.provider, self.surface, self.model, self.message = provider, surface, model, message
+        self.provider, self.surface, self.model = provider, surface, model
+        self.error_type, self.message = error_type, message
 
 
 def is_account_error(run: SurfaceRun) -> bool:
-    return run.error is not None and run.error.error_type is RunErrorType.ACCOUNT
+    return run.error is not None and run.error.error_type in ACCOUNT_ERROR_TYPES
 
 
 class RunSink(Protocol):
@@ -242,8 +246,8 @@ class SequentialSampler:
             self._storage.insert_surface_run(run)
             if is_account_error(run):  # 落库后立刻停:不进本计划的任何统计,也不再花一分钱
                 assert run.error is not None
-                raise AccountProblem(provider=meta.provider, surface=meta.surface,
-                                     model=resolved_model, message=run.error.message)
+                raise AccountProblem(provider=meta.provider, surface=meta.surface, model=resolved_model,
+                                     error_type=run.error.error_type, message=run.error.message)
             run_ids.append(run.run_id)
             outcomes.append(run.outcome)
             total_cost += run.cost_usd
@@ -333,7 +337,7 @@ class SequentialSampler:
                     request, meta, resolved_model, started_at, t0,
                     outcome=Outcome.PERMANENT_FAILURE,
                     error=RunError(
-                        error_type=RunErrorType.ACCOUNT, message=str(exc),
+                        error_type=exc.error_type, message=str(exc),
                         http_status=exc.http_status, attempts=attempts,
                     ),
                     response_body=exc.response_body,

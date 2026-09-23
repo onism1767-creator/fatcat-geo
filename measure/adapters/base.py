@@ -13,7 +13,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 
-from engine.models import AskRequest, FrozenModel, SearchMode, SurfaceRun
+from engine.models import ACCOUNT_ERROR_TYPES, AskRequest, FrozenModel, RunErrorType, SearchMode, SurfaceRun
 
 # ── 异常契约(13.1):适配器对外只允许抛以下三类 ─────────────────────────
 
@@ -45,9 +45,23 @@ class AdapterPermanentError(AdapterError):
 
 
 class AdapterAccountError(AdapterPermanentError):
-    """账户问题(v0.4.21):认证失败、额度不足、欠费。仍是永久类(不重试),但它不是对
-    surface 的观测——是我们这边没能发出观测。引擎另作处理:照常落库(error_type=ACCOUNT),
-    不计入尝试数 / 失败率 / 熔断窗口,并立即停止整个任务,让用户去充值或换 key。"""
+    """账户问题(v0.4.21):key 无效 / 没权限(ACCOUNT_AUTH)或额度不足 / 欠费(ACCOUNT_CREDIT)。
+    仍是永久类(不重试),但它不是对 surface 的观测——是我们这边没能发出观测。引擎另作处理:
+    照常落库(error_type 取 error_type 参数),不计入尝试数 / 失败率 / 熔断窗口,并立即停止整个
+    任务;任务页按两种代码分别解释(换 key / 充值)。"""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_type: RunErrorType,
+        http_status: int | None = None,
+        response_body: str | None = None,
+    ) -> None:
+        if error_type not in ACCOUNT_ERROR_TYPES:
+            raise ValueError(f"AdapterAccountError 只接受账户类 error_type,收到 {error_type!r}")
+        super().__init__(message, http_status=http_status, response_body=response_body)
+        self.error_type = error_type
 
 
 class CapabilityNotSupportedError(Exception):

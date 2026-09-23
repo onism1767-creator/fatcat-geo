@@ -137,6 +137,11 @@ MESSAGES: dict[str, dict[str, str]] = {
         "eta_line": "已用 {elapsed} 分钟;按目前的速度,预计还需约 {eta} 分钟",
         "eta_waiting": "已用 {elapsed} 分钟;第一批结果还没回来,稍后会显示预计剩余时间",
         "job_failed": "出错了",
+        # 账户问题两种代码(v0.4.21):换 key / 充值,各自一句话;{detail} 是平台原话
+        "job_error.account_auth": "{ai}(型号 {model})的 API key 无效或没有使用权限,检测已经停下,不会再花钱。"
+                                  "请检查 .env 里这家的 key,换好后重启服务,再点「接着跑」;已经采集的结果不会重跑。平台原话:{detail}",
+        "job_error.account_credit": "{ai}(型号 {model})的 API 账户额度不足或欠费,检测已经停下,不会再花钱。"
+                                    "充值后点「接着跑」,已经采集的结果不会重跑。平台原话:{detail}",
         "view_report_btn": "看报告",
         "report_meta": "本版报告生成于 {when},第 {n} 版(程序版本 {code})",
         "regen_hint": "规则或文案更新后,用同一批已采集的数据重新生成一版;不会再向 AI 提问、不花 API 的钱(会重新检查一次官网抓取),旧版本留档。",
@@ -261,6 +266,10 @@ MESSAGES: dict[str, dict[str, str]] = {
         "eta_line": "{elapsed} min so far; at the current pace about {eta} min remain",
         "eta_waiting": "{elapsed} min so far; the first results are not back yet — remaining time will show shortly",
         "job_failed": "Something went wrong",
+        "job_error.account_auth": "The API key for {ai} (model {model}) is invalid or lacks permission. The run has stopped and will spend nothing more. "
+                                  "Check that key in .env, restart the service, then press Resume; results already collected are kept. Platform said: {detail}",
+        "job_error.account_credit": "The API account for {ai} (model {model}) is out of credit. The run has stopped and will spend nothing more. "
+                                    "Top up, then press Resume; results already collected are kept. Platform said: {detail}",
         "view_report_btn": "Open the report",
         "report_meta": "This report version was generated at {when}, version {n} (program build {code})",
         "regen_hint": "After rules or wording change, regenerate a new version from the same collected data; no new AI calls or API spend (the site-crawlability check runs again); old versions are kept.",

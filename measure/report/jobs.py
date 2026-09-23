@@ -195,6 +195,9 @@ class DiagnosisJob:
         self.surface_verdicts: list[SurfaceVerdict] = []  # 每家 AI 一句话(v0.4.14),与 need_reports 同生命周期
         self.report_meta: ReportMeta | None = None  # 最新一版报告快照的档案信息(v0.4.16)
         self.started_at: datetime | None = None  # 本次执行开始时刻(任务页按实际速度算剩余时间)
+        # 出错说明(v0.4.21):有代码的错误按「代码 + 参数」存、随界面语言渲染;没代码的(意外异常)存原文
+        self.error_code: str | None = None
+        self.error_params: dict[str, str] = {}
         self.error: str | None = None
         self.finished_at: datetime | None = None
 
@@ -269,6 +272,7 @@ class DiagnosisJob:
             "budget_usd": self.budget_usd,
             "dependency_enabled": self.dependency_enabled,
             "fingerprint": self.fingerprint,
+            "error": {"code": self.error_code, "params": self.error_params, "text": self.error},
         }
 
     def report_payload(self) -> dict:
@@ -315,6 +319,8 @@ class DiagnosisJob:
         job.budget_usd = snapshot["budget_usd"]
         job.dependency_enabled = snapshot["dependency_enabled"]
         job.fingerprint = snapshot["fingerprint"]
+        error = snapshot.get("error") or {}  # 本键 v0.4.21 起才写;更早的快照没有 = 没有出错说明
+        job.error_code, job.error_params, job.error = error.get("code"), error.get("params") or {}, error.get("text")
         job.phase = {
             JobState.DONE: "phase_done",
             JobState.PARTIAL: "phase_partial",

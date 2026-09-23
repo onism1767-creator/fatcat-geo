@@ -312,15 +312,18 @@ def test_account_error_is_recorded_then_halts_plan_without_retry():
     with pytest.raises(AccountProblem) as exc_info:
         make_sampler(storage, sleeps).run_plan(
             ScriptedAdapter([
-                AdapterAccountError(f"账户问题 HTTP 400: {body}", http_status=400, response_body=body), "hit",
+                AdapterAccountError(f"账户额度不足或欠费(HTTP 400): {body}", error_type=RunErrorType.ACCOUNT_CREDIT,
+                                    http_status=400, response_body=body),
+                "hit",
             ]),
             NEED, VARIANT, hit_fn=hit_fn,
         )
     assert sleeps == []  # 不重试不退避:充值前再试也是白试
     [run] = storage.runs  # 失败不蒸发:这一次尝试照常落库
-    assert run.outcome is Outcome.PERMANENT_FAILURE and run.error.error_type is RunErrorType.ACCOUNT
+    assert run.outcome is Outcome.PERMANENT_FAILURE and run.error.error_type is RunErrorType.ACCOUNT_CREDIT
     assert run.raw_payload == {"error_response_text": body}
     assert exc_info.value.model == "m1" and "credit balance" in exc_info.value.message
+    assert exc_info.value.error_type is RunErrorType.ACCOUNT_CREDIT
 
 
 def test_resume_excludes_account_error_priors_and_breaker_ignores_history():
@@ -329,7 +332,8 @@ def test_resume_excludes_account_error_priors_and_breaker_ignores_history():
     storage = MemoryStorage()
     account_rows = [
         make_prior(f"acct-{i}", outcome=Outcome.PERMANENT_FAILURE).model_copy(update={
-            "error": RunError(error_type=RunErrorType.ACCOUNT, message="credit balance is too low",
+            "error": RunError(error_type=RunErrorType.ACCOUNT_AUTH if i % 2 else RunErrorType.ACCOUNT_CREDIT,
+                              message="credit balance is too low",
                               http_status=400),
         })
         for i in range(4)

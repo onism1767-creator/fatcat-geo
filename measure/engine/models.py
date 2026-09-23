@@ -64,7 +64,12 @@ class RunErrorType(StrEnum):
     TRANSIENT = "TRANSIENT"
     PERMANENT = "PERMANENT"
     REFUSAL = "REFUSAL"
-    ACCOUNT = "ACCOUNT"  # v0.4.21:我方账户问题(认证 / 额度 / 欠费),不是对 surface 的观测
+    # v0.4.21:我方账户问题——不是对 surface 的观测,是观测没发出去。两种,处理不同:
+    ACCOUNT_AUTH = "ACCOUNT_AUTH"  # key 无效 / 没权限(HTTP 401 / 403):换 key
+    ACCOUNT_CREDIT = "ACCOUNT_CREDIT"  # 额度不足 / 欠费(HTTP 402,或 400 / 429 带欠费原话):充值
+
+
+ACCOUNT_ERROR_TYPES = frozenset({RunErrorType.ACCOUNT_AUTH, RunErrorType.ACCOUNT_CREDIT})
 
 
 class PromptOrigin(StrEnum):

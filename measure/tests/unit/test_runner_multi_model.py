@@ -50,8 +50,8 @@ class TwoModelAdapter(SurfaceAdapter):
         if request.model == self.broke_model:
             self.broke_model = None
             raise AdapterAccountError(
-                "账户问题 HTTP 400: credit balance is too low", http_status=400,
-                response_body='{"error":{"message":"Your credit balance is too low"}}',
+                "账户额度不足或欠费(HTTP 400): credit balance is too low", error_type=RunErrorType.ACCOUNT_CREDIT,
+                http_status=400, response_body='{"error":{"message":"Your credit balance is too low"}}',
             )
         cites = request.model == CITES
         return SurfaceRun(
@@ -143,11 +143,14 @@ def test_account_problem_halts_job_plainly_and_resume_keeps_account_rows_out_of_
     runner.execute_job(job=job, adapters={"two_model": TwoModelAdapter(broke_model=SILENT)},
                        dsn=TEST_DSN, evidence=evidence)
     assert job.state is JobState.FAILED
-    assert "假 AI" in job.error and "接着跑" in job.error and "credit balance" in job.error
-    assert "AccountProblem" not in job.error  # 不给用户看异常类名
+    assert job.error_code == "job_error.account_credit"  # 充值那句,不是换 key 那句
+    assert job.error_params["ai"] == "假 AI" and job.error_params["model"] == SILENT
+    assert "credit balance" in job.error_params["detail"] and job.error is None
+    restored = DiagnosisJob.from_snapshot(job.to_snapshot())  # 出错说明进快照:去充值期间重启也不丢
+    assert (restored.error_code, restored.error_params) == (job.error_code, job.error_params)
     [variant] = storage.variants_for_need(need.need_id)
     rows = storage.runs_for_variant(variant.variant_id, surface="two_model", model=SILENT)
-    assert len(rows) == 1 and rows[0].error.error_type is RunErrorType.ACCOUNT  # 失败不蒸发
+    assert len(rows) == 1 and rows[0].error.error_type is RunErrorType.ACCOUNT_CREDIT  # 失败不蒸发
 
     # 再塞两条「v0.4.21 之前」风格的账户问题行(当时只会记成 PERMANENT):原始层不可改,
     # 续跑读出时必须按同一条规则重新解读——否则 2/8 = 25% 的"失败率"会把结论压成低置信

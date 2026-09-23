@@ -322,7 +322,12 @@ def create_app(
             elapsed_minutes = (datetime.now(UTC) - job.started_at).total_seconds() / 60
             if job.completed_plans and job.total_plans:
                 eta_minutes = elapsed_minutes / job.completed_plans * (job.total_plans - job.completed_plans)
-        return render(request, "job.html", job=job, elapsed_minutes=elapsed_minutes, eta_minutes=eta_minutes)
+        lang = resolve_lang(request.query_params.get("lang"))
+        error_text = (  # 有代码的出错说明按当前界面语言组句;没代码的(意外异常)照原文
+            MESSAGES[lang][job.error_code].format(**job.error_params) if job.error_code else job.error
+        )
+        return render(request, "job.html", job=job, elapsed_minutes=elapsed_minutes, eta_minutes=eta_minutes,
+                      error_text=error_text)
 
     @app.get("/jobs/{job_id}/report", response_class=HTMLResponse)
     async def job_report(request: Request, job_id: str):

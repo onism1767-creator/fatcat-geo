@@ -14,7 +14,7 @@
   {% if elapsed_minutes is not none %}
   <p class="kv">{% if eta_minutes is not none %}{{ t["eta_line"].format(elapsed=elapsed_minutes|round(1), eta=eta_minutes|round(1)) }}{% else %}{{ t["eta_waiting"].format(elapsed=elapsed_minutes|round(1)) }}{% endif %}</p>
   {% endif %}
-  {% if job.error %}<div class="err">{{ t["job_failed"] }}:{{ job.error }}</div>{% endif %}
+  {% if error_text %}<div class="err">{{ t["job_failed"] }}:{{ error_text }}</div>{% endif %}
 </div>
 
 {% if job.access_result %}

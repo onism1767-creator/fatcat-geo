@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 import structlog
 
 from adapters.base import SurfaceAdapter
-from adapters.http_support import is_account_problem
+from adapters.http_support import classify_account_problem
 from diagnosis import access_audit
 from diagnosis.access_audit import PathProbe, with_path_probes
 from diagnosis.citation_diag import VerificationSummary, diagnose_citation
@@ -130,11 +130,12 @@ def _reinterpret_account_errors(runs: list[SurfaceRun]) -> list[SurfaceRun]:
         error = run.error
         payload = run.raw_payload if isinstance(run.raw_payload, dict) else {}
         body = payload.get("error_response_text")
-        if (
-            error is not None and error.error_type is RunErrorType.PERMANENT
-            and is_account_problem(error.http_status, body if isinstance(body, str) else None)
-        ):
-            run = run.model_copy(update={"error": error.model_copy(update={"error_type": RunErrorType.ACCOUNT})})
+        kind = (
+            classify_account_problem(error.http_status, body if isinstance(body, str) else None)
+            if error is not None and error.error_type is RunErrorType.PERMANENT else None
+        )
+        if error is not None and kind is not None:
+            run = run.model_copy(update={"error": error.model_copy(update={"error_type": kind})})
         reinterpreted.append(run)
     return reinterpreted
 
@@ -164,10 +165,12 @@ def execute_job(
                   model=exc.model, error=exc.message)
         display = adapters[exc.surface].meta().display_name if exc.surface in adapters else exc.surface
         job.state = JobState.FAILED
-        job.error = (
-            f"{display}(型号 {exc.model})的 API 账户额度不足、欠费或 key 无效,检测已经停下,不会再花钱。"
-            f"充值或换 key 后点「接着跑」,已经采集的结果不会重跑。平台原话:{exc.message}"
-        )
+        job.error_code = {  # 两种账户问题两句话:换 key / 充值(文案在 report/i18n.py,随界面语言渲染)
+            RunErrorType.ACCOUNT_AUTH: "job_error.account_auth",
+            RunErrorType.ACCOUNT_CREDIT: "job_error.account_credit",
+        }[exc.error_type]
+        job.error_params = {"ai": display, "model": exc.model, "detail": exc.message}
+        job.error = None
         job.phase = "phase_failed"
         _persist_failure(job, dsn)
     except Exception as exc:  # 失败不静默:状态页如实展示
@@ -202,7 +205,7 @@ def _execute(
     job.need_reports = []
     job.surface_verdicts = []
     job.started_at = datetime.now(UTC)
-    job.error = None
+    job.error_code, job.error_params, job.error = None, {}, None
     job.access_result = access_audit.audit(job.website)
 
     storage = Storage(dsn)
