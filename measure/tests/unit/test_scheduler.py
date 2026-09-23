@@ -7,6 +7,7 @@ from datetime import UTC, datetime
 import pytest
 
 from adapters.base import (
+    AdapterAccountError,
     AdapterPermanentError,
     AdapterTransientError,
     CapabilityNotSupportedError,
@@ -29,7 +30,7 @@ from engine.models import (
     StopReason,
     SurfaceRun,
 )
-from engine.scheduler import SamplingPolicy, SequentialSampler
+from engine.scheduler import AccountProblem, SamplingPolicy, SequentialSampler
 
 NEED = InformationNeed(need_id="need-1", statement="测试需求", intent=NeedIntent.DISCOVERY)
 VARIANT = PromptVariant(
@@ -299,3 +300,49 @@ def test_capability_error_propagates_without_recording():
             NEED, VARIANT, hit_fn=hit_fn,
         )
     assert storage.runs == []  # 编程错误不落 SurfaceRun(13.1)
+
+
+# ── 账户问题(v0.4.21):不是观测,落库后立刻停,不进任何比率 ─────────────────────
+
+
+def test_account_error_is_recorded_then_halts_plan_without_retry():
+    storage = MemoryStorage()
+    sleeps = []
+    body = '{"error":{"type":"invalid_request_error","message":"Your credit balance is too low"}}'
+    with pytest.raises(AccountProblem) as exc_info:
+        make_sampler(storage, sleeps).run_plan(
+            ScriptedAdapter([
+                AdapterAccountError(f"账户问题 HTTP 400: {body}", http_status=400, response_body=body), "hit",
+            ]),
+            NEED, VARIANT, hit_fn=hit_fn,
+        )
+    assert sleeps == []  # 不重试不退避:充值前再试也是白试
+    [run] = storage.runs  # 失败不蒸发:这一次尝试照常落库
+    assert run.outcome is Outcome.PERMANENT_FAILURE and run.error.error_type is RunErrorType.ACCOUNT
+    assert run.raw_payload == {"error_response_text": body}
+    assert exc_info.value.model == "m1" and "credit balance" in exc_info.value.message
+
+
+def test_resume_excludes_account_error_priors_and_breaker_ignores_history():
+    """续跑时:①账户问题行只计数,不进分母 / 失败率 / 熔断;②上一次运行的普通失败不再
+    充当熔断窗口的开场——否则 4 条历史失败会让续跑一次新调用都发不出(2026-09-21 真实踩到)。"""
+    storage = MemoryStorage()
+    account_rows = [
+        make_prior(f"acct-{i}", outcome=Outcome.PERMANENT_FAILURE).model_copy(update={
+            "error": RunError(error_type=RunErrorType.ACCOUNT, message="credit balance is too low",
+                              http_status=400),
+        })
+        for i in range(4)
+    ]
+    stale_failures = [make_prior(f"old-fail-{i}", outcome=Outcome.TRANSIENT_FAILURE) for i in range(4)]
+    result = make_sampler(storage).run_plan(
+        ScriptedAdapter(["hit"]), NEED, VARIANT, hit_fn=hit_fn,
+        prior_runs=account_rows + stale_failures + [make_prior("old-ok")],
+    )
+    assert result.stop_reason is StopReason.CI_CONVERGED  # 没被熔断,正常补齐后收敛
+    assert len(storage.runs) == first_converging_n() - 1  # 只补缺口
+    acc = result.accounting
+    assert acc.n_account_error == 4
+    assert acc.n_total == 4 + first_converging_n()  # 历史普通失败仍是观测,账户行不是
+    assert acc.n_transient_failure == 4 and acc.n_valid == first_converging_n()
+    assert not any(r.startswith("acct-") for r in result.run_ids)

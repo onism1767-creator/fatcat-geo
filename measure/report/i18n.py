@@ -122,6 +122,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "est_basis_measured": "预估按过去实测的平均费用和耗时算:{names}。",
         "est_basis_declared": "{names} 还没有足够的历史记录,先按声明的单价算。",
         "est_basis_tail": "实际费用随 AI 回答的长短浮动。",
+        "est_balance_hint": "开始前请确认所选 AI 的 API 账户里都有足够余额。余额不足时检测会自动停下、不再花钱,"
+                            "已采集的结果会保留,充值后点「接着跑」就能继续。",
         "confirm_submit": "确认,开始检测(从这里开始计费)",
         # 任务页
         "job_title": "检测",
@@ -244,6 +246,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "est_basis_measured": "Estimate uses the measured average cost and time from past runs: {names}.",
         "est_basis_declared": "{names} have too little history yet, so their declared unit price is used.",
         "est_basis_tail": "Actual cost varies with how long the AI's answers are.",
+        "est_balance_hint": "Before starting, make sure each selected AI's API account has enough balance. "
+                            "If a balance runs out the run stops by itself and spends nothing more; "
+                            "results already collected are kept, and after topping up you can press Resume.",
         "confirm_submit": "Confirm and start (billing starts here)",
         "job_title": "Check",
         "fingerprint_word": "ID", "tier_word": "tier",

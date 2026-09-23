@@ -27,7 +27,13 @@ from uuid import uuid4
 
 import structlog
 
-from adapters.base import AdapterPermanentError, AdapterTransientError, SurfaceAdapter, SurfaceMeta
+from adapters.base import (
+    AdapterAccountError,
+    AdapterPermanentError,
+    AdapterTransientError,
+    SurfaceAdapter,
+    SurfaceMeta,
+)
 from engine.metrics import (
     ProportionEstimate,
     SampleAccounting,
@@ -51,6 +57,19 @@ from engine.models import (
 log = structlog.get_logger("engine.scheduler")
 
 
+class AccountProblem(Exception):
+    """我方账户问题(v0.4.21):认证失败 / 额度不足 / 欠费。这不是采样结果,是"发不出观测":
+    该次尝试已落库(error_type=ACCOUNT),然后整个任务应立即停下,等用户充值或换 key 后续跑。"""
+
+    def __init__(self, *, provider: str, surface: str, model: str, message: str) -> None:
+        super().__init__(f"{provider}/{surface}/{model}: {message}")
+        self.provider, self.surface, self.model, self.message = provider, surface, model, message
+
+
+def is_account_error(run: SurfaceRun) -> bool:
+    return run.error is not None and run.error.error_type is RunErrorType.ACCOUNT
+
+
 class RunSink(Protocol):
     """调度器对存储的最小依赖面。"""
 
@@ -71,7 +90,7 @@ class SamplingPolicy(FrozenModel):
     failure_min_attempts: int = 4
     failure_rate_threshold: float = 0.5
     budget_usd: float | None = None  # 本计划成本上限;None = 不限
-    timeout_s: float = 60.0
+    timeout_s: float = 180.0  # v0.4.21:旗舰型号单发约 30 s,并发下 60 s 会误判超时
 
 
 class SamplingResult(FrozenModel):
@@ -171,16 +190,17 @@ class SequentialSampler:
         meta = adapter.meta()
         resolved_model = model or meta.default_model
 
-        prior_runs = prior_runs or []
+        # 账户问题行(v0.4.21)不是尝试:只计数,不进 outcomes / 命中 / 熔断窗口
+        n_account_error = sum(is_account_error(r) for r in prior_runs or [])
+        prior_runs = [r for r in prior_runs or [] if not is_account_error(r)]
         outcomes: list[Outcome] = [r.outcome for r in prior_runs]
         hits: list[bool] = []
         for prior in prior_runs:
             if prior.outcome is Outcome.SUCCESS and (prior_hit := hit_fn(prior)) is not None:
                 hits.append(prior_hit)
-        recent_failures: deque[bool] = deque(
-            (r.outcome in (Outcome.TRANSIENT_FAILURE, Outcome.PERMANENT_FAILURE) for r in prior_runs),
-            maxlen=policy.failure_window,
-        )
+        # 失败率熔断只看本次运行(v0.4.21):它防的是"现在还在失败就别再花钱",上一次运行的
+        # 失败已是过去式——用它开场就熔断,会让续跑一次新调用都发不出
+        recent_failures: deque[bool] = deque(maxlen=policy.failure_window)
         run_ids: list[str] = [r.run_id for r in prior_runs]
         total_cost = sum(r.cost_usd for r in prior_runs)
         # 续跑:先按既有样本判停——已收敛的计划一分钱新调用都不发
@@ -220,6 +240,10 @@ class SequentialSampler:
             )
             run = self._attempt_with_retries(adapter, request, meta, resolved_model, policy)
             self._storage.insert_surface_run(run)
+            if is_account_error(run):  # 落库后立刻停:不进本计划的任何统计,也不再花一分钱
+                assert run.error is not None
+                raise AccountProblem(provider=meta.provider, surface=meta.surface,
+                                     model=resolved_model, message=run.error.message)
             run_ids.append(run.run_id)
             outcomes.append(run.outcome)
             total_cost += run.cost_usd
@@ -246,7 +270,7 @@ class SequentialSampler:
             model=resolved_model,
             stop_reason=stop_reason,
             n_attempts=len(outcomes),
-            accounting=account_outcomes(outcomes),
+            accounting=account_outcomes(outcomes, n_account_error=n_account_error),
             k_hits=sum(hits),
             estimate=estimate,
             total_cost_usd=total_cost,
@@ -302,6 +326,18 @@ class SequentialSampler:
                     )
                 cap = min(policy.backoff_max_s, policy.backoff_base_s * (2 ** (attempts - 1)))
                 self._sleep(self._rng.uniform(0, cap))
+            except AdapterAccountError as exc:  # 子类须先于 AdapterPermanentError 捕获
+                log.error("adapter_account_problem", run_id=request.run_id, surface=meta.surface,
+                          model=resolved_model, http_status=exc.http_status, error=str(exc))
+                return self._failure_run(
+                    request, meta, resolved_model, started_at, t0,
+                    outcome=Outcome.PERMANENT_FAILURE,
+                    error=RunError(
+                        error_type=RunErrorType.ACCOUNT, message=str(exc),
+                        http_status=exc.http_status, attempts=attempts,
+                    ),
+                    response_body=exc.response_body,
+                )
             except AdapterPermanentError as exc:
                 log.error("adapter_permanent_failure", run_id=request.run_id,
                           surface=meta.surface, http_status=exc.http_status, error=str(exc))

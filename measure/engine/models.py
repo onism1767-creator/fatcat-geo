@@ -64,6 +64,7 @@ class RunErrorType(StrEnum):
     TRANSIENT = "TRANSIENT"
     PERMANENT = "PERMANENT"
     REFUSAL = "REFUSAL"
+    ACCOUNT = "ACCOUNT"  # v0.4.21:我方账户问题(认证 / 额度 / 欠费),不是对 surface 的观测
 
 
 class PromptOrigin(StrEnum):
@@ -153,7 +154,7 @@ class AskRequest(FrozenModel):
     model: str | None = None  # None 时取适配器 meta 的默认模型
     locale: str
     region: str | None = None  # None = 不钉地区(surface 不支持或未配置)
-    timeout_s: float = 60.0
+    timeout_s: float = 180.0  # v0.4.21:带思考的旗舰型号单发约 30 s,并发下 60 s 会误判超时
 
 
 # ── SurfaceRun(适配器 → 引擎,原始层,永不可变,6.3)────────────────────

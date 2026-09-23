@@ -9,7 +9,7 @@ from datetime import UTC, datetime
 import pytest
 from conftest import TEST_DSN
 
-from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
+from adapters.base import AdapterAccountError, CapabilityRegistry, SurfaceAdapter, SurfaceMeta
 from diagnosis.findings import Stage, StageStatus
 from diagnosis.recommender import load_evidence_registry
 from engine.models import (
@@ -20,6 +20,8 @@ from engine.models import (
     InformationNeed,
     NeedIntent,
     Outcome,
+    RunError,
+    RunErrorType,
     SearchTrace,
     SurfaceRun,
 )
@@ -31,7 +33,11 @@ CITES, SILENT = "m-cites", "m-silent"
 
 
 class TwoModelAdapter(SurfaceAdapter):
-    """同一台仪器、两个型号:一个每次都引用官网并提到品牌,一个从不。"""
+    """同一台仪器、两个型号:一个每次都引用官网并提到品牌,一个从不。
+    broke_model 非空时,该型号的下一次调用撞「账户没钱」(模拟额度跑空),之后恢复正常。"""
+
+    def __init__(self, broke_model: str | None = None) -> None:
+        self.broke_model = broke_model
 
     def meta(self) -> SurfaceMeta:
         return SurfaceMeta(display_name="假 AI", provider="test_provider", surface="two_model",
@@ -41,6 +47,12 @@ class TwoModelAdapter(SurfaceAdapter):
 
     def ask(self, request: AskRequest) -> SurfaceRun:
         assert request.model in (CITES, SILENT)  # 执行器必须把型号显式传下来,不许落回默认型号
+        if request.model == self.broke_model:
+            self.broke_model = None
+            raise AdapterAccountError(
+                "账户问题 HTTP 400: credit balance is too low", http_status=400,
+                response_body='{"error":{"message":"Your credit balance is too low"}}',
+            )
         cites = request.model == CITES
         return SurfaceRun(
             run_id=request.run_id, information_need_id=request.information_need_id,
@@ -115,3 +127,43 @@ def test_two_models_of_one_surface_are_sampled_and_diagnosed_apart(storage, offl
     assert job.state is JobState.DONE, job.error
     assert len(storage.runs_for_variant(variant.variant_id, surface="two_model")) == 12
     assert _citation_status(job) == {CITES: StageStatus.PASS, SILENT: StageStatus.WEAK}
+
+
+def test_account_problem_halts_job_plainly_and_resume_keeps_account_rows_out_of_metrics(storage, offline):
+    """v0.4.21:账户没钱 → 任务立刻停、任务页说人话、不再花钱;充值后「接着跑」——账户问题行
+    照常在库里,但不进分母、不进失败率、不触发熔断;两型号结论与正常跑完全一致。"""
+    need = InformationNeed(statement="小团队用什么 CRM?", intent=NeedIntent.DISCOVERY)
+    job = DiagnosisJob(brand=BRAND, website="https://aurora-crm.com", category="CRM",
+                       locale="zh-CN", candidates=[], competitors_suggested=[])
+    job.freeze(needs=[need], competitors=[],
+               targets=[Target(surface="two_model", model=CITES), Target(surface="two_model", model=SILENT)],
+               tier_id="quick", variants_per_need=1, budget_usd=None)
+    evidence = load_evidence_registry()
+
+    runner.execute_job(job=job, adapters={"two_model": TwoModelAdapter(broke_model=SILENT)},
+                       dsn=TEST_DSN, evidence=evidence)
+    assert job.state is JobState.FAILED
+    assert "假 AI" in job.error and "接着跑" in job.error and "credit balance" in job.error
+    assert "AccountProblem" not in job.error  # 不给用户看异常类名
+    [variant] = storage.variants_for_need(need.need_id)
+    rows = storage.runs_for_variant(variant.variant_id, surface="two_model", model=SILENT)
+    assert len(rows) == 1 and rows[0].error.error_type is RunErrorType.ACCOUNT  # 失败不蒸发
+
+    # 再塞两条「v0.4.21 之前」风格的账户问题行(当时只会记成 PERMANENT):原始层不可改,
+    # 续跑读出时必须按同一条规则重新解读——否则 2/8 = 25% 的"失败率"会把结论压成低置信
+    for i in range(2):
+        storage.insert_surface_run(rows[0].model_copy(update={
+            "run_id": f"legacy-account-row-{i}",
+            "error": RunError(error_type=RunErrorType.PERMANENT, message="非法请求 HTTP 400", http_status=400),
+            "raw_payload": {"error_response_text": '{"error":{"message":"Your credit balance is too low"}}'},
+        }))
+
+    runner.execute_job(job=job, adapters={"two_model": TwoModelAdapter()}, dsn=TEST_DSN, evidence=evidence)
+    assert job.state is JobState.DONE, job.error
+    assert _citation_status(job) == {CITES: StageStatus.PASS, SILENT: StageStatus.WEAK}
+    [report] = job.need_reports
+    silent_block = next(b for b in report.diagnosis.surfaces if b.model == SILENT)
+    citation = next(f for f in silent_block.findings if f.stage is Stage.CITATION)
+    assert not citation.low_confidence  # 三条账户行都没有被算成失败率
+    rows = storage.runs_for_variant(variant.variant_id, surface="two_model", model=SILENT)
+    assert sum(r.outcome is Outcome.SUCCESS for r in rows) == 6 and len(rows) == 9  # 6 次有效 + 3 条账户行

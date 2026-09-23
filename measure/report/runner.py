@@ -19,6 +19,7 @@ from datetime import UTC, datetime
 import structlog
 
 from adapters.base import SurfaceAdapter
+from adapters.http_support import is_account_problem
 from diagnosis import access_audit
 from diagnosis.access_audit import PathProbe, with_path_probes
 from diagnosis.citation_diag import VerificationSummary, diagnose_citation
@@ -51,11 +52,13 @@ from engine.models import (
     Outcome,
     PromptOrigin,
     PromptVariant,
+    RunErrorType,
     SearchMode,
     StopReason,
     SurfaceRun,
 )
 from engine.scheduler import (
+    AccountProblem,
     NeedSurfaceMetric,
     SamplingResult,
     SequentialSampler,
@@ -119,6 +122,23 @@ def _variant_estimates(
     return [estimate_proportion(sum(v), len(v)) if v else None for v in hits.values()]
 
 
+def _reinterpret_account_errors(runs: list[SurfaceRun]) -> list[SurfaceRun]:
+    """v0.4.21 之前落库的账户问题行带的是 PERMANENT(当时还没有 ACCOUNT 这一类)。原始层
+    不可改,读出时按 L1 现行的同一条翻译规则重新解读——只在内存,库里的行原样不动。"""
+    reinterpreted = []
+    for run in runs:
+        error = run.error
+        payload = run.raw_payload if isinstance(run.raw_payload, dict) else {}
+        body = payload.get("error_response_text")
+        if (
+            error is not None and error.error_type is RunErrorType.PERMANENT
+            and is_account_problem(error.http_status, body if isinstance(body, str) else None)
+        ):
+            run = run.model_copy(update={"error": error.model_copy(update={"error_type": RunErrorType.ACCOUNT})})
+        reinterpreted.append(run)
+    return reinterpreted
+
+
 def _mention_hit_fn(brand: BrandSpec):
     """闭卷腿(search_disabled)收敛判据:提及——该模式无引用机制,引用判据恒空。"""
     detector = BrandMentionDetector()
@@ -139,16 +159,32 @@ def execute_job(
 ) -> None:
     try:
         _execute(job, adapters=adapters, dsn=dsn, evidence=evidence)
+    except AccountProblem as exc:  # v0.4.21:我方账户问题——停下、说人话、等充值后续跑
+        log.error("job_halted_account_problem", job_id=job.job_id, surface=exc.surface,
+                  model=exc.model, error=exc.message)
+        display = adapters[exc.surface].meta().display_name if exc.surface in adapters else exc.surface
+        job.state = JobState.FAILED
+        job.error = (
+            f"{display}(型号 {exc.model})的 API 账户额度不足、欠费或 key 无效,检测已经停下,不会再花钱。"
+            f"充值或换 key 后点「接着跑」,已经采集的结果不会重跑。平台原话:{exc.message}"
+        )
+        job.phase = "phase_failed"
+        _persist_failure(job, dsn)
     except Exception as exc:  # 失败不静默:状态页如实展示
         log.error("job_failed", job_id=job.job_id, error=f"{type(exc).__name__}: {exc}")
         job.state = JobState.FAILED
         job.error = f"{type(exc).__name__}: {exc}"
         job.phase = "phase_failed"
-        try:  # 失败态尽力落库供重启后续跑;持久化自身的失败不得掩盖原始错误
-            with Storage(dsn) as failure_store:
-                failure_store.upsert_job_snapshot(job.to_snapshot())
-        except Exception:
-            log.warning("job_state_persist_failed", job_id=job.job_id)
+        _persist_failure(job, dsn)
+
+
+def _persist_failure(job: DiagnosisJob, dsn: str) -> None:
+    """失败态尽力落库供重启后续跑;持久化自身的失败不得掩盖原始错误。"""
+    try:
+        with Storage(dsn) as failure_store:
+            failure_store.upsert_job_snapshot(job.to_snapshot())
+    except Exception:
+        log.warning("job_state_persist_failed", job_id=job.job_id)
 
 
 def _execute(
@@ -217,9 +253,12 @@ def _execute(
 
     job.phase = "phase_sampling"
     progress_lock = threading.Lock()
+    halt = threading.Event()  # 任一计划撞上账户问题即举旗:还没开始的计划不再发一次调用
     results: dict[tuple[str, Target, SearchMode], list[SamplingResult]] = {}
 
     def run_one(plan: tuple[InformationNeed, Target, SearchMode]) -> None:
+        if halt.is_set():
+            return
         need, target, mode = plan
         adapter = adapter_of[target]
         hit_fn = (
@@ -232,16 +271,19 @@ def _execute(
             sampler = SequentialSampler(plan_storage)
             plan_results = []
             for variant in variants_by_need[need.need_id]:
-                prior = [  # 幂等键 (问法 × surface × 型号 × 模式) 下已存的运行,续跑作前缀
+                prior = _reinterpret_account_errors([  # 幂等键 (问法 × surface × 型号 × 模式) 下已存的运行,续跑作前缀
                     r for r in plan_storage.runs_for_variant(
                         variant.variant_id, surface=target.surface, model=target.model)
                     if r.search_mode == mode
-                ]
+                ])
                 plan_results.append(
                     sampler.run_plan(adapter, need, variant, hit_fn=hit_fn, policy=policy,
                                      search_mode=mode, model=target.model, locale=job.locale,
                                      prior_runs=prior)
                 )
+        except AccountProblem:
+            halt.set()
+            raise
         finally:
             plan_storage.close()
         with progress_lock:

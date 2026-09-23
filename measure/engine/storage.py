@@ -26,6 +26,7 @@ from engine.models import (
     DerivedObservation,
     FrozenModel,
     InformationNeed,
+    Outcome,
     PromptVariant,
     RunError,
     SearchTrace,
@@ -390,10 +391,12 @@ class Storage:
     # ── 调用统计(v0.4.17 预估口径)──────────────────────────────────────
 
     def call_stats(self) -> list[CallStat]:
-        """按 surface × 型号 × 模式的历史实测均价与均时(全部运行,含失败),供确认页预估。"""
+        """按 surface × 型号 × 模式的历史实测均价与均时,供确认页预估。只看成功的调用(v0.4.21):
+        预估的是「拿到一次有效回答要花多少」,失败行记的 $0 与含退避的耗时不代表这个价。"""
         rows = self._conn.execute(
             "SELECT surface, model, search_mode, count(*), avg(cost_usd), avg(latency_ms) "
-            "FROM surface_run GROUP BY surface, model, search_mode"
+            "FROM surface_run WHERE outcome = %s GROUP BY surface, model, search_mode",
+            (Outcome.SUCCESS.value,),
         ).fetchall()
         return [
             CallStat(surface=surface, model=model, search_mode=mode, n=n,

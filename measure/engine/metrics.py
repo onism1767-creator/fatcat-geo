@@ -71,6 +71,9 @@ class SampleAccounting(FrozenModel):
     failure_rate: float
     invalid_rate: float  # (拒答+失败)/总数;LOW_CONFIDENCE 的判定依据(取保守口径)
     low_confidence: bool
+    # v0.4.21:我方账户问题(认证 / 额度 / 欠费)导致没发出的观测。照常落库、随口径输出,
+    # 但不是尝试:不进 n_total,不进失败率——那是我们的账户,不是 AI 的行为
+    n_account_error: int = 0
 
 
 def merge_accounting(
@@ -78,13 +81,14 @@ def merge_accounting(
     low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD,
 ) -> SampleAccounting:
     """合并多份记账(如同一需求下多个问法的采样),比率按合并后总数重算。"""
-    n_total = n_valid = n_refused = n_transient = n_permanent = 0
+    n_total = n_valid = n_refused = n_transient = n_permanent = n_account = 0
     for part in parts:
         n_total += part.n_total
         n_valid += part.n_valid
         n_refused += part.n_refused
         n_transient += part.n_transient_failure
         n_permanent += part.n_permanent_failure
+        n_account += part.n_account_error
     failure_rate = (n_transient + n_permanent) / n_total if n_total else 0.0
     refusal_rate = n_refused / n_total if n_total else 0.0
     invalid_rate = (n_total - n_valid) / n_total if n_total else 0.0
@@ -98,13 +102,17 @@ def merge_accounting(
         failure_rate=failure_rate,
         invalid_rate=invalid_rate,
         low_confidence=invalid_rate > low_confidence_threshold,
+        n_account_error=n_account,
     )
 
 
 def account_outcomes(
     outcomes: Iterable[Outcome],
     low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD,
+    *,
+    n_account_error: int = 0,
 ) -> SampleAccounting:
+    """outcomes 只含真正发出的尝试;账户问题另计(n_account_error),不进任何比率。"""
     counts = Counter(outcomes)
     n_total = sum(counts.values())
     n_valid = counts[Outcome.SUCCESS]
@@ -124,4 +132,5 @@ def account_outcomes(
         failure_rate=failure_rate,
         invalid_rate=invalid_rate,
         low_confidence=invalid_rate > low_confidence_threshold,
+        n_account_error=n_account_error,
     )

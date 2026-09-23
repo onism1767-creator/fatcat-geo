@@ -41,7 +41,13 @@ class AdapterTransientError(AdapterError):
 
 
 class AdapterPermanentError(AdapterError):
-    """认证失败、非法请求、配额永久不足。不重试,落 outcome=PERMANENT_FAILURE 并告警。"""
+    """非法请求等永久性错误。不重试,落 outcome=PERMANENT_FAILURE 并告警。"""
+
+
+class AdapterAccountError(AdapterPermanentError):
+    """账户问题(v0.4.21):认证失败、额度不足、欠费。仍是永久类(不重试),但它不是对
+    surface 的观测——是我们这边没能发出观测。引擎另作处理:照常落库(error_type=ACCOUNT),
+    不计入尝试数 / 失败率 / 熔断窗口,并立即停止整个任务,让用户去充值或换 key。"""
 
 
 class CapabilityNotSupportedError(Exception):
