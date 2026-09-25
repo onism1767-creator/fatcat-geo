@@ -50,7 +50,8 @@ for stmt, surface, model, outcome, n, cost, cited, mentioned in c.execute(
            sum(CASE WHEN r.outcome = 'SUCCESS' AND EXISTS (
                  SELECT 1 FROM jsonb_array_elements(coalesce(r.answer->'citations', '[]'::jsonb)) ci
                  WHERE ci->>'domain' LIKE '%%arcteryx.com') THEN 1 ELSE 0 END),
-           sum(CASE WHEN r.outcome = 'SUCCESS' AND (r.answer->>'answer_text') ~* '始祖鸟|arc.teryx|arcteryx' THEN 1 ELSE 0 END)
+           sum(CASE WHEN r.outcome = 'SUCCESS'
+                     AND (r.answer->>'answer_text') ~* '始祖鸟|arc.teryx|arcteryx' THEN 1 ELSE 0 END)
     FROM surface_run r JOIN information_need n ON n.need_id = r.information_need_id
     WHERE r.search_mode = 'default' AND n.need_id IN (
         SELECT jsonb_array_elements(snapshot->'needs')->>'need_id' FROM diagnosis_job WHERE job_id = %s)
