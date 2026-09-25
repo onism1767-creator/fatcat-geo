@@ -55,6 +55,8 @@ DEFAULT_DSN = "postgresql://geo@localhost:5433/geo_tool"
 
 
 MIN_STAT_SAMPLES = 10  # 少于这么多次历史调用不算数,仍用声明单价(v0.4.17)
+# 多少分钟没有任何新样本就在任务页报 JOB_STALLED(v0.4.22):一次采样最坏 = 3 次尝试 × 180 s 超时 + 退避 ≈ 10 分钟
+STALL_MINUTES = 10
 
 
 def create_app(
@@ -326,8 +328,15 @@ def create_app(
         error_text = (  # 有代码的出错说明按当前界面语言组句;没代码的(意外异常)照原文
             MESSAGES[lang][job.error_code].format(**job.error_params) if job.error_code else job.error
         )
+        # 卡住了没有?(v0.4.22)运行中按「最近一条样本 / 本次开始」到现在的分钟数报;超过阈值给 JOB_STALLED
+        quiet_minutes = stalled_text = None
+        if job.state is JobState.RUNNING and job.started_at is not None:
+            since = job.last_result_at or job.started_at
+            quiet_minutes = (datetime.now(UTC) - since).total_seconds() / 60
+            if quiet_minutes >= STALL_MINUTES:
+                stalled_text = MESSAGES[lang]["job_stalled"].format(minutes=round(quiet_minutes))
         return render(request, "job.html", job=job, elapsed_minutes=elapsed_minutes, eta_minutes=eta_minutes,
-                      error_text=error_text)
+                      error_text=error_text, quiet_minutes=quiet_minutes, stalled_text=stalled_text)
 
     @app.get("/jobs/{job_id}/report", response_class=HTMLResponse)
     async def job_report(request: Request, job_id: str):

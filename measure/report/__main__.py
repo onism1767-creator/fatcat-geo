@@ -5,15 +5,27 @@
 """
 
 import os
+import sys
 
 import uvicorn
 
 from engine.envfile import load_env_file
+from engine.storage import StorageUnavailable
 from report.app import DEFAULT_DSN, create_app
 from report.jobs import restore_registry
 
 load_env_file()
-app = create_app(registry=restore_registry(os.environ.get("GEO_DATABASE_URL", DEFAULT_DSN)))
+try:
+    app = create_app(registry=restore_registry(os.environ.get("GEO_DATABASE_URL", DEFAULT_DSN)))
+except StorageUnavailable as exc:  # v0.4.22:不再无声挂起(2026-09-25 事故)
+    print(
+        "[DB_UNREACHABLE] 连不上本机数据库(端口 5433),服务没有启动。\n"
+        "  先运行:powershell -ExecutionPolicy Bypass -File scripts/pgdev.ps1 status\n"
+        "  显示 STOPPED 就 start;显示 PG_ZOMBIE(在听但不应答)就 restart。\n"
+        f"  原话:{exc}",
+        file=sys.stderr,
+    )
+    sys.exit(2)
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8600, log_level="warning")

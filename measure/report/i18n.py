@@ -142,6 +142,12 @@ MESSAGES: dict[str, dict[str, str]] = {
                                   "请检查 .env 里这家的 key,换好后重启服务,再点「接着跑」;已经采集的结果不会重跑。平台原话:{detail}",
         "job_error.account_credit": "{ai}(型号 {model})的 API 账户额度不足或欠费,检测已经停下,不会再花钱。"
                                     "充值后点「接着跑」,已经采集的结果不会重跑。平台原话:{detail}",
+        "job_error.db_unreachable": "连不上本机数据库(端口 5433),检测已经停下。请运行 scripts/pgdev.ps1 status:"
+                                    "显示 STOPPED 就 start,显示 PG_ZOMBIE 就 restart;数据库起好后点「接着跑」,"
+                                    "已经采集的结果不会丢。错误代码:DB_UNREACHABLE。原话:{detail}",
+        "last_result_line": "最近一次新结果在 {minutes} 分钟前",
+        "job_stalled": "已经 {minutes} 分钟没有收到任何新结果,检测可能卡住了(网络断了、某家 AI 长时间不响应、"
+                       "或数据库出了问题)。可以重启服务后点「接着跑」,已经采集的结果不会丢。错误代码:JOB_STALLED",
         "view_report_btn": "看报告",
         "report_meta": "本版报告生成于 {when},第 {n} 版(程序版本 {code})",
         "regen_hint": "规则或文案更新后,用同一批已采集的数据重新生成一版;不会再向 AI 提问、不花 API 的钱(会重新检查一次官网抓取),旧版本留档。",
@@ -270,6 +276,12 @@ MESSAGES: dict[str, dict[str, str]] = {
                                   "Check that key in .env, restart the service, then press Resume; results already collected are kept. Platform said: {detail}",
         "job_error.account_credit": "The API account for {ai} (model {model}) is out of credit. The run has stopped and will spend nothing more. "
                                     "Top up, then press Resume; results already collected are kept. Platform said: {detail}",
+        "job_error.db_unreachable": "Cannot reach the local database (port 5433); the run has stopped. Run scripts/pgdev.ps1 status: "
+                                    "STOPPED means start it, PG_ZOMBIE means restart it; then press Resume. Results already collected are kept. "
+                                    "Error code: DB_UNREACHABLE. Detail: {detail}",
+        "last_result_line": "Last new result {minutes} minutes ago",
+        "job_stalled": "No new result for {minutes} minutes; the run may be stuck (network down, an AI not responding, "
+                       "or a database problem). Restart the service and press Resume; results already collected are kept. Error code: JOB_STALLED",
         "view_report_btn": "Open the report",
         "report_meta": "This report version was generated at {when}, version {n} (program build {code})",
         "regen_hint": "After rules or wording change, regenerate a new version from the same collected data; no new AI calls or API spend (the site-crawlability check runs again); old versions are kept.",

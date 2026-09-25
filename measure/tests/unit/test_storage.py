@@ -60,6 +60,18 @@ def test_schema_is_idempotent(storage):
     storage.ensure_schema()  # 重复执行不报错
 
 
+def test_unreachable_database_fails_fast_with_storage_unavailable():
+    """v0.4.22:连不上库要在有限时间内报 StorageUnavailable,不再无声挂起(2026-09-25 事故)。"""
+    import time
+
+    from engine.storage import Storage, StorageUnavailable
+
+    t0 = time.perf_counter()
+    with pytest.raises(StorageUnavailable, match="连不上数据库"):
+        Storage("postgresql://geo@127.0.0.1:1/nowhere")  # 端口 1 没人听:立刻拒绝
+    assert time.perf_counter() - t0 < 15
+
+
 def test_job_snapshot_upsert_load_and_overwrite(storage):
     """任务快照(v0.4.9):运行状态可覆写——与观测四表的只追加互不相干。"""
     snapshot = {"job_id": "job-s1", "created_at": "2026-09-08T10:00:00+00:00",

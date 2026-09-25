@@ -55,3 +55,27 @@ def test_credit_and_auth_problems_get_their_own_sentence_in_both_languages():
 def test_uncoded_failures_still_show_their_raw_text():
     page = _page(_failed_job(None, text="ValueError: something odd"), "zh")
     assert "ValueError: something odd" in page
+
+
+def test_db_unreachable_has_its_own_code_and_instructions():
+    page = _page(_failed_job("job_error.db_unreachable"), "zh")
+    assert "DB_UNREACHABLE" in page and "pgdev.ps1 status" in page and "PG_ZOMBIE" in page
+
+
+def test_running_job_reports_quiet_minutes_and_stall_code():
+    """v0.4.22:任务页显示「最近一次新结果在几分钟前」;超过 STALL_MINUTES 没有新样本就给 JOB_STALLED。"""
+    from datetime import UTC, datetime, timedelta
+
+    from report.app import STALL_MINUTES
+
+    job = _failed_job(None)
+    job.state, job.phase = JobState.RUNNING, "phase_sampling"
+    job.started_at = datetime.now(UTC) - timedelta(minutes=30)
+    job.last_result_at = datetime.now(UTC) - timedelta(minutes=2)
+    fresh = _page(job, "zh")
+    assert "最近一次新结果在 2." in fresh and "JOB_STALLED" not in fresh
+    job.last_result_at = datetime.now(UTC) - timedelta(minutes=STALL_MINUTES + 5)
+    stalled = _page(job, "zh")
+    assert "JOB_STALLED" in stalled and "卡住" in stalled and "接着跑" in stalled
+    job.last_result_at = None  # 一条都没回来过:从本次开始时刻算
+    assert "JOB_STALLED" in _page(job, "en") and "stuck" in _page(job, "en")

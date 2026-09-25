@@ -64,7 +64,7 @@ from engine.scheduler import (
     SequentialSampler,
     aggregate_need_surface,
 )
-from engine.storage import Storage
+from engine.storage import Storage, StorageUnavailable
 from engine.variants import generate_variants
 from report.jobs import (
     PLAN_CONCURRENCY,
@@ -140,6 +140,19 @@ def _reinterpret_account_errors(runs: list[SurfaceRun]) -> list[SurfaceRun]:
     return reinterpreted
 
 
+class _ProgressSink:
+    """包一层存储:每落一条样本就给任务盖个时间戳,任务页据此显示「最近一次新结果在几分钟前」,
+    超过阈值就报 JOB_STALLED(v0.4.22)。"""
+
+    def __init__(self, storage: Storage, job: DiagnosisJob, lock: threading.Lock) -> None:
+        self._storage, self._job, self._lock = storage, job, lock
+
+    def insert_surface_run(self, run: SurfaceRun) -> None:
+        self._storage.insert_surface_run(run)
+        with self._lock:
+            self._job.last_result_at = datetime.now(UTC)
+
+
 def _mention_hit_fn(brand: BrandSpec):
     """闭卷腿(search_disabled)收敛判据:提及——该模式无引用机制,引用判据恒空。"""
     detector = BrandMentionDetector()
@@ -171,6 +184,12 @@ def execute_job(
         }[exc.error_type]
         job.error_params = {"ai": display, "model": exc.model, "detail": exc.message}
         job.error = None
+        job.phase = "phase_failed"
+        _persist_failure(job, dsn)
+    except StorageUnavailable as exc:  # v0.4.22:数据库掉线也要有代码和人话
+        log.error("job_halted_db_unreachable", job_id=job.job_id, error=str(exc))
+        job.state = JobState.FAILED
+        job.error_code, job.error_params, job.error = "job_error.db_unreachable", {"detail": str(exc)}, None
         job.phase = "phase_failed"
         _persist_failure(job, dsn)
     except Exception as exc:  # 失败不静默:状态页如实展示
@@ -205,6 +224,7 @@ def _execute(
     job.need_reports = []
     job.surface_verdicts = []
     job.started_at = datetime.now(UTC)
+    job.last_result_at = None
     job.error_code, job.error_params, job.error = None, {}, None
     job.access_result = access_audit.audit(job.website)
 
@@ -271,7 +291,7 @@ def _execute(
         )
         plan_storage = Storage(dsn)  # psycopg 连接非线程安全:每计划独立连接
         try:
-            sampler = SequentialSampler(plan_storage)
+            sampler = SequentialSampler(_ProgressSink(plan_storage, job, progress_lock))
             plan_results = []
             for variant in variants_by_need[need.need_id]:
                 prior = _reinterpret_account_errors([  # 幂等键 (问法 × surface × 型号 × 模式) 下已存的运行,续跑作前缀

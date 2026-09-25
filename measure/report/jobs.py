@@ -195,6 +195,7 @@ class DiagnosisJob:
         self.surface_verdicts: list[SurfaceVerdict] = []  # 每家 AI 一句话(v0.4.14),与 need_reports 同生命周期
         self.report_meta: ReportMeta | None = None  # 最新一版报告快照的档案信息(v0.4.16)
         self.started_at: datetime | None = None  # 本次执行开始时刻(任务页按实际速度算剩余时间)
+        self.last_result_at: datetime | None = None  # 最近一条样本落库的时刻(任务页据此报「卡住了」)
         # 出错说明(v0.4.21):有代码的错误按「代码 + 参数」存、随界面语言渲染;没代码的(意外异常)存原文
         self.error_code: str | None = None
         self.error_params: dict[str, str] = {}

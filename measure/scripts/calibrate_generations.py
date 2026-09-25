@@ -70,13 +70,14 @@ for stmt, surface, model, outcome, n, cost, cited, mentioned in c.execute(
 questions = sorted({k[0] for k in status})
 for q in questions:
     print(f"== 题:{q}… ==")
-    print(f"{'model':<24} {'检索':>4} {'引用':>4} {'描述':>4} {'瓶颈':<12} {'有效':>4} {'引用k':>5} {'提及k':>5} {'失败':>4} {'花费':>7}")
+    print(f"{'model':<24} {'检索':>4} {'引用':>4} {'描述':>4} {'瓶颈':<12} "
+          f"{'有效':>4} {'引用k':>5} {'提及k':>5} {'失败':>4} {'花费':>7}")
     for (qq, surface, model), st in sorted(status.items(), key=lambda kv: (kv[0][1], kv[0][2])):
         if qq != q:
             continue
         cnt = counts[(qq, surface, model)]
-        print(f"{model:<24} {LIGHT.get(st.get('RETRIEVAL'), '?'):>4} {LIGHT.get(st.get('CITATION'), '?'):>4} "
-              f"{LIGHT.get(st.get('REPRESENTATION'), '?'):>4} {st['primary']:<12} {int(cnt['n']):>4} {int(cnt['cited']):>5} "
+        lights = " ".join(f"{LIGHT.get(st.get(s), '?'):>4}" for s in ("RETRIEVAL", "CITATION", "REPRESENTATION"))
+        print(f"{model:<24} {lights} {st['primary']:<12} {int(cnt['n']):>4} {int(cnt['cited']):>5} "
               f"{int(cnt['mentioned']):>5} {int(cnt['fail']):>4} ${cnt['cost']:>6.2f}")
     print()
 
@@ -88,5 +89,6 @@ for surface, old, new in PAIRS:
             print(f"{old:<20} vs {new:<20} {q[:12]}…  缺数据")
             continue
         same = all(a.get(s) == b.get(s) for s in ("RETRIEVAL", "CITATION", "REPRESENTATION"))
-        diff = [f"{s}:{LIGHT.get(a.get(s), '?')}→{LIGHT.get(b.get(s), '?')}" for s in ("RETRIEVAL", "CITATION", "REPRESENTATION") if a.get(s) != b.get(s)]
+        diff = [f"{s}:{LIGHT.get(a.get(s), '?')}→{LIGHT.get(b.get(s), '?')}"
+                for s in ("RETRIEVAL", "CITATION", "REPRESENTATION") if a.get(s) != b.get(s)]
         print(f"{old:<20} vs {new:<20} {q[:12]}…  {'一致' if same else '不一致 ' + ' '.join(diff)}")

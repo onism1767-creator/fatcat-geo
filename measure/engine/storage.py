@@ -230,9 +230,20 @@ def _observation_type(observation: DerivedObservation) -> str:
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
 
 
+class StorageUnavailable(RuntimeError):
+    """连不上数据库(v0.4.22):端口没开、或在听但不应答(2026-09-25 僵尸主进程)。
+    不再无限挂起——调用方按错误代码 DB_UNREACHABLE 告诉用户该跑哪条命令。"""
+
+
+CONNECT_TIMEOUT_S = 10
+
+
 class Storage:
     def __init__(self, dsn: str) -> None:
-        self._conn = psycopg.connect(dsn, autocommit=True)
+        try:
+            self._conn = psycopg.connect(dsn, autocommit=True, connect_timeout=CONNECT_TIMEOUT_S)
+        except psycopg.OperationalError as exc:
+            raise StorageUnavailable(f"{CONNECT_TIMEOUT_S} 秒内连不上数据库: {exc}") from exc
 
     # ── 生命周期 ──────────────────────────────────────────────────────
 
