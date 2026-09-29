@@ -12,7 +12,7 @@ import uvicorn
 from engine.envfile import load_env_file
 from engine.storage import StorageUnavailable
 from report.app import DEFAULT_DSN, create_app
-from report.jobs import restore_registry
+from report.archive import restore_registry
 
 load_env_file()
 try:

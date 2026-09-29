@@ -46,13 +46,13 @@ from engine.observe import RunObservations, convergence_hit, observe, persist_ob
 from engine.scheduler import AccountProblem, SamplingResult, SequentialSampler, reinterpret_account_errors
 from engine.storage import Storage, StorageUnavailable
 from engine.variants import generate_variants
+from report.archive import attach_latest_report
 from report.jobs import (
     PLAN_CONCURRENCY,
     TIERS,
     DiagnosisJob,
     JobState,
     NeedReport,
-    attach_latest_report,
     current_code_version,
 )
 

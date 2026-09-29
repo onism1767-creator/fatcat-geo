@@ -571,7 +571,7 @@ def test_report_payload_round_trip_rehydrates_messages():
 
 def test_attach_latest_report_restores_report_and_spend(storage):
     """启动恢复(v0.4.16):已完成任务从库里装回最新一版报告与花费,首页直接「看报告」。"""
-    from report.jobs import attach_latest_report
+    from report.archive import attach_latest_report
 
     job = finished_job()
     job.spent_usd = 6.46
@@ -588,7 +588,7 @@ def test_attach_latest_report_restores_report_and_spend(storage):
 def test_attach_latest_report_skips_unreadable_snapshot(storage):
     """报告结构演进后旧快照读不动(v0.4.17 真实发生):不加兼容层,花费照常装回,
     报告留空让用户重新生成;不能让服务起不来。"""
-    from report.jobs import attach_latest_report
+    from report.archive import attach_latest_report
 
     job = finished_job()
     stale = job.report_payload()
