@@ -40,7 +40,6 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlsplit
 
 import httpx
 
@@ -53,7 +52,7 @@ from adapters.base import (
     SurfaceAdapter,
     SurfaceMeta,
 )
-from adapters.http_support import contract_post
+from adapters.http_support import contract_post, domain_of
 from engine.models import (
     NOT_OBSERVABLE,
     Answer,
@@ -95,9 +94,6 @@ _CAPABILITIES = CapabilityRegistry(
     supports_search_disabled=True,
 )
 
-
-def _domain(url: str) -> str:
-    return urlsplit(url).hostname or ""
 
 
 def _blocks(data: Any) -> list[Any]:
@@ -241,7 +237,7 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
                             citations.append(
                                 Citation(
                                     url=c["url"],
-                                    domain=_domain(c["url"]),
+                                    domain=domain_of(c["url"]),
                                     title=c.get("title"),
                                     position=len(citations) + 1,
                                 )
@@ -259,7 +255,7 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
                                 sources.append(
                                     RetrievedSource(
                                         url=item["url"],
-                                        domain=_domain(item["url"]),
+                                        domain=domain_of(item["url"]),
                                         title=item.get("title"),
                                         rank=len(sources) + 1,  # 全轮次出现顺序即位次
                                     )

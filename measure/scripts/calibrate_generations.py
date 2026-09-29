@@ -9,10 +9,13 @@ from __future__ import annotations
 
 import sys
 from collections import defaultdict
+from pathlib import Path
 
 import psycopg
 
-DSN = "postgresql://geo@localhost:5433/geo_tool"
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from engine.storage import default_dsn  # noqa: E402
+
 JOB = sys.argv[1] if len(sys.argv) > 1 else "b4099bc0df58"
 # 「过时」定义(用户 2026-09-21 拍板):官方标遗留 / 同档已有继任 → 与其继任者配对
 PAIRS = [
@@ -23,7 +26,7 @@ PAIRS = [
 ]
 LIGHT = {"PASS": "🟢", "WEAK": "🟡", "FAIL": "🔴", "NOT_OBSERVABLE": "⚪"}
 
-c = psycopg.connect(DSN)
+c = psycopg.connect(default_dsn())
 row = c.execute(
     "SELECT payload, spent_usd, created_at FROM report_snapshot WHERE job_id = %s ORDER BY created_at DESC LIMIT 1",
     (JOB,),

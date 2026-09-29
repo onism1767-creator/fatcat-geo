@@ -8,6 +8,7 @@ from __future__ import annotations
 import time
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -23,6 +24,11 @@ _ACCOUNT_PHRASES = (
     "billing",
     "payment required",
 )
+
+
+def domain_of(url: str) -> str:
+    """URL 的主机名(平台给的 URL 原样翻译,不做归属判定)。"""
+    return urlsplit(url).hostname or ""
 
 
 def classify_account_problem(http_status: int | None, body: str | None) -> RunErrorType | None:

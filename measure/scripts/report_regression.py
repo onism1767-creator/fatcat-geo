@@ -22,6 +22,7 @@ import sys
 from pathlib import Path
 
 import psycopg
+from psycopg.conninfo import conninfo_to_dict, make_conninfo
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
@@ -33,11 +34,10 @@ from diagnosis.access_audit import AccessAuditResult  # noqa: E402
 from diagnosis.recommender import load_evidence_registry  # noqa: E402
 from engine.envfile import load_env_file  # noqa: E402
 from engine.loader import build_adapters  # noqa: E402
+from engine.storage import default_dsn  # noqa: E402
 from report import runner  # noqa: E402
 from report.jobs import DiagnosisJob  # noqa: E402
 
-SERVER = "postgresql://geo@localhost:5433/postgres"
-LIVE_DB = "geo_tool"
 COPY_DB = "geo_regression_copy"
 
 
@@ -46,7 +46,12 @@ class Blocked(Exception):
 
 
 def _dsn(db: str) -> str:
-    return f"postgresql://geo@localhost:5433/{db}"
+    """与项目库同一台服务器上的另一个库(地址统一取自 engine.storage.default_dsn)。"""
+    return make_conninfo(default_dsn(), dbname=db)
+
+
+LIVE_DB = conninfo_to_dict(default_dsn())["dbname"]
+SERVER = _dsn("postgres")
 
 
 def _admin(sql: str) -> None:

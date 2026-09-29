@@ -14,7 +14,6 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlsplit
 
 import httpx
 
@@ -25,7 +24,7 @@ from adapters.base import (
     SurfaceAdapter,
     SurfaceMeta,
 )
-from adapters.http_support import contract_post
+from adapters.http_support import contract_post, domain_of
 from engine.models import (
     NOT_OBSERVABLE,
     UNKNOWN,
@@ -44,21 +43,18 @@ BASE_URL = "https://api.perplexity.ai"
 _CAPABILITIES = CapabilityRegistry(supports_citations=True)
 
 
-def _domain(url: str) -> str:
-    return urlsplit(url).hostname or ""
-
 
 def _extract_citations(data: dict[str, Any]) -> tuple[bool, list[Citation]]:
     """平台以 search_results(带标题)或 citations(裸 URL 列表)暴露引用池。
     两个字段都不存在 → 本次响应未暴露引用(citations_available=False)。"""
     if "search_results" in data:
         return True, [
-            Citation(url=item["url"], domain=_domain(item["url"]), title=item.get("title"), position=i + 1)
+            Citation(url=item["url"], domain=domain_of(item["url"]), title=item.get("title"), position=i + 1)
             for i, item in enumerate(data["search_results"] or [])
         ]
     if "citations" in data:
         return True, [
-            Citation(url=url, domain=_domain(url), title=None, position=i + 1)
+            Citation(url=url, domain=domain_of(url), title=None, position=i + 1)
             for i, url in enumerate(data["citations"] or [])
         ]
     return False, []

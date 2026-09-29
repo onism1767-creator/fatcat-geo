@@ -12,6 +12,7 @@
 
 from __future__ import annotations
 
+import os
 import re
 from datetime import UTC, datetime, timedelta
 from typing import Any
@@ -64,6 +65,12 @@ class StorageUnavailable(RuntimeError):
 
 
 CONNECT_TIMEOUT_S = 10
+DEFAULT_DSN = "postgresql://geo@localhost:5433/geo_tool"  # 项目专用库(scripts/pgdev.ps1 管理)
+
+
+def default_dsn() -> str:
+    """项目库地址:环境变量 GEO_DATABASE_URL 优先,否则本机专用库。全项目只从这里取。"""
+    return os.environ.get("GEO_DATABASE_URL", DEFAULT_DSN)
 
 
 class Storage:

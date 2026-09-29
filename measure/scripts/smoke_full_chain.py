@@ -35,10 +35,9 @@ from engine.models import (  # noqa: E402
     SurfaceRun,
 )
 from engine.scheduler import SamplingPolicy, SequentialSampler  # noqa: E402
-from engine.storage import Storage  # noqa: E402
+from engine.storage import Storage, default_dsn  # noqa: E402
 from engine.variants import generate_variants  # noqa: E402
 
-DEFAULT_DB = "postgresql://geo@localhost:5433/geo_tool"
 POLICY = SamplingPolicy(min_n=5, max_n=6, ci_width_threshold=0.35, budget_usd=0.10)
 
 BRAND = BrandSpec(name="HubSpot", aliases=["hubspot"], domains=["hubspot.com"])
@@ -73,7 +72,7 @@ def main() -> int:
         return 1
     print(f"配置装载:{', '.join(adapters)}")
 
-    storage = Storage(os.environ.get("GEO_DATABASE_URL", DEFAULT_DB))
+    storage = Storage(default_dsn())
     storage.ensure_schema()
 
     need = InformationNeed(statement="中小团队的 CRM 选型", intent=NeedIntent.DISCOVERY)

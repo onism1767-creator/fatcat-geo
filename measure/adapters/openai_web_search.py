@@ -35,7 +35,6 @@
 from __future__ import annotations
 
 from typing import Any
-from urllib.parse import urlsplit
 
 import httpx
 
@@ -48,7 +47,7 @@ from adapters.base import (
     SurfaceAdapter,
     SurfaceMeta,
 )
-from adapters.http_support import contract_post
+from adapters.http_support import contract_post, domain_of
 from engine.models import (
     Answer,
     AskRequest,
@@ -87,9 +86,6 @@ _CAPABILITIES = CapabilityRegistry(
     supports_search_disabled=True,
 )
 
-
-def _domain(url: str) -> str:
-    return urlsplit(url).hostname or ""
 
 
 class OpenAIWebSearchAdapter(SurfaceAdapter):
@@ -193,7 +189,7 @@ class OpenAIWebSearchAdapter(SurfaceAdapter):
                             sources.append(
                                 RetrievedSource(
                                     url=entry["url"],
-                                    domain=_domain(entry["url"]),
+                                    domain=domain_of(entry["url"]),
                                     title=None,  # 平台不给标题,不臆造
                                     rank=len(sources) + 1,  # 有序列表位次
                                 )
@@ -214,7 +210,7 @@ class OpenAIWebSearchAdapter(SurfaceAdapter):
                                 citations.append(
                                     Citation(
                                         url=note["url"],
-                                        domain=_domain(note["url"]),
+                                        domain=domain_of(note["url"]),
                                         title=note.get("title"),
                                         position=len(citations) + 1,
                                     )

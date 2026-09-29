@@ -15,14 +15,12 @@ from adapters.base import SurfaceAdapter
 from diagnosis.recommender import EvidenceEntry, load_evidence_registry
 from engine.envfile import load_env_file
 from engine.loader import build_adapters
-from engine.storage import CallStat, Storage
+from engine.storage import CallStat, Storage, default_dsn
 from report import runner
 from report.jobs import JobRegistry
 from report.launcher import JobLauncher, JobRunner
 from report.routes import router
 from report.web import WebContext, target_namer
-
-DEFAULT_DSN = "postgresql://geo@localhost:5433/geo_tool"
 
 
 def create_app(
@@ -37,7 +35,7 @@ def create_app(
     if adapters is None:
         load_env_file()
         adapters = build_adapters(os.environ)
-    resolved_dsn = dsn or os.environ.get("GEO_DATABASE_URL", DEFAULT_DSN)
+    resolved_dsn = dsn or default_dsn()
 
     def measured_call_stats() -> list[CallStat]:
         with Storage(resolved_dsn) as store:

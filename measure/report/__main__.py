@@ -4,19 +4,18 @@
 数据库必须先起(环境三步曲),恢复失败即启动失败——显式报错,不带病运行。
 """
 
-import os
 import sys
 
 import uvicorn
 
 from engine.envfile import load_env_file
-from engine.storage import StorageUnavailable
-from report.app import DEFAULT_DSN, create_app
+from engine.storage import StorageUnavailable, default_dsn
+from report.app import create_app
 from report.archive import restore_registry
 
 load_env_file()
 try:
-    app = create_app(registry=restore_registry(os.environ.get("GEO_DATABASE_URL", DEFAULT_DSN)))
+    app = create_app(registry=restore_registry(default_dsn()))
 except StorageUnavailable as exc:  # v0.4.22:不再无声挂起(2026-09-25 事故)
     print(
         "[DB_UNREACHABLE] 连不上本机数据库(端口 5433),服务没有启动。\n"
