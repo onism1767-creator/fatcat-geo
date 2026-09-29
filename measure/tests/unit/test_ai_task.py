@@ -52,9 +52,9 @@ def _digit(text: str) -> int:
     return int(text)  # 不是数字 → ValueError → 这一轮不合格
 
 
-def _run(adapter):
+def _run(adapter, ledger=None):
     return run_task(adapter, "说一个数字", _digit, label="测试任务", need_id="n", locale="zh-CN",
-                    sleep=lambda s: None)
+                    ledger=(ledger if ledger is not None else []).append, sleep=lambda s: None)
 
 
 def test_transient_error_retried_with_scheduler_policy_then_succeeds():
@@ -66,9 +66,11 @@ def test_transient_error_retried_with_scheduler_policy_then_succeeds():
 
 def test_unusable_answer_is_asked_again_and_all_rounds_are_accounted():
     adapter = ScriptedAdapter(["不是数字", "8"])
-    result = _run(adapter)
+    ledger: list = []
+    result = _run(adapter, ledger)
     assert result.value == 8
     assert len(result.runs) == 2 and result.cost_usd == pytest.approx(0.02)  # 不合格那轮的钱也记上
+    assert ledger == result.runs  # 每轮当场记账
 
 
 def test_account_problem_stops_immediately_without_asking_again():
@@ -81,6 +83,8 @@ def test_account_problem_stops_immediately_without_asking_again():
 
 def test_fails_loudly_after_max_rounds():
     adapter = ScriptedAdapter(["甲"] * MAX_ROUNDS)
+    ledger: list = []
     with pytest.raises(TaskFailed, match="测试任务失败:3 次尝试仍未产出合格结果"):
-        _run(adapter)
+        _run(adapter, ledger)
     assert adapter.calls == MAX_ROUNDS
+    assert len(ledger) == MAX_ROUNDS  # 事情没办成,花掉的钱也都记了账

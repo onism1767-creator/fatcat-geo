@@ -3,7 +3,8 @@
 - 调用走适配器(L1),和采样同一套有界重试(scheduler.ask_with_retries,重试口径归调度器);
 - 回答交给调用方的解析 / 校验函数;没成功、解析不了、校验不过都算这一轮不合格,重问,有上限;
 - 账户问题(认证 / 额度)不重问,直接抛 AccountProblem——与采样一致:停下、说人话;
-- 全部尝试(含不合格与失败)都随结果返回,供记账与存档。
+- 每一次尝试(含不合格与失败)立刻交给调用方给的记账函数(ledger,必填)——钱花出去就有记录,
+  哪怕这件事最后没办成;全部尝试也随结果返回。
 
 辅助调用不是观测采样:不进任何指标分母。
 """
@@ -22,6 +23,8 @@ from engine.models import AskRequest, Outcome, SearchMode, SurfaceRun
 from engine.scheduler import AccountProblem, SamplingPolicy, ask_with_retries, is_account_error
 
 MAX_ROUNDS = 3  # 一件事最多问几轮(每轮内部另有 Transient 重试)
+
+Ledger = Callable[[SurfaceRun], None]  # 记账:每次尝试一调用(如写进 aux_call 账本)
 
 
 class TaskFailed(ValueError):
@@ -46,6 +49,7 @@ def run_task[T](
     label: str,
     need_id: str,
     locale: str,
+    ledger: Ledger,
     search_mode: SearchMode = SearchMode.DEFAULT,
     policy: SamplingPolicy | None = None,
     sleep: Callable[[float], None] = time.sleep,
@@ -65,6 +69,7 @@ def run_task[T](
             timeout_s=policy.timeout_s,
         )
         run = ask_with_retries(adapter, request, policy, sleep=sleep)
+        ledger(run)
         runs.append(run)
         if is_account_error(run):
             assert run.error is not None

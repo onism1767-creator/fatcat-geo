@@ -13,7 +13,7 @@ from datetime import UTC, datetime, timedelta
 import structlog
 
 from adapters.base import SurfaceAdapter
-from engine.ai_task import run_task
+from engine.ai_task import Ledger, run_task
 from engine.models import InformationNeed, PromptOrigin, PromptVariant
 
 log = structlog.get_logger("engine.variants")
@@ -61,6 +61,7 @@ def generate_variants(
     *,
     count: int = 4,
     locale: str = "zh-CN",
+    ledger: Ledger,
 ) -> list[PromptVariant]:
     """生成 count 个 ASSISTED 变体。问满轮数仍失败显式抛错(TaskFailed),不静默返回空。"""
     template = _TEMPLATE_EN if locale.lower().startswith("en") else _TEMPLATE
@@ -73,7 +74,7 @@ def generate_variants(
 
     lines = run_task(
         adapter, template.format(statement=need.statement, count=count, locale=locale), parse,
-        label="变体生成", need_id=need.need_id, locale=locale,
+        label="变体生成", need_id=need.need_id, locale=locale, ledger=ledger,
     ).value
     log.info("variants_generated", need_id=need.need_id, requested=count, parsed=len(lines))
     # 同批逐条错开 1 微秒:库里按 created_at 排问法,而 Windows 上 Python 时钟粒度毫秒级,

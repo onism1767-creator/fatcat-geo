@@ -22,7 +22,7 @@ from diagnosis.messages import msg, render_msg
 from diagnosis.recommender import EvidenceEntry, load_evidence_registry
 from engine.envfile import load_env_file
 from engine.loader import build_adapters
-from engine.models import BrandSpec, CompetitorSuggestion, InformationNeed, Target
+from engine.models import BrandSpec, InformationNeed, Target
 from engine.needs import NeedCandidate, draft_need_candidates
 from engine.storage import CallStat, Storage
 from report import runner
@@ -166,29 +166,29 @@ def create_app(
             aliases=[a.strip() for a in aliases.replace(",", ",").split(",") if a.strip()],
             domains=[domain] if domain else [],
         )
-        candidates: list[NeedCandidate] = []
-        competitors_suggested: list[CompetitorSuggestion] = []
+        # 先有任务编号再出题:出题的每次调用当场记进辅助调用账本(哪怕出题失败,花掉的钱也有记录)
+        job = DiagnosisJob(brand=brand, website=normalized, category=category, locale=locale,
+                           candidates=[], competitors_suggested=[])
+        drafted: list[NeedCandidate] = []
         if generate and adapters:
             generation_adapter = next(
                 (a for a in adapters.values() if a.meta().capabilities.supports_citations), None
             )
             if generation_adapter is not None:
-                candidates, competitors_suggested = draft_need_candidates(
-                    generation_adapter, category=category, brand=brand, locale=locale
-                )
+                with Storage(dsn) as store:
+                    drafted, job.competitors_suggested = draft_need_candidates(
+                        generation_adapter, category=category, brand=brand, locale=locale,
+                        ledger=lambda run: store.insert_aux_call(job_id=job.job_id, task="需求生成", run=run),
+                    )
         manual = [line.strip() for line in questions.splitlines() if line.strip()]
-        candidates = candidates + [
+        job.candidates = drafted + [
             NeedCandidate(intent=manual_intent(text, brand), text=text) for text in manual
         ]
-        if not candidates:
+        if not job.candidates:
             return render(request, "index.html", jobs=registry.recent(),
                           surfaces=sorted(adapters),
                           error="请至少手填一个目标问题,或勾选「帮我生成」")
-        job = DiagnosisJob(
-            brand=brand, website=normalized, category=category, locale=locale,
-            candidates=candidates, competitors_suggested=competitors_suggested,
-        )
-        job.preselected = preselect_candidates(candidates, n_manual=len(manual))
+        job.preselected = preselect_candidates(job.candidates, n_manual=len(manual))
         registry.add(job)
         return redirect(request, f"/jobs/{job.job_id}/confirm")
 

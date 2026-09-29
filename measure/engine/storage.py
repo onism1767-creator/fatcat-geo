@@ -1,6 +1,6 @@
 """L2 存储:只追加的原始层与派生层(铁律 8、13.5)。
 
-- surface_run / derived_observation / recompute_event 三表由数据库触发器
+- surface_run / derived_observation / recompute_event / aux_call(辅助调用账本)/ report_snapshot 由数据库触发器
   强制只追加:UPDATE / DELETE / TRUNCATE 一律被 RAISE EXCEPTION 拒绝。
   不可变性不靠代码纪律,靠数据库拒绝(13.5);tests/unit/test_storage.py
   的不变式测试直接对真库验证。
@@ -178,6 +178,31 @@ _SCHEMA_STATEMENTS: tuple[str, ...] = (
     """
     CREATE OR REPLACE TRIGGER recompute_event_no_truncate
         BEFORE TRUNCATE ON recompute_event
+        FOR EACH STATEMENT EXECUTE FUNCTION reject_mutation()
+    """,
+    # 辅助调用账本(2026-09-29,用户定「专门一张账本」):出题、改写问法、以后的 AI 裁判——
+    # 每次尝试(含失败)一行,原样存整条 SurfaceRun。不是观测采样,不进任何指标分母;
+    # 任务花费 = 采样 + 本表。只追加。
+    """
+    CREATE TABLE IF NOT EXISTS aux_call (
+        call_id text PRIMARY KEY,
+        job_id text NOT NULL,
+        task text NOT NULL,
+        created_at timestamptz NOT NULL,
+        cost_usd double precision NOT NULL,
+        outcome text NOT NULL,
+        run jsonb NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS aux_call_job_idx ON aux_call (job_id)",
+    """
+    CREATE OR REPLACE TRIGGER aux_call_append_only
+        BEFORE UPDATE OR DELETE ON aux_call
+        FOR EACH ROW EXECUTE FUNCTION reject_mutation()
+    """,
+    """
+    CREATE OR REPLACE TRIGGER aux_call_no_truncate
+        BEFORE TRUNCATE ON aux_call
         FOR EACH STATEMENT EXECUTE FUNCTION reject_mutation()
     """,
     # 报告快照(v0.4.16):派生层的档案——每次生成报告追加一版,永不改写;
@@ -431,6 +456,21 @@ class Storage:
             "VALUES (%s, %s, clock_timestamp(), %s, %s, %s, %s)",
             (str(uuid4()), job_id, fingerprint, code_version, spent_usd, Jsonb(payload)),
         )
+
+    def insert_aux_call(self, *, job_id: str, task: str, run: SurfaceRun) -> None:
+        """辅助调用记一笔(整条 SurfaceRun 原样存档)。created_at 由数据库盖章。"""
+        self._conn.execute(
+            "INSERT INTO aux_call (call_id, job_id, task, created_at, cost_usd, outcome, run) "
+            "VALUES (%s, %s, %s, clock_timestamp(), %s, %s, %s)",
+            (run.run_id, job_id, task, run.cost_usd, run.outcome.value, Jsonb(run.model_dump(mode="json"))),
+        )
+
+    def aux_spent_usd(self, job_id: str) -> float:
+        """该任务辅助调用的累计花费(没有记录 = 0)。"""
+        row = self._conn.execute(
+            "SELECT coalesce(sum(cost_usd), 0) FROM aux_call WHERE job_id = %s", (job_id,)
+        ).fetchone()
+        return float(row[0]) if row else 0.0
 
     def latest_report_snapshot(self, job_id: str) -> dict[str, Any] | None:
         """该任务最新一版报告(含版本序号);没有则 None。"""

@@ -134,6 +134,24 @@ def test_report_snapshot_is_versioned_and_append_only(storage):
         storage._conn.execute("DELETE FROM report_snapshot")
 
 
+def test_aux_call_ledger_sums_per_job_and_is_append_only(storage):
+    """辅助调用账本(2026-09-29):每次尝试一行、整条 SurfaceRun 原样存;任务花费按任务汇总;库层拒绝改写。"""
+    assert storage.aux_spent_usd("job-aux") == 0.0
+    def costing(run_id: str, cost: float) -> SurfaceRun:
+        return make_run(run_id).model_copy(update={"cost_usd": cost})
+
+    storage.insert_aux_call(job_id="job-aux", task="需求生成", run=costing("aux-1", 0.01))
+    storage.insert_aux_call(job_id="job-aux", task="变体生成", run=costing("aux-2", 0.02))
+    storage.insert_aux_call(job_id="job-other", task="变体生成", run=costing("aux-3", 5.0))
+    assert storage.aux_spent_usd("job-aux") == pytest.approx(0.03)
+    archived = storage._conn.execute("SELECT run FROM aux_call WHERE call_id = 'aux-1'").fetchone()[0]
+    assert SurfaceRun.model_validate(archived).run_id == "aux-1"  # 原样存档,可复原
+    with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
+        storage._conn.execute("UPDATE aux_call SET cost_usd = 0")
+    with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
+        storage._conn.execute("DELETE FROM aux_call")
+
+
 def test_observation_exactly_once_per_run_detector_version(storage):
     """幂等续跑重复评分不产生重复观测行(同 run × 判定器 × 版本至多一条)。"""
     storage.insert_information_need(

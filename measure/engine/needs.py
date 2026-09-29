@@ -19,7 +19,7 @@ from typing import Any
 import structlog
 
 from adapters.base import SurfaceAdapter
-from engine.ai_task import extract_json, run_task
+from engine.ai_task import Ledger, extract_json, run_task
 from engine.models import (
     BrandSpec,
     CompetitorSuggestion,
@@ -155,13 +155,15 @@ def _ask_json(
     check: Callable[[Any], None],
     *,
     locale: str,
+    ledger: Ledger,
 ) -> Any:
     def parse(text: str) -> Any:
         data = extract_json(text)
         check(data)
         return data
 
-    return run_task(adapter, prompt, parse, label="需求生成", need_id="__need_generation__", locale=locale).value
+    return run_task(adapter, prompt, parse, label="需求生成", need_id="__need_generation__", locale=locale,
+                    ledger=ledger).value
 
 
 def _str_list(value: Any) -> list[str]:
@@ -205,6 +207,7 @@ def _draft_neutral(
     brand: BrandSpec,
     locale: str,
     counts: dict[NeedIntent, int],
+    ledger: Ledger,
 ) -> list[NeedCandidate]:
     """① 真盲:prompt 不含任何品牌信息;质检(配比+撞车)失败即整批重生成。"""
     template = _NEUTRAL_PROMPT_EN if _is_english(locale) else _NEUTRAL_PROMPT
@@ -231,7 +234,7 @@ def _draft_neutral(
         if leaked:
             raise ValueError(f"中立题泄漏焦点品牌(违反真盲):{leaked[:2]}")
 
-    data = _ask_json(adapter, prompt, check, locale=locale)
+    data = _ask_json(adapter, prompt, check, locale=locale, ledger=ledger)
     return [
         NeedCandidate(intent=intent, text=text)
         for intent, key in keys.items()
@@ -246,6 +249,7 @@ def suggest_competitors(
     brand: BrandSpec,
     k: int = DEFAULT_COMPETITOR_K,
     locale: str = "zh-CN",
+    ledger: Ledger,
 ) -> list[CompetitorSuggestion]:
     """② 竞品建议:建议用带联网检索的 surface 调用;排除焦点、去重、封顶 k。"""
     template = _COMPETITOR_PROMPT_EN if _is_english(locale) else _COMPETITOR_PROMPT
@@ -260,7 +264,7 @@ def suggest_competitors(
         if not isinstance(data, dict) or not isinstance(data.get("competitors"), list):
             raise ValueError("competitors 须为数组")
 
-    data = _ask_json(adapter, prompt, check, locale=locale)
+    data = _ask_json(adapter, prompt, check, locale=locale, ledger=ledger)
     focal = brand.name.strip().lower()
     seen: set[str] = set()
     out: list[CompetitorSuggestion] = []
@@ -286,6 +290,7 @@ def _draft_probes(
     brand: BrandSpec,
     locale: str,
     count: int,
+    ledger: Ledger,
 ) -> list[NeedCandidate]:
     """③ 品牌探针:此时才把焦点名交给生成器;探针必须点名焦点品牌。"""
     template = _PROBE_PROMPT_EN if _is_english(locale) else _PROBE_PROMPT
@@ -305,7 +310,7 @@ def _draft_probes(
         if missing:
             raise ValueError(f"探针题未点名焦点品牌:{missing[:2]}")
 
-    data = _ask_json(adapter, prompt, check, locale=locale)
+    data = _ask_json(adapter, prompt, check, locale=locale, ledger=ledger)
     return [NeedCandidate(intent=NeedIntent.BRAND_PROBE, text=text)
             for text in _str_list(data["brand_probe"])]
 
@@ -319,14 +324,16 @@ def draft_need_candidates(
     neutral_counts: dict[NeedIntent, int] | None = None,
     probe_count: int = DEFAULT_PROBE_COUNT,
     competitor_k: int = DEFAULT_COMPETITOR_K,
+    ledger: Ledger,
 ) -> tuple[list[NeedCandidate], list[CompetitorSuggestion]]:
     """盲起草三步序编排。候选供确认页展示;用户勾选/改写后才成为 InformationNeed。"""
     counts = neutral_counts or DEFAULT_NEUTRAL_COUNTS
-    neutral = _draft_neutral(adapter, category=category, brand=brand, locale=locale, counts=counts)
+    neutral = _draft_neutral(adapter, category=category, brand=brand, locale=locale, counts=counts,
+                             ledger=ledger)
     competitors = suggest_competitors(adapter, category=category, brand=brand,
-                                      k=competitor_k, locale=locale)
+                                      k=competitor_k, locale=locale, ledger=ledger)
     probes = _draft_probes(adapter, category=category, brand=brand, locale=locale,
-                           count=probe_count)
+                           count=probe_count, ledger=ledger)
     candidates = neutral + probes
     log.info("need_candidates_drafted", category=category,
              neutral=len(neutral), probes=len(probes), competitors=len(competitors))

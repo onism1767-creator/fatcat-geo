@@ -131,7 +131,7 @@ class _FakeGenAdapter:
 def test_generate_variants_end_to_end():
     need = InformationNeed(need_id="need-v", statement="中小团队 CRM 选型", intent=NeedIntent.DISCOVERY)
     adapter = _FakeGenAdapter("1. 小公司用什么 CRM?\n2. 十人团队 CRM 推荐\n")
-    variants = generate_variants(adapter, need, count=2)
+    variants = generate_variants(adapter, need, count=2, ledger=lambda run: None)
     assert [v.prompt_text for v in variants] == ["小公司用什么 CRM?", "十人团队 CRM 推荐"]
     assert all(v.origin is PromptOrigin.ASSISTED and v.need_id == "need-v" for v in variants)
 
@@ -141,7 +141,7 @@ def test_generated_variants_keep_generation_order_through_storage_sort():
     (Windows 上 Python 时钟粒度毫秒级,一次列表推导里的几条会撞成同一时刻)。"""
     need = InformationNeed(need_id="need-v", statement="中小团队 CRM 选型", intent=NeedIntent.DISCOVERY)
     adapter = _FakeGenAdapter("问法甲\n问法乙\n问法丙\n问法丁\n")
-    variants = generate_variants(adapter, need, count=4)
+    variants = generate_variants(adapter, need, count=4, ledger=lambda run: None)
     stamps = [v.created_at for v in variants]
     assert all(later > earlier for earlier, later in zip(stamps, stamps[1:], strict=False))
 
@@ -149,7 +149,7 @@ def test_generated_variants_keep_generation_order_through_storage_sort():
 def test_generate_variants_fails_loudly_on_refusal():
     need = InformationNeed(need_id="need-v", statement="测试", intent=NeedIntent.DISCOVERY)
     with pytest.raises(ValueError, match="变体生成失败"):
-        generate_variants(_FakeGenAdapter(None), need, count=2)
+        generate_variants(_FakeGenAdapter(None), need, count=2, ledger=lambda run: None)
 
 
 # ── 需求层聚合 ────────────────────────────────────────────────────────

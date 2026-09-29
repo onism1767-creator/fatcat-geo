@@ -211,11 +211,15 @@ def _prepare_variants(
             storage.insert_prompt_variant(variants[0])
         extra = job.variants_per_need - len(variants)
         if extra > 0 and generation_adapter is not None:
-            fresh = generate_variants(generation_adapter, need, count=extra, locale=job.locale)
+            fresh = generate_variants(
+                generation_adapter, need, count=extra, locale=job.locale,
+                ledger=lambda run: storage.insert_aux_call(job_id=job.job_id, task="变体生成", run=run),
+            )
             for variant in fresh:
                 storage.insert_prompt_variant(variant)
             variants += fresh
         variants_by_need[need.need_id] = variants
+    job.spent_usd = storage.aux_spent_usd(job.job_id)  # 辅助调用(出题、改写问法)全部记在账本里,续跑也不丢
     return variants_by_need
 
 

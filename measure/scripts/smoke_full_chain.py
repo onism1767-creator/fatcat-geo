@@ -81,7 +81,10 @@ def main() -> int:
 
     user_variant = PromptVariant(need_id=need.need_id, prompt_text="中小团队用什么 CRM 好?",
                                  origin=PromptOrigin.USER)
-    assisted = generate_variants(adapters["perplexity_agent"], need, count=2)
+    assisted = generate_variants(
+        adapters["perplexity_agent"], need, count=2,
+        ledger=lambda run: storage.insert_aux_call(job_id="__smoke_full_chain__", task="变体生成", run=run),
+    )
     variants = [user_variant, assisted[0]]  # 控制成本:原话 + 1 个生成变体
     for variant in variants:
         storage.insert_prompt_variant(variant)

@@ -32,7 +32,7 @@ def test_en_locale_selects_english_drafting_prompts():
     from engine.needs import draft_need_candidates
 
     adapter = RecordingAdapter([NEUTRAL_EN, COMPETITORS_OK, PROBES_EN])
-    draft_need_candidates(adapter, category="CRM software", brand=BRAND, locale="en-US")
+    draft_need_candidates(adapter, category="CRM software", brand=BRAND, locale="en-US", ledger=lambda run: None)
     neutral_prompt, competitor_prompt, probe_prompt = adapter.prompts
     assert "Draft EXACTLY" in neutral_prompt and not has_cjk(neutral_prompt)
     assert "EXCLUDING" in competitor_prompt and not has_cjk(competitor_prompt)
@@ -44,7 +44,8 @@ def test_zh_locale_keeps_chinese_drafting_prompts():
     from tests.unit.test_needs import NEUTRAL_OK, PROBES_OK
 
     adapter = RecordingAdapter([NEUTRAL_OK, COMPETITORS_OK, PROBES_OK])
-    draft_need_candidates(adapter, category="CRM", brand=BrandSpec(name="极光CRM"), locale="zh-CN")
+    draft_need_candidates(adapter, category="CRM", brand=BrandSpec(name="极光CRM"), locale="zh-CN",
+                          ledger=lambda run: None)
     assert has_cjk(adapter.prompts[0])
 
 
@@ -72,7 +73,7 @@ def test_variant_template_follows_locale():
 
     need = InformationNeed(statement="Best CRM for small teams", intent=NeedIntent.DISCOVERY)
     adapter = LineAdapter()
-    variants = generate_variants(adapter, need, count=1, locale="en-US")
+    variants = generate_variants(adapter, need, count=1, locale="en-US", ledger=lambda run: None)
     assert not has_cjk(adapter.prompt)
     assert variants[0].origin is PromptOrigin.ASSISTED
 

@@ -62,7 +62,7 @@ class RecordingAdapter:
 def test_draft_orchestration_and_blindness():
     adapter = RecordingAdapter([NEUTRAL_OK, COMPETITORS_OK, PROBES_OK])
     candidates, competitors = draft_need_candidates(
-        adapter, category=CATEGORY, brand=BRAND
+        adapter, category=CATEGORY, brand=BRAND, ledger=lambda run: None
     )
     # 配比:6/4/4 中立 + 2 探针
     by_intent = {intent: [c for c in candidates if c.intent is intent] for intent in NeedIntent}
@@ -83,7 +83,7 @@ def test_draft_orchestration_and_blindness():
 def test_neutral_brand_leak_is_rejected_then_retried():
     leaked = {**NEUTRAL_OK, "discovery": ["极光CRM 是最好的吗?"] + NEUTRAL_OK["discovery"][1:]}
     adapter = RecordingAdapter([leaked, NEUTRAL_OK, COMPETITORS_OK, PROBES_OK])
-    candidates, _ = draft_need_candidates(adapter, category=CATEGORY, brand=BRAND)
+    candidates, _ = draft_need_candidates(adapter, category=CATEGORY, brand=BRAND, ledger=lambda run: None)
     assert len(adapter.prompts) == 4  # 中立题第一次被质检打回,重试了一次
     assert not brand_collisions(
         [c.text for c in candidates if c.intent is not NeedIntent.BRAND_PROBE], BRAND
@@ -94,19 +94,19 @@ def test_wrong_ratio_exhausts_retries_and_fails_loudly():
     short = {**NEUTRAL_OK, "comparison": ["只有一条"]}
     adapter = RecordingAdapter([short, short, short])
     with pytest.raises(ValueError, match="未产出合格结果"):
-        draft_need_candidates(adapter, category=CATEGORY, brand=BRAND)
+        draft_need_candidates(adapter, category=CATEGORY, brand=BRAND, ledger=lambda run: None)
 
 
 def test_probe_must_name_focal_brand():
     bad_probes = {"brand_probe": ["这家公司怎么样?", "它和同类相比如何?"]}
     adapter = RecordingAdapter([NEUTRAL_OK, COMPETITORS_OK] + [bad_probes] * 3)
     with pytest.raises(ValueError, match="未产出合格结果"):
-        draft_need_candidates(adapter, category=CATEGORY, brand=BRAND)
+        draft_need_candidates(adapter, category=CATEGORY, brand=BRAND, ledger=lambda run: None)
 
 
 def test_suggest_competitors_standalone():
     adapter = RecordingAdapter([COMPETITORS_OK])
-    competitors = suggest_competitors(adapter, category=CATEGORY, brand=BRAND, k=1)
+    competitors = suggest_competitors(adapter, category=CATEGORY, brand=BRAND, k=1, ledger=lambda run: None)
     assert [c.name for c in competitors] == ["SalesLoop"]  # 封顶 k
 
 
@@ -131,5 +131,5 @@ def test_json_tolerates_markdown_fences():
         })
 
     adapter.ask = ask_with_fence
-    candidates, _ = draft_need_candidates(adapter, category=CATEGORY, brand=BRAND)
+    candidates, _ = draft_need_candidates(adapter, category=CATEGORY, brand=BRAND, ledger=lambda run: None)
     assert len(candidates) == 16
