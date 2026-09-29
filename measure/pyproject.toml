@@ -45,4 +45,4 @@ ignore = ["B008"]  # 冻结 pydantic 模型作参数默认值是刻意模式(不
 [tool.mypy]
 python_version = "3.12"
 plugins = ["pydantic.mypy"]
-files = ["adapters", "engine", "diagnosis", "report"]
+files = ["adapters", "crawler", "engine", "diagnosis", "report"]

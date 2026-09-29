@@ -1,6 +1,6 @@
 """ACCESS 审计:四阶段漏斗第一关——「能不能被找到」(架构书 5.2、第 3 章步骤 2)。
 
-自带轻量爬取器,不走 L1/L2,可独立运行(依赖方向铁律的唯一例外)。
+抓网页用 crawler/(与 adapters/ 同层的公共抓取模块,代码审查 #9);不走 L2,可独立运行。
 资格门,不打分:输出 PASS / FAIL / UNKNOWN。
 
 分层的站点侧准入证据(v0.4.13 条目 6):伪装 UA 的探针只能证明「本工具客户端在此
@@ -35,12 +35,10 @@ v1.1 起,检查详情与口径以结论码(Msg)输出,组句在 diagnosis/messag
 from __future__ import annotations
 
 import argparse
-import re
 import sys
 from collections.abc import Callable
 from datetime import UTC, datetime
 from enum import StrEnum
-from html.parser import HTMLParser
 from pathlib import Path
 from typing import Final
 from urllib import robotparser
@@ -50,17 +48,16 @@ import httpx
 import yaml
 from pydantic import BaseModel, ConfigDict, JsonValue
 
+from crawler.fetch import (
+    PROTECTION_SUSPECT_STATUSES,
+    extract_visible_text,
+    get_as_browser,
+    is_html,
+    new_client,
+)
 from diagnosis.messages import Msg, msg, render_msg
 
-BROWSER_UA: Final = (
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
-)
-TIMEOUT_S: Final = 15.0
-# 疑似机器人防护的拒绝状态(401/403/429/503):探针被拒不可判定为全站不可达
-PROTECTION_SUSPECT_STATUSES: Final = (401, 403, 429, 503)
 MIN_VISIBLE_TEXT_CHARS: Final = 200  # 低于此值视为 JS 白板嫌疑
-MAX_PARSED_BYTES: Final = 2_000_000
 DEFAULT_CRAWLERS_PATH: Final = Path(__file__).resolve().parents[1] / "config" / "crawlers.yaml"
 
 STANDARD_CAVEATS: Final = (
@@ -161,41 +158,9 @@ def with_path_probes(result: AccessAuditResult, probes: list[PathProbe]) -> Acce
 # ── HTML 可见文本 ──────────────────────────────────────────────────────
 
 
-class _TextExtractor(HTMLParser):
-    _SKIP = {"script", "style", "noscript", "template"}
-
-    def __init__(self) -> None:
-        super().__init__()
-        self._skip_depth = 0
-        self.parts: list[str] = []
-
-    def handle_starttag(self, tag: str, attrs: list) -> None:
-        if tag in self._SKIP:
-            self._skip_depth += 1
-
-    def handle_endtag(self, tag: str) -> None:
-        if tag in self._SKIP and self._skip_depth:
-            self._skip_depth -= 1
-
-    def handle_data(self, data: str) -> None:
-        if not self._skip_depth:
-            self.parts.append(data)
-
-
-def extract_visible_text(html: str) -> str:
-    """去掉 script/style 等后的可见文本(引用核验器与本模块共用)。"""
-    extractor = _TextExtractor()
-    extractor.feed(html[:MAX_PARSED_BYTES])
-    return re.sub(r"\s+", " ", "".join(extractor.parts)).strip()
-
-
 def visible_text_length(html: str) -> int:
     """可见文本字符数,用于 JS 白板启发式判断。"""
     return len(extract_visible_text(html))
-
-
-def _is_html(response: httpx.Response) -> bool:
-    return "html" in response.headers.get("content-type", "")
 
 
 # ── 配置装载 ──────────────────────────────────────────────────────────
@@ -219,7 +184,7 @@ def _fetch_robots(
     """返回 (放行判定函数 | None=无法判定, sitemap 声明列表, 状态说明)。"""
     robots_url = urljoin(base_url, "/robots.txt")
     try:
-        resp = client.get(robots_url, headers={"User-Agent": BROWSER_UA})
+        resp = get_as_browser(client, robots_url)
     except httpx.HTTPError as exc:
         return None, [], msg("access.robots.note.fetch_failed", error=type(exc).__name__)
     if resp.status_code == 200:
@@ -240,7 +205,7 @@ def audit(
     crawlers = crawlers if crawlers is not None else load_crawlers()
     url = _normalize_url(site_url)
     own_client = client is None
-    client = client or httpx.Client(timeout=TIMEOUT_S, follow_redirects=True)
+    client = client or new_client()
     try:
         return _audit(url, crawlers, client)
     finally:
@@ -257,7 +222,7 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
     final_url: str | None = None
     redirect_chain: list[str] = []
     try:
-        baseline = client.get(url, headers={"User-Agent": BROWSER_UA})
+        baseline = get_as_browser(client, url)
         final_url = str(baseline.url)
         redirect_chain = [f"{r.status_code} {r.url}" for r in baseline.history]
         if baseline.is_success:
@@ -337,7 +302,7 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
             try:
                 resp = client.get(url, headers={"User-Agent": bot.user_agent})
                 fetch_status = resp.status_code
-                if resp.is_success and _is_html(resp):
+                if resp.is_success and is_html(resp):
                     chars = visible_text_length(resp.text)
             except httpx.HTTPError as exc:
                 fetch_error = type(exc).__name__
@@ -406,7 +371,7 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
     # 6. HTML 内容(JS 白板):优先以爬虫视角判定
     browser_chars = (
         visible_text_length(baseline.text)
-        if baseline_ok and baseline is not None and _is_html(baseline)
+        if baseline_ok and baseline is not None and is_html(baseline)
         else None
     )
     bot_views = [(p.bot, p.visible_text_chars) for p in probes if p.visible_text_chars is not None]
@@ -462,7 +427,7 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
     else:
         sitemap_url = urljoin(robots_base, "/sitemap.xml")
         try:
-            resp = client.get(sitemap_url, headers={"User-Agent": BROWSER_UA})
+            resp = get_as_browser(client, sitemap_url)
             if resp.is_success:
                 checks.append(CheckResult(
                     check="sitemap", layer=AccessLayer.POLICY,

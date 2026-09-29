@@ -9,7 +9,7 @@
 非 HTML 未解析(UNPARSED)、其余失败(UNREACHABLE)都只是核验器缺数据,
 不得解读为平台引用错标。
 
-- 与 access_audit 同类:自带爬取器的诊断仪器(L3),存储走 L2 Storage;
+- 抓网页用 crawler/(与 access_audit 共用的公共抓取模块),存储走 L2 Storage;
 - 抓回页面一律视为不可信数据:只做机械文本匹配,绝不回喂任何模型(防注入);
 - 按规范化 URL 去重,时效窗口内复用历史核验(只追加的 citation_evidence 表);
   缓存只在「当时查过的品牌集合覆盖本次品牌」时才可复用——没查过的品牌
@@ -28,14 +28,13 @@ from urllib.parse import urlsplit, urlunsplit
 import httpx
 import structlog
 
-from diagnosis.access_audit import BROWSER_UA, PROTECTION_SUSPECT_STATUSES, extract_visible_text
+from crawler.fetch import PROTECTION_SUSPECT_STATUSES, extract_visible_text, get_as_browser, is_html, new_client
 from diagnosis.citation_diag import VerificationSummary
 from engine.detectors.matching import find_first_alias
 from engine.models import BrandSpec, CitationEvidence
 
 log = structlog.get_logger("diagnosis.citation_verify")
 
-TIMEOUT_S = 15.0
 
 
 class EvidenceStore(Protocol):
@@ -108,7 +107,7 @@ class CitationVerifier:
     ) -> None:
         self._storage = storage
         self._own_client = client is None
-        self._client = client or httpx.Client(timeout=TIMEOUT_S, follow_redirects=True)
+        self._client = client or new_client()
         self._max_age_days = max_age_days
         self._memory: dict[str, CitationEvidence] = {}
 
@@ -148,7 +147,7 @@ class CitationVerifier:
         checked_names: list[str],
     ) -> CitationEvidence:
         try:
-            response = self._client.get(normalized, headers={"User-Agent": BROWSER_UA})
+            response = get_as_browser(self._client, normalized)
         except httpx.HTTPError as exc:
             log.warning("citation_verify_fetch_failed", url=normalized, error=type(exc).__name__)
             return CitationEvidence(
@@ -159,7 +158,7 @@ class CitationVerifier:
         reachable = response.is_success
         brands_found: list[str] = []
         visible_chars: int | None = None
-        if reachable and "html" in response.headers.get("content-type", ""):
+        if reachable and is_html(response):
             text = extract_visible_text(response.text)
             visible_chars = len(text)
             brands_found = [b.name for b in brands if find_first_alias(text, b) is not None]

@@ -11,7 +11,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
-LAYER = {"adapters": 1, "engine": 2, "diagnosis": 3, "report": 4}
+LAYER = {"adapters": 1, "crawler": 1, "engine": 2, "diagnosis": 3, "report": 4}  # crawler 与 adapters 同层(审查 #9)
 # 唯一许可的「下层用上层」:适配器可用 engine.models 里的契约类型(架构书附录 v0.4.3)
 ALLOWED = {("adapters", "engine.models")}
 
@@ -46,8 +46,19 @@ def test_lower_layers_never_import_upper_layers():
     assert violations == []
 
 
+def test_crawler_has_no_project_dependencies():
+    """公共抓取模块(审查 #9)与 adapters 同层、零项目内依赖:不 import 任何四层包,也不 import adapters。"""
+    project = [
+        f"{path.relative_to(ROOT).as_posix()} → {module}"
+        for path in sorted((ROOT / "crawler").rglob("*.py"))
+        for module, _ in _imports(path)
+        if module.split(".")[0] in LAYER and module.split(".")[0] != "crawler"
+    ]
+    assert project == []
+
+
 def test_access_audit_stands_alone():
-    """唯一例外 diagnosis/access_audit.py 自带爬取器、可独立运行:不得依赖 L1 / L2。"""
+    """官网抓取审计可独立运行:抓网页走 crawler/,不依赖 adapters / engine。"""
     path = ROOT / "diagnosis" / "access_audit.py"
     lower = [module for module, _ in _imports(path) if module.split(".")[0] in ("adapters", "engine")]
     assert lower == []
