@@ -12,7 +12,8 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from diagnosis.findings import StageStatus
+from diagnosis.findings import DiagnosisThresholds, StageFinding, StageStatus, interval_status
+from engine.aggregate import NeedSurfaceMetric
 from engine.models import FrozenModel, NeedIntent
 
 
@@ -50,6 +51,32 @@ class VerdictInput(FrozenModel):
     intent: NeedIntent
     mention: Band | None  # 回答里提到品牌的档位;无有效样本 → None
     site_used: bool | None  # 官网被用上(检索或引用任一 PASS);两项皆不可观测 → None
+
+
+def verdict_input(
+    intent: NeedIntent,
+    mention: NeedSurfaceMetric,
+    retrieval: StageFinding,
+    citation: StageFinding,
+    thresholds: DiagnosisThresholds = DiagnosisThresholds(),
+) -> VerdictInput:
+    """一个被测对象在一道题上的一句话原料:提及档位 = 提及率区间三态的直接映射;
+    官网被用上 = 检索或引用任一 PASS(两项皆不可观测 → None)。"""
+    mention_band = None
+    if mention.estimate is not None:
+        status, _ = interval_status(
+            mention.estimate,
+            low_confidence=mention.accounting.low_confidence,
+            fail_ci_high=thresholds.mention_fail_ci_high,
+            pass_ci_low=thresholds.mention_pass_ci_low,
+        )
+        mention_band = band_of(status)
+    site = [f for f in (retrieval, citation) if f.status is not StageStatus.NOT_OBSERVABLE]
+    return VerdictInput(
+        intent=intent,
+        mention=mention_band,
+        site_used=any(f.status is StageStatus.PASS for f in site) if site else None,
+    )
 
 
 class SurfaceVerdict(FrozenModel):

@@ -130,6 +130,24 @@ class CompetitorSuggestion(FrozenModel):
     domain: str
 
 
+class Target(FrozenModel):
+    """一个被测对象 = 一台仪器(surface)上的一个型号(v0.4.19,用户拍板:每家 AI 的全部型号一起测)。
+    型号是口径的一部分:同一家 AI 的不同型号回答不同,各测各的、各报各的,样本与指标不合并。"""
+
+    surface: str
+    model: str
+
+    @property
+    def key(self) -> str:
+        """表单值 / 模板字典键(surface 名与型号名都不含 "::")。"""
+        return f"{self.surface}::{self.model}"
+
+    @classmethod
+    def parse(cls, key: str) -> Target:
+        surface, _, model = key.partition("::")
+        return cls(surface=surface, model=model)
+
+
 class PromptVariant(FrozenModel):
     """同一需求的一种问法。用户原话 ≠ 实际执行的查询,故以需求为聚合单位。"""
 

@@ -11,9 +11,9 @@ from diagnosis.retrieval_dependency import (
     DependencyLevel,
     diagnose_retrieval_dependency,
 )
+from engine.aggregate import NeedSurfaceMetric
 from engine.metrics import ProportionEstimate, account_outcomes
 from engine.models import Outcome, StopReason
-from engine.scheduler import NeedSurfaceMetric
 
 
 def metric(

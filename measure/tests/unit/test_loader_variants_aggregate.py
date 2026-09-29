@@ -6,6 +6,7 @@ from pathlib import Path
 import pytest
 import yaml
 
+from engine.aggregate import aggregate_need_surface
 from engine.loader import DEFAULT_SURFACES_PATH, build_adapters, load_surface_registry
 from engine.metrics import account_outcomes, estimate_proportion
 from engine.models import (
@@ -19,7 +20,7 @@ from engine.models import (
     StopReason,
     SurfaceRun,
 )
-from engine.scheduler import SamplingResult, aggregate_need_surface
+from engine.scheduler import SamplingResult
 from engine.variants import generate_variants, parse_variant_lines
 
 # ── 配置装载 ─────────────────────────────────────────────────────────

@@ -21,6 +21,7 @@ from diagnosis.representation_diag import diagnose_representation
 from diagnosis.retrieval_dependency import diagnose_retrieval_dependency
 from diagnosis.retrieval_diag import diagnose_retrieval
 from diagnosis.verdict import SurfaceVerdict
+from engine.aggregate import NeedSurfaceMetric
 from engine.metrics import account_outcomes, estimate_proportion
 from engine.models import (
     BrandSpec,
@@ -29,11 +30,11 @@ from engine.models import (
     Outcome,
     Sentiment,
     StopReason,
+    Target,
 )
 from engine.needs import NeedCandidate
-from engine.scheduler import NeedSurfaceMetric
 from report.app import create_app
-from report.jobs import TIERS, DiagnosisJob, JobState, NeedReport, Target, estimate_job
+from report.jobs import TIERS, DiagnosisJob, JobState, NeedReport, estimate_job
 
 REGISTRY = load_evidence_registry()
 

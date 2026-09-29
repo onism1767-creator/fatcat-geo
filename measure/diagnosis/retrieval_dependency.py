@@ -24,8 +24,8 @@ from enum import StrEnum
 
 from diagnosis.findings import DiagnosisThresholds, caliber_msg
 from diagnosis.messages import Msg, msg
+from engine.aggregate import NeedSurfaceMetric
 from engine.models import FrozenModel
-from engine.scheduler import NeedSurfaceMetric
 
 
 class DependencyLevel(StrEnum):

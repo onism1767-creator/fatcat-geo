@@ -19,9 +19,9 @@ from diagnosis.findings import (
     msg,
     variant_msgs,
 )
+from engine.aggregate import NeedSurfaceMetric
 from engine.metrics import ProportionEstimate
 from engine.models import FrozenModel
-from engine.scheduler import NeedSurfaceMetric
 
 _HEADLINES = {
     StageStatus.FAIL: "citation.headline.fail",

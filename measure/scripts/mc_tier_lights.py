@@ -28,6 +28,7 @@ sys.path.insert(0, str(ROOT))
 
 from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta  # noqa: E402
 from diagnosis.findings import DiagnosisThresholds, interval_status  # noqa: E402
+from engine.aggregate import aggregate_need_surface  # noqa: E402
 from engine.models import (  # noqa: E402
     Answer,
     AskRequest,
@@ -38,7 +39,7 @@ from engine.models import (  # noqa: E402
     PromptVariant,
     SurfaceRun,
 )
-from engine.scheduler import SequentialSampler, aggregate_need_surface  # noqa: E402
+from engine.scheduler import SequentialSampler  # noqa: E402
 from report.jobs import TIERS  # noqa: E402
 
 

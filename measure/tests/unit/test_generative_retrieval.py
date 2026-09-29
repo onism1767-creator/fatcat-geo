@@ -11,9 +11,9 @@ from diagnosis.findings import Stage, StageStatus
 from diagnosis.generative_retrieval import diagnose_generative_retrieval
 from diagnosis.messages import render_msg
 from diagnosis.recommender import load_evidence_registry
+from engine.aggregate import NeedSurfaceMetric
 from engine.metrics import ProportionEstimate, account_outcomes
 from engine.models import InformationNeed, NeedIntent, Outcome, StopReason
-from engine.scheduler import NeedSurfaceMetric
 
 REGISTRY = load_evidence_registry()
 

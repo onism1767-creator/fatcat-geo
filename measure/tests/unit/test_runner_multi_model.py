@@ -24,9 +24,10 @@ from engine.models import (
     RunErrorType,
     SearchTrace,
     SurfaceRun,
+    Target,
 )
 from report import runner
-from report.jobs import DiagnosisJob, JobState, Target
+from report.jobs import DiagnosisJob, JobState
 
 BRAND = BrandSpec(name="极光CRM", domains=["aurora-crm.com"])
 CITES, SILENT = "m-cites", "m-silent"

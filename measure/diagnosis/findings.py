@@ -13,9 +13,9 @@ from enum import StrEnum
 from typing import Any
 
 from diagnosis.messages import Msg, msg
+from engine.aggregate import NeedSurfaceMetric
 from engine.metrics import ProportionEstimate
 from engine.models import FrozenModel
-from engine.scheduler import NeedSurfaceMetric
 
 
 class Stage(StrEnum):

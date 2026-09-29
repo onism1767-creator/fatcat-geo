@@ -18,6 +18,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
+from engine.aggregate import NeedSurfaceMetric, aggregate_need_surface  # noqa: E402
 from engine.detectors.brand_mention import BrandMentionDetector  # noqa: E402
 from engine.detectors.citation import CitationDetector  # noqa: E402
 from engine.detectors.retrieval_rank import RetrievalRankDetector  # noqa: E402
@@ -33,12 +34,7 @@ from engine.models import (  # noqa: E402
     PromptVariant,
     SurfaceRun,
 )
-from engine.scheduler import (  # noqa: E402
-    NeedSurfaceMetric,
-    SamplingPolicy,
-    SequentialSampler,
-    aggregate_need_surface,
-)
+from engine.scheduler import SamplingPolicy, SequentialSampler  # noqa: E402
 from engine.storage import Storage  # noqa: E402
 from engine.variants import generate_variants  # noqa: E402
 

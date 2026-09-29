@@ -34,12 +34,12 @@ from adapters.base import (
     SurfaceAdapter,
     SurfaceMeta,
 )
+from adapters.http_support import classify_account_problem
 from engine.metrics import (
     ProportionEstimate,
     SampleAccounting,
     account_outcomes,
     estimate_proportion,
-    merge_accounting,
 )
 from engine.models import (
     ACCOUNT_ERROR_TYPES,
@@ -72,6 +72,24 @@ class AccountProblem(Exception):
 
 def is_account_error(run: SurfaceRun) -> bool:
     return run.error is not None and run.error.error_type in ACCOUNT_ERROR_TYPES
+
+
+def reinterpret_account_errors(runs: list[SurfaceRun]) -> list[SurfaceRun]:
+    """v0.4.21 之前落库的账户问题行带的是 PERMANENT(当时还没有 ACCOUNT 这一类)。原始层
+    不可改,读出续跑前缀时按 L1 现行的同一条翻译规则重新解读——只在内存,库里的行原样不动。"""
+    reinterpreted = []
+    for run in runs:
+        error = run.error
+        payload = run.raw_payload if isinstance(run.raw_payload, dict) else {}
+        body = payload.get("error_response_text")
+        kind = (
+            classify_account_problem(error.http_status, body if isinstance(body, str) else None)
+            if error is not None and error.error_type is RunErrorType.PERMANENT else None
+        )
+        if error is not None and kind is not None:
+            run = run.model_copy(update={"error": error.model_copy(update={"error_type": kind})})
+        reinterpreted.append(run)
+    return reinterpreted
 
 
 class RunSink(Protocol):
@@ -112,52 +130,6 @@ class SamplingResult(FrozenModel):
     estimate: ProportionEstimate | None  # 分母为空时 None
     total_cost_usd: float
     run_ids: list[str]
-
-
-class NeedSurfaceMetric(FrozenModel):
-    """需求层指标(第 3 章步骤 7):同一 InformationNeed 在一个 surface 上
-    跨全部问法的合并观测。合并是各问法命中的混合比例,正式名称是
-    「冻结问法集上的观测率」(v0.4.13 条目 2):问法是语义层的独立单位,运行只是
-    问法内的重复,合并估计不外推到需求总体;问法间的差异靠 variant_estimates
-    并列展示,per_variant 保留完整明细。"""
-
-    information_need_id: str
-    provider: str
-    surface: str
-    model: str
-    metric_label: str  # 命中口径(通常为判定器名),如 citation_domain_match
-    k_hits: int
-    estimate: ProportionEstimate | None
-    accounting: SampleAccounting
-    stop_reasons: list[StopReason]  # 逐问法,随口径进报告
-    per_variant: list[SamplingResult]
-    variant_estimates: list[ProportionEstimate | None]  # 逐问法,与问法同序;分母为空则 None
-
-
-def aggregate_need_surface(
-    results: list[SamplingResult], *, metric_label: str
-) -> NeedSurfaceMetric:
-    if not results:
-        raise ValueError("没有可聚合的采样结果")
-    heads = {(r.information_need_id, r.provider, r.surface, r.model) for r in results}
-    if len(heads) != 1:
-        raise ValueError(f"只能聚合同一 (需求, surface, model) 的结果,收到 {heads}")
-    k_hits = sum(r.k_hits for r in results)
-    n_pooled = sum(r.estimate.n for r in results if r.estimate)
-    need_id, provider, surface, model = next(iter(heads))
-    return NeedSurfaceMetric(
-        information_need_id=need_id,
-        provider=provider,
-        surface=surface,
-        model=model,
-        metric_label=metric_label,
-        k_hits=k_hits,
-        estimate=estimate_proportion(k_hits, n_pooled) if n_pooled else None,
-        accounting=merge_accounting(r.accounting for r in results),
-        stop_reasons=[r.stop_reason for r in results],
-        per_variant=results,
-        variant_estimates=[r.estimate for r in results],
-    )
 
 
 class SequentialSampler:

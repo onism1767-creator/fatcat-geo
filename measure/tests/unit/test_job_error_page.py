@@ -5,9 +5,9 @@ from fastapi.testclient import TestClient
 
 from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
 from diagnosis.recommender import load_evidence_registry
-from engine.models import BrandSpec, InformationNeed, NeedIntent
+from engine.models import BrandSpec, InformationNeed, NeedIntent, Target
 from report.app import create_app
-from report.jobs import DiagnosisJob, JobState, Target
+from report.jobs import DiagnosisJob, JobState
 
 
 class DummyAdapter(SurfaceAdapter):

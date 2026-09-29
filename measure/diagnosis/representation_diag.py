@@ -24,8 +24,8 @@ from diagnosis.findings import (
     msg,
     variant_msgs,
 )
+from engine.aggregate import NeedSurfaceMetric
 from engine.models import NeedIntent, Sentiment
-from engine.scheduler import NeedSurfaceMetric
 
 
 def _sentiment_summary(counts: Mapping[Sentiment, int]) -> tuple[int, float, Msg]:

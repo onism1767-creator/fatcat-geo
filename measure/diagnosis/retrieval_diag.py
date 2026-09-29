@@ -22,7 +22,7 @@ from diagnosis.findings import (
     msg,
     variant_msgs,
 )
-from engine.scheduler import NeedSurfaceMetric
+from engine.aggregate import NeedSurfaceMetric
 
 _HEADLINES = {
     StageStatus.FAIL: "retrieval.headline.fail",

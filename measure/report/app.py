@@ -23,7 +23,7 @@ from diagnosis.messages import msg, render_msg
 from diagnosis.recommender import EvidenceEntry, load_evidence_registry
 from engine.envfile import load_env_file
 from engine.loader import build_adapters
-from engine.models import BrandSpec, CompetitorSuggestion, InformationNeed, SearchMode
+from engine.models import BrandSpec, CompetitorSuggestion, InformationNeed, SearchMode, Target
 from engine.needs import NeedCandidate, draft_need_candidates
 from engine.storage import CallStat, Storage
 from report import runner
@@ -45,7 +45,6 @@ from report.jobs import (
     DiagnosisJob,
     JobRegistry,
     JobState,
-    Target,
     manual_intent,
     preselect_candidates,
 )

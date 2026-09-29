@@ -22,7 +22,14 @@ from diagnosis.access_audit import AccessAuditResult
 from diagnosis.diagnose import NeedDiagnosis
 from diagnosis.verdict import SurfaceVerdict
 from engine.detectors.matching import find_first_alias
-from engine.models import BrandSpec, CompetitorSuggestion, FrozenModel, InformationNeed, NeedIntent
+from engine.models import (
+    BrandSpec,
+    CompetitorSuggestion,
+    FrozenModel,
+    InformationNeed,
+    NeedIntent,
+    Target,
+)
 from engine.needs import NeedCandidate
 from engine.scheduler import SamplingPolicy
 
@@ -48,24 +55,6 @@ class JobState(StrEnum):
     PARTIAL = "PARTIAL"  # 熔断截断,如实标注
     FAILED = "FAILED"
     INTERRUPTED = "INTERRUPTED"  # 进程中断(重启后自快照恢复),可续跑(v0.4.9)
-
-
-class Target(FrozenModel):
-    """一个被测对象 = 一台仪器(surface)上的一个型号(v0.4.19,用户拍板:每家 AI 的全部型号一起测)。
-    型号是口径的一部分:同一家 AI 的不同型号回答不同,各测各的、各报各的,样本与指标不合并。"""
-
-    surface: str
-    model: str
-
-    @property
-    def key(self) -> str:
-        """表单值 / 模板字典键(surface 名与型号名都不含 "::")。"""
-        return f"{self.surface}::{self.model}"
-
-    @classmethod
-    def parse(cls, key: str) -> Target:
-        surface, _, model = key.partition("::")
-        return cls(surface=surface, model=model)
 
 
 class Tier(FrozenModel):

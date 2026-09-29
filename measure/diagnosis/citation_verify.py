@@ -19,6 +19,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import Protocol
@@ -28,6 +29,7 @@ import httpx
 import structlog
 
 from diagnosis.access_audit import BROWSER_UA, PROTECTION_SUSPECT_STATUSES, extract_visible_text
+from diagnosis.citation_diag import VerificationSummary
 from engine.detectors.matching import find_first_alias
 from engine.models import BrandSpec, CitationEvidence
 
@@ -77,6 +79,23 @@ def classify(evidence: CitationEvidence, brand_name: str) -> VerificationOutcome
     if evidence.http_status in PROTECTION_SUSPECT_STATUSES:
         return VerificationOutcome.FETCH_BLOCKED
     return VerificationOutcome.UNREACHABLE
+
+
+def summarize_verification(
+    urls: list[str], evidence_map: dict[str, CitationEvidence], brand_name: str
+) -> VerificationSummary:
+    """一个被测对象被引的品牌 URL(按规范化去重)在核验结果里的四态计数。"""
+    outcomes = Counter(
+        classify(evidence_map[n], brand_name) for n in {normalize_url(u) for u in urls} if n in evidence_map
+    )
+    return VerificationSummary(
+        attempted=sum(outcomes.values()),
+        verified_match=outcomes[VerificationOutcome.VERIFIED_MATCH],
+        content_mismatch=outcomes[VerificationOutcome.CONTENT_MISMATCH],
+        fetch_blocked=outcomes[VerificationOutcome.FETCH_BLOCKED],
+        unparsed=outcomes[VerificationOutcome.UNPARSED],
+        unreachable=outcomes[VerificationOutcome.UNREACHABLE],
+    )
 
 
 class CitationVerifier:
