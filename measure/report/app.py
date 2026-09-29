@@ -121,6 +121,16 @@ def create_app(
         context.setdefault("display_names", display_names)  # AI 产品名(适配器 meta 声明)
         return templates.TemplateResponse(request, name, context)
 
+    def launch(job: DiagnosisJob) -> None:
+        """起执行器前先同步把任务标成「排队中」:查状态与改状态之间不让出控制权,连点两下也不会让
+        同一单同时有两个执行器(不靠执行器线程抢先改状态)。确认页与「接着跑」都只走这里。"""
+        job.state = JobState.CONFIRMED
+        threading.Thread(
+            target=job_runner,
+            kwargs=dict(job=job, adapters=adapters, dsn=dsn, evidence=evidence),
+            daemon=True,
+        ).start()
+
     def redirect(request: Request, path: str) -> RedirectResponse:
         lang = resolve_lang(request.query_params.get("lang"))
         joiner = "&" if "?" in path else "?"
@@ -290,11 +300,7 @@ def create_app(
         job.freeze(needs=needs, competitors=competitors, targets=targets,
                    tier_id=tier, variants_per_need=variants, budget_usd=budget_usd,
                    dependency_enabled=bool(dependency))
-        threading.Thread(
-            target=job_runner,
-            kwargs=dict(job=job, adapters=adapters, dsn=dsn, evidence=evidence),
-            daemon=True,
-        ).start()
+        launch(job)
         return redirect(request, f"/jobs/{job.job_id}")
 
     @app.post("/jobs/{job_id}/resume")
@@ -310,11 +316,7 @@ def create_app(
         missing = sorted({t.surface for t in job.targets if t.surface not in adapters})
         if missing:
             return redirect(request, f"/?error=有的 AI 没接入(缺 API key),不能接着跑:{', '.join(missing)}")
-        threading.Thread(
-            target=job_runner,
-            kwargs=dict(job=job, adapters=adapters, dsn=dsn, evidence=evidence),
-            daemon=True,
-        ).start()
+        launch(job)
         return redirect(request, f"/jobs/{job.job_id}")
 
     @app.get("/jobs/{job_id}", response_class=HTMLResponse)

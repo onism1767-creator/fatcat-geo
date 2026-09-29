@@ -486,6 +486,30 @@ def test_resume_endpoint_relaunches_interrupted_job(client_and_job):
     assert calls == [job.job_id]  # 执行器被再次触发(可重入,只补缺口)
 
 
+def test_resume_clicked_twice_launches_one_runner(monkeypatch):
+    """连点两下「接着跑」:执行器线程还没来得及改状态时,第二下也不能再起一个——
+    同一单同时两个执行器会重复采样、重复花钱。线程换成同步执行,执行器桩不改状态(= 还没开跑)。"""
+
+    class SyncThread:
+        def __init__(self, *, target, kwargs, daemon):
+            self._target, self._kwargs = target, kwargs
+
+        def start(self):
+            self._target(**self._kwargs)
+
+    monkeypatch.setattr("report.app.threading.Thread", SyncThread)
+    calls = []
+    app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+                     evidence=REGISTRY, job_runner=lambda *, job, **_: calls.append(job.job_id))
+    job = finished_job()
+    job.state = JobState.INTERRUPTED
+    app.state.registry.add(job)
+    client = TestClient(app)
+    for _ in range(2):
+        assert client.post(f"/jobs/{job.job_id}/resume", follow_redirects=False).status_code == 303
+    assert calls == [job.job_id]
+
+
 def test_resume_endpoint_regenerates_completed_job(client_and_job):
     """v0.4.16:已完成任务也可「重新生成报告」——追加一版快照,旧版本留档。"""
     client, job, calls = client_and_job
