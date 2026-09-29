@@ -73,7 +73,7 @@ def test_success_with_citations_translates_field_by_field():
     run = GeminiGroundingAdapter(api_key="test-key").ask(make_request())
 
     assert (run.run_id, run.information_need_id, run.prompt_variant_id) == ("run-1", "need-1", "variant-1")
-    assert (run.provider, run.surface, run.model) == ("gemini", "gemini_grounding", "gemini-3.7-flash")
+    assert (run.provider, run.surface, run.model) == ("gemini", "gemini_grounding", "gemini-3.8-flash")
     assert run.outcome is Outcome.SUCCESS and run.error is None
 
     assert run.answer.answer_text == (
@@ -103,7 +103,7 @@ def test_success_with_citations_translates_field_by_field():
     )
 
     sent = json.loads(route.calls[0].request.content)
-    assert sent["model"] == "gemini-3.7-flash"
+    assert sent["model"] == "gemini-3.8-flash"
     assert sent["input"] == "中小团队用什么 CRM 好?"
 
 

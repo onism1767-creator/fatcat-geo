@@ -71,7 +71,7 @@ def test_success_with_citations_translates_field_by_field():
     run = ClaudeWebSearchAdapter(api_key="test-key").ask(make_request())
 
     assert (run.run_id, run.information_need_id, run.prompt_variant_id) == ("run-1", "need-1", "variant-1")
-    assert (run.provider, run.surface, run.model) == ("anthropic", "claude_web_search", "claude-sonnet-4-6")
+    assert (run.provider, run.surface, run.model) == ("anthropic", "claude_web_search", "claude-sonnet-5")
     assert run.search_mode is SearchMode.DEFAULT and run.locale == "zh-CN" and run.region is None
     assert run.outcome is Outcome.SUCCESS and run.error is None
 
@@ -97,11 +97,11 @@ def test_success_with_citations_translates_field_by_field():
 
     assert run.raw_payload == {"responses": [body]}
     # 成本 = 官方价目确定性折算:token 价 + 检索次数价
-    assert run.cost_usd == pytest.approx(8123 / 1e6 * 3.0 + 542 / 1e6 * 15.0 + 1 * 0.01)
+    assert run.cost_usd == pytest.approx(8123 / 1e6 * 2.0 + 542 / 1e6 * 10.0 + 1 * 0.01)
     assert run.latency_ms >= 0
 
     sent = json.loads(route.calls[0].request.content)
-    assert sent["model"] == "claude-sonnet-4-6"  # 未指定 model 时用 meta 默认
+    assert sent["model"] == "claude-sonnet-5"  # 未指定 model 时用 meta 默认
     assert sent["max_tokens"] == 4096
     assert sent["messages"] == [{"role": "user", "content": "中小团队用什么 CRM 好?"}]
 
@@ -123,7 +123,7 @@ def test_no_search_is_success_with_observable_negative_trace():
     # 引用机制在位但无引用 → 真实负观测(区别于 search_disabled 的结构性缺席)
     assert run.answer.citations_available is True
     assert run.answer.citations == []
-    assert run.cost_usd == pytest.approx(412 / 1e6 * 3.0 + 96 / 1e6 * 15.0)  # usage 无 server_tool_use 也可折算
+    assert run.cost_usd == pytest.approx(412 / 1e6 * 2.0 + 96 / 1e6 * 10.0)  # usage 无 server_tool_use 也可折算
 
 
 # ── search_disabled 模式 ─────────────────────────────────────────────
@@ -232,7 +232,7 @@ def test_pause_turn_continues_and_aggregates_across_segments():
     assert run.search_trace.retrieved_sources[0].domain == "www.example-forum.com"
     assert run.raw_payload == {"responses": [first, final]}
     assert run.cost_usd == pytest.approx(
-        (6100 + 8123) / 1e6 * 3.0 + (210 + 542) / 1e6 * 15.0 + 2 * 0.01
+        (6100 + 8123) / 1e6 * 2.0 + (210 + 542) / 1e6 * 10.0 + 2 * 0.01
     )
 
 

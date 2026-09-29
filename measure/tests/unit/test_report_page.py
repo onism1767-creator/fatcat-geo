@@ -336,7 +336,7 @@ def test_summarize_orders_by_evidence_level_then_support():
     from report.summary import summarize
 
     job = finished_job()
-    summary = summarize(job.need_reports, job.surface_verdicts, {"s1::m1": "S1", "s2::m2": "S2"})
+    summary = summarize(job.need_reports, job.surface_verdicts, lambda surface, model: surface.upper())
     levels = [a.recommendation.evidence_level for a in summary.actions]
     assert levels == sorted(levels)
     assert all(a.support_count == 2 for a in summary.actions)
@@ -344,7 +344,23 @@ def test_summarize_orders_by_evidence_level_then_support():
     assert brief_s1.primary is brief_s2.primary is Stage.RETRIEVAL
     assert brief_s1.display == "S1" and brief_s1.strongest_evidence is not None
     assert [v.display for v in summary.verdicts] == ["S1", "S2"]
-    assert summarize([], [], {}).verdicts == []
+    assert summarize([], [], lambda surface, model: surface).verdicts == []
+
+
+def test_retired_model_keeps_product_name_in_old_reports():
+    """型号移出清单后(v0.4.23),历史报告里仍显示「产品名 · 型号」,不把内部名露给用户。"""
+
+    class RetiredModelAdapter(DummyAdapter):
+        def meta(self) -> SurfaceMeta:  # 清单里只剩 m-new;历史任务里的 m1 已移出
+            return super().meta().model_copy(
+                update={"models": ["m-new"], "default_model": "m-new", "est_cost_per_call_usd": {"m-new": 0.005}})
+
+    app = create_app(call_stats=lambda: [], adapters={"s1": RetiredModelAdapter()}, dsn="postgresql://unused",
+                     evidence=REGISTRY, job_runner=lambda **_: None)
+    job = finished_job()
+    app.state.registry.add(job)
+    html = TestClient(app).get(f"/jobs/{job.job_id}/report").text
+    assert "S1 · m1" in html and "s1 · m1" not in html
 
 
 def test_report_shows_upstream_caution_and_competitor_gap(client_and_job):

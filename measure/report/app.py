@@ -92,14 +92,18 @@ def create_app(
     templates.env.globals["stage_msg"] = lambda stage: msg(f"stage.{stage.value}")
     templates.env.globals["access_headline"] = lambda overall: msg(f"access.headline.{overall.value.lower()}")
     display_names = {name: adapter.meta().display_name for name, adapter in adapters.items()}
-    # 被测对象(仪器 × 型号,v0.4.19)的显示名:只有一个型号的仪器直接用产品名,否则「产品名 · 型号」
-    target_names = {
-        Target(surface=name, model=model).key: (
-            display_names[name] if len(adapter.meta().models) == 1 else f"{display_names[name]} · {model}"
-        )
-        for name, adapter in adapters.items()
-        for model in adapter.meta().models
-    }
+    models_of = {name: adapter.meta().models for name, adapter in adapters.items()}
+
+    def target_name(surface: str, model: str) -> str:
+        """被测对象(仪器 × 型号,v0.4.19)的显示名:只有一个型号的仪器直接用产品名,否则「产品名 · 型号」。
+        型号已移出清单(历史报告里还有)照样「产品名 · 型号」;连仪器都没加载才如实用内部名,不猜。"""
+        if surface not in display_names:
+            return f"{surface} · {model}"
+        if models_of[surface] == [model]:
+            return display_names[surface]
+        return f"{display_names[surface]} · {model}"
+
+    templates.env.globals["target_name"] = target_name
     registry = registry or JobRegistry()
     app.state.registry = registry
     app.state.adapters = adapters
@@ -115,7 +119,6 @@ def create_app(
         context.setdefault("level_labels", LEVEL_LABELS[lang])
         context.setdefault("state_labels", JOB_STATE_LABELS[lang])
         context.setdefault("display_names", display_names)  # AI 产品名(适配器 meta 声明)
-        context.setdefault("target_names", target_names)
         return templates.TemplateResponse(request, name, context)
 
     def redirect(request: Request, path: str) -> RedirectResponse:
@@ -205,7 +208,8 @@ def create_app(
                 price, is_measured = unit_price(
                     target, SearchMode.DEFAULT, meta.est_cost_per_call_usd[target.model])
                 target_costs[target.key] = price
-                (measured_names if is_measured else declared_names).append(target_names[target.key])
+                (measured_names if is_measured else declared_names).append(
+                    target_name(target.surface, target.model))
                 if meta.est_cost_per_call_search_disabled_usd is not None:
                     dependency[target.key] = unit_price(
                         target, SearchMode.SEARCH_DISABLED,
@@ -347,7 +351,7 @@ def create_app(
             return redirect(request, f"/jobs/{job.job_id}")
         return render(
             request, "report.html", job=job,
-            summary=summarize(job.need_reports, job.surface_verdicts, target_names),
+            summary=summarize(job.need_reports, job.surface_verdicts, target_name),
         )
 
     return app

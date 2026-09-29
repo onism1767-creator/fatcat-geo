@@ -64,16 +64,15 @@ _SUCCESS_STATUSES = ("completed", "incomplete")  # incomplete=截断,回答仍�
 
 # 官方价目(2026-09-08 核对,促销价;2027-01-01 起翻倍须同步):
 # 模型 → (输入, 输出含思考) USD / MTok
+# 只列官方当前一代;过时型号不入选(定义见架构书附录 v0.4.20,2026-09-29 移除上一代两个)
 _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
-    "gemini-3.7-flash": (0.75, 3.75),
     "gemini-3.8-flash": (0.75, 3.75),
-    "gemini-3.5-flash": (1.5, 9.0),
     # ↓ 2026-09-21 补入(官方当前阵容;经 scripts/smoke_models.py 真实冒烟:请求形状被接受、观测窗在、回答未被截断)
     "gemini-3.6-flash": (0.75, 3.75),
     "gemini-3.1-pro-preview": (2.0, 12.0),
 }
 _SEARCH_USD_PER_QUERY = 14.0 / 1000.0  # 接地检索 $14 / 千条唯一查询
-_DEFAULT_MODEL = "gemini-3.7-flash"
+_DEFAULT_MODEL = "gemini-3.8-flash"
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,

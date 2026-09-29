@@ -42,7 +42,7 @@
         <div style="margin-bottom:6px">
           {% if group|length > 1 %}<span class="muted">{{ ai_name }}</span>{% endif %}
           {% for target in group %}
-          <label style="font-weight:400"><input type="checkbox" name="targets_selected" value="{{ target.key }}" data-display="{{ target_names[target.key] }}" checked> {{ target.model if group|length > 1 else ai_name }}</label>
+          <label style="font-weight:400"><input type="checkbox" name="targets_selected" value="{{ target.key }}" data-display="{{ target_name(target.surface, target.model) }}" checked> {{ target.model if group|length > 1 else ai_name }}</label>
           {% endfor %}
         </div>
         {% endfor %}

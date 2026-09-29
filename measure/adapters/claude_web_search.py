@@ -77,17 +77,16 @@ MAX_TOKENS = 4096  # 回答长度上限(平台必填):成本上界的一部分,�
 _MAX_CONTINUATIONS = 3  # pause_turn 续传上限:有界完成单次采样,超限按瞬时错误上抛
 
 # 官方价目(2026-06 核对,与模型清单同步维护):模型 → (输入, 输出) USD / MTok
+# 只列官方当前一代;过时型号不入选(定义见架构书附录 v0.4.20,2026-09-29 移除上一代两个)
 _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
-    "claude-sonnet-4-6": (3.0, 15.0),
     "claude-haiku-4-5": (1.0, 5.0),
-    "claude-opus-4-8": (5.0, 25.0),
     # ↓ 2026-09-21 补入(官方当前阵容;经 scripts/smoke_models.py 真实冒烟:请求形状被接受、观测窗在、回答未被截断)
     "claude-sonnet-5": (2.0, 10.0),
     "claude-opus-5": (5.0, 25.0),
     "claude-fable-5-1": (10.0, 50.0),
 }
 _SEARCH_USD_PER_USE = 10.0 / 1000.0  # web search $10 / 千次
-_DEFAULT_MODEL = "claude-sonnet-4-6"
+_DEFAULT_MODEL = "claude-sonnet-5"
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
@@ -147,13 +146,13 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
             },
             # 口径:推导上界,按型号各算(满额 MAX_USES 次检索;每次检索约 1.2 万输入
             # token 为 Potato 实测校准值),有足量实测后确认页改读实测均值:
-            # 默认型号 (2000 + 3×12000)/1e6×$3 + 2000/1e6×$15 + 3×$0.01 ≈ $0.17
+            # 默认型号 (2000 + 3×12000)/1e6×$2 + 2000/1e6×$10 + 3×$0.01 ≈ $0.13
             est_cost_per_call_usd={
                 model: round((2000 + MAX_USES * 12000) / 1e6 * price_in + 2000 / 1e6 * price_out
                              + MAX_USES * _SEARCH_USD_PER_USE, 3)
                 for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
             },
-            # 闭卷腿口径:同源推导上界,无检索项:默认型号 (2000×$3 + 2000×$15)/1e6 ≈ $0.04
+            # 闭卷腿口径:同源推导上界,无检索项:默认型号 (2000×$2 + 2000×$10)/1e6 ≈ $0.02
             est_cost_per_call_search_disabled_usd={
                 model: round((2000 * price_in + 2000 * price_out) / 1e6, 3)
                 for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
