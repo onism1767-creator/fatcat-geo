@@ -5,7 +5,6 @@ v1 单租户自用:无登录,仅本机访问。确认页是采样花钱前的唯
 
 from __future__ import annotations
 
-import json
 import os
 import threading
 from collections.abc import Callable
@@ -14,7 +13,7 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Form, Request
-from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
 
 from diagnosis.access_audit import AccessLayer
@@ -23,10 +22,11 @@ from diagnosis.messages import msg, render_msg
 from diagnosis.recommender import EvidenceEntry, load_evidence_registry
 from engine.envfile import load_env_file
 from engine.loader import build_adapters
-from engine.models import BrandSpec, CompetitorSuggestion, InformationNeed, SearchMode, Target
+from engine.models import BrandSpec, CompetitorSuggestion, InformationNeed, Target
 from engine.needs import NeedCandidate, draft_need_candidates
 from engine.storage import CallStat, Storage
 from report import runner
+from report.estimate import estimate_job, unit_prices
 from report.i18n import (
     ACCESS_LABELS,
     DEP_LABELS,
@@ -39,8 +39,6 @@ from report.i18n import (
     resolve_lang,
 )
 from report.jobs import (
-    AVG_SECONDS_PER_CALL,
-    PLAN_CONCURRENCY,
     TIERS,
     DiagnosisJob,
     JobRegistry,
@@ -53,7 +51,6 @@ from report.summary import summarize
 DEFAULT_DSN = "postgresql://geo@localhost:5433/geo_tool"
 
 
-MIN_STAT_SAMPLES = 10  # 少于这么多次历史调用不算数,仍用声明单价(v0.4.17)
 # 多少分钟没有任何新样本就在任务页报 JOB_STALLED(v0.4.22):一次采样最坏 = 3 次尝试 × 180 s 超时 + 退避 ≈ 10 分钟
 STALL_MINUTES = 10
 
@@ -119,6 +116,13 @@ def create_app(
         context.setdefault("state_labels", JOB_STATE_LABELS[lang])
         context.setdefault("display_names", display_names)  # AI 产品名(适配器 meta 声明)
         return templates.TemplateResponse(request, name, context)
+
+    def selected_targets(keys: list[str]) -> list[Target]:
+        """表单勾选的被测对象,只认当前清单里真实存在的(同序)。"""
+        return [
+            target for target in map(Target.parse, keys)
+            if target.surface in adapters and target.model in adapters[target.surface].meta().models
+        ]
 
     def launch(job: DiagnosisJob) -> None:
         """起执行器前先同步把任务标成「排队中」:查状态与改状态之间不让出控制权,连点两下也不会让
@@ -195,56 +199,50 @@ def create_app(
             return not_found(request)
         if job.state is not JobState.DRAFT:
             return redirect(request, f"/jobs/{job.job_id}")
-        # 预估口径(v0.4.17;v0.4.19 按型号):有足量历史就按该对象的实测均价与均时,否则用适配器声明的单价
-        stats = {(st.surface, st.model, st.search_mode): st for st in stats_provider()}
-
-        def unit_price(target: Target, mode: SearchMode, declared: float) -> tuple[float, bool]:
-            stat = stats.get((target.surface, target.model, mode.value))
-            if stat is not None and stat.n >= MIN_STAT_SAMPLES:
-                return stat.avg_cost_usd, True
-            return declared, False
-
-        target_costs: dict[str, float] = {}
-        dependency: dict[str, float] = {}
-        measured_names: list[str] = []
-        declared_names: list[str] = []
-        target_groups: list[tuple[str, list[Target]]] = []  # 按 AI 分组列出全部型号(默认全勾)
-        for name in sorted(adapters):
-            meta = adapters[name].meta()
-            group = [Target(surface=name, model=model) for model in meta.models]
-            target_groups.append((display_names[name], group))
-            for target in group:
-                price, is_measured = unit_price(
-                    target, SearchMode.DEFAULT, meta.est_cost_per_call_usd[target.model])
-                target_costs[target.key] = price
-                (measured_names if is_measured else declared_names).append(
-                    target_name(target.surface, target.model))
-                if meta.est_cost_per_call_search_disabled_usd is not None:
-                    dependency[target.key] = unit_price(
-                        target, SearchMode.SEARCH_DISABLED,
-                        meta.est_cost_per_call_search_disabled_usd[target.model])[0]
-        timed = [st for st in stats.values() if st.n >= MIN_STAT_SAMPLES]
-        seconds_per_call = (
-            sum(st.avg_latency_ms * st.n for st in timed) / sum(st.n for st in timed) / 1000
-            if timed else AVG_SECONDS_PER_CALL
-        )
-        estimate_constants = json.dumps({
-            "tier_calls": {tid: t.expected_calls_per_plan for tid, t in TIERS.items()},
-            "target_costs": target_costs,
-            "dependency": dependency,
-            "seconds_per_call": round(seconds_per_call, 1),
-            "concurrency": PLAN_CONCURRENCY,
-        })
+        prices = unit_prices(adapters, stats_provider())
+        target_groups = [  # 按 AI 分组列出全部型号(默认全勾)
+            (display_names[name], [Target(surface=name, model=model) for model in adapters[name].meta().models])
+            for name in sorted(adapters)
+        ]
         lang = resolve_lang(request.query_params.get("lang"))
         basis = []
-        if measured_names:
-            basis.append(MESSAGES[lang]["est_basis_measured"].format(names="、".join(measured_names)))
-        if declared_names:
-            basis.append(MESSAGES[lang]["est_basis_declared"].format(names="、".join(declared_names)))
+        if prices.measured:
+            basis.append(MESSAGES[lang]["est_basis_measured"].format(
+                names="、".join(target_name(t.surface, t.model) for t in prices.measured)))
+        if prices.declared:
+            basis.append(MESSAGES[lang]["est_basis_declared"].format(
+                names="、".join(target_name(t.surface, t.model) for t in prices.declared)))
         basis.append(MESSAGES[lang]["est_basis_tail"])
         return render(request, "confirm.html", job=job, tiers=TIERS, tier_table=TIER_TABLE[lang],
-                      target_groups=target_groups, estimate_constants=estimate_constants,
-                      est_basis=" ".join(basis), error=error)
+                      target_groups=target_groups, est_basis=" ".join(basis), error=error)
+
+    @app.post("/jobs/{job_id}/estimate")
+    async def confirm_estimate(
+        job_id: str,
+        needs_selected: list[int] = Form([]),
+        custom: str = Form(""),
+        targets_selected: list[str] = Form([]),
+        tier: str = Form("quick"),
+        variants: int = Form(3),
+        dependency: str = Form(""),
+    ):
+        """确认页的实时预估:页面每次勾选变化都把整张表单发来,算好的数字发回去,页面只负责显示。"""
+        job = registry.get(job_id)
+        if job is None or tier not in TIERS:
+            return JSONResponse({"error": "not_found"}, status_code=404)
+        n_needs = sum(0 <= i < len(job.candidates) for i in needs_selected) + len(
+            [line for line in custom.splitlines() if line.strip()])
+        estimate = estimate_job(
+            n_needs=n_needs, variants_per_need=variants, targets=selected_targets(targets_selected),
+            tier_id=tier, dependency=bool(dependency), prices=unit_prices(adapters, stats_provider()),
+        )
+        return JSONResponse({
+            "calls": estimate.calls,
+            "cost_usd": estimate.cost_usd,
+            "minutes": estimate.minutes,
+            "breakdown": [{"display": target_name(t.surface, t.model), "cost_usd": cost}
+                          for t, cost in estimate.per_target],
+        })
 
     @app.post("/jobs/{job_id}/confirm")
     async def confirm(
@@ -280,10 +278,7 @@ def create_app(
 
         if not 1 <= len(needs) <= 10:
             return back("需求数量须在 1–10 个之间(架构口径建议 3–10)")
-        targets = [
-            target for target in map(Target.parse, targets_selected)
-            if target.surface in adapters and target.model in adapters[target.surface].meta().models
-        ]
+        targets = selected_targets(targets_selected)
         if not targets:
             return back("至少选一个要测的 AI 型号")
         if tier not in TIERS or not 1 <= variants <= 5:

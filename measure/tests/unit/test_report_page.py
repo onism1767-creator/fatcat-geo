@@ -34,7 +34,7 @@ from engine.models import (
 )
 from engine.needs import NeedCandidate
 from report.app import create_app
-from report.jobs import TIERS, DiagnosisJob, JobState, NeedReport, estimate_job
+from report.jobs import TIERS, DiagnosisJob, JobState, NeedReport
 
 REGISTRY = load_evidence_registry()
 
@@ -430,7 +430,8 @@ def test_unfinished_report_redirects_to_status(client_and_job):
 
 
 def test_confirm_estimate_prefers_measured_history():
-    """预估口径(v0.4.17):有足量历史按实测均价与均时,没有的 AI 按声明单价,并在确认页说明依据。"""
+    """预估口径(v0.4.17):有足量历史按实测均价与均时,没有的 AI 按声明单价,并在确认页说明依据。
+    预估公式只在服务端:确认页的实时数字来自 /jobs/{id}/estimate(审查 #3)。"""
     from engine.storage import CallStat
 
     def run(stats):
@@ -440,30 +441,44 @@ def test_confirm_estimate_prefers_measured_history():
         resp = client.post("/jobs", data={"brand_name": "极光CRM", "aliases": "", "website": "aurora-crm.com",
                                           "category": "CRM", "questions": "问题一?", "generate": ""},
                            follow_redirects=False)
-        return client.get(resp.headers["location"]).text
+        page = client.get(resp.headers["location"]).text
+        job_id = resp.headers["location"].split("/")[2]
+        estimate = client.post(f"/jobs/{job_id}/estimate", data={
+            "needs_selected": ["0"], "targets_selected": ["s1::m1"], "tier": "quick", "variants": "3"}).json()
+        return page, estimate
 
     def stat(n: int) -> CallStat:
         return CallStat(surface="s1", model="m1", search_mode="default", n=n,
                         avg_cost_usd=0.02, avg_latency_ms=15000)
 
-    measured = run([stat(12)])
-    assert '"s1::m1": 0.02' in measured and '"seconds_per_call": 15.0' in measured
-    assert "预估按过去实测的平均费用和耗时算:S1" in measured
-    declared = run([stat(3)])
-    assert '"s1::m1": 0.005' in declared and '"seconds_per_call": 20.0' in declared  # 历史不足:声明单价 + 兜底时长
-    assert "S1 还没有足够的历史记录" in declared
+    page, est = run([stat(12)])
+    assert "预估按过去实测的平均费用和耗时算:S1" in page
+    assert est["calls"] == 23  # 1 题 × 3 问法 × 7.5 = 22.5,四舍五入
+    assert est["cost_usd"] == pytest.approx(22.5 * 0.02) and est["minutes"] == pytest.approx(22.5 * 15 / 60 / 3)
+    assert est["breakdown"] == [{"display": "S1", "cost_usd": pytest.approx(22.5 * 0.02)}]
+    page, est = run([stat(3)])  # 历史不足:声明单价 + 兜底时长
+    assert "S1 还没有足够的历史记录" in page
+    assert est["cost_usd"] == pytest.approx(22.5 * 0.005) and est["minutes"] == pytest.approx(22.5 * 20 / 60 / 3)
 
 
 def test_estimate_job_arithmetic():
-    # 按 surface 分价(v0.4.6):便宜通道与贵通道混选,成本逐个计价求和
-    est = estimate_job(3, 2, [0.005, 0.17], "quick")
-    assert est.calls == 90  # 3 需求 × 2 变体 × 2 surface × 7.5 期望采样
+    from report.estimate import UnitPrices, estimate_job
+
+    cheap, pricey = Target(surface="a", model="x"), Target(surface="b", model="y")
+    prices = UnitPrices(default={cheap.key: 0.005, pricey.key: 0.17}, search_disabled={pricey.key: 0.04},
+                        seconds_per_call=20.0, measured=[], declared=[cheap, pricey])
+    # 按对象分价(v0.4.6):便宜通道与贵通道混选,成本逐个计价求和
+    est = estimate_job(n_needs=3, variants_per_need=2, targets=[cheap, pricey], tier_id="quick",
+                       dependency=False, prices=prices)
+    assert est.calls == 90  # 3 题 × 2 问法 × 2 对象 × 7.5 期望采样
     assert est.cost_usd == pytest.approx(3 * 2 * 7.5 * (0.005 + 0.17))
-    # 检索依赖对照:闭卷腿按自身单价另计(每腿采样策略与开卷相同)
-    est_dep = estimate_job(3, 2, [0.005, 0.17], "quick", dependency_costs=[0.04])
-    assert est_dep.calls == 135  # 多一条闭卷腿
+    # 检索依赖对照:只有支持闭卷的对象多一条闭卷腿,按闭卷单价另计(每腿采样策略与开卷相同)
+    est_dep = estimate_job(n_needs=3, variants_per_need=2, targets=[cheap, pricey], tier_id="quick",
+                           dependency=True, prices=prices)
+    assert est_dep.calls == 135
     assert est_dep.cost_usd == pytest.approx(3 * 2 * 7.5 * (0.005 + 0.17 + 0.04))
-    assert estimate_job(3, 2, [0.005], "quick", seconds_per_call=30).minutes == pytest.approx(45 * 30 / 60 / 3)
+    assert est_dep.per_target == [(cheap, pytest.approx(45 * 0.005)), (pricey, pytest.approx(45 * (0.17 + 0.04)))]
+    assert est_dep.minutes == pytest.approx(135 * 20 / 60 / 3)
 
 
 def test_job_snapshot_round_trip():

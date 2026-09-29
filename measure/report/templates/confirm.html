@@ -7,7 +7,7 @@
 {{ t["confirm_note"] }}</p>
 {% if error %}<div class="err">{{ error }}</div>{% endif %}
 
-<form method="post" action="/jobs/{{ job.job_id }}/confirm?lang={{ lang }}">
+<form id="confirm-form" method="post" action="/jobs/{{ job.job_id }}/confirm?lang={{ lang }}">
   <div class="card">
     <h3>{{ t["candidates_title"] }}</h3>
     {% for cand in job.candidates %}
@@ -42,7 +42,7 @@
         <div style="margin-bottom:6px">
           {% if group|length > 1 %}<span class="muted">{{ ai_name }}</span>{% endif %}
           {% for target in group %}
-          <label style="font-weight:400"><input type="checkbox" name="targets_selected" value="{{ target.key }}" data-display="{{ target_name(target.surface, target.model) }}" checked> {{ target.model if group|length > 1 else ai_name }}</label>
+          <label style="font-weight:400"><input type="checkbox" name="targets_selected" value="{{ target.key }}" checked> {{ target.model if group|length > 1 else ai_name }}</label>
           {% endfor %}
         </div>
         {% endfor %}
@@ -79,31 +79,21 @@
 </form>
 
 <script>
-const C = {{ estimate_constants | safe }};
-function recalc() {
-  const n = document.querySelectorAll('input[name=needs_selected]:checked').length
-          + document.querySelector('textarea[name=custom]').value.split('\n').filter(s => s.trim()).length;
-  const checked = Array.from(document.querySelectorAll('input[name=targets_selected]:checked'));
-  const v = parseInt(document.querySelector('select[name=variants]').value);
-  const t = document.querySelector('select[name=tier]').value;
-  const perLegCalls = n * v * C.tier_calls[t];
-  const depOn = document.querySelector('input[name=dependency]').checked;
-  const depChecked = depOn ? checked.filter(el => el.value in C.dependency) : [];
-  const calls = perLegCalls * (checked.length + depChecked.length);
-  const cost = perLegCalls * (
-    checked.reduce((sum, el) => sum + C.target_costs[el.value], 0)
-    + depChecked.reduce((sum, el) => sum + C.dependency[el.value], 0)
-  );
-  // 各 AI 各型号分项预估(v0.4.11 补;v0.4.19 按型号):谁花多少钱,勾选前看得见
-  const parts = checked.map(el => {
-    let per = C.target_costs[el.value] * perLegCalls;
-    if (depOn && el.value in C.dependency) per += C.dependency[el.value] * perLegCalls;
-    return el.dataset.display + ' ≈ $' + per.toFixed(2);
+// 预估公式只在服务端(report/estimate.py):每次勾选变化把整张表单发过去,这里只负责显示(v0.4.24 审查 #3)
+let seq = 0;
+async function recalc() {
+  const mine = ++seq;
+  const resp = await fetch('/jobs/{{ job.job_id }}/estimate', {
+    method: 'POST', body: new FormData(document.getElementById('confirm-form')),
   });
-  document.getElementById('est-breakdown').textContent = parts.length ? parts.join(' · ') : '–';
-  document.getElementById('est-calls').textContent = Math.round(calls);
-  document.getElementById('est-cost').textContent = cost.toFixed(2);
-  document.getElementById('est-min').textContent = (calls * C.seconds_per_call / 60 / C.concurrency).toFixed(1);
+  if (!resp.ok || mine !== seq) return;
+  const e = await resp.json();
+  if (mine !== seq) return;  // 连续勾选时只显示最后一次的结果
+  document.getElementById('est-calls').textContent = e.calls;
+  document.getElementById('est-cost').textContent = e.cost_usd.toFixed(2);
+  document.getElementById('est-min').textContent = e.minutes.toFixed(1);
+  document.getElementById('est-breakdown').textContent = e.breakdown.length
+    ? e.breakdown.map(b => b.display + ' ≈ $' + b.cost_usd.toFixed(2)).join('; ') : '–';
 }
 document.addEventListener('change', recalc);
 document.querySelector('textarea[name=custom]').addEventListener('input', recalc);

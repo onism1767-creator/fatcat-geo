@@ -1,4 +1,4 @@
-"""L4 任务模型与登记处(第 16.3 章):状态机、冻结快照与指纹、成本预估。
+"""L4 任务模型与登记处(第 16.3 章):状态机、冻结快照与指纹。成本预估在 report/estimate.py。
 
 DiagnosisJob 是可变对象:进度字段随执行推进。v1 单机进程内保存,不入库
 ——采样与判定的原始记录早已进只追加库,任务对象只是执行的壳。
@@ -37,15 +37,6 @@ log = structlog.get_logger("report.jobs")
 
 PLAN_CONCURRENCY = 3  # 采样计划并发路数(16.1)
 
-# 档位(v0.4.15,用户拍板方案 1):按次数定义——「每问法最多 max_n 次,前 N 次结果完全一样
-# 就提前停」。宽度阈值在实际参数下与之等价(混合结果永不提前停),
-# tests/unit/test_report_page.py 用 Jeffreys 算术机械核对标签里的数字。
-# 预估口径(16.4 / v0.4.6):成本按 surface 分价——单价由各适配器 meta 声明
-# (est_cost_per_call_usd,实测均值或推导上界);时间仍用双通道实测均值,
-# 留待多 surface 实测后一并校准。
-# 兜底值(v0.4.17):库里没有足量历史时用;有历史即按 surface 实测均值(香奈儿首单加权均值 20.2 s)
-AVG_SECONDS_PER_CALL = 20.0
-
 
 class JobState(StrEnum):
     DRAFT = "DRAFT"
@@ -65,6 +56,9 @@ class Tier(FrozenModel):
     expected_calls_per_plan: float  # 蒙特卡洛/实测的每计划期望采样次数
 
 
+# 档位(v0.4.15,用户拍板方案 1):按次数定义——「每问法最多 max_n 次,前 N 次结果完全一样
+# 就提前停」。宽度阈值在实际参数下与之等价(混合结果永不提前停),
+# tests/unit/test_report_page.py 用 Jeffreys 算术机械核对标签里的数字。
 TIERS: dict[str, Tier] = {
     "standard": Tier(id="standard", policy=SamplingPolicy(), expected_calls_per_plan=18.0),
     "quick": Tier(
@@ -89,33 +83,6 @@ def preselect_candidates(candidates: list[NeedCandidate], *, n_manual: int) -> l
     first_open = next((i for i, c in enumerate(candidates) if c.intent is not NeedIntent.BRAND_PROBE), None)
     first_brand = next((i for i, c in enumerate(candidates) if c.intent is NeedIntent.BRAND_PROBE), None)
     return [i for i in (first_open, first_brand) if i is not None]
-
-
-class Estimate(FrozenModel):
-    calls: int
-    cost_usd: float
-    minutes: float
-
-
-def estimate_job(
-    n_needs: int,
-    variants_per_need: int,
-    surface_costs: list[float],
-    tier_id: str,
-    dependency_costs: list[float] | None = None,
-    seconds_per_call: float = AVG_SECONDS_PER_CALL,
-) -> Estimate:
-    """surface_costs = 所选各 surface 的单次调用期望成本(有历史按实测均值,否则适配器声明);
-    dependency_costs = 启用检索依赖对照时各支持 surface 的闭卷腿单价
-    (闭卷腿与开卷同采样策略,故每腿期望调用数相同);seconds_per_call 同理按实测。"""
-    dependency_costs = dependency_costs or []
-    per_leg_calls = n_needs * variants_per_need * TIERS[tier_id].expected_calls_per_plan
-    calls = per_leg_calls * (len(surface_costs) + len(dependency_costs))
-    return Estimate(
-        calls=round(calls),
-        cost_usd=per_leg_calls * (sum(surface_costs) + sum(dependency_costs)),
-        minutes=calls * seconds_per_call / 60 / PLAN_CONCURRENCY,
-    )
 
 
 class NeedReport(FrozenModel):
