@@ -38,7 +38,7 @@ def _failed_job(code: str | None, text: str | None = None) -> DiagnosisJob:
 def _page(job: DiagnosisJob, lang: str) -> str:
     app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=load_evidence_registry(), job_runner=lambda **kw: None)
-    app.state.registry.add(job)
+    app.state.ctx.registry.add(job)
     return TestClient(app).get(f"/jobs/{job.job_id}?lang={lang}").text
 
 
@@ -66,7 +66,7 @@ def test_running_job_reports_quiet_minutes_and_stall_code():
     """v0.4.22:任务页显示「最近一次新结果在几分钟前」;超过 STALL_MINUTES 没有新样本就给 JOB_STALLED。"""
     from datetime import UTC, datetime, timedelta
 
-    from report.app import STALL_MINUTES
+    from report.jobs import STALL_MINUTES
 
     job = _failed_job(None)
     job.state, job.phase = JobState.RUNNING, "phase_sampling"

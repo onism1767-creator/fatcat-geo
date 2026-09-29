@@ -21,13 +21,11 @@ from pydantic import ValidationError
 from diagnosis.access_audit import AccessAuditResult
 from diagnosis.diagnose import NeedDiagnosis
 from diagnosis.verdict import SurfaceVerdict
-from engine.detectors.matching import find_first_alias
 from engine.models import (
     BrandSpec,
     CompetitorSuggestion,
     FrozenModel,
     InformationNeed,
-    NeedIntent,
     Target,
 )
 from engine.needs import NeedCandidate
@@ -36,6 +34,8 @@ from engine.scheduler import SamplingPolicy
 log = structlog.get_logger("report.jobs")
 
 PLAN_CONCURRENCY = 3  # 采样计划并发路数(16.1)
+# 多少分钟没有任何新样本就在任务页报 JOB_STALLED(v0.4.22):一次采样最坏 = 3 次尝试 × 180 s 超时 + 退避 ≈ 10 分钟
+STALL_MINUTES = 10
 
 
 class JobState(StrEnum):
@@ -66,23 +66,6 @@ TIERS: dict[str, Tier] = {
         expected_calls_per_plan=7.5,
     ),
 }
-
-
-def manual_intent(text: str, brand: BrandSpec) -> NeedIntent:
-    """用户手填的问题归哪个场景:点了品牌名或别名的就是「直接询问品牌」,否则按「没有点名品牌」。
-    点名的问题里品牌提及率天然接近 100%,混进「没点名」场景会把「AI 会主动推荐你」的结论虚高。"""
-    return NeedIntent.BRAND_PROBE if find_first_alias(text, brand) is not None else NeedIntent.DISCOVERY
-
-
-def preselect_candidates(candidates: list[NeedCandidate], *, n_manual: int) -> list[int]:
-    """确认页默认勾哪几道题(v0.4.18):用户自己填的(列表末尾 n_manual 道)全勾;
-    一道没填就只勾 2 道——第一个不点名品牌的题 + 第一个直接问品牌的题。
-    默认报价必须便宜,想多测由用户自己勾(预估实时更新)。"""
-    if n_manual:
-        return list(range(len(candidates) - n_manual, len(candidates)))
-    first_open = next((i for i, c in enumerate(candidates) if c.intent is not NeedIntent.BRAND_PROBE), None)
-    first_brand = next((i for i, c in enumerate(candidates) if c.intent is NeedIntent.BRAND_PROBE), None)
-    return [i for i in (first_open, first_brand) if i is not None]
 
 
 class NeedReport(FrozenModel):
@@ -169,6 +152,25 @@ class DiagnosisJob:
         if not self.total_plans:
             return 0
         return min(99, int(100 * self.completed_plans / self.total_plans))
+
+    def elapsed_minutes(self, now: datetime) -> float | None:
+        """运行中已用了多少分钟;没在跑 → None。"""
+        if self.state is not JobState.RUNNING or self.started_at is None:
+            return None
+        return (now - self.started_at).total_seconds() / 60
+
+    def eta_minutes(self, now: datetime) -> float | None:
+        """按实际速度算剩余时间(v0.4.17):已用时 ÷ 已完成计划 × 未完成计划;还没完成一个 → None。"""
+        elapsed = self.elapsed_minutes(now)
+        if elapsed is None or not self.completed_plans or not self.total_plans:
+            return None
+        return elapsed / self.completed_plans * (self.total_plans - self.completed_plans)
+
+    def quiet_minutes(self, now: datetime) -> float | None:
+        """运行中距最近一条新样本(还没有就从开始算)过了多少分钟(v0.4.22);没在跑 → None。"""
+        if self.state is not JobState.RUNNING or self.started_at is None:
+            return None
+        return (now - (self.last_result_at or self.started_at)).total_seconds() / 60
 
     def freeze(
         self,

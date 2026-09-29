@@ -93,7 +93,7 @@ def test_report_page_fully_english():
     app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=lambda **kw: None)
     job = finished_job()
-    app.state.registry.add(job)
+    app.state.ctx.registry.add(job)
     client = TestClient(app)
     html = client.get(f"/jobs/{job.job_id}/report?lang=en").text
     assert "AI Visibility Report" in html

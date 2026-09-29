@@ -1,0 +1,120 @@
+"""L4 网页公共部件:模板环境、统一渲染(界面语言与各类标签)、跳转、被测对象显示名、各路由共用的依赖。"""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from pathlib import Path
+
+from fastapi import Request
+from fastapi.responses import HTMLResponse, RedirectResponse
+from fastapi.templating import Jinja2Templates
+
+from adapters.base import SurfaceAdapter
+from diagnosis.access_audit import AccessLayer
+from diagnosis.findings import Stage
+from diagnosis.messages import msg, render_msg
+from engine.storage import CallStat
+from report.i18n import (
+    ACCESS_LABELS,
+    DEP_LABELS,
+    INTENT_LABELS,
+    JOB_STATE_LABELS,
+    LEVEL_LABELS,
+    MESSAGES,
+    STATUS_LABELS,
+    resolve_lang,
+)
+from report.jobs import JobRegistry
+from report.launcher import JobLauncher
+
+TargetNamer = Callable[[str, str], str]
+
+
+def target_namer(adapters: dict[str, SurfaceAdapter]) -> TargetNamer:
+    display_names = {name: adapter.meta().display_name for name, adapter in adapters.items()}
+    models_of = {name: adapter.meta().models for name, adapter in adapters.items()}
+
+    def target_name(surface: str, model: str) -> str:
+        """被测对象(仪器 × 型号,v0.4.19)的显示名:只有一个型号的仪器直接用产品名,否则「产品名 · 型号」。
+        型号已移出清单(历史报告里还有)照样「产品名 · 型号」;连仪器都没加载才如实用内部名,不猜。"""
+        if surface not in display_names:
+            return f"{surface} · {model}"
+        if models_of[surface] == [model]:
+            return display_names[surface]
+        return f"{display_names[surface]} · {model}"
+
+    return target_name
+
+
+def _templates(target_name: TargetNamer) -> Jinja2Templates:
+    templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
+    env = templates.env
+    env.filters["msg"] = render_msg  # 结论码 → 当前界面语言的成句
+    env.globals["access_layers"] = list(AccessLayer)  # 报告按证据层分组(v0.4.13 条目 6)
+    env.globals["layer_msg"] = lambda layer: msg(f"access.layer.{layer.value}")
+    # 用户视图(v0.4.14):人话渲染器 + 阶段人话标签;技术目录只在「检测依据与方法」
+    env.filters["plain"] = lambda message, lang: render_msg(message, lang, "plain")
+    env.globals["funnel_stages"] = [Stage.RETRIEVAL, Stage.CITATION, Stage.REPRESENTATION]
+    env.globals["stage_msg"] = lambda stage: msg(f"stage.{stage.value}")
+    env.globals["access_headline"] = lambda overall: msg(f"access.headline.{overall.value.lower()}")
+    env.globals["target_name"] = target_name
+    return templates
+
+
+@dataclass
+class WebContext:
+    """各路由共用的依赖(create_app 装配,挂在 app.state.ctx)。"""
+
+    adapters: dict[str, SurfaceAdapter]
+    dsn: str
+    call_stats: Callable[[], list[CallStat]]  # 预估用的历史统计
+    registry: JobRegistry
+    launcher: JobLauncher
+    target_name: TargetNamer
+
+    def __post_init__(self) -> None:
+        self._templates = _templates(self.target_name)
+        self.display_names = {name: a.meta().display_name for name, a in self.adapters.items()}
+
+    def render(self, request: Request, name: str, **context) -> HTMLResponse:
+        lang = lang_of(request)
+        context.setdefault("lang", lang)
+        context.setdefault("t", MESSAGES[lang])
+        context.setdefault("intent_labels", INTENT_LABELS[lang])
+        context.setdefault("status_labels", STATUS_LABELS[lang])
+        context.setdefault("access_labels", ACCESS_LABELS[lang])
+        context.setdefault("dep_labels", DEP_LABELS[lang])
+        context.setdefault("level_labels", LEVEL_LABELS[lang])
+        context.setdefault("state_labels", JOB_STATE_LABELS[lang])
+        context.setdefault("display_names", self.display_names)  # AI 产品名(适配器 meta 声明)
+        return self._templates.TemplateResponse(request, name, context)
+
+
+def ctx_of(request: Request) -> WebContext:
+    return request.app.state.ctx
+
+
+def lang_of(request: Request) -> str:
+    return resolve_lang(request.query_params.get("lang"))
+
+
+def error_text(request: Request, code: str, **params: str) -> str:
+    """错误码(err_ 开头)→ 当前界面语言的一句人话;未知码或缺参数就不显示——错误码可能来自地址栏,
+    不把任意文字回显到页面上,也不因缺参数出错。"""
+    template = MESSAGES[lang_of(request)].get(code) if code.startswith("err_") else None
+    if template is None:
+        return ""
+    try:
+        return template.format(**params)
+    except (KeyError, IndexError):
+        return ""
+
+
+def redirect(request: Request, path: str) -> RedirectResponse:
+    joiner = "&" if "?" in path else "?"
+    return RedirectResponse(f"{path}{joiner}lang={lang_of(request)}", status_code=303)
+
+
+def not_found() -> HTMLResponse:
+    return HTMLResponse("任务不存在", status_code=404)

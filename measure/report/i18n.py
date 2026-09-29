@@ -137,6 +137,11 @@ MESSAGES: dict[str, dict[str, str]] = {
         "eta_line": "已用 {elapsed} 分钟;按目前的速度,预计还需约 {eta} 分钟",
         "eta_waiting": "已用 {elapsed} 分钟;第一批结果还没回来,稍后会显示预计剩余时间",
         "job_failed": "出错了",
+        "err_needs_count": "要测的问题请选 1 到 10 个。",
+        "err_no_target": "请至少选一个要测的 AI 型号。",
+        "err_bad_params": "档位、问法数或预算填得不对,请检查后再试。",
+        "err_no_question": "请至少手填一个问题,或者勾选「让系统帮我出题」。",
+        "err_missing_ai": "有的 AI 没接入(缺少 API key),不能接着跑:{names}",
         # 账户问题两种代码(v0.4.21):换 key / 充值,各自一句话;{detail} 是平台原话
         "job_error.account_auth": "{ai}(型号 {model})的 API key 无效或没有使用权限,检测已经停下,不会再花钱。"
                                   "请检查 .env 里这家的 key,换好后重启服务,再点「接着跑」;已经采集的结果不会重跑。平台原话:{detail}",
@@ -272,6 +277,11 @@ MESSAGES: dict[str, dict[str, str]] = {
         "eta_line": "{elapsed} min so far; at the current pace about {eta} min remain",
         "eta_waiting": "{elapsed} min so far; the first results are not back yet — remaining time will show shortly",
         "job_failed": "Something went wrong",
+        "err_needs_count": "Please pick 1 to 10 questions to test.",
+        "err_no_target": "Please pick at least one AI model to test.",
+        "err_bad_params": "The tier, number of phrasings or budget is not valid — please check and try again.",
+        "err_no_question": "Enter at least one question, or tick “Draft questions for me”.",
+        "err_missing_ai": "Some AIs are not connected (missing API key), so this job cannot resume: {names}",
         "job_error.account_auth": "The API key for {ai} (model {model}) is invalid or lacks permission. The run has stopped and will spend nothing more. "
                                   "Check that key in .env, restart the service, then press Resume; results already collected are kept. Platform said: {detail}",
         "job_error.account_credit": "The API account for {ai} (model {model}) is out of credit. The run has stopped and will spend nothing more. "

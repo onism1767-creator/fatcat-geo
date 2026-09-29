@@ -133,7 +133,7 @@ def client_and_job():
     app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=stub_runner)
     job = finished_job()
-    app.state.registry.add(job)
+    app.state.ctx.registry.add(job)
     return TestClient(app), job, calls
 
 
@@ -240,6 +240,23 @@ def test_interactive_pages_use_plain_language(client_and_job):
     assert "完成" in visible_text(pages[2]) and "DONE" not in visible_text(pages[2])
 
 
+def test_confirm_validation_errors_are_plain_codes_not_free_text(client_and_job):
+    """确认页校验不过:跳回确认页,按错误码用人话说明(文案在 i18n,不带技术词);
+    地址栏里的错误码只认 err_ 开头的已知码,别的一律不显示(不回显任意文字)。"""
+    client, _, _ = client_and_job
+    resp = client.post("/jobs", data={"brand_name": "极光CRM", "aliases": "", "website": "aurora-crm.com",
+                                      "category": "CRM", "questions": "问题一?", "generate": ""},
+                       follow_redirects=False)
+    confirm_url = resp.headers["location"]
+    job_path = confirm_url.split("?")[0].rsplit("/", 1)[0]
+    back = client.post(f"{job_path}/confirm", data={"targets_selected": ["s1::m1"]}, follow_redirects=False)
+    assert "error=err_needs_count" in back.headers["location"]
+    page = visible_text(client.get(back.headers["location"]).text)
+    assert "要测的问题请选 1 到 10 个" in page and not any(token in page for token in UI_FORBIDDEN)
+    forged = visible_text(client.get(f"{job_path}/confirm?error=job_stalled").text)
+    assert "卡住" not in forged
+
+
 def test_job_page_shows_remaining_time_from_actual_pace(client_and_job):
     """v0.4.17:运行中的任务页按实际速度算剩余时间(已用时 ÷ 已完成 × 未完成)。"""
     from datetime import UTC, datetime, timedelta
@@ -307,7 +324,7 @@ def test_manual_question_naming_the_brand_is_a_brand_question():
     """用户手填的问题:点了品牌名 / 别名 → 「直接询问品牌」;没点 → 「没有点名品牌」。
     点名的问题提及率天然接近 100%,归错场景会把「AI 会主动推荐你」的结论虚高(2026-09-21 真实页面暴露)。"""
     from engine.models import NeedIntent
-    from report.jobs import manual_intent
+    from engine.needs import manual_intent
 
     brand = BrandSpec(name="始祖鸟", aliases=["Arc'teryx"], domains=["arcteryx.com"])
     assert manual_intent("始祖鸟的整体口碑和做工质量怎么样?", brand) is NeedIntent.BRAND_PROBE
@@ -320,7 +337,7 @@ def test_preselect_candidates_defaults_to_two_or_all_manual():
     手填了 → 手填的全勾、系统出的不勾。"""
     from engine.models import NeedIntent
     from engine.needs import NeedCandidate
-    from report.jobs import preselect_candidates
+    from report.forms import preselect_candidates
 
     drafted = [NeedCandidate(intent=NeedIntent.DISCOVERY, text="a"),
                NeedCandidate(intent=NeedIntent.COMPARISON, text="b"),
@@ -359,7 +376,7 @@ def test_retired_model_keeps_product_name_in_old_reports():
     app = create_app(call_stats=lambda: [], adapters={"s1": RetiredModelAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=lambda **_: None)
     job = finished_job()
-    app.state.registry.add(job)
+    app.state.ctx.registry.add(job)
     html = TestClient(app).get(f"/jobs/{job.job_id}/report").text
     assert "S1 · m1" in html and "s1 · m1" not in html
 
@@ -399,7 +416,7 @@ def test_manual_flow_to_confirm_and_launch(client_and_job):
     assert resp.status_code == 303
     job_id = resp.headers["location"].rsplit("/", 1)[-1].split("?")[0]
     assert calls == [job_id]  # 执行器被触发
-    job = client.app.state.registry.get(job_id)
+    job = client.app.state.ctx.registry.get(job_id)
     assert len(job.needs) == 2 and job.fingerprint
 
 
@@ -513,13 +530,13 @@ def test_resume_clicked_twice_launches_one_runner(monkeypatch):
         def start(self):
             self._target(**self._kwargs)
 
-    monkeypatch.setattr("report.app.threading.Thread", SyncThread)
+    monkeypatch.setattr("report.launcher.threading.Thread", SyncThread)
     calls = []
     app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=lambda *, job, **_: calls.append(job.job_id))
     job = finished_job()
     job.state = JobState.INTERRUPTED
-    app.state.registry.add(job)
+    app.state.ctx.registry.add(job)
     client = TestClient(app)
     for _ in range(2):
         assert client.post(f"/jobs/{job.job_id}/resume", follow_redirects=False).status_code == 303

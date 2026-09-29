@@ -20,6 +20,7 @@ import structlog
 
 from adapters.base import SurfaceAdapter
 from engine.ai_task import Ledger, extract_json, run_task
+from engine.detectors.matching import find_first_alias
 from engine.models import (
     BrandSpec,
     CompetitorSuggestion,
@@ -178,6 +179,12 @@ def _str_list(value: Any) -> list[str]:
 def _brand_tokens(brand: BrandSpec) -> list[str]:
     tokens = [brand.name, *brand.aliases, *brand.domains]
     return [t.strip().lower() for t in tokens if t.strip()]
+
+
+def manual_intent(text: str, brand: BrandSpec) -> NeedIntent:
+    """用户手填的问题归哪个场景:点了品牌名或别名的就是「直接询问品牌」,否则按「没有点名品牌」。
+    点名的问题里品牌提及率天然接近 100%,混进「没点名」场景会把「AI 会主动推荐你」的结论虚高。"""
+    return NeedIntent.BRAND_PROBE if find_first_alias(text, brand) is not None else NeedIntent.DISCOVERY
 
 
 def brand_collisions(texts: list[str], brand: BrandSpec) -> list[str]:
