@@ -118,7 +118,7 @@ def test_brand_collisions_scans_name_alias_domain():
 def test_json_tolerates_markdown_fences():
     fenced = RecordingAdapter([NEUTRAL_OK, COMPETITORS_OK, PROBES_OK])
     fenced._payloads = list(fenced._payloads)  # 保持接口
-    # 用带围栏的回答验证 _extract_json 容错:改造第一个 payload 的包装
+    # 用带围栏的回答验证 extract_json 容错:改造第一个 payload 的包装
     adapter = RecordingAdapter([NEUTRAL_OK, COMPETITORS_OK, PROBES_OK])
 
     original_ask = adapter.ask

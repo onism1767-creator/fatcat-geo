@@ -8,31 +8,27 @@
 机械质检(17.4)内嵌在各步的有界重试里:配比核对、JSON 合法、判重、
 别名撞车扫描(中立题含焦点品牌即打回重生成)。仍失败显式抛错,不静默降级。
 
-生成调用是辅助行为:SurfaceRun 不落库、不进任何指标分母(与 variants.py 同一纪律)。
+生成调用是辅助行为,统一走 engine/ai_task.py:不进任何指标分母(与 variants.py 同一纪律)。
 """
 
 from __future__ import annotations
 
-import json
 from collections.abc import Callable
 from typing import Any
-from uuid import uuid4
 
 import structlog
 
 from adapters.base import SurfaceAdapter
+from engine.ai_task import extract_json, run_task
 from engine.models import (
-    AskRequest,
     BrandSpec,
     CompetitorSuggestion,
     FrozenModel,
     NeedIntent,
-    Outcome,
 )
 
 log = structlog.get_logger("engine.needs")
 
-_MAX_ATTEMPTS = 3
 
 # 17.2 建议配比 3:2:2:1 → 默认候选池 discovery 6 / comparison 4 / scenario 4 / probe 2
 DEFAULT_NEUTRAL_COUNTS: dict[NeedIntent, int] = {
@@ -150,7 +146,7 @@ def _is_english(locale: str) -> bool:
     return locale.lower().startswith("en")
 
 
-# ── 通用:调适配器 → 抠 JSON → 校验,有界重试 ────────────────────────────
+# ── 通用:让 AI 办件事(engine/ai_task.py)→ 抠 JSON → 校验,不合格重问 ─────────────
 
 
 def _ask_json(
@@ -160,33 +156,12 @@ def _ask_json(
     *,
     locale: str,
 ) -> Any:
-    last: Exception | None = None
-    for _ in range(_MAX_ATTEMPTS):
-        run = adapter.ask(AskRequest(
-            run_id=f"needgen-{uuid4().hex[:12]}",
-            information_need_id="__need_generation__",
-            prompt_variant_id="__need_generation__",
-            prompt_text=prompt,
-            locale=locale,
-        ))
-        if run.outcome is not Outcome.SUCCESS or run.answer is None:
-            last = ValueError(f"生成调用未成功:outcome={run.outcome}")
-            continue
-        try:
-            data = _extract_json(run.answer.answer_text)
-            check(data)
-            return data
-        except (ValueError, KeyError, TypeError) as exc:
-            last = exc
-    raise ValueError(f"需求生成 {_MAX_ATTEMPTS} 次尝试仍未产出合格结果:{last}")
+    def parse(text: str) -> Any:
+        data = extract_json(text)
+        check(data)
+        return data
 
-
-def _extract_json(text: str) -> Any:
-    """容忍模型偶尔加围栏/前后语:抠出首个 {...} 对象解析。"""
-    start, end = text.find("{"), text.rfind("}")
-    if start == -1 or end <= start:
-        raise ValueError("回答中未含 JSON 对象")
-    return json.loads(text[start : end + 1])
+    return run_task(adapter, prompt, parse, label="需求生成", need_id="__need_generation__", locale=locale).value
 
 
 def _str_list(value: Any) -> list[str]:

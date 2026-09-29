@@ -32,7 +32,6 @@ from adapters.base import (
     AdapterPermanentError,
     AdapterTransientError,
     SurfaceAdapter,
-    SurfaceMeta,
 )
 from adapters.http_support import classify_account_problem
 from engine.metrics import (
@@ -214,7 +213,7 @@ class SequentialSampler:
                 region=region,
                 timeout_s=policy.timeout_s,
             )
-            run = self._attempt_with_retries(adapter, request, meta, resolved_model, policy)
+            run = ask_with_retries(adapter, request, policy, sleep=self._sleep, rng=self._rng)
             self._storage.insert_surface_run(run)
             if is_account_error(run):  # 落库后立刻停:不进本计划的任何统计,也不再花一分钱
                 assert run.error is not None
@@ -270,94 +269,97 @@ class SequentialSampler:
             return StopReason.MAX_N_REACHED
         return None
 
-    def _attempt_with_retries(
-        self,
-        adapter: SurfaceAdapter,
-        request: AskRequest,
-        meta: SurfaceMeta,
-        resolved_model: str,
-        policy: SamplingPolicy,
-    ) -> SurfaceRun:
-        """一次采样 = 最多 max_attempts 次调用(仅 Transient 重试,指数退避+抖动)。
-        耗尽/永久失败 → 构造失败 SurfaceRun 返回(失败不蒸发)。"""
-        started_at = datetime.now(UTC)
-        t0 = time.perf_counter()
-        attempts = 0
-        while True:
-            attempts += 1
-            try:
-                return adapter.ask(request)
-            except AdapterTransientError as exc:
-                log.warning("adapter_retry", run_id=request.run_id, surface=meta.surface,
-                            attempt=attempts, http_status=exc.http_status, error=str(exc))
-                if attempts >= policy.max_attempts:
-                    return self._failure_run(
-                        request, meta, resolved_model, started_at, t0,
-                        outcome=Outcome.TRANSIENT_FAILURE,
-                        error=RunError(
-                            error_type=RunErrorType.TRANSIENT, message=str(exc),
-                            http_status=exc.http_status, attempts=attempts,
-                        ),
-                        response_body=exc.response_body,
-                    )
-                cap = min(policy.backoff_max_s, policy.backoff_base_s * (2 ** (attempts - 1)))
-                self._sleep(self._rng.uniform(0, cap))
-            except AdapterAccountError as exc:  # 子类须先于 AdapterPermanentError 捕获
-                log.error("adapter_account_problem", run_id=request.run_id, surface=meta.surface,
-                          model=resolved_model, http_status=exc.http_status, error=str(exc))
-                return self._failure_run(
-                    request, meta, resolved_model, started_at, t0,
-                    outcome=Outcome.PERMANENT_FAILURE,
-                    error=RunError(
-                        error_type=exc.error_type, message=str(exc),
-                        http_status=exc.http_status, attempts=attempts,
-                    ),
-                    response_body=exc.response_body,
-                )
-            except AdapterPermanentError as exc:
-                log.error("adapter_permanent_failure", run_id=request.run_id,
-                          surface=meta.surface, http_status=exc.http_status, error=str(exc))
-                return self._failure_run(
-                    request, meta, resolved_model, started_at, t0,
-                    outcome=Outcome.PERMANENT_FAILURE,
-                    error=RunError(
-                        error_type=RunErrorType.PERMANENT, message=str(exc),
-                        http_status=exc.http_status, attempts=attempts,
-                    ),
-                    response_body=exc.response_body,
-                )
-            # CapabilityNotSupportedError 故意不捕获:编程错误直接上抛(13.1)
 
-    def _failure_run(
-        self,
-        request: AskRequest,
-        meta: SurfaceMeta,
-        resolved_model: str,
-        started_at: datetime,
-        t0: float,
-        *,
-        outcome: Outcome,
-        error: RunError,
-        response_body: str | None = None,
-    ) -> SurfaceRun:
-        return SurfaceRun(
-            run_id=request.run_id,
-            information_need_id=request.information_need_id,
-            prompt_variant_id=request.prompt_variant_id,
-            provider=meta.provider,
-            surface=meta.surface,
-            model=resolved_model,
-            search_mode=request.search_mode,
-            locale=request.locale,
-            region=request.region,
-            outcome=outcome,
-            error=error,
-            # SearchTrace 默认全 UNKNOWN/NOT_OBSERVABLE;失败时无回答、无成本数据
-            # 平台错误响应体(截断)存档:失败的证据也不蒸发(13.1)
-            raw_payload=(
-                {"error_response_text": response_body} if response_body is not None else None
-            ),
-            timestamp=started_at,
-            latency_ms=int((time.perf_counter() - t0) * 1000),  # 含重试与退避的真实耗时
-            cost_usd=0.0,
-        )
+def ask_with_retries(
+    adapter: SurfaceAdapter,
+    request: AskRequest,
+    policy: SamplingPolicy,
+    *,
+    sleep: Callable[[float], None] = time.sleep,
+    rng: random.Random | None = None,
+) -> SurfaceRun:
+    """一次调用 = 最多 max_attempts 次尝试(仅 Transient 重试,指数退避+抖动)。耗尽 / 永久失败 →
+    构造失败 SurfaceRun 返回(失败不蒸发)。采样与辅助 AI 调用(engine/ai_task.py)共用这一套(13.2)。"""
+    rng = rng or random.Random()
+    started_at = datetime.now(UTC)
+    t0 = time.perf_counter()
+    attempts = 0
+    while True:
+        attempts += 1
+        try:
+            return adapter.ask(request)
+        except AdapterTransientError as exc:
+            log.warning("adapter_retry", run_id=request.run_id, surface=adapter.meta().surface,
+                        attempt=attempts, http_status=exc.http_status, error=str(exc))
+            if attempts >= policy.max_attempts:
+                return _failure_run(
+                    adapter, request, started_at, t0,
+                    outcome=Outcome.TRANSIENT_FAILURE,
+                    error=RunError(
+                        error_type=RunErrorType.TRANSIENT, message=str(exc),
+                        http_status=exc.http_status, attempts=attempts,
+                    ),
+                    response_body=exc.response_body,
+                )
+            cap = min(policy.backoff_max_s, policy.backoff_base_s * (2 ** (attempts - 1)))
+            sleep(rng.uniform(0, cap))
+        except AdapterAccountError as exc:  # 子类须先于 AdapterPermanentError 捕获
+            meta = adapter.meta()
+            log.error("adapter_account_problem", run_id=request.run_id, surface=meta.surface,
+                      model=request.model or meta.default_model, http_status=exc.http_status, error=str(exc))
+            return _failure_run(
+                adapter, request, started_at, t0,
+                outcome=Outcome.PERMANENT_FAILURE,
+                error=RunError(
+                    error_type=exc.error_type, message=str(exc),
+                    http_status=exc.http_status, attempts=attempts,
+                ),
+                response_body=exc.response_body,
+            )
+        except AdapterPermanentError as exc:
+            log.error("adapter_permanent_failure", run_id=request.run_id,
+                      surface=adapter.meta().surface, http_status=exc.http_status, error=str(exc))
+            return _failure_run(
+                adapter, request, started_at, t0,
+                outcome=Outcome.PERMANENT_FAILURE,
+                error=RunError(
+                    error_type=RunErrorType.PERMANENT, message=str(exc),
+                    http_status=exc.http_status, attempts=attempts,
+                ),
+                response_body=exc.response_body,
+            )
+        # CapabilityNotSupportedError 故意不捕获:编程错误直接上抛(13.1)
+
+
+def _failure_run(
+    adapter: SurfaceAdapter,
+    request: AskRequest,
+    started_at: datetime,
+    t0: float,
+    *,
+    outcome: Outcome,
+    error: RunError,
+    response_body: str | None = None,
+) -> SurfaceRun:
+    meta = adapter.meta()  # 只在失败时取:构造失败记录要知道是哪台仪器、哪个型号
+    return SurfaceRun(
+        run_id=request.run_id,
+        information_need_id=request.information_need_id,
+        prompt_variant_id=request.prompt_variant_id,
+        provider=meta.provider,
+        surface=meta.surface,
+        model=request.model or meta.default_model,
+        search_mode=request.search_mode,
+        locale=request.locale,
+        region=request.region,
+        outcome=outcome,
+        error=error,
+        # SearchTrace 默认全 UNKNOWN/NOT_OBSERVABLE;失败时无回答、无成本数据
+        # 平台错误响应体(截断)存档:失败的证据也不蒸发(13.1)
+        raw_payload=(
+            {"error_response_text": response_body} if response_body is not None else None
+        ),
+        timestamp=started_at,
+        latency_ms=int((time.perf_counter() - t0) * 1000),  # 含重试与退避的真实耗时
+        cost_usd=0.0,
+    )

@@ -1,7 +1,7 @@
 """问法变体生成(第 3 章步骤 1):同一信息需求的不同问法。
 
-LLM 辅助任务同样走适配器(第 11 章),不绕过 L1。生成调用是辅助行为,
-不是观测采样:其 SurfaceRun 不落库、不进任何指标分母。
+LLM 辅助任务同样走适配器(第 11 章),不绕过 L1,统一经 engine/ai_task.py(重试、不合格重问)。
+生成调用是辅助行为,不是观测采样:不进任何指标分母。
 生成的变体 origin=ASSISTED,与用户原话(origin=USER)在口径上可区分。
 """
 
@@ -9,12 +9,12 @@ from __future__ import annotations
 
 import re
 from datetime import UTC, datetime, timedelta
-from uuid import uuid4
 
 import structlog
 
 from adapters.base import SurfaceAdapter
-from engine.models import AskRequest, InformationNeed, Outcome, PromptOrigin, PromptVariant
+from engine.ai_task import run_task
+from engine.models import InformationNeed, PromptOrigin, PromptVariant
 
 log = structlog.get_logger("engine.variants")
 
@@ -62,21 +62,19 @@ def generate_variants(
     count: int = 4,
     locale: str = "zh-CN",
 ) -> list[PromptVariant]:
-    """生成 count 个 ASSISTED 变体。生成失败显式抛错,不静默返回空。"""
+    """生成 count 个 ASSISTED 变体。问满轮数仍失败显式抛错(TaskFailed),不静默返回空。"""
     template = _TEMPLATE_EN if locale.lower().startswith("en") else _TEMPLATE
-    request = AskRequest(
-        run_id=f"vargen-{uuid4().hex[:12]}",
-        information_need_id=need.need_id,
-        prompt_variant_id="__variant_generation__",
-        prompt_text=template.format(statement=need.statement, count=count, locale=locale),
-        locale=locale,
-    )
-    run = adapter.ask(request)  # 辅助调用:不落库
-    if run.outcome is not Outcome.SUCCESS or run.answer is None:
-        raise ValueError(f"变体生成失败:outcome={run.outcome},无可用回答")
-    lines = parse_variant_lines(run.answer.answer_text, count=count, exclude={need.statement})
-    if not lines:
-        raise ValueError("变体生成失败:回答中解析不出任何问法")
+
+    def parse(text: str) -> list[str]:
+        lines = parse_variant_lines(text, count=count, exclude={need.statement})
+        if not lines:
+            raise ValueError("回答中解析不出任何问法")
+        return lines
+
+    lines = run_task(
+        adapter, template.format(statement=need.statement, count=count, locale=locale), parse,
+        label="变体生成", need_id=need.need_id, locale=locale,
+    ).value
     log.info("variants_generated", need_id=need.need_id, requested=count, parsed=len(lines))
     # 同批逐条错开 1 微秒:库里按 created_at 排问法,而 Windows 上 Python 时钟粒度毫秒级,
     # 不错开则同批平局,续跑 / 重新生成报告时问法顺序看运气
