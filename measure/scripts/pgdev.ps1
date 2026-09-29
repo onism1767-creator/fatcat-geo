@@ -59,6 +59,27 @@ function Get-PostmasterPid {
     return $null
 }
 
+function Start-PgCtl([string]$log) {
+    # 必须用隐藏窗口的 Start-Process,不能用 & 直接调用:postgres 会继承调用方的输出句柄,
+    # 在输出被重定向的环境里(Claude 的命令工具、计划任务)调用方要等数据库停掉才读到"输出结束",
+    # 脚本永远卡在这一行(2026-09-29 实测,见 docs/错误日志.md)。隐藏窗口启动不继承句柄。
+    $argLine = "-D `"$DataDir`" -o `"-p $Port`" -l `"$log`" -w -t $StartTimeoutSec start"
+    $proc = Start-Process -FilePath $PgCtl -ArgumentList $argLine -WindowStyle Hidden -PassThru
+    $null = $proc.Handle  # 先取句柄,之后才读得到 ExitCode(Windows PowerShell 的已知怪癖)
+    return $proc
+}
+
+function Wait-Ready($proc, [datetime]$deadline) {
+    # 返回 ready(能连)/ failed(pg_ctl 报启动失败)/ timeout;每 5 秒打一个点,等待有上限、有回报。
+    while ((Get-Date) -lt $deadline) {
+        if (Test-Answering) { return "ready" }
+        if ($proc.HasExited -and $proc.ExitCode -ne 0) { return "failed" }
+        Write-Host -NoNewline "."
+        Start-Sleep -Seconds 5
+    }
+    return "timeout"
+}
+
 function Start-Server {
     if (Test-Answering) { Write-Host "已在跑,能连:postgresql://$User@localhost:$Port/$Db"; return 0 }
     if (Test-Listening) {
@@ -66,30 +87,22 @@ function Start-Server {
         Write-Host "  下一步:.\scripts\pgdev.ps1 restart"
         return 11
     }
-    # 不用 pg_ctl -w:杀毒软件占着日志时它会一直不返回。自己有界轮询。
-    $log = Join-Path $DataDir "server.log"
-    & $PgCtl -D $DataDir -o "-p $Port" -l $log start
-    if ($LASTEXITCODE -ne 0) {
-        $log = Join-Path $DataDir ("server-{0:yyyyMMdd-HHmm}.log" -f (Get-Date))
-        Write-Host "pg_ctl start 失败(多半是 server.log 被杀毒软件占着),换日志文件再试一次:$log"
-        & $PgCtl -D $DataDir -o "-p $Port" -l $log start
-        if ($LASTEXITCODE -ne 0) {
-            Write-Host "[PG_START_FAILED] pg_ctl start 两次都失败。看 $log,或先 .\scripts\pgdev.ps1 kill 再试。"
-            return 13
-        }
-    }
-    Write-Host -NoNewline "等待数据库应答(最多 $StartTimeoutSec 秒)"
+    Write-Host -NoNewline "启动中,等待数据库应答(最多 $StartTimeoutSec 秒)"
     $deadline = (Get-Date).AddSeconds($StartTimeoutSec)
-    while ((Get-Date) -lt $deadline) {
-        if (Test-Answering) {
-            Write-Host ""
-            Write-Host "就绪:postgresql://$User@localhost:$Port/$Db"
-            return 0
-        }
-        Write-Host -NoNewline "."
-        Start-Sleep -Seconds 5
+    $log = Join-Path $DataDir "server.log"
+    $state = Wait-Ready (Start-PgCtl $log) $deadline
+    if ($state -eq "failed" -and -not (Test-Listening)) {
+        $log = Join-Path $DataDir ("server-{0:yyyyMMdd-HHmm}.log" -f (Get-Date))
+        Write-Host ""
+        Write-Host -NoNewline "pg_ctl start 失败(多半是 server.log 被杀毒软件占着),换日志文件再试一次:$log"
+        $state = Wait-Ready (Start-PgCtl $log) $deadline
     }
     Write-Host ""
+    if ($state -eq "ready") { Write-Host "就绪:postgresql://$User@localhost:$Port/$Db"; return 0 }
+    if ($state -eq "failed") {
+        Write-Host "[PG_START_FAILED] pg_ctl start 报告启动失败。看 $log,或先 .\scripts\pgdev.ps1 kill 再试。"
+        return 13
+    }
     Write-Host "[PG_START_TIMEOUT] $StartTimeoutSec 秒后仍连不上。看 $log;若端口在听,跑 .\scripts\pgdev.ps1 restart。"
     return 10
 }
