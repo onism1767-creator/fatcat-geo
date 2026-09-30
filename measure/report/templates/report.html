@@ -26,6 +26,20 @@
     {% if summary.actions %}{% for a in summary.actions[:3] %}{{ a.recommendation.plain[lang] }}{% if a.recommendation.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}{% if not loop.last %};{% endif %}{% endfor %}{% else %}{{ t["no_actions"] }}{% endif %}</p>
 </div>
 
+<div class="card" id="official">
+  <h2 style="margin-top:0">{{ t["official_title"] }}</h2>
+  <p>{{ t["official_current"].format(domains="、".join(job.brand.domains)) }}</p>
+  {% if job.official_candidates %}
+  <p>{{ t["official_candidates_intro"] }}</p>
+  <form method="post" action="/jobs/{{ job.job_id }}/official_domains?lang={{ lang }}">
+    {% for c in job.official_candidates %}
+    <label style="font-weight:400"><input type="checkbox" name="domains" value="{{ c.domain }}"> {{ c.domain }}({{ t["official_seen"].format(n=c.count) }})</label>
+    {% endfor %}
+    <button type="submit">{{ t["official_confirm"] }}</button>
+  </form>
+  {% endif %}
+</div>
+
 {% for nr in job.need_reports %}
 {% set d = nr.diagnosis %}
 <div class="card">

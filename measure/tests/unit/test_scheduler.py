@@ -175,6 +175,19 @@ def test_resume_with_converged_priors_makes_zero_calls():
     assert set(result.run_ids) == {p.run_id for p in priors}
 
 
+def test_replay_only_never_calls_even_when_priors_have_not_converged():
+    """重新生成报告(allow_new_calls=False):已有样本没满足停止条件(如官网名单后改、判据变了)
+    也一次新调用都不发,如实记 NOT_RESAMPLED——「重新生成不花钱」由结构保证。"""
+    storage = MemoryStorage()
+    adapter = ScriptedAdapter(["hit"])
+    result = make_sampler(storage).run_plan(
+        adapter, NEED, VARIANT, hit_fn=hit_fn,
+        prior_runs=[make_prior("p-0"), make_prior("p-1")], allow_new_calls=False,
+    )
+    assert result.stop_reason is StopReason.NOT_RESAMPLED
+    assert storage.runs == [] and result.n_attempts == 2 and result.k_hits == 2
+
+
 def test_resume_with_partial_priors_fills_gap_only():
     storage = MemoryStorage()
     result = make_sampler(storage).run_plan(

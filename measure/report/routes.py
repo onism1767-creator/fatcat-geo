@@ -45,10 +45,11 @@ async def create_job(
     locale: str = Form("zh-CN"),
     questions: str = Form(""),
     generate: str = Form(""),
+    other_sites: str = Form(""),
 ):
     ctx = ctx_of(request)
     locale = locale if locale in ("zh-CN", "en-US") else "zh-CN"
-    brand, normalized = brand_from_form(brand_name, aliases, website)
+    brand, normalized = brand_from_form(brand_name, aliases, website, other_sites)
     # 先有任务编号再出题:出题的每次调用当场记进辅助调用账本(哪怕出题失败,花掉的钱也有记录)
     job = DiagnosisJob(brand=brand, website=normalized, category=category, locale=locale,
                        candidates=[], competitors_suggested=[])
@@ -158,25 +159,48 @@ async def confirm(
     job.freeze(needs=choice.needs, competitors=choice.competitors, targets=choice.targets,
                tier_id=choice.tier_id, variants_per_need=choice.variants_per_need,
                budget_usd=choice.budget_usd, dependency_enabled=choice.dependency_enabled)
-    ctx.launcher.launch(job)
+    ctx.launcher.launch(job, replay=False)
     return redirect(request, f"/jobs/{job.job_id}")
 
 
 @router.post("/jobs/{job_id}/resume")
 async def resume(request: Request, job_id: str):
-    """幂等续跑(v0.4.9):中断/失败任务补缺口;已完成任务重新生成报告
-    (v0.4.16:追加一版报告快照,旧版本留档)。执行器可重入,已存样本按幂等键
-    复用——已花的钱不重花。"""
+    """幂等续跑(v0.4.9):中断/失败任务补缺口;已完成任务重新生成报告(v0.4.16:追加一版报告快照,
+    旧版本留档)——只用已有样本重算,不向 AI 提问。已存样本按幂等键复用,已花的钱不重花。"""
     ctx = ctx_of(request)
     job = ctx.registry.get(job_id)
     if job is None:
         return not_found()
     if not (job.state in (JobState.INTERRUPTED, JobState.FAILED) or job.finished):
         return redirect(request, f"/jobs/{job.job_id}")
+    return _relaunch(request, job, replay=job.finished)
+
+
+@router.post("/jobs/{job_id}/official_domains")
+async def confirm_official_domains(request: Request, job_id: str, domains: list[str] = Form([])):
+    """用户确认「可能也是官网」的网址(v0.4.24 D4):只认报告里列出的候选;确认后按新名单
+    重新生成报告——只用已有样本重算,不向 AI 提问。"""
+    ctx = ctx_of(request)
+    job = ctx.registry.get(job_id)
+    if job is None:
+        return not_found()
+    if not job.finished:
+        return redirect(request, f"/jobs/{job.job_id}")
+    offered = {c.domain for c in job.official_candidates}
+    chosen = [d for d in domains if d in offered]
+    if not chosen:
+        return redirect(request, f"/jobs/{job.job_id}/report")
+    job.update_official_domains(job.brand.domains + chosen)
+    return _relaunch(request, job, replay=True)
+
+
+def _relaunch(request: Request, job: DiagnosisJob, *, replay: bool):
+    """再起一次执行器;有 AI 没接入(缺 key)就不起,回首页说明。"""
+    ctx = ctx_of(request)
     missing = sorted({t.surface for t in job.targets if t.surface not in ctx.adapters})
     if missing:
         return redirect(request, f"/?error=err_missing_ai&names={','.join(missing)}")
-    ctx.launcher.launch(job)
+    ctx.launcher.launch(job, replay=replay)
     return redirect(request, f"/jobs/{job.job_id}")
 
 

@@ -96,6 +96,9 @@ class StopReason(StrEnum):
     FAILURE_RATE_EXCEEDED = "FAILURE_RATE_EXCEEDED"
     BUDGET_EXHAUSTED = "BUDGET_EXHAUSTED"
     SURFACE_DISABLED = "SURFACE_DISABLED"
+    # 重新生成报告时只用已有样本重算、不补采(判据变了而已有样本尚未满足停止条件,如官网名单后改):
+    # 「重新生成报告不向 AI 提问、不花钱」由结构保证,不靠已有样本恰好收敛(2026-09-29)
+    NOT_RESAMPLED = "NOT_RESAMPLED"
 
 
 # ── 诊断对象与需求(1.3 / 6.5)─────────────────────────────────────────

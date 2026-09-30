@@ -79,7 +79,7 @@ def _recompute(job_id: str, access: AccessAuditResult, adapters: dict) -> dict:
     with storage_mod.Storage(_dsn(COPY_DB)) as copy:
         snapshot = next(s for s in copy.load_job_snapshots() if s["job_id"] == job_id)
     job = DiagnosisJob.from_snapshot(snapshot)
-    runner._execute(job, adapters=adapters, dsn=_dsn(COPY_DB), evidence=load_evidence_registry())
+    runner._execute(job, adapters=adapters, dsn=_dsn(COPY_DB), evidence=load_evidence_registry(), replay=True)
     payload = job.report_payload()
     payload.pop("finished_at")
     return {"state": job.state.value, "spent_usd": round(job.spent_usd, 6), "payload": payload}

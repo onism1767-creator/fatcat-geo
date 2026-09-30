@@ -125,7 +125,7 @@ def finished_job() -> DiagnosisJob:
 def client_and_job():
     calls = []
 
-    def stub_runner(*, job, adapters, dsn, evidence):
+    def stub_runner(*, job, adapters, dsn, evidence, replay):
         calls.append(job.job_id)
         job.state = JobState.DONE
         job.phase = "完成"
@@ -517,6 +517,56 @@ def test_resume_endpoint_relaunches_interrupted_job(client_and_job):
     resp = client.post(f"/jobs/{job.job_id}/resume", follow_redirects=False)
     assert resp.status_code == 303
     assert calls == [job.job_id]  # 执行器被再次触发(可重入,只补缺口)
+
+
+def _sync_app(monkeypatch, runs: list):
+    """线程换成同步执行;执行器桩只记下被怎么叫(不改状态)。"""
+
+    class SyncThread:
+        def __init__(self, *, target, kwargs, daemon):
+            self._target, self._kwargs = target, kwargs
+
+        def start(self):
+            self._target(**self._kwargs)
+
+    monkeypatch.setattr("report.launcher.threading.Thread", SyncThread)
+    return create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+                      evidence=REGISTRY, job_runner=lambda *, job, replay, **_: runs.append(replay))
+
+
+def test_confirming_official_candidates_updates_list_and_only_recomputes(monkeypatch):
+    """报告里列出「可能也是官网」的网址;用户勾选确认后:官网名单更新、口径指纹重算,
+    按新名单只重算(replay,不向 AI 提问);没列出的网址一律不认(v0.4.24 D4)。"""
+    from engine.official_domains import DomainCandidate
+
+    runs: list = []
+    app = _sync_app(monkeypatch, runs)
+    job = finished_job()
+    job.official_candidates = [DomainCandidate(domain="aurora-crm.jp", count=5)]
+    app.state.ctx.registry.add(job)
+    client = TestClient(app)
+    page = user_view_of(client.get(f"/jobs/{job.job_id}/report").text)
+    assert "aurora-crm.jp" in page and "出现 5 次" in page
+    assert not any(token in page for token in USER_VIEW_FORBIDDEN)
+    before = job.fingerprint
+    resp = client.post(f"/jobs/{job.job_id}/official_domains",
+                       data={"domains": ["aurora-crm.jp", "evil.example"]}, follow_redirects=False)
+    assert resp.status_code == 303
+    assert job.brand.domains == ["aurora-crm.com", "aurora-crm.jp"]  # evil.example 不在候选里,不认
+    assert job.fingerprint != before
+    assert runs == [True]  # 只重算
+
+
+def test_regenerate_only_recomputes_but_resuming_an_interrupted_job_may_sample(monkeypatch):
+    runs: list = []
+    app = _sync_app(monkeypatch, runs)
+    done, interrupted = finished_job(), finished_job()
+    interrupted.state = JobState.INTERRUPTED
+    for job in (done, interrupted):
+        app.state.ctx.registry.add(job)
+        TestClient(app).post(f"/jobs/{job.job_id}/resume", follow_redirects=False)
+        job.state = JobState.INTERRUPTED  # 桩不改状态;复位,免得影响下一单
+    assert runs == [True, False]
 
 
 def test_resume_clicked_twice_launches_one_runner(monkeypatch):

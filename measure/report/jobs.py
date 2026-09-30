@@ -29,6 +29,7 @@ from engine.models import (
     Target,
 )
 from engine.needs import NeedCandidate
+from engine.official_domains import DomainCandidate
 from engine.scheduler import SamplingPolicy
 
 log = structlog.get_logger("report.jobs")
@@ -72,6 +73,16 @@ class NeedReport(FrozenModel):
     need: InformationNeed
     variant_texts: list[str]
     diagnosis: NeedDiagnosis
+
+
+class ReportPayload(FrozenModel):
+    """报告快照的内容(v0.4.16 起落库)。给它加必填字段 = 旧快照读不动(预期行为:记警告、让用户重新生成,不加兼容层)。"""
+
+    access_result: AccessAuditResult | None
+    need_reports: list[NeedReport]
+    surface_verdicts: list[SurfaceVerdict]
+    official_candidates: list[DomainCandidate]  # 数据里出现、可能也是官网的网址(v0.4.24 D4)
+    finished_at: datetime | None
 
 
 class ReportMeta(FrozenModel):
@@ -132,6 +143,7 @@ class DiagnosisJob:
         self.access_result: AccessAuditResult | None = None
         self.need_reports: list[NeedReport] = []
         self.surface_verdicts: list[SurfaceVerdict] = []  # 每家 AI 一句话(v0.4.14),与 need_reports 同生命周期
+        self.official_candidates: list[DomainCandidate] = []  # 可能也是官网的网址,等用户确认(v0.4.24 D4)
         self.report_meta: ReportMeta | None = None  # 最新一版报告快照的档案信息(v0.4.16)
         self.started_at: datetime | None = None  # 本次执行开始时刻(任务页按实际速度算剩余时间)
         self.last_result_at: datetime | None = None  # 最近一条样本落库的时刻(任务页据此报「卡住了」)
@@ -191,24 +203,33 @@ class DiagnosisJob:
         self.variants_per_need = variants_per_need
         self.budget_usd = budget_usd
         self.dependency_enabled = dependency_enabled
+        self._refingerprint()
+        self.state = JobState.CONFIRMED
+        self.phase = "phase_confirmed"
+
+    def update_official_domains(self, domains: list[str]) -> None:
+        """用户确认后更新官网名单(架构书附录 v0.4.24 D4):官网名单是口径的一部分,指纹随之重算;
+        采样数据不变,之后「重新生成报告」按新名单重算(不重新提问)。"""
+        self.brand = self.brand.model_copy(update={"domains": list(dict.fromkeys(domains))})
+        self._refingerprint()
+
+    def _refingerprint(self) -> None:
         snapshot = {
             "brand": self.brand.model_dump(),
             "website": self.website,
             "category": self.category,
             "locale": self.locale,
-            "needs": [{"statement": n.statement, "intent": n.intent.value} for n in needs],
-            "competitors": [c.model_dump() for c in competitors],
-            "targets": [t.model_dump() for t in targets],
-            "tier": tier_id,
-            "variants_per_need": variants_per_need,
-            "budget_usd": budget_usd,
-            "dependency_enabled": dependency_enabled,
-            "policy": TIERS[tier_id].policy.model_dump(),
+            "needs": [{"statement": n.statement, "intent": n.intent.value} for n in self.needs],
+            "competitors": [c.model_dump() for c in self.competitors],
+            "targets": [t.model_dump() for t in self.targets],
+            "tier": self.tier_id,
+            "variants_per_need": self.variants_per_need,
+            "budget_usd": self.budget_usd,
+            "dependency_enabled": self.dependency_enabled,
+            "policy": TIERS[self.tier_id].policy.model_dump(),
         }
         canonical = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
         self.fingerprint = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
-        self.state = JobState.CONFIRMED
-        self.phase = "phase_confirmed"
 
     # ── 快照往返(v0.4.9 幂等续跑):冻结配置 + 状态,不含可重算的报告 ────
 
@@ -237,25 +258,22 @@ class DiagnosisJob:
     def report_payload(self) -> dict:
         """报告快照(v0.4.16):派生层的结构化档案,只追加落库;结论以码 + 参数存,
         措辞随当前目录渲染,判定冻结在生成那一刻。"""
-        return {
-            "access_result": (
-                self.access_result.model_dump(mode="json") if self.access_result is not None else None
-            ),
-            "need_reports": [r.model_dump(mode="json") for r in self.need_reports],
-            "surface_verdicts": [v.model_dump(mode="json") for v in self.surface_verdicts],
-            "finished_at": self.finished_at.isoformat() if self.finished_at else None,
-        }
+        return ReportPayload(
+            access_result=self.access_result,
+            need_reports=self.need_reports,
+            surface_verdicts=self.surface_verdicts,
+            official_candidates=self.official_candidates,
+            finished_at=self.finished_at,
+        ).model_dump(mode="json")
 
     def load_report(self, payload: dict) -> None:
-        self.access_result = (
-            AccessAuditResult.model_validate(payload["access_result"])
-            if payload["access_result"] is not None else None
-        )
-        self.need_reports = [NeedReport.model_validate(r) for r in payload["need_reports"]]
-        self.surface_verdicts = [SurfaceVerdict.model_validate(v) for v in payload["surface_verdicts"]]
-        self.finished_at = (
-            datetime.fromisoformat(payload["finished_at"]) if payload["finished_at"] else None
-        )
+        """结构对不上(旧版快照)抛 ValidationError,由 report/archive.py 按 v0.4.17 规矩处理。"""
+        report = ReportPayload.model_validate(payload)
+        self.access_result = report.access_result
+        self.need_reports = report.need_reports
+        self.surface_verdicts = report.surface_verdicts
+        self.official_candidates = report.official_candidates
+        self.finished_at = report.finished_at
 
     @classmethod
     def from_snapshot(cls, snapshot: dict) -> DiagnosisJob:

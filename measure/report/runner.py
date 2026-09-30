@@ -43,6 +43,7 @@ from engine.models import (
     Target,
 )
 from engine.observe import RunObservations, convergence_hit, observe, persist_observations
+from engine.official_domains import official_candidates
 from engine.scheduler import AccountProblem, SamplingResult, SequentialSampler, reinterpret_account_errors
 from engine.storage import Storage, StorageUnavailable
 from engine.variants import generate_variants
@@ -87,9 +88,11 @@ def execute_job(
     adapters: dict[str, SurfaceAdapter],
     dsn: str,
     evidence: list[EvidenceEntry],
+    replay: bool = False,
 ) -> None:
+    """replay=True:重新生成报告——只用库里已有的样本重算,不向 AI 提问(问法不补、样本不补)。"""
     try:
-        _execute(job, adapters=adapters, dsn=dsn, evidence=evidence)
+        _execute(job, adapters=adapters, dsn=dsn, evidence=evidence, replay=replay)
     except AccountProblem as exc:  # v0.4.21:我方账户问题——停下、说人话、等充值后续跑
         log.error("job_halted_account_problem", job_id=job.job_id, surface=exc.surface,
                   model=exc.model, error=exc.message)
@@ -132,6 +135,7 @@ def _execute(
     adapters: dict[str, SurfaceAdapter],
     dsn: str,
     evidence: list[EvidenceEntry],
+    replay: bool = False,
 ) -> None:
     _reset_progress(job)
     job.access_result = access_audit.audit(job.website)
@@ -140,8 +144,8 @@ def _execute(
         storage.upsert_job_snapshot(job.to_snapshot())
         # 被测对象 = 仪器 × 型号(v0.4.19):型号是口径的一部分,计划、样本、指标、诊断块一律按对象分开
         adapter_of = {target: adapters[target.surface] for target in job.targets}
-        variants_by_need = _prepare_variants(job, storage, adapter_of)
-        results = _sample(job, dsn, adapter_of, variants_by_need)
+        variants_by_need = _prepare_variants(job, storage, adapter_of, replay=replay)
+        results = _sample(job, dsn, adapter_of, variants_by_need, replay=replay)
 
         job.phase = "phase_verify"
         runs_by, offline_runs_by = _load_runs(job, storage, variants_by_need)
@@ -175,6 +179,8 @@ def _execute(
         job.surface_verdicts = [
             surface_verdict(target.surface, target.model, inputs) for target, inputs in verdict_inputs.items()
         ]
+        # 数据里出现、可能也是官网的网址(如各地区官网):只提示,用户确认后才算官网(v0.4.24 D4)
+        job.official_candidates = official_candidates([run for runs in runs_by.values() for run in runs], job.brand)
         truncated = any(r.stop_reason in _TRUNCATION_REASONS for plan in results.values() for r in plan)
         _finish(job, storage, truncated=truncated)
 
@@ -187,15 +193,16 @@ def _reset_progress(job: DiagnosisJob) -> None:
     job.spent_usd = 0.0
     job.need_reports = []
     job.surface_verdicts = []
+    job.official_candidates = []
     job.started_at = datetime.now(UTC)
     job.last_result_at = None
     job.error_code, job.error_params, job.error = None, {}, None
 
 
 def _prepare_variants(
-    job: DiagnosisJob, storage: Storage, adapter_of: dict[Target, SurfaceAdapter]
+    job: DiagnosisJob, storage: Storage, adapter_of: dict[Target, SurfaceAdapter], *, replay: bool,
 ) -> dict[str, list[PromptVariant]]:
-    """每道题的问法:续跑复用库里已有的(不重烧起草费),不够数再让 AI 改写补齐。"""
+    """每道题的问法:续跑复用库里已有的(不重烧起草费),不够数再让 AI 改写补齐(只重算时不补)。"""
     generation_adapter = next(
         (a for a in adapter_of.values() if a.meta().capabilities.supports_citations), None
     )
@@ -210,7 +217,7 @@ def _prepare_variants(
             ]
             storage.insert_prompt_variant(variants[0])
         extra = job.variants_per_need - len(variants)
-        if extra > 0 and generation_adapter is not None:
+        if extra > 0 and generation_adapter is not None and not replay:
             fresh = generate_variants(
                 generation_adapter, need, count=extra, locale=job.locale,
                 ledger=lambda run: storage.insert_aux_call(job_id=job.job_id, task="变体生成", run=run),
@@ -228,6 +235,8 @@ def _sample(
     dsn: str,
     adapter_of: dict[Target, SurfaceAdapter],
     variants_by_need: dict[str, list[PromptVariant]],
+    *,
+    replay: bool,
 ) -> dict[PlanKey, list[SamplingResult]]:
     # 检索依赖对照(第 9 章挂靠):启用时,为支持 search_disabled 的对象追加闭卷腿计划——
     # 同一批问法、同采样策略,仅检索模式不同(模式即口径)
@@ -268,7 +277,7 @@ def _sample(
                 plan_results.append(
                     sampler.run_plan(adapter, need, variant, hit_fn=hit_fn, policy=policy,
                                      search_mode=mode, model=target.model, locale=job.locale,
-                                     prior_runs=prior)
+                                     prior_runs=prior, allow_new_calls=not replay)
                 )
         except AccountProblem:
             halt.set()

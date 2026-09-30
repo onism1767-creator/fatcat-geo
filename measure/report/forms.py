@@ -21,14 +21,27 @@ def lines_of(text: str) -> list[str]:
     return [line.strip() for line in text.splitlines() if line.strip()]
 
 
-def brand_from_form(brand_name: str, aliases: str, website: str) -> tuple[BrandSpec, str]:
-    """首页填的品牌 → (品牌, 规范化后的官网地址)。别名中英文逗号都认;官网不带协议就补 https。"""
+def _comma_list(text: str) -> list[str]:
+    """逗号分开的一串(中英文逗号都认),去空。"""
+    return [part.strip() for part in text.replace(",", ",").split(",") if part.strip()]
+
+
+def _host(url: str) -> str:
+    """网址 → 主机名(不带协议就补 https;大小写不敏感)。"""
+    return (urlsplit(url if "://" in url else f"https://{url}").hostname or "").lower()
+
+
+def brand_from_form(
+    brand_name: str, aliases: str, website: str, other_sites: str = ""
+) -> tuple[BrandSpec, str]:
+    """首页填的品牌 → (品牌, 规范化后的官网地址)。官网名单 = 主官网 + 用户另填的其他官网(如各地区官网),
+    只认用户填的(v0.4.24 D4)。"""
     normalized = website if "://" in website else f"https://{website}"
-    domain = urlsplit(normalized).hostname or ""
+    domains = [host for host in [_host(website), *map(_host, _comma_list(other_sites))] if host]
     brand = BrandSpec(
         name=brand_name.strip(),
-        aliases=[a.strip() for a in aliases.replace(",", ",").split(",") if a.strip()],
-        domains=[domain] if domain else [],
+        aliases=_comma_list(aliases),
+        domains=list(dict.fromkeys(domains)),
     )
     return brand, normalized
 

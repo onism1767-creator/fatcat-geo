@@ -156,11 +156,14 @@ class SequentialSampler:
         locale: str = "zh-CN",
         region: str | None = None,
         prior_runs: list[SurfaceRun] | None = None,
+        allow_new_calls: bool = True,
     ) -> SamplingResult:
         """prior_runs:幂等续跑(v0.4.9)——本计划已落库的运行按时间序作为前缀,
         指标、成本、熔断窗口与预算合并计算;既有样本已满足停止条件时零新调用。
         幂等键 = (问法 × surface × 型号 × 检索模式),尝试序号由时间戳顺序隐含;
-        调用方传入的 prior_runs 必须已按这四项筛过(型号是口径的一部分,v0.4.19)。"""
+        调用方传入的 prior_runs 必须已按这四项筛过(型号是口径的一部分,v0.4.19)。
+        allow_new_calls=False:只按既有样本重算(重新生成报告),一次新调用都不发;
+        没满足任何停止条件就记 NOT_RESAMPLED。"""
         policy = policy or SamplingPolicy()
         meta = adapter.meta()
         resolved_model = model or meta.default_model
@@ -199,6 +202,9 @@ class SequentialSampler:
                 stop_reason = StopReason.MAX_N_REACHED
                 log.warning("total_attempts_exhausted", surface=meta.surface,
                             n_attempts=len(outcomes), n_valid=len(hits))
+                break
+            if not allow_new_calls:  # 只重算:结构上不可能再花钱
+                stop_reason = StopReason.NOT_RESAMPLED
                 break
 
             # ── 执行一次采样(含 Transient 重试)────────────────────────
