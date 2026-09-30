@@ -39,6 +39,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -122,6 +123,127 @@ def _cost_usd(responses: list[dict[str, Any]], model: str) -> float:
     return token_cost + searches * _SEARCH_USD_PER_USE
 
 
+def _payload(request: AskRequest, model: str, search_disabled: bool) -> dict[str, Any]:
+    """AskRequest → 平台请求体(口径钉死:工具版本、检索上限、回答长度上限)。"""
+    payload: dict[str, Any] = {
+        "model": model,
+        "max_tokens": MAX_TOKENS,
+        "messages": [{"role": "user", "content": request.prompt_text}],
+    }
+    if not search_disabled:
+        tool: dict[str, Any] = {"type": TOOL_TYPE, "name": "web_search", "max_uses": MAX_USES}
+        if request.region is not None:
+            tool["user_location"] = {"type": "approximate", "country": request.region}
+        payload["tools"] = [tool]
+    return payload
+
+
+def _translate(
+    request: AskRequest,
+    model: str,
+    search_disabled: bool,
+    responses: list[dict[str, Any]],
+    latency_ms: int,
+    started_at: datetime,
+) -> SurfaceRun:
+    """平台返回(跨全部续传段的 content 块)→ SurfaceRun。只翻译,不判定。"""
+    answer_parts: list[str] = []
+    queries: list[str] = []
+    sources: list[RetrievedSource] = []
+    citations: list[Citation] = []
+    cited_urls: set[str] = set()
+    tool_error: str | None = None
+    search_observed = False
+    try:
+        for response in responses:
+            for block in _blocks(response):
+                block_type = block.get("type")
+                if block_type == "text":
+                    answer_parts.append(block["text"])
+                    for c in block.get("citations") or []:
+                        if c.get("type") != "web_search_result_location":
+                            continue
+                        if c["url"] in cited_urls:
+                            continue  # 引用池按首次出现去重;重复锚点在 raw_payload
+                        cited_urls.add(c["url"])
+                        citations.append(
+                            Citation(
+                                url=c["url"],
+                                domain=domain_of(c["url"]),
+                                title=c.get("title"),
+                                position=len(citations) + 1,
+                            )
+                        )
+                elif block_type == "server_tool_use":
+                    search_observed = True
+                    query = (block.get("input") or {}).get("query")
+                    if query:
+                        queries.append(query)
+                elif block_type == "web_search_tool_result":
+                    search_observed = True
+                    content = block.get("content")
+                    if isinstance(content, list):
+                        for item in content:
+                            sources.append(
+                                RetrievedSource(
+                                    url=item["url"],
+                                    domain=domain_of(item["url"]),
+                                    title=item.get("title"),
+                                    rank=len(sources) + 1,  # 全轮次出现顺序即位次
+                                )
+                            )
+                    else:  # HTTP 200 + 错误块(平台的工具级错误通道)
+                        tool_error = (content or {}).get("error_code") or "unknown"
+    except (KeyError, TypeError) as exc:
+        raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}") from exc
+
+    if tool_error is not None and tool_error != "max_uses_exceeded":
+        raise AdapterTransientError(f"web_search 工具错误块: {tool_error}")
+
+    answer_text = "".join(answer_parts)
+    run_fields: dict[str, Any] = dict(
+        run_id=request.run_id,
+        information_need_id=request.information_need_id,
+        prompt_variant_id=request.prompt_variant_id,
+        provider="anthropic",
+        surface="claude_web_search",
+        model=model,
+        search_mode=request.search_mode,
+        locale=request.locale,
+        region=request.region,
+        search_trace=SearchTrace(
+            # 检索是显式工具调用:触发与否、检索词、候选集全部真实可观测
+            search_triggered=False if search_disabled else search_observed,
+            generated_queries=queries,
+            retrieved_sources=sources,
+            opened_sources=NOT_OBSERVABLE,  # 候选整体喂给模型,无「打开哪条」概念
+        ),
+        answer=(
+            Answer(
+                answer_text=answer_text,
+                citations_available=not search_disabled,
+                citations=citations,
+            )
+            if answer_text
+            else None
+        ),
+        raw_payload={"responses": responses},
+        timestamp=started_at,
+        latency_ms=latency_ms,
+        cost_usd=_cost_usd(responses, model),
+    )
+    last = responses[-1]
+    if last.get("stop_reason") == "refusal":
+        category = (last.get("stop_details") or {}).get("category")
+        message = "stop_reason=refusal" + (f", category={category}" if category else "")
+        return SurfaceRun(
+            outcome=Outcome.REFUSED,
+            error=RunError(error_type=RunErrorType.REFUSAL, message=message),
+            **run_fields,
+        )
+    return SurfaceRun(outcome=Outcome.SUCCESS, **run_fields)
+
+
 class ClaudeWebSearchAdapter(SurfaceAdapter):
     def __init__(self, api_key: str, client: httpx.Client | None = None) -> None:
         self._client = client or httpx.Client()
@@ -156,6 +278,8 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
         )
 
     def ask(self, request: AskRequest) -> SurfaceRun:
+        """适配器只做两件事(CLAUDE.md 硬边界 3):AskRequest → 平台调用(_payload / _converse),
+        平台返回 → SurfaceRun(_translate)。"""
         _CAPABILITIES.require_search_mode(request.search_mode)
         search_disabled = request.search_mode is SearchMode.SEARCH_DISABLED
         if request.region is not None and search_disabled:
@@ -167,18 +291,13 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
             raise AdapterPermanentError(
                 f"未知模型 {model!r},本 surface 支持: {list(_TOKEN_PRICES_PER_MTOK)}"
             )
+        responses, latency_ms, started_at = self._converse(request, _payload(request, model, search_disabled))
+        return _translate(request, model, search_disabled, responses, latency_ms, started_at)
 
-        payload: dict[str, Any] = {
-            "model": model,
-            "max_tokens": MAX_TOKENS,
-            "messages": [{"role": "user", "content": request.prompt_text}],
-        }
-        if not search_disabled:
-            tool: dict[str, Any] = {"type": TOOL_TYPE, "name": "web_search", "max_uses": MAX_USES}
-            if request.region is not None:
-                tool["user_location"] = {"type": "approximate", "country": request.region}
-            payload["tools"] = [tool]
-
+    def _converse(
+        self, request: AskRequest, payload: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], int, datetime]:
+        """发请求;遇 pause_turn 按协议续传(有界),返回全部响应段、总耗时、开始时刻。"""
         data, latency_ms, started_at = contract_post(
             self._client,
             f"{BASE_URL}/v1/messages",
@@ -213,102 +332,7 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
             continuations += 1
         if data.get("stop_reason") == "pause_turn":
             raise AdapterTransientError(f"pause_turn 续传 {_MAX_CONTINUATIONS} 次后仍未完成")
-
-        # ── 翻译 content 块(跨全部续传段)──────────────────────────────
-        answer_parts: list[str] = []
-        queries: list[str] = []
-        sources: list[RetrievedSource] = []
-        citations: list[Citation] = []
-        cited_urls: set[str] = set()
-        tool_error: str | None = None
-        search_observed = False
-        try:
-            for response in responses:
-                for block in _blocks(response):
-                    block_type = block.get("type")
-                    if block_type == "text":
-                        answer_parts.append(block["text"])
-                        for c in block.get("citations") or []:
-                            if c.get("type") != "web_search_result_location":
-                                continue
-                            if c["url"] in cited_urls:
-                                continue  # 引用池按首次出现去重;重复锚点在 raw_payload
-                            cited_urls.add(c["url"])
-                            citations.append(
-                                Citation(
-                                    url=c["url"],
-                                    domain=domain_of(c["url"]),
-                                    title=c.get("title"),
-                                    position=len(citations) + 1,
-                                )
-                            )
-                    elif block_type == "server_tool_use":
-                        search_observed = True
-                        query = (block.get("input") or {}).get("query")
-                        if query:
-                            queries.append(query)
-                    elif block_type == "web_search_tool_result":
-                        search_observed = True
-                        content = block.get("content")
-                        if isinstance(content, list):
-                            for item in content:
-                                sources.append(
-                                    RetrievedSource(
-                                        url=item["url"],
-                                        domain=domain_of(item["url"]),
-                                        title=item.get("title"),
-                                        rank=len(sources) + 1,  # 全轮次出现顺序即位次
-                                    )
-                                )
-                        else:  # HTTP 200 + 错误块(平台的工具级错误通道)
-                            tool_error = (content or {}).get("error_code") or "unknown"
-        except (KeyError, TypeError) as exc:
-            raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}") from exc
-
-        if tool_error is not None and tool_error != "max_uses_exceeded":
-            raise AdapterTransientError(f"web_search 工具错误块: {tool_error}")
-
-        answer_text = "".join(answer_parts)
-        run_fields: dict[str, Any] = dict(
-            run_id=request.run_id,
-            information_need_id=request.information_need_id,
-            prompt_variant_id=request.prompt_variant_id,
-            provider="anthropic",
-            surface="claude_web_search",
-            model=model,
-            search_mode=request.search_mode,
-            locale=request.locale,
-            region=request.region,
-            search_trace=SearchTrace(
-                # 检索是显式工具调用:触发与否、检索词、候选集全部真实可观测
-                search_triggered=False if search_disabled else search_observed,
-                generated_queries=queries,
-                retrieved_sources=sources,
-                opened_sources=NOT_OBSERVABLE,  # 候选整体喂给模型,无「打开哪条」概念
-            ),
-            answer=(
-                Answer(
-                    answer_text=answer_text,
-                    citations_available=not search_disabled,
-                    citations=citations,
-                )
-                if answer_text
-                else None
-            ),
-            raw_payload={"responses": responses},
-            timestamp=started_at,
-            latency_ms=total_latency,
-            cost_usd=_cost_usd(responses, model),
-        )
-        if data.get("stop_reason") == "refusal":
-            category = (data.get("stop_details") or {}).get("category")
-            message = "stop_reason=refusal" + (f", category={category}" if category else "")
-            return SurfaceRun(
-                outcome=Outcome.REFUSED,
-                error=RunError(error_type=RunErrorType.REFUSAL, message=message),
-                **run_fields,
-            )
-        return SurfaceRun(outcome=Outcome.SUCCESS, **run_fields)
+        return responses, total_latency, started_at
 
     def healthcheck(self) -> bool:
         try:

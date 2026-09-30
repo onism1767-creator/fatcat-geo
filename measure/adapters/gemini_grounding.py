@@ -34,6 +34,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -81,6 +82,123 @@ _CAPABILITIES = CapabilityRegistry(
 )
 
 
+def _cost_usd(data: dict[str, Any], model: str, queries: list[str]) -> float:
+    """官方价目确定性折算:token 费(思考按输出价)+ 唯一非空查询数 × 检索单价。"""
+    in_price, out_price = _TOKEN_PRICES_PER_MTOK[model]
+    usage = data.get("usage") or {}
+    token_cost = (
+        (usage.get("total_input_tokens") or 0) / 1e6 * in_price
+        + ((usage.get("total_output_tokens") or 0) + (usage.get("total_thought_tokens") or 0))
+        / 1e6 * out_price
+    )
+    return token_cost + len(set(queries)) * _SEARCH_USD_PER_QUERY
+
+
+def _payload(request: AskRequest, model: str, search_disabled: bool) -> dict[str, Any]:
+    """AskRequest → 平台请求体(口径钉死)。"""
+    payload: dict[str, Any] = {
+        "model": model,
+        "input": request.prompt_text,
+        "store": False,
+    }
+    if not search_disabled:
+        payload["tools"] = [{"type": TOOL_TYPE}]
+    return payload
+
+
+def _translate(
+    request: AskRequest,
+    model: str,
+    search_disabled: bool,
+    data: Any,
+    latency_ms: int,
+    started_at: datetime,
+) -> SurfaceRun:
+    """平台返回 → SurfaceRun。只翻译,不判定;结构不对按 Permanent 上抛(平台改格式须显式暴露)。"""
+    if not isinstance(data, dict) or not isinstance(data.get("steps"), list):
+        raise AdapterPermanentError(
+            f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 steps 列表"
+        )
+    status = data.get("status")
+    if status not in _SUCCESS_STATUSES:
+        raise AdapterTransientError(f"互动终态异常 status={status!r}")
+
+    # ── 翻译 steps ─────────────────────────────────────────────────
+    answer_parts: list[str] = []
+    queries: list[str] = []
+    citations: list[Citation] = []
+    cited_urls: set[str] = set()
+    search_observed = False
+    try:
+        for step in data["steps"]:
+            step_type = step.get("type")
+            if step_type == "google_search_call":
+                search_observed = True
+                queries += [
+                    q for q in (step.get("arguments") or {}).get("queries") or [] if q
+                ]
+            elif step_type == "google_search_result":
+                search_observed = True
+                if step.get("is_error"):
+                    raise AdapterTransientError("google_search_result 标记 is_error")
+            elif step_type == "model_output":
+                for block in step.get("content") or []:
+                    if block.get("type") != "text":
+                        continue
+                    answer_parts.append(block["text"])
+                    for note in block.get("annotations") or []:
+                        if note.get("type") != "url_citation":
+                            continue
+                        if note["url"] in cited_urls:
+                            continue  # 跳转链按来源稳定复用,按 url 去重(实测核对)
+                        cited_urls.add(note["url"])
+                        citations.append(
+                            Citation(
+                                url=note["url"],  # 平台跳转链原样保留,核验器可解析
+                                domain=note.get("title") or "",  # 平台以域名作标题
+                                title=note.get("title"),
+                                position=len(citations) + 1,
+                            )
+                        )
+    except (KeyError, TypeError) as exc:
+        raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}") from exc
+
+    answer_text = "".join(answer_parts)
+    run = SurfaceRun(
+        run_id=request.run_id,
+        information_need_id=request.information_need_id,
+        prompt_variant_id=request.prompt_variant_id,
+        provider="gemini",
+        surface="gemini_grounding",
+        model=model,
+        search_mode=request.search_mode,
+        locale=request.locale,
+        region=request.region,
+        outcome=Outcome.SUCCESS,
+        search_trace=SearchTrace(
+            # 检索步骤可观测:触发与否、检索词真实可观测;候选集平台不暴露
+            search_triggered=False if search_disabled else search_observed,
+            generated_queries=queries,
+            retrieved_sources=NOT_OBSERVABLE,
+            opened_sources=NOT_OBSERVABLE,
+        ),
+        answer=(
+            Answer(
+                answer_text=answer_text,
+                citations_available=not search_disabled,
+                citations=citations,
+            )
+            if answer_text
+            else None
+        ),
+        raw_payload=data,
+        timestamp=started_at,
+        latency_ms=latency_ms,
+        cost_usd=_cost_usd(data, model, queries),
+    )
+    return run
+
+
 class GeminiGroundingAdapter(SurfaceAdapter):
     def __init__(self, api_key: str, client: httpx.Client | None = None) -> None:
         self._client = client or httpx.Client()
@@ -113,6 +231,7 @@ class GeminiGroundingAdapter(SurfaceAdapter):
         )
 
     def ask(self, request: AskRequest) -> SurfaceRun:
+        """适配器只做两件事(CLAUDE.md 硬边界 3):AskRequest → 平台调用(_payload),平台返回 → SurfaceRun(_translate)。"""
         _CAPABILITIES.require_search_mode(request.search_mode)
         if request.region is not None:
             _CAPABILITIES.require("supports_region")
@@ -122,116 +241,14 @@ class GeminiGroundingAdapter(SurfaceAdapter):
             raise AdapterPermanentError(
                 f"未知模型 {model!r},本 surface 支持: {list(_TOKEN_PRICES_PER_MTOK)}"
             )
-
-        payload: dict[str, Any] = {
-            "model": model,
-            "input": request.prompt_text,
-            "store": False,
-        }
-        if not search_disabled:
-            payload["tools"] = [{"type": TOOL_TYPE}]
-
         data, latency_ms, started_at = contract_post(
             self._client,
             f"{BASE_URL}/v1beta/interactions",
             headers=self._headers,
-            payload=payload,
+            payload=_payload(request, model, search_disabled),
             timeout_s=request.timeout_s,
         )
-        if not isinstance(data, dict) or not isinstance(data.get("steps"), list):
-            raise AdapterPermanentError(
-                f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 steps 列表"
-            )
-        status = data.get("status")
-        if status not in _SUCCESS_STATUSES:
-            raise AdapterTransientError(f"互动终态异常 status={status!r}")
-
-        # ── 翻译 steps ─────────────────────────────────────────────────
-        answer_parts: list[str] = []
-        queries: list[str] = []
-        citations: list[Citation] = []
-        cited_urls: set[str] = set()
-        search_observed = False
-        try:
-            for step in data["steps"]:
-                step_type = step.get("type")
-                if step_type == "google_search_call":
-                    search_observed = True
-                    queries += [
-                        q for q in (step.get("arguments") or {}).get("queries") or [] if q
-                    ]
-                elif step_type == "google_search_result":
-                    search_observed = True
-                    if step.get("is_error"):
-                        raise AdapterTransientError("google_search_result 标记 is_error")
-                elif step_type == "model_output":
-                    for block in step.get("content") or []:
-                        if block.get("type") != "text":
-                            continue
-                        answer_parts.append(block["text"])
-                        for note in block.get("annotations") or []:
-                            if note.get("type") != "url_citation":
-                                continue
-                            if note["url"] in cited_urls:
-                                continue  # 跳转链按来源稳定复用,按 url 去重(实测核对)
-                            cited_urls.add(note["url"])
-                            citations.append(
-                                Citation(
-                                    url=note["url"],  # 平台跳转链原样保留,核验器可解析
-                                    domain=note.get("title") or "",  # 平台以域名作标题
-                                    title=note.get("title"),
-                                    position=len(citations) + 1,
-                                )
-                            )
-        except (KeyError, TypeError) as exc:
-            raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}") from exc
-
-        answer_text = "".join(answer_parts)
-        run = SurfaceRun(
-            run_id=request.run_id,
-            information_need_id=request.information_need_id,
-            prompt_variant_id=request.prompt_variant_id,
-            provider="gemini",
-            surface="gemini_grounding",
-            model=model,
-            search_mode=request.search_mode,
-            locale=request.locale,
-            region=request.region,
-            outcome=Outcome.SUCCESS,
-            search_trace=SearchTrace(
-                # 检索步骤可观测:触发与否、检索词真实可观测;候选集平台不暴露
-                search_triggered=False if search_disabled else search_observed,
-                generated_queries=queries,
-                retrieved_sources=NOT_OBSERVABLE,
-                opened_sources=NOT_OBSERVABLE,
-            ),
-            answer=(
-                Answer(
-                    answer_text=answer_text,
-                    citations_available=not search_disabled,
-                    citations=citations,
-                )
-                if answer_text
-                else None
-            ),
-            raw_payload=data,
-            timestamp=started_at,
-            latency_ms=latency_ms,
-            cost_usd=self._cost_usd(data, model, queries),
-        )
-        return run
-
-    @staticmethod
-    def _cost_usd(data: dict[str, Any], model: str, queries: list[str]) -> float:
-        """官方价目确定性折算:token 费(思考按输出价)+ 唯一非空查询数 × 检索单价。"""
-        in_price, out_price = _TOKEN_PRICES_PER_MTOK[model]
-        usage = data.get("usage") or {}
-        token_cost = (
-            (usage.get("total_input_tokens") or 0) / 1e6 * in_price
-            + ((usage.get("total_output_tokens") or 0) + (usage.get("total_thought_tokens") or 0))
-            / 1e6 * out_price
-        )
-        return token_cost + len(set(queries)) * _SEARCH_USD_PER_QUERY
+        return _translate(request, model, search_disabled, data, latency_ms, started_at)
 
     def healthcheck(self) -> bool:
         try:

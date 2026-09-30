@@ -34,6 +34,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -88,6 +89,153 @@ _CAPABILITIES = CapabilityRegistry(
 
 
 
+def _cost_usd(data: dict[str, Any], model: str, search_calls: int) -> float:
+    """官方价目确定性折算:token 费(检索内容 token 已计入 input_tokens)+ 检索次数费。"""
+    in_price, out_price = _TOKEN_PRICES_PER_MTOK[model]
+    usage = data.get("usage") or {}
+    token_cost = (
+        (usage.get("input_tokens") or 0) / 1e6 * in_price
+        + (usage.get("output_tokens") or 0) / 1e6 * out_price
+    )
+    return token_cost + search_calls * _SEARCH_USD_PER_CALL
+
+
+def _payload(request: AskRequest, model: str, search_disabled: bool) -> dict[str, Any]:
+    """AskRequest → 平台请求体(口径钉死)。"""
+    payload: dict[str, Any] = {
+        "model": model,
+        "input": request.prompt_text,
+        "max_output_tokens": MAX_OUTPUT_TOKENS,
+        "store": False,
+    }
+    if not search_disabled:
+        tool: dict[str, Any] = {"type": TOOL_TYPE, "search_context_size": SEARCH_CONTEXT_SIZE}
+        if request.region is not None:
+            tool["user_location"] = {"type": "approximate", "country": request.region}
+        payload["tools"] = [tool]
+        payload["include"] = INCLUDE
+        if request.search_mode is SearchMode.FORCED_SEARCH:
+            payload["tool_choice"] = "required"  # 单工具下即强制检索(官方口径)
+    return payload
+
+
+def _translate(
+    request: AskRequest,
+    model: str,
+    search_disabled: bool,
+    data: Any,
+    latency_ms: int,
+    started_at: datetime,
+) -> SurfaceRun:
+    """平台返回 → SurfaceRun。只翻译,不判定;结构不对按 Permanent 上抛(平台改格式须显式暴露)。"""
+    if not isinstance(data, dict) or not isinstance(data.get("output"), list):
+        raise AdapterPermanentError(
+            f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 output 列表"
+        )
+    if data.get("status") == "failed":
+        raise AdapterTransientError(f"响应 status=failed: {data.get('error')}")
+
+    # ── 翻译 output 项 ──────────────────────────────────────────────
+    answer_parts: list[str] = []
+    queries: list[str] = []
+    sources: list[RetrievedSource] = []
+    opened: list[str] = []
+    citations: list[Citation] = []
+    cited_urls: set[str] = set()
+    search_calls = 0
+    search_observed = False
+    refusal_text: str | None = None
+    try:
+        for item in data["output"]:
+            item_type = item.get("type")
+            if item_type == "web_search_call":
+                search_observed = True
+                action = item.get("action") or {}
+                action_type = action.get("type")
+                if action_type == "search":
+                    search_calls += 1  # 仅 search 动作计费(官方口径)
+                    queries += action.get("queries") or (
+                        [action["query"]] if action.get("query") else []
+                    )
+                    for entry in action.get("sources") or []:
+                        sources.append(
+                            RetrievedSource(
+                                url=entry["url"],
+                                domain=domain_of(entry["url"]),
+                                title=None,  # 平台不给标题,不臆造
+                                rank=len(sources) + 1,  # 有序列表位次
+                            )
+                        )
+                elif action_type == "open_page" and action.get("url"):
+                    opened.append(action["url"])
+            elif item_type == "message":
+                for part in item.get("content") or []:
+                    part_type = part.get("type")
+                    if part_type == "output_text":
+                        answer_parts.append(part["text"])
+                        for note in part.get("annotations") or []:
+                            if note.get("type") != "url_citation":
+                                continue
+                            if note["url"] in cited_urls:
+                                continue  # 引用池按首次出现去重;重复锚点在 raw_payload
+                            cited_urls.add(note["url"])
+                            citations.append(
+                                Citation(
+                                    url=note["url"],
+                                    domain=domain_of(note["url"]),
+                                    title=note.get("title"),
+                                    position=len(citations) + 1,
+                                )
+                            )
+                    elif part_type == "refusal":
+                        refusal_text = part.get("refusal") or "refusal"
+    except (KeyError, TypeError) as exc:
+        raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}") from exc
+
+    answer_text = "".join(answer_parts)
+    run_fields: dict[str, Any] = dict(
+        run_id=request.run_id,
+        information_need_id=request.information_need_id,
+        prompt_variant_id=request.prompt_variant_id,
+        provider="openai",
+        surface="openai_web_search",
+        model=model,
+        search_mode=request.search_mode,
+        locale=request.locale,
+        region=request.region,
+        search_trace=SearchTrace(
+            # 检索是显式工具调用:触发/检索词/候选/翻页全部真实可观测
+            search_triggered=False if search_disabled else search_observed,
+            generated_queries=queries,
+            retrieved_sources=sources,
+            opened_sources=opened,  # 本 surface 独有:open_page 动作暴露翻页行为
+        ),
+        answer=(
+            Answer(
+                answer_text=answer_text,
+                citations_available=not search_disabled,
+                citations=citations,
+            )
+            if answer_text
+            else None
+        ),
+        raw_payload=data,
+        timestamp=started_at,
+        latency_ms=latency_ms,
+        cost_usd=_cost_usd(data, model, search_calls),
+    )
+    if refusal_text is not None:
+        return SurfaceRun(
+            outcome=Outcome.REFUSED,
+            error=RunError(
+                error_type=RunErrorType.REFUSAL,
+                message=f"refusal 内容部件: {refusal_text[:200]}",
+            ),
+            **run_fields,
+        )
+    return SurfaceRun(outcome=Outcome.SUCCESS, **run_fields)
+
+
 class OpenAIWebSearchAdapter(SurfaceAdapter):
     def __init__(self, api_key: str, client: httpx.Client | None = None) -> None:
         self._client = client or httpx.Client()
@@ -122,6 +270,7 @@ class OpenAIWebSearchAdapter(SurfaceAdapter):
         )
 
     def ask(self, request: AskRequest) -> SurfaceRun:
+        """适配器只做两件事(CLAUDE.md 硬边界 3):AskRequest → 平台调用(_payload),平台返回 → SurfaceRun(_translate)。"""
         _CAPABILITIES.require_search_mode(request.search_mode)
         search_disabled = request.search_mode is SearchMode.SEARCH_DISABLED
         if request.region is not None and search_disabled:
@@ -133,146 +282,14 @@ class OpenAIWebSearchAdapter(SurfaceAdapter):
             raise AdapterPermanentError(
                 f"未知模型 {model!r},本 surface 支持: {list(_TOKEN_PRICES_PER_MTOK)}"
             )
-
-        payload: dict[str, Any] = {
-            "model": model,
-            "input": request.prompt_text,
-            "max_output_tokens": MAX_OUTPUT_TOKENS,
-            "store": False,
-        }
-        if not search_disabled:
-            tool: dict[str, Any] = {"type": TOOL_TYPE, "search_context_size": SEARCH_CONTEXT_SIZE}
-            if request.region is not None:
-                tool["user_location"] = {"type": "approximate", "country": request.region}
-            payload["tools"] = [tool]
-            payload["include"] = INCLUDE
-            if request.search_mode is SearchMode.FORCED_SEARCH:
-                payload["tool_choice"] = "required"  # 单工具下即强制检索(官方口径)
-
         data, latency_ms, started_at = contract_post(
             self._client,
             f"{BASE_URL}/v1/responses",
             headers=self._headers,
-            payload=payload,
+            payload=_payload(request, model, search_disabled),
             timeout_s=request.timeout_s,
         )
-        if not isinstance(data, dict) or not isinstance(data.get("output"), list):
-            raise AdapterPermanentError(
-                f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 output 列表"
-            )
-        if data.get("status") == "failed":
-            raise AdapterTransientError(f"响应 status=failed: {data.get('error')}")
-
-        # ── 翻译 output 项 ──────────────────────────────────────────────
-        answer_parts: list[str] = []
-        queries: list[str] = []
-        sources: list[RetrievedSource] = []
-        opened: list[str] = []
-        citations: list[Citation] = []
-        cited_urls: set[str] = set()
-        search_calls = 0
-        search_observed = False
-        refusal_text: str | None = None
-        try:
-            for item in data["output"]:
-                item_type = item.get("type")
-                if item_type == "web_search_call":
-                    search_observed = True
-                    action = item.get("action") or {}
-                    action_type = action.get("type")
-                    if action_type == "search":
-                        search_calls += 1  # 仅 search 动作计费(官方口径)
-                        queries += action.get("queries") or (
-                            [action["query"]] if action.get("query") else []
-                        )
-                        for entry in action.get("sources") or []:
-                            sources.append(
-                                RetrievedSource(
-                                    url=entry["url"],
-                                    domain=domain_of(entry["url"]),
-                                    title=None,  # 平台不给标题,不臆造
-                                    rank=len(sources) + 1,  # 有序列表位次
-                                )
-                            )
-                    elif action_type == "open_page" and action.get("url"):
-                        opened.append(action["url"])
-                elif item_type == "message":
-                    for part in item.get("content") or []:
-                        part_type = part.get("type")
-                        if part_type == "output_text":
-                            answer_parts.append(part["text"])
-                            for note in part.get("annotations") or []:
-                                if note.get("type") != "url_citation":
-                                    continue
-                                if note["url"] in cited_urls:
-                                    continue  # 引用池按首次出现去重;重复锚点在 raw_payload
-                                cited_urls.add(note["url"])
-                                citations.append(
-                                    Citation(
-                                        url=note["url"],
-                                        domain=domain_of(note["url"]),
-                                        title=note.get("title"),
-                                        position=len(citations) + 1,
-                                    )
-                                )
-                        elif part_type == "refusal":
-                            refusal_text = part.get("refusal") or "refusal"
-        except (KeyError, TypeError) as exc:
-            raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}") from exc
-
-        answer_text = "".join(answer_parts)
-        run_fields: dict[str, Any] = dict(
-            run_id=request.run_id,
-            information_need_id=request.information_need_id,
-            prompt_variant_id=request.prompt_variant_id,
-            provider="openai",
-            surface="openai_web_search",
-            model=model,
-            search_mode=request.search_mode,
-            locale=request.locale,
-            region=request.region,
-            search_trace=SearchTrace(
-                # 检索是显式工具调用:触发/检索词/候选/翻页全部真实可观测
-                search_triggered=False if search_disabled else search_observed,
-                generated_queries=queries,
-                retrieved_sources=sources,
-                opened_sources=opened,  # 本 surface 独有:open_page 动作暴露翻页行为
-            ),
-            answer=(
-                Answer(
-                    answer_text=answer_text,
-                    citations_available=not search_disabled,
-                    citations=citations,
-                )
-                if answer_text
-                else None
-            ),
-            raw_payload=data,
-            timestamp=started_at,
-            latency_ms=latency_ms,
-            cost_usd=self._cost_usd(data, model, search_calls),
-        )
-        if refusal_text is not None:
-            return SurfaceRun(
-                outcome=Outcome.REFUSED,
-                error=RunError(
-                    error_type=RunErrorType.REFUSAL,
-                    message=f"refusal 内容部件: {refusal_text[:200]}",
-                ),
-                **run_fields,
-            )
-        return SurfaceRun(outcome=Outcome.SUCCESS, **run_fields)
-
-    @staticmethod
-    def _cost_usd(data: dict[str, Any], model: str, search_calls: int) -> float:
-        """官方价目确定性折算:token 费(检索内容 token 已计入 input_tokens)+ 检索次数费。"""
-        in_price, out_price = _TOKEN_PRICES_PER_MTOK[model]
-        usage = data.get("usage") or {}
-        token_cost = (
-            (usage.get("input_tokens") or 0) / 1e6 * in_price
-            + (usage.get("output_tokens") or 0) / 1e6 * out_price
-        )
-        return token_cost + search_calls * _SEARCH_USD_PER_CALL
+        return _translate(request, model, search_disabled, data, latency_ms, started_at)
 
     def healthcheck(self) -> bool:
         try:
