@@ -214,85 +214,92 @@ def audit(
 
 
 def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> AccessAuditResult:
-    checks: list[CheckResult] = []
+    """逐项检查后按资格门聚合。网络请求顺序:基准 → robots.txt → 各爬虫 UA → sitemap。"""
     caveats = list(STANDARD_CAVEATS)
+    reach, baseline, final_url, redirect_chain = _check_reachability(client, url)
+    robots_base = final_url or url  # robots.txt / sitemap 按最终主机
+    allowed_fn, sitemap_urls, robots_note = _fetch_robots(client, robots_base)
+    probes = _probe_bots(client, url, crawlers, allowed_fn)
+    content, browser_view_fallback = _check_content(baseline, probes)
+    if browser_view_fallback:
+        caveats.append(msg("access.caveat.browser_view_fallback"))
+    checks = [
+        reach,
+        _check_redirects(url, final_url, redirect_chain),
+        _check_robots(allowed_fn, robots_note, probes),
+        _check_ua_differential(baseline is not None, probes),
+        content,
+        _check_sitemap(client, robots_base, sitemap_urls),
+        *_unobservable_layers(),
+    ]
+    return AccessAuditResult(
+        site=url, final_url=final_url, overall=_gate(checks),
+        checks=checks, bots=probes, caveats=caveats, audited_at=datetime.now(UTC),
+    )
 
-    # 1. 可达性基准(浏览器 UA)+ 重定向链
-    baseline: httpx.Response | None = None
-    final_url: str | None = None
-    redirect_chain: list[str] = []
+
+def _check_reachability(
+    client: httpx.Client, url: str
+) -> tuple[CheckResult, httpx.Response | None, str | None, list[str]]:
+    """1. 可达性基准(浏览器 UA)+ 重定向链。返回 (检查结果, 成功的基准响应 | None, 最终地址, 重定向链)。"""
     try:
         baseline = get_as_browser(client, url)
-        final_url = str(baseline.url)
-        redirect_chain = [f"{r.status_code} {r.url}" for r in baseline.history]
-        if baseline.is_success:
-            reach = CheckResult(
-                check="reachability", layer=AccessLayer.GENERIC_FETCH,
-                status=CheckStatus.PASS, gating=True,
-                detail=msg("access.reach.ok", status=baseline.status_code),
-                evidence={"status": baseline.status_code, "final_url": final_url},
-            )
-        elif baseline.status_code in PROTECTION_SUSPECT_STATUSES:
-            # 铁律 7:探针被拒 ≠ 真人被拒 ≠ 爬虫被拒。带浏览器 UA 仍被 401/403/429/503
-            # 拒绝,典型为 CDN 机器人防护按客户端指纹拦截非浏览器客户端(2026-09
-            # 香奈儿首测复盘:真实浏览器可开,一切自动化客户端被 Akamai 403)。
-            # 三种真相在本审计视角下不可区分,只能 UNKNOWN,不许判死。
-            reach = CheckResult(
-                check="reachability", layer=AccessLayer.GENERIC_FETCH,
-                status=CheckStatus.UNKNOWN, gating=True,
-                detail=msg("access.reach.blocked", status=baseline.status_code),
-                evidence={"status": baseline.status_code, "final_url": final_url},
-            )
-        else:
-            reach = CheckResult(
-                check="reachability", layer=AccessLayer.GENERIC_FETCH,
-                status=CheckStatus.FAIL, gating=True,
-                detail=msg("access.reach.bad", status=baseline.status_code),
-                evidence={"status": baseline.status_code, "final_url": final_url},
-            )
     except httpx.TooManyRedirects:
-        reach = CheckResult(
+        return CheckResult(
             check="reachability", layer=AccessLayer.GENERIC_FETCH,
             status=CheckStatus.FAIL, gating=True,
             detail=msg("access.reach.redirect_loop"),
-        )
+        ), None, None, []
     except httpx.HTTPError as exc:
-        reach = CheckResult(
+        return CheckResult(
             check="reachability", layer=AccessLayer.GENERIC_FETCH,
             status=CheckStatus.UNKNOWN, gating=True,
             detail=msg("access.reach.error", error=type(exc).__name__),
-        )
-    checks.append(reach)
-    baseline_ok = baseline is not None and baseline.is_success
-
-    if redirect_chain:
-        origin_host = urlsplit(url).hostname
-        final_host = urlsplit(final_url or url).hostname
-        chain_params = dict(
-            count=len(redirect_chain), chain=" → ".join(redirect_chain), final=final_url
-        )
-        detail = (
-            msg("access.redirects.chain_cross", host=final_host, **chain_params)
-            if final_host != origin_host
-            else msg("access.redirects.chain", **chain_params)
-        )
-        checks.append(CheckResult(
-            check="redirects", layer=AccessLayer.GENERIC_FETCH,
-            status=CheckStatus.PASS, gating=False,
-            detail=detail, evidence={"chain": redirect_chain, "final_url": final_url},
-        ))
+        ), None, None, []
+    final_url = str(baseline.url)
+    redirect_chain = [f"{r.status_code} {r.url}" for r in baseline.history]
+    evidence: dict[str, JsonValue] = {"status": baseline.status_code, "final_url": final_url}
+    if baseline.is_success:
+        status, detail = CheckStatus.PASS, msg("access.reach.ok", status=baseline.status_code)
+    elif baseline.status_code in PROTECTION_SUSPECT_STATUSES:
+        # 铁律 7:探针被拒 ≠ 真人被拒 ≠ 爬虫被拒。带浏览器 UA 仍被 401/403/429/503
+        # 拒绝,典型为 CDN 机器人防护按客户端指纹拦截非浏览器客户端(2026-09
+        # 香奈儿首测复盘:真实浏览器可开,一切自动化客户端被 Akamai 403)。
+        # 三种真相在本审计视角下不可区分,只能 UNKNOWN,不许判死。
+        status, detail = CheckStatus.UNKNOWN, msg("access.reach.blocked", status=baseline.status_code)
     else:
-        checks.append(CheckResult(
+        status, detail = CheckStatus.FAIL, msg("access.reach.bad", status=baseline.status_code)
+    reach = CheckResult(check="reachability", layer=AccessLayer.GENERIC_FETCH,
+                        status=status, gating=True, detail=detail, evidence=evidence)
+    return reach, baseline if baseline.is_success else None, final_url, redirect_chain
+
+
+def _check_redirects(url: str, final_url: str | None, redirect_chain: list[str]) -> CheckResult:
+    if not redirect_chain:
+        return CheckResult(
             check="redirects", layer=AccessLayer.GENERIC_FETCH,
             status=CheckStatus.PASS, gating=False,
             detail=msg("access.redirects.none"),
-        ))
+        )
+    origin_host = urlsplit(url).hostname
+    final_host = urlsplit(final_url or url).hostname
+    chain_params = dict(count=len(redirect_chain), chain=" → ".join(redirect_chain), final=final_url)
+    detail = (
+        msg("access.redirects.chain_cross", host=final_host, **chain_params)
+        if final_host != origin_host
+        else msg("access.redirects.chain", **chain_params)
+    )
+    return CheckResult(
+        check="redirects", layer=AccessLayer.GENERIC_FETCH,
+        status=CheckStatus.PASS, gating=False,
+        detail=detail, evidence={"chain": redirect_chain, "final_url": final_url},
+    )
 
-    # 2. robots.txt(按最终主机)
-    robots_base = final_url or url
-    allowed_fn, sitemap_urls, robots_note = _fetch_robots(client, robots_base)
 
-    # 3. 逐爬虫探测:robots 放行 + 真实 UA 请求
+def _probe_bots(
+    client: httpx.Client, url: str, crawlers: list[CrawlerBot], allowed_fn: Callable[[str], bool] | None,
+) -> list[BotProbe]:
+    """3. 逐爬虫探测:robots 放行 + 真实 UA 请求(只有 user_agent 的爬虫才抓)。"""
     probes: list[BotProbe] = []
     for bot in crawlers:
         fetch_status: int | None = None
@@ -311,37 +318,39 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
             robots_allowed=allowed_fn(bot.robots_token) if allowed_fn else None,
             fetch_status=fetch_status, fetch_error=fetch_error, visible_text_chars=chars,
         ))
+    return probes
 
-    # 4. robots 聚合
+
+def _check_robots(
+    allowed_fn: Callable[[str], bool] | None, robots_note: Msg, probes: list[BotProbe]
+) -> CheckResult:
+    """4. robots 聚合:进资格门的爬虫被禁 → FAIL;不进资格门的被禁只作附注。"""
     if allowed_fn is None:
-        checks.append(CheckResult(
+        return CheckResult(
             check="robots_txt", layer=AccessLayer.POLICY,
             status=CheckStatus.UNKNOWN, gating=True,
             detail=msg("access.robots.unknown", note=robots_note),
-        ))
-    else:
-        denied_gating = [p.bot for p in probes if p.gating and p.robots_allowed is False]
-        denied_info = [p.bot for p in probes if not p.gating and p.robots_allowed is False]
-        info: Msg | str = (
-            msg("access.robots.info_denied", names=", ".join(denied_info)) if denied_info else ""
         )
-        if denied_gating:
-            checks.append(CheckResult(
-                check="robots_txt", layer=AccessLayer.POLICY,
-                status=CheckStatus.FAIL, gating=True,
-                detail=msg("access.robots.fail", denied=", ".join(denied_gating), info=info),
-                evidence={"denied": denied_gating, "denied_non_gating": denied_info},
-            ))
-        else:
-            checks.append(CheckResult(
-                check="robots_txt", layer=AccessLayer.POLICY,
-                status=CheckStatus.PASS, gating=True,
-                detail=msg("access.robots.pass",
-                           note=robots_note, n=sum(p.gating for p in probes), info=info),
-                evidence={"denied_non_gating": denied_info},
-            ))
+    denied_gating = [p.bot for p in probes if p.gating and p.robots_allowed is False]
+    denied_info = [p.bot for p in probes if not p.gating and p.robots_allowed is False]
+    info: Msg | str = msg("access.robots.info_denied", names=", ".join(denied_info)) if denied_info else ""
+    if denied_gating:
+        return CheckResult(
+            check="robots_txt", layer=AccessLayer.POLICY,
+            status=CheckStatus.FAIL, gating=True,
+            detail=msg("access.robots.fail", denied=", ".join(denied_gating), info=info),
+            evidence={"denied": denied_gating, "denied_non_gating": denied_info},
+        )
+    return CheckResult(
+        check="robots_txt", layer=AccessLayer.POLICY,
+        status=CheckStatus.PASS, gating=True,
+        detail=msg("access.robots.pass", note=robots_note, n=sum(p.gating for p in probes), info=info),
+        evidence={"denied_non_gating": denied_info},
+    )
 
-    # 5. UA 差异化拦截(只出 PASS/UNKNOWN,不出 FAIL,理由见模块 docstring)
+
+def _check_ua_differential(baseline_ok: bool, probes: list[BotProbe]) -> CheckResult:
+    """5. UA 差异化拦截:只出 PASS / UNKNOWN,不出 FAIL(理由见模块 docstring)。"""
     probed = [p for p in probes if p.gating and (p.fetch_status is not None or p.fetch_error)]
     blocked = [
         f"{p.bot}(HTTP {p.fetch_status})" if p.fetch_status else f"{p.bot}({p.fetch_error})"
@@ -349,106 +358,104 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
         if p.fetch_error or (p.fetch_status is not None and not (200 <= p.fetch_status < 300))
     ]
     if not baseline_ok:
-        checks.append(CheckResult(
+        return CheckResult(
             check="ua_differential", layer=AccessLayer.GENERIC_FETCH,
             status=CheckStatus.UNKNOWN, gating=True,
             detail=msg("access.ua.no_baseline"),
-        ))
-    elif blocked:
-        checks.append(CheckResult(
+        )
+    if blocked:
+        return CheckResult(
             check="ua_differential", layer=AccessLayer.GENERIC_FETCH,
             status=CheckStatus.UNKNOWN, gating=True,
             detail=msg("access.ua.blocked", blocked=", ".join(blocked)),
             evidence={"blocked": blocked},
-        ))
-    else:
-        checks.append(CheckResult(
-            check="ua_differential", layer=AccessLayer.GENERIC_FETCH,
-            status=CheckStatus.PASS, gating=True,
-            detail=msg("access.ua.pass", n=len(probed)),
-        ))
-
-    # 6. HTML 内容(JS 白板):优先以爬虫视角判定
-    browser_chars = (
-        visible_text_length(baseline.text)
-        if baseline_ok and baseline is not None and is_html(baseline)
-        else None
+        )
+    return CheckResult(
+        check="ua_differential", layer=AccessLayer.GENERIC_FETCH,
+        status=CheckStatus.PASS, gating=True,
+        detail=msg("access.ua.pass", n=len(probed)),
     )
+
+
+def _check_content(baseline: httpx.Response | None, probes: list[BotProbe]) -> tuple[CheckResult, bool]:
+    """6. HTML 内容(JS 白板):优先以爬虫视角判定;没有爬虫视角才退用浏览器视角(返回的布尔值 = 退用了)。"""
+    browser_chars = visible_text_length(baseline.text) if baseline is not None and is_html(baseline) else None
     bot_views = [(p.bot, p.visible_text_chars) for p in probes if p.visible_text_chars is not None]
     label: Msg | str = ""
+    fallback = False
     if bot_views:
         bot_name, chars = max(bot_views, key=lambda view: view[1])
         label = msg("access.content.label.bot", bot=bot_name)
     elif browser_chars is not None:
         label, chars = msg("access.content.label.browser"), browser_chars
-        caveats.append(msg("access.caveat.browser_view_fallback"))
+        fallback = True
     else:
-        chars = -1
-    if chars < 0:
-        checks.append(CheckResult(
+        return CheckResult(
             check="html_content", layer=AccessLayer.GENERIC_FETCH,
             status=CheckStatus.UNKNOWN, gating=True,
             detail=msg("access.content.none"),
-        ))
-    elif chars >= MIN_VISIBLE_TEXT_CHARS:
+        ), fallback
+    evidence: dict[str, JsonValue] = {"visible_chars": chars, "browser_chars": browser_chars}
+    if chars >= MIN_VISIBLE_TEXT_CHARS:
         prerender: Msg | str = (
             msg("access.content.prerender_note")
             if browser_chars is not None and browser_chars < MIN_VISIBLE_TEXT_CHARS and bot_views
             else ""
         )
-        checks.append(CheckResult(
+        return CheckResult(
             check="html_content", layer=AccessLayer.GENERIC_FETCH,
             status=CheckStatus.PASS, gating=True,
             detail=msg("access.content.pass", chars=chars, label=label, prerender=prerender),
-            evidence={"visible_chars": chars, "browser_chars": browser_chars},
-        ))
-    else:
-        reverse: Msg | str = (
-            msg("access.content.reverse_note")
-            if browser_chars is not None and browser_chars >= MIN_VISIBLE_TEXT_CHARS and bot_views
-            else ""
-        )
-        checks.append(CheckResult(
-            check="html_content", layer=AccessLayer.GENERIC_FETCH,
-            status=CheckStatus.FAIL, gating=True,
-            detail=msg("access.content.fail", chars=chars, label=label,
-                       threshold=MIN_VISIBLE_TEXT_CHARS, reverse=reverse),
-            evidence={"visible_chars": chars, "browser_chars": browser_chars},
-        ))
+            evidence=evidence,
+        ), fallback
+    reverse: Msg | str = (
+        msg("access.content.reverse_note")
+        if browser_chars is not None and browser_chars >= MIN_VISIBLE_TEXT_CHARS and bot_views
+        else ""
+    )
+    return CheckResult(
+        check="html_content", layer=AccessLayer.GENERIC_FETCH,
+        status=CheckStatus.FAIL, gating=True,
+        detail=msg("access.content.fail", chars=chars, label=label,
+                   threshold=MIN_VISIBLE_TEXT_CHARS, reverse=reverse),
+        evidence=evidence,
+    ), fallback
 
-    # 7. sitemap(仅提示,不进资格门)
+
+def _check_sitemap(client: httpx.Client, robots_base: str, sitemap_urls: list[str]) -> CheckResult:
+    """7. sitemap(仅提示,不进资格门):robots.txt 声明了就认;没声明再试 /sitemap.xml。"""
     if sitemap_urls:
-        checks.append(CheckResult(
+        return CheckResult(
             check="sitemap", layer=AccessLayer.POLICY,
             status=CheckStatus.PASS, gating=False,
             detail=msg("access.sitemap.declared", urls=", ".join(sitemap_urls[:3])),
             evidence={"sitemaps": sitemap_urls},
-        ))
-    else:
-        sitemap_url = urljoin(robots_base, "/sitemap.xml")
-        try:
-            resp = get_as_browser(client, sitemap_url)
-            if resp.is_success:
-                checks.append(CheckResult(
-                    check="sitemap", layer=AccessLayer.POLICY,
-                    status=CheckStatus.PASS, gating=False,
-                    detail=msg("access.sitemap.fallback", url=sitemap_url),
-                ))
-            else:
-                checks.append(CheckResult(
-                    check="sitemap", layer=AccessLayer.POLICY,
-                    status=CheckStatus.FAIL, gating=False,
-                    detail=msg("access.sitemap.missing", url=sitemap_url, status=resp.status_code),
-                ))
-        except httpx.HTTPError as exc:
-            checks.append(CheckResult(
-                check="sitemap", layer=AccessLayer.POLICY,
-                status=CheckStatus.UNKNOWN, gating=False,
-                detail=msg("access.sitemap.error", error=type(exc).__name__),
-            ))
+        )
+    sitemap_url = urljoin(robots_base, "/sitemap.xml")
+    try:
+        resp = get_as_browser(client, sitemap_url)
+    except httpx.HTTPError as exc:
+        return CheckResult(
+            check="sitemap", layer=AccessLayer.POLICY,
+            status=CheckStatus.UNKNOWN, gating=False,
+            detail=msg("access.sitemap.error", error=type(exc).__name__),
+        )
+    if resp.is_success:
+        return CheckResult(
+            check="sitemap", layer=AccessLayer.POLICY,
+            status=CheckStatus.PASS, gating=False,
+            detail=msg("access.sitemap.fallback", url=sitemap_url),
+        )
+    return CheckResult(
+        check="sitemap", layer=AccessLayer.POLICY,
+        status=CheckStatus.FAIL, gating=False,
+        detail=msg("access.sitemap.missing", url=sitemap_url, status=resp.status_code),
+    )
 
-    # 7b. v1 不可观测的证据层显式占位(铁律 7:不可观测就记下来,不留空白让人脑补)
-    checks.extend([
+
+def _unobservable_layers() -> list[CheckResult]:
+    """7b. v1 不可观测的证据层显式占位(铁律 7:不可观测就记下来,不留空白让人脑补)。"""
+    return [
         CheckResult(check="rendered_fetch", layer=AccessLayer.RENDERED_FETCH,
                     status=CheckStatus.UNKNOWN, gating=False,
                     detail=msg("access.rendered.not_observable")),
@@ -458,21 +465,17 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
         CheckResult(check="waf_evidence", layer=AccessLayer.WAF_EVIDENCE,
                     status=CheckStatus.UNKNOWN, gating=False,
                     detail=msg("access.waf.not_observable")),
-    ])
+    ]
 
-    # 8. 资格门聚合:任一 gating 检查 FAIL → FAIL;否则有 UNKNOWN → UNKNOWN;否则 PASS
+
+def _gate(checks: list[CheckResult]) -> CheckStatus:
+    """8. 资格门聚合:任一进门检查 FAIL → FAIL;否则有 UNKNOWN → UNKNOWN;否则 PASS。"""
     gating = [c.status for c in checks if c.gating]
     if CheckStatus.FAIL in gating:
-        overall = CheckStatus.FAIL
-    elif CheckStatus.UNKNOWN in gating:
-        overall = CheckStatus.UNKNOWN
-    else:
-        overall = CheckStatus.PASS
-
-    return AccessAuditResult(
-        site=url, final_url=final_url, overall=overall,
-        checks=checks, bots=probes, caveats=caveats, audited_at=datetime.now(UTC),
-    )
+        return CheckStatus.FAIL
+    if CheckStatus.UNKNOWN in gating:
+        return CheckStatus.UNKNOWN
+    return CheckStatus.PASS
 
 
 # ── 呈现与 CLI(开发者工具,固定中文渲染)───────────────────────────────
