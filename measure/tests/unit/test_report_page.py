@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 
 from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
 from diagnosis.citation_diag import VerificationSummary, diagnose_citation
-from diagnosis.diagnose import access_finding, diagnose_need, diagnose_surface
+from diagnosis.diagnose import access_finding, diagnose_class, diagnose_surface
 from diagnosis.findings import Stage
 from diagnosis.generative_retrieval import diagnose_generative_retrieval
 from diagnosis.recommender import load_evidence_registry
@@ -21,20 +21,21 @@ from diagnosis.representation_diag import diagnose_representation
 from diagnosis.retrieval_dependency import diagnose_retrieval_dependency
 from diagnosis.retrieval_diag import retrieval_not_observable
 from diagnosis.verdict import SurfaceVerdict
-from engine.aggregate import NeedSurfaceMetric
-from engine.metrics import account_outcomes, estimate_proportion
+from engine.aggregate import ClassSurfaceMetric
+from engine.drafting import PromptCandidate
+from engine.metrics import account_outcomes, rate
 from engine.models import (
     BrandSpec,
-    InformationNeed,
-    NeedIntent,
     Outcome,
+    Prompt,
+    PromptIntent,
+    PromptOrigin,
     Sentiment,
     StopReason,
     Target,
 )
-from engine.needs import NeedCandidate
 from report.app import create_app
-from report.jobs import TIERS, DiagnosisJob, JobState, NeedReport
+from report.jobs import ClassReport, DiagnosisJob, JobState
 
 REGISTRY = load_evidence_registry()
 
@@ -53,21 +54,22 @@ class DummyAdapter(SurfaceAdapter):
         return True
 
 
-def make_metric(k: int, n: int) -> NeedSurfaceMetric:
-    return NeedSurfaceMetric(
-        information_need_id="need-1", provider="test_provider", surface="s1", model="m1",
+def make_metric(k: int, n: int) -> ClassSurfaceMetric:
+    return ClassSurfaceMetric(
+        intent=PromptIntent.CATEGORY_DISCOVERY, provider="test_provider", surface="s1", model="m1",
         metric_label="test", k_hits=k,
-        estimate=estimate_proportion(k, n),
+        rate=rate(k, n),
         accounting=account_outcomes([Outcome.SUCCESS] * n),
-        stop_reasons=[StopReason.CI_CONVERGED, StopReason.MAX_N_REACHED],
-        per_variant=[],
-        variant_estimates=[estimate_proportion(k, n)],
+        stop_reasons=[StopReason.COMPLETED],
+        per_prompt=[rate(k, n)],
+        prompt_coverage=rate(1 if k else 0, 1),
     )
 
 
 def finished_job() -> DiagnosisJob:
     brand = BrandSpec(name="极光CRM", domains=["aurora-crm.com"])
-    need = InformationNeed(statement="中小团队用什么 CRM 好?", intent=NeedIntent.DISCOVERY)
+    prompt = Prompt(text="中小团队用什么 CRM 好?", intent=PromptIntent.CATEGORY_DISCOVERY,
+                    origin=PromptOrigin.USER, locale="zh-CN")
     access = access_finding(None)
     # v0.4.11 分家:两家 surface 各自分诊——s1 不暴露检索链路(检索不可观测),s2 自带生成端链路
     blind_block = diagnose_surface(
@@ -76,17 +78,18 @@ def finished_job() -> DiagnosisJob:
         retrieval=retrieval_not_observable(),
         citation=diagnose_citation(
             make_metric(0, 30),
-            [("竞品甲", estimate_proportion(20, 30))],
+            [("竞品甲", rate(20, 30))],
             verification=VerificationSummary(
                 attempted=2, verified_match=0, content_mismatch=1,
                 fetch_blocked=1, unparsed=0, unreachable=0,
             ),
         ),
+        # 提及 12/30 = 40%:黄灯(夹具要有 🟡;20/30 会成绿灯)
         representation=diagnose_representation(
-            NeedIntent.DISCOVERY, make_metric(20, 30), {Sentiment.POSITIVE: 5}
+            PromptIntent.CATEGORY_DISCOVERY, make_metric(12, 30), {Sentiment.POSITIVE: 5}
         ),
-        intent=NeedIntent.DISCOVERY, registry=REGISTRY,
-        # 开卷 20/30 vs 闭卷 2/30:区间分离且闭卷上界不足开卷下界一半 → HIGH
+        intent=PromptIntent.CATEGORY_DISCOVERY, registry=REGISTRY,
+        # 开卷 20/30 vs 闭卷 2/30:相差 60 个百分点且闭卷不足开卷一半 → HIGH
         retrieval_dependency=diagnose_retrieval_dependency(
             make_metric(20, 30), make_metric(2, 30)
         ),
@@ -96,23 +99,21 @@ def finished_job() -> DiagnosisJob:
         access=access,
         # 生成端链路作为该家自己的 RETRIEVAL:在场 0/30 → FAIL
         retrieval=diagnose_generative_retrieval(
-            make_metric(0, 30), [],
-            estimate_proportion(1, 30), estimate_proportion(0, 30), estimate_proportion(25, 30),
+            make_metric(0, 30), [], rate(1, 30), rate(0, 30), rate(25, 30),
         ),
         citation=diagnose_citation(make_metric(0, 30), [], verification=None),
-        representation=diagnose_representation(NeedIntent.DISCOVERY, make_metric(20, 30), {}),
-        intent=NeedIntent.DISCOVERY, registry=REGISTRY,
+        representation=diagnose_representation(PromptIntent.CATEGORY_DISCOVERY, make_metric(20, 30), {}),
+        intent=PromptIntent.CATEGORY_DISCOVERY, registry=REGISTRY,
     )
-    diagnosis = diagnose_need(need, access=access, surfaces=[blind_block, generative_block])
+    diagnosis = diagnose_class(PromptIntent.CATEGORY_DISCOVERY, access=access, surfaces=[blind_block, generative_block])
     job = DiagnosisJob(brand=brand, website="https://aurora-crm.com", category="CRM",
                        locale="zh-CN", candidates=[], competitors_suggested=[])
-    job.freeze(needs=[need], competitors=[], targets=[Target(surface="s1", model="m1")], tier_id="quick",
-               variants_per_need=2, budget_usd=1.0)
+    job.freeze(prompts=[prompt], competitors=[], targets=[Target(surface="s1", model="m1")], budget_usd=1.0)
     job.state = JobState.DONE
     job.phase = "完成"
     job.finished_at = datetime(2026, 8, 24, tzinfo=UTC)
-    job.need_reports = [NeedReport(need=need, variant_texts=["中小团队用什么 CRM 好?"],
-                                   diagnosis=diagnosis)]
+    job.class_reports = [ClassReport(intent=PromptIntent.CATEGORY_DISCOVERY, prompt_texts=[prompt.text],
+                                     diagnosis=diagnosis)]
     job.surface_verdicts = [  # 每家 AI 一句话(v0.4.14):s2 缺「直接问起」场景,句尾说明
         SurfaceVerdict(surface="s1", model="m1", code="verdict.only_when_named", missing=[]),
         SurfaceVerdict(surface="s2", model="m2", code="verdict.known_sometimes_site_rare",
@@ -151,7 +152,7 @@ def test_report_metrics_carry_caliber(client_and_job):
     client, job, _ = client_and_job
     html = client.get(f"/jobs/{job.job_id}/report").text
     assert "N_valid" in html and "stop_reasons" in html
-    assert "95% 可信区间(Jeffreys 先验)" in html  # v0.4.13:可信区间,不冒充频率学派置信区间
+    assert "题数=1" in html and "/30 = " in html  # 计数 + 比例,不出区间(v0.4.26 S2)
     assert "操作阈值(v1 初始值,未经校准)" in html  # 阈值口径自报,且标明未校准
     assert "最强瓶颈信号在" in html and "失败最可能" not in html  # 定位措辞去因果
     assert job.fingerprint in html  # 任务快照指纹
@@ -166,7 +167,7 @@ def test_report_recommendations_carry_evidence_ids(client_and_job):
 
 
 USER_VIEW_FORBIDDEN = (  # v0.4.14 强制词典:主视图可见正文不得出现引擎内部语言(技术词只在「检测依据与方法」)
-    "NOT_OBSERVABLE", "N_valid", "stop_reasons", "Jeffreys", "冻结问法集", "候选在场率", "入场率",
+    "NOT_OBSERVABLE", "N_valid", "stop_reasons", "Jeffreys", "冻结题目集", "候选在场", "入场",
     "操作阈值", "EVIDENCE_", "surface=", "资格门", "瓶颈", "探针", "口径",
     "语义对齐", "语义覆盖", "检索阶段", "生成阶段", "检索层", "候选",  # 研究主张原句只在「为什么这么建议」与审计区
 )
@@ -191,7 +192,7 @@ def test_user_view_leads_with_plain_language(client_and_job):
     assert "🔴 较弱" in html and "🟡 不够稳定" in html  # 红绿灯 + 定性词(夹具无 PASS 项)
     assert "有 1 处检测结果支持这条建议" in html  # s1 卡在引用、s2 卡在检索,各自的建议互不重合
     assert html.count('class="rec"') == 6  # 两家各三条,去重后仍是六条动作
-    assert "用户没有点名品牌时(品类推荐)" in html  # 场景人话
+    assert "用户问这类产品有哪些好的时(品类发现)" in html  # 题型人话
     assert "AI 搜索时有没有找到你(RETRIEVAL)" in html  # 人话(技术词)双写
     assert "本次 30 次搜索里,0 次结果中出现了你的官网" in html  # 比例用原始计数
     assert "让 AI 搜索时更容易找到你" in html  # 建议用人话版(注册表 plain)
@@ -250,9 +251,9 @@ def test_confirm_validation_errors_are_plain_codes_not_free_text(client_and_job)
     confirm_url = resp.headers["location"]
     job_path = confirm_url.split("?")[0].rsplit("/", 1)[0]
     back = client.post(f"{job_path}/confirm", data={"targets_selected": ["s1::m1"]}, follow_redirects=False)
-    assert "error=err_needs_count" in back.headers["location"]
+    assert "error=err_prompts_count" in back.headers["location"]
     page = visible_text(client.get(back.headers["location"]).text)
-    assert "要测的问题请选 1 到 10 个" in page and not any(token in page for token in UI_FORBIDDEN)
+    assert "要测的题请选 1 到 40 道" in page and not any(token in page for token in UI_FORBIDDEN)
     forged = visible_text(client.get(f"{job_path}/confirm?error=job_stalled").text)
     assert "卡住" not in forged
 
@@ -265,100 +266,46 @@ def test_job_page_shows_remaining_time_from_actual_pace(client_and_job):
     job.state = JobState.RUNNING
     job.phase = "phase_sampling"
     job.started_at = datetime.now(UTC) - timedelta(minutes=10)
-    job.total_plans, job.completed_plans = 16, 4
+    job.total_runs, job.completed_runs = 16, 4
     html = client.get(f"/jobs/{job.job_id}").text
     assert "预计还需约 30." in html  # 10 分钟完成 4/16 → 还需 30 分钟
-    job.completed_plans = 0
+    job.completed_runs = 0
     assert "第一批结果还没回来" in client.get(f"/jobs/{job.job_id}").text
     job.state, job.phase = JobState.DONE, "phase_done"
-
-
-def test_tier_labels_match_policy_arithmetic():
-    """v0.4.15 档位按次数定义:宽度阈值在实际参数下等价于「前 N 次完全一样才提前停」,
-    混合结果永不提前停;标签里的数字必须与策略算出的一致。"""
-    from engine.metrics import jeffreys_interval
-    from report.i18n import MESSAGES
-
-    def width(k: int, n: int) -> float:
-        lo, hi = jeffreys_interval(k, n)
-        return hi - lo
-
-    for tier_id, expected in (("quick", (8, 6)), ("standard", (20, 11))):
-        policy = TIERS[tier_id].policy
-        unanimous = next(
-            n for n in range(policy.min_n, policy.max_n + 1) if width(0, n) <= policy.ci_width_threshold
-        )
-        assert (policy.max_n, unanimous) == expected
-        assert all(
-            width(k, n) > policy.ci_width_threshold
-            for n in range(policy.min_n, policy.max_n + 1)
-            for k in range(1, n)
-        ), tier_id  # 混合结果永不提前停
-        for lang in ("zh", "en"):
-            label = MESSAGES[lang][f"tier_{tier_id}"]
-            assert str(policy.max_n) in label and str(unanimous) in label, (tier_id, lang)
-
-
-def test_tier_table_matches_policy_arithmetic():
-    """v0.4.18 两档对照表:能精确算的部分用算术机械核对(其余数字来自 scripts/mc_tier_lights.py)。
-    表头写的「每个问题、每家 AI 一共问多少次」= 3 种说法 × [全一致即停的次数, 上限];
-    快扫档「从来不提才亮红灯」= 3 种说法全不中(18 次)够红,只要中 1 次(那种说法就得问满)就不够红。"""
-    from diagnosis.findings import DiagnosisThresholds
-    from engine.metrics import jeffreys_interval
-    from report.i18n import MESSAGES, TIER_TABLE
-
-    red_line = DiagnosisThresholds().mention_fail_ci_high
-    for lang in ("zh", "en"):
-        caption = MESSAGES[lang]["tier_table_caption"]
-        for tier_id, unanimous in (("quick", 6), ("standard", 11)):
-            assert f"{3 * unanimous}–{3 * TIERS[tier_id].policy.max_n}" in caption, (tier_id, lang)
-        assert all(len(row) == 3 for row in TIER_TABLE[lang])
-    assert len(TIER_TABLE["zh"]) == len(TIER_TABLE["en"])
-    quick = TIERS["quick"].policy
-    assert jeffreys_interval(0, 3 * 6)[1] <= red_line
-    assert jeffreys_interval(1, 2 * 6 + quick.max_n)[1] > red_line
-    assert round(0.95 ** 18, 1) == 0.4  # 「20 次里提到 1 次」快扫档亮红灯的把握:约 4 成
 
 
 def test_manual_question_naming_the_brand_is_a_brand_question():
     """用户手填的问题:点了品牌名 / 别名 → 「直接询问品牌」;没点 → 「没有点名品牌」。
     点名的问题提及率天然接近 100%,归错场景会把「AI 会主动推荐你」的结论虚高(2026-09-21 真实页面暴露)。"""
-    from engine.models import NeedIntent
-    from engine.needs import manual_intent
+    from engine.drafting import manual_intent
+    from engine.models import PromptIntent
 
     brand = BrandSpec(name="始祖鸟", aliases=["Arc'teryx"], domains=["arcteryx.com"])
-    assert manual_intent("始祖鸟的整体口碑和做工质量怎么样?", brand) is NeedIntent.BRAND_PROBE
-    assert manual_intent("is ARC'TERYX worth the price?", brand) is NeedIntent.BRAND_PROBE  # 别名,不分大小写
-    assert manual_intent("预算有限但想一步到位,哪些更值得先买?", brand) is NeedIntent.DISCOVERY
+    assert manual_intent("始祖鸟的整体口碑和做工质量怎么样?", brand) is PromptIntent.BRAND_FACT
+    assert manual_intent("is ARC'TERYX worth the price?", brand) is PromptIntent.BRAND_FACT  # 别名,不分大小写
+    assert manual_intent("预算有限但想一步到位,哪些更值得先买?", brand) is PromptIntent.CATEGORY_DISCOVERY
 
 
-def test_preselect_candidates_defaults_to_two_or_all_manual():
-    """v0.4.18 默认报价要便宜:一道没手填 → 只勾第一个不点名品牌的题 + 第一个品牌题;
-    手填了 → 手填的全勾、系统出的不勾。"""
-    from engine.models import NeedIntent
-    from engine.needs import NeedCandidate
+def test_preselect_candidates_checks_everything_by_default():
+    """产品文档 15.2:默认全测(24 道);不想测的由用户自己去掉,预估实时更新。"""
+    from engine.models import PromptIntent, PromptOrigin
     from report.forms import preselect_candidates
 
-    drafted = [NeedCandidate(intent=NeedIntent.DISCOVERY, text="a"),
-               NeedCandidate(intent=NeedIntent.COMPARISON, text="b"),
-               NeedCandidate(intent=NeedIntent.BRAND_PROBE, text="c"),
-               NeedCandidate(intent=NeedIntent.BRAND_PROBE, text="d")]
-    assert preselect_candidates(drafted, n_manual=0) == [0, 2]
-    manual = [NeedCandidate(intent=NeedIntent.DISCOVERY, text="m1"),
-              NeedCandidate(intent=NeedIntent.DISCOVERY, text="m2")]
-    assert preselect_candidates(drafted + manual, n_manual=2) == [4, 5]
-    assert preselect_candidates(manual, n_manual=2) == [0, 1]
+    drafted = [PromptCandidate(origin=PromptOrigin.ASSISTED, intent=PromptIntent.CATEGORY_DISCOVERY, text="a"),
+               PromptCandidate(origin=PromptOrigin.USER, intent=PromptIntent.BRAND_FACT, text="c")]
+    assert preselect_candidates(drafted) == [0, 1]
+    assert preselect_candidates([]) == []
 
 
 def test_summarize_orders_by_evidence_level_then_support():
     from report.summary import summarize
 
     job = finished_job()
-    summary = summarize(job.need_reports, job.surface_verdicts, lambda surface, model: surface.upper())
+    summary = summarize(job.class_reports, job.surface_verdicts, lambda surface, model: surface.upper())
     levels = [a.recommendation.evidence_level for a in summary.actions]
     assert levels == sorted(levels)
     assert all(a.support_count == 1 for a in summary.actions)  # s1 卡在引用、s2 卡在检索:各家各自的建议
-    (brief_s1, brief_s2) = summary.engines[job.needs[0].need_id]
+    (brief_s1, brief_s2) = summary.engines[job.prompts[0].intent.value]
     assert (brief_s1.primary, brief_s2.primary) == (Stage.CITATION, Stage.RETRIEVAL)
     assert brief_s1.display == "S1" and brief_s1.strongest_evidence is not None
     assert [v.display for v in summary.verdicts] == ["S1", "S2"]
@@ -385,7 +332,7 @@ def test_report_shows_upstream_caution_and_competitor_gap(client_and_job):
     client, job, _ = client_and_job
     html = client.get(f"/jobs/{job.job_id}/report").text
     assert "不建议】进行全页" in html
-    assert "显著落后于竞品 竞品甲" in html
+    assert "落后竞品 竞品甲 20% 个百分点以上" in html
 
 
 # ── 页面流 ───────────────────────────────────────────────────────────
@@ -410,14 +357,13 @@ def test_manual_flow_to_confirm_and_launch(client_and_job):
     assert "问题一?" in html and "确认,开始检测" in html
 
     resp = client.post(confirm_url, data={
-        "needs_selected": ["0", "1"], "targets_selected": ["s1::m1"],
-        "tier": "quick", "variants": "2", "budget": "1.0", "custom": "",
+        "prompts_selected": ["0", "1"], "targets_selected": ["s1::m1"], "budget": "1.0", "custom": "",
     }, follow_redirects=False)
     assert resp.status_code == 303
     job_id = resp.headers["location"].rsplit("/", 1)[-1].split("?")[0]
     assert calls == [job_id]  # 执行器被触发
     job = client.app.state.ctx.registry.get(job_id)
-    assert len(job.needs) == 2 and job.fingerprint
+    assert len(job.prompts) == 2 and job.fingerprint
 
 
 def test_confirm_rejects_empty_selection(client_and_job):
@@ -461,7 +407,7 @@ def test_confirm_estimate_prefers_measured_history():
         page = client.get(resp.headers["location"]).text
         job_id = resp.headers["location"].split("/")[2]
         estimate = client.post(f"/jobs/{job_id}/estimate", data={
-            "needs_selected": ["0"], "targets_selected": ["s1::m1"], "tier": "quick", "variants": "3"}).json()
+            "prompts_selected": ["0"], "targets_selected": ["s1::m1"]}).json()
         return page, estimate
 
     def stat(n: int) -> CallStat:
@@ -470,12 +416,12 @@ def test_confirm_estimate_prefers_measured_history():
 
     page, est = run([stat(12)])
     assert "预估按过去实测的平均费用和耗时算:S1" in page
-    assert est["calls"] == 23  # 1 题 × 3 问法 × 7.5 = 22.5,四舍五入
-    assert est["cost_usd"] == pytest.approx(22.5 * 0.02) and est["minutes"] == pytest.approx(22.5 * 15 / 60 / 3)
-    assert est["breakdown"] == [{"display": "S1", "cost_usd": pytest.approx(22.5 * 0.02)}]
+    assert est["calls"] == 3  # 1 道题 × 3 次
+    assert est["cost_usd"] == pytest.approx(3 * 0.02) and est["minutes"] == pytest.approx(3 * 15 / 60 / 3)
+    assert est["breakdown"] == [{"display": "S1", "cost_usd": pytest.approx(3 * 0.02)}]
     page, est = run([stat(3)])  # 历史不足:声明单价 + 兜底时长
     assert "S1 还没有足够的历史记录" in page
-    assert est["cost_usd"] == pytest.approx(22.5 * 0.005) and est["minutes"] == pytest.approx(22.5 * 20 / 60 / 3)
+    assert est["cost_usd"] == pytest.approx(3 * 0.005) and est["minutes"] == pytest.approx(3 * 20 / 60 / 3)
 
 
 def test_estimate_job_arithmetic():
@@ -484,18 +430,16 @@ def test_estimate_job_arithmetic():
     cheap, pricey = Target(surface="a", model="x"), Target(surface="b", model="y")
     prices = UnitPrices(default={cheap.key: 0.005, pricey.key: 0.17}, search_disabled={pricey.key: 0.04},
                         seconds_per_call=20.0, measured=[], declared=[cheap, pricey])
-    # 按对象分价(v0.4.6):便宜通道与贵通道混选,成本逐个计价求和
-    est = estimate_job(n_needs=3, variants_per_need=2, targets=[cheap, pricey], tier_id="quick",
-                       dependency=False, prices=prices)
-    assert est.calls == 90  # 3 题 × 2 问法 × 2 对象 × 7.5 期望采样
-    assert est.cost_usd == pytest.approx(3 * 2 * 7.5 * (0.005 + 0.17))
-    # 检索依赖对照:只有支持闭卷的对象多一条闭卷腿,按闭卷单价另计(每腿采样策略与开卷相同)
-    est_dep = estimate_job(n_needs=3, variants_per_need=2, targets=[cheap, pricey], tier_id="quick",
-                           dependency=True, prices=prices)
-    assert est_dep.calls == 135
-    assert est_dep.cost_usd == pytest.approx(3 * 2 * 7.5 * (0.005 + 0.17 + 0.04))
-    assert est_dep.per_target == [(cheap, pytest.approx(45 * 0.005)), (pricey, pytest.approx(45 * (0.17 + 0.04)))]
-    assert est_dep.minutes == pytest.approx(135 * 20 / 60 / 3)
+    # 按对象分价(v0.4.6):便宜通道与贵通道混选,成本逐个计价求和;次数固定(v0.4.26 S2)
+    est = estimate_job(n_prompts=3, runs_per_prompt=3, targets=[cheap, pricey], dependency=False, prices=prices)
+    assert est.calls == 18  # 3 题 × 3 次 × 2 对象
+    assert est.cost_usd == pytest.approx(9 * (0.005 + 0.17))
+    # 检索依赖对照:只有支持闭卷的对象多一条闭卷腿,按闭卷单价另计(每腿次数与开卷相同)
+    est_dep = estimate_job(n_prompts=3, runs_per_prompt=3, targets=[cheap, pricey], dependency=True, prices=prices)
+    assert est_dep.calls == 27
+    assert est_dep.cost_usd == pytest.approx(9 * (0.005 + 0.17 + 0.04))
+    assert est_dep.per_target == [(cheap, pytest.approx(9 * 0.005)), (pricey, pytest.approx(9 * (0.17 + 0.04)))]
+    assert est_dep.minutes == pytest.approx(27 * 20 / 60 / 3)
 
 
 def test_job_snapshot_round_trip():
@@ -505,10 +449,10 @@ def test_job_snapshot_round_trip():
     assert restored.job_id == job.job_id
     assert restored.fingerprint == job.fingerprint  # 同快照同指纹,续跑不换基线
     assert restored.state is JobState.DONE and restored.phase == "phase_done"
-    assert [n.need_id for n in restored.needs] == [n.need_id for n in job.needs]
-    assert restored.targets == job.targets and restored.tier_id == job.tier_id
+    assert [p.prompt_id for p in restored.prompts] == [p.prompt_id for p in job.prompts]
+    assert restored.targets == job.targets
     assert restored.dependency_enabled == job.dependency_enabled
-    assert restored.need_reports == []
+    assert restored.class_reports == []
 
 
 def test_resume_endpoint_relaunches_interrupted_job(client_and_job):
@@ -611,10 +555,10 @@ def test_report_payload_round_trip_rehydrates_messages():
     payload = json.loads(json.dumps(job.report_payload()))  # 走一遍真实的 JSON 序列化
     restored = DiagnosisJob.from_snapshot(job.to_snapshot())
     restored.load_report(payload)
-    assert restored.need_reports == job.need_reports
+    assert restored.class_reports == job.class_reports
     assert restored.surface_verdicts == job.surface_verdicts
-    original = job.need_reports[0].diagnosis.surfaces[0]
-    revived = restored.need_reports[0].diagnosis.surfaces[0]
+    original = job.class_reports[0].diagnosis.surfaces[0]
+    revived = restored.class_reports[0].diagnosis.surfaces[0]
     assert [render_msg(c, "zh") for c in revived.cautions] == [render_msg(c, "zh") for c in original.cautions]
     assert any("ACCESS" in render_msg(c, "zh") for c in revived.cautions)  # 嵌套阶段码复活后可渲染
 
@@ -627,11 +571,11 @@ def test_attach_latest_report_restores_report_and_spend(storage):
     job.spent_usd = 6.46
     restored = DiagnosisJob.from_snapshot(job.to_snapshot())
     attach_latest_report(restored, storage)
-    assert restored.need_reports == [] and restored.report_meta is None  # 没有快照就保持空,不编
+    assert restored.class_reports == [] and restored.report_meta is None  # 没有快照就保持空,不编
     storage.insert_report_snapshot(job_id=job.job_id, fingerprint=job.fingerprint, code_version="t",
                                    spent_usd=job.spent_usd, payload=job.report_payload())
     attach_latest_report(restored, storage)
-    assert restored.need_reports == job.need_reports and restored.spent_usd == 6.46
+    assert restored.class_reports == job.class_reports and restored.spent_usd == 6.46
     assert restored.report_meta.versions == 1 and restored.report_meta.code_version == "t"
 
 
@@ -642,7 +586,7 @@ def test_attach_latest_report_skips_unreadable_snapshot(storage):
 
     job = finished_job()
     stale = job.report_payload()
-    for report in stale["need_reports"]:
+    for report in stale["class_reports"]:
         for surface in report["diagnosis"]["surfaces"]:
             for rec in surface["recommendations"]:
                 del rec["verify"]  # 模拟旧代码存的快照
@@ -651,7 +595,7 @@ def test_attach_latest_report_skips_unreadable_snapshot(storage):
     restored = DiagnosisJob.from_snapshot(job.to_snapshot())
     restored.job_id = "stale-job"
     attach_latest_report(restored, storage)
-    assert restored.need_reports == [] and restored.report_meta is None and restored.spent_usd == 3.0
+    assert restored.class_reports == [] and restored.report_meta is None and restored.spent_usd == 3.0
 
 
 def test_fingerprint_sensitive_to_dependency_flag():
@@ -659,11 +603,10 @@ def test_fingerprint_sensitive_to_dependency_flag():
         job = DiagnosisJob(brand=BrandSpec(name="X", domains=["x.com"]), website="https://x.com",
                            category="C", locale="zh-CN", candidates=[],
                            competitors_suggested=[])
-        job.freeze(needs=[InformationNeed(need_id="fixed", statement="问法甲",
-                                          intent=NeedIntent.DISCOVERY,
-                                          created_at=datetime(2026, 8, 24, tzinfo=UTC))],
-                   competitors=[], targets=[Target(surface="s1", model="m1")], tier_id="quick",
-                   variants_per_need=2, budget_usd=None,
+        job.freeze(prompts=[Prompt(prompt_id="fixed", text="问法甲", intent=PromptIntent.CATEGORY_DISCOVERY,
+                                   origin=PromptOrigin.USER, locale="zh-CN",
+                                   created_at=datetime(2026, 8, 24, tzinfo=UTC))],
+                   competitors=[], targets=[Target(surface="s1", model="m1")], budget_usd=None,
                    dependency_enabled=dependency_enabled)
         return job.fingerprint
 
@@ -675,21 +618,14 @@ def test_fingerprint_stable_and_sensitive():
         job = DiagnosisJob(brand=BrandSpec(name="X", domains=["x.com"]), website="https://x.com",
                            category="C", locale="zh-CN", candidates=[],
                            competitors_suggested=[])
-        job.freeze(needs=[InformationNeed(need_id="fixed", statement=statement,
-                                          intent=NeedIntent.DISCOVERY,
-                                          created_at=datetime(2026, 8, 24, tzinfo=UTC))],
-                   competitors=[], targets=[Target(surface="s1", model="m1")], tier_id="quick",
-                   variants_per_need=2, budget_usd=None)
+        job.freeze(prompts=[Prompt(prompt_id="fixed", text=statement, intent=PromptIntent.CATEGORY_DISCOVERY,
+                                   origin=PromptOrigin.USER, locale="zh-CN",
+                                   created_at=datetime(2026, 8, 24, tzinfo=UTC))],
+                   competitors=[], targets=[Target(surface="s1", model="m1")], budget_usd=None)
         return job.fingerprint
 
     assert build("问法甲") == build("问法甲")  # 同快照同指纹
     assert build("问法甲") != build("问法乙")  # 改题 = 新基线
-
-
-def test_candidate_default_check_logic():
-    # 确认页默认勾选前 4 条与 brand_probe(模板逻辑的输入侧约束:candidates 顺序稳定)
-    cand = NeedCandidate(intent=NeedIntent.BRAND_PROBE, text="X 怎么样?")
-    assert cand.intent is NeedIntent.BRAND_PROBE
 
 
 # ── 启动恢复:已下线仪器 ────────────────────────────────────────────

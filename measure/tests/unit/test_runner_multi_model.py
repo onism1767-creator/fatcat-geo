@@ -17,9 +17,10 @@ from engine.models import (
     AskRequest,
     BrandSpec,
     Citation,
-    InformationNeed,
-    NeedIntent,
     Outcome,
+    Prompt,
+    PromptIntent,
+    PromptOrigin,
     RunError,
     RunErrorType,
     SearchTrace,
@@ -27,7 +28,7 @@ from engine.models import (
     Target,
 )
 from report import runner
-from report.jobs import DiagnosisJob, JobState
+from report.jobs import RUNS_PER_PROMPT, DiagnosisJob, JobState
 
 BRAND = BrandSpec(name="极光CRM", domains=["aurora-crm.com"])
 CITES, SILENT = "m-cites", "m-silent"
@@ -56,8 +57,8 @@ class TwoModelAdapter(SurfaceAdapter):
             )
         cites = request.model == CITES
         return SurfaceRun(
-            run_id=request.run_id, information_need_id=request.information_need_id,
-            prompt_variant_id=request.prompt_variant_id, provider="test_provider", surface="two_model",
+            run_id=request.run_id, prompt_id=request.prompt_id, run_index=request.run_index,
+            provider="test_provider", surface="two_model",
             model=request.model, search_mode=request.search_mode, locale=request.locale,
             outcome=Outcome.SUCCESS, search_trace=SearchTrace(search_triggered=True),
             answer=Answer(
@@ -92,53 +93,52 @@ def offline(monkeypatch):
 
 
 def _citation_status(job: DiagnosisJob) -> dict[str, StageStatus]:
-    [report] = job.need_reports
+    [report] = job.class_reports
     return {
         block.model: next(f.status for f in block.findings if f.stage is Stage.CITATION)
         for block in report.diagnosis.surfaces
     }
 
 
-def test_two_models_of_one_surface_are_sampled_and_diagnosed_apart(storage, offline):
-    need = InformationNeed(statement="中小团队用什么 CRM 好?", intent=NeedIntent.DISCOVERY)
+def _new_job(text: str) -> tuple[DiagnosisJob, Prompt]:
+    prompt = Prompt(text=text, intent=PromptIntent.CATEGORY_DISCOVERY, origin=PromptOrigin.USER, locale="zh-CN")
     job = DiagnosisJob(brand=BRAND, website="https://aurora-crm.com", category="CRM",
                        locale="zh-CN", candidates=[], competitors_suggested=[])
-    targets = [Target(surface="two_model", model=CITES), Target(surface="two_model", model=SILENT)]
-    job.freeze(needs=[need], competitors=[], targets=targets, tier_id="quick",
-               variants_per_need=1, budget_usd=None)
+    job.freeze(prompts=[prompt], competitors=[],
+               targets=[Target(surface="two_model", model=CITES), Target(surface="two_model", model=SILENT)],
+               budget_usd=None)
+    return job, prompt
+
+
+def test_two_models_of_one_surface_are_sampled_and_diagnosed_apart(storage, offline):
+    job, prompt = _new_job("中小团队用什么 CRM 好?")
     adapters = {"two_model": TwoModelAdapter()}
     evidence = load_evidence_registry()
 
     runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=evidence)
 
     assert job.state is JobState.DONE, job.error
-    assert job.total_plans == 2  # 1 个问题 × 2 个型号:每个型号一份独立计划
-    [variant] = storage.variants_for_need(need.need_id)
-    runs = storage.runs_for_variant(variant.variant_id, surface="two_model")
+    assert job.total_runs == 2 * RUNS_PER_PROMPT == job.completed_runs  # 1 道题 × 3 次 × 2 个型号
+    runs = storage.runs_for_prompt(prompt.prompt_id, surface="two_model")
     per_model = {m: [r for r in runs if r.model == m] for m in (CITES, SILENT)}
-    assert {m: len(rs) for m, rs in per_model.items()} == {CITES: 6, SILENT: 6}  # 快扫档:前 6 次一致即停
-    # 各报各的:两个型号各有一个诊断块、各有一句话,结论不同
-    assert _citation_status(job) == {CITES: StageStatus.PASS, SILENT: StageStatus.WEAK}
+    assert {m: sorted(r.run_index for r in rs) for m, rs in per_model.items()} == {CITES: [1, 2, 3], SILENT: [1, 2, 3]}
+    # 各报各的:两个型号各有一个诊断块、各有一句话,结论不同(3/3 → 良好;0/3 → 较弱)
+    assert _citation_status(job) == {CITES: StageStatus.PASS, SILENT: StageStatus.FAIL}
     assert {(v.surface, v.model) for v in job.surface_verdicts} == {("two_model", CITES), ("two_model", SILENT)}
-    assert job.spent_usd == pytest.approx(6 * 0.01 + 6 * 0.001)
+    assert job.spent_usd == pytest.approx(3 * 0.01 + 3 * 0.001)
 
-    # 续跑(重新生成报告):样本按「问法 × 仪器 × 型号 × 模式」复用——零新调用,且两个型号的
-    # 样本不互相充当前缀(串了的话两边都会变成 6/12,结论双双变黄)
-    runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=evidence)
+    # 续跑(重新生成报告):样本按「题 × 仪器 × 型号 × 模式 × 第几次」复用——零新调用,且两个型号的
+    # 样本不互相充当槽位(串了的话两边都会变成 3/6,结论双双变黄)
+    runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=evidence, replay=True)
     assert job.state is JobState.DONE, job.error
-    assert len(storage.runs_for_variant(variant.variant_id, surface="two_model")) == 12
-    assert _citation_status(job) == {CITES: StageStatus.PASS, SILENT: StageStatus.WEAK}
+    assert len(storage.runs_for_prompt(prompt.prompt_id, surface="two_model")) == 6
+    assert _citation_status(job) == {CITES: StageStatus.PASS, SILENT: StageStatus.FAIL}
 
 
 def test_account_problem_halts_job_plainly_and_resume_keeps_account_rows_out_of_metrics(storage, offline):
     """v0.4.21:账户没钱 → 任务立刻停、任务页说人话、不再花钱;充值后「接着跑」——账户问题行
     照常在库里,但不进分母、不进失败率、不触发熔断;两型号结论与正常跑完全一致。"""
-    need = InformationNeed(statement="小团队用什么 CRM?", intent=NeedIntent.DISCOVERY)
-    job = DiagnosisJob(brand=BRAND, website="https://aurora-crm.com", category="CRM",
-                       locale="zh-CN", candidates=[], competitors_suggested=[])
-    job.freeze(needs=[need], competitors=[],
-               targets=[Target(surface="two_model", model=CITES), Target(surface="two_model", model=SILENT)],
-               tier_id="quick", variants_per_need=1, budget_usd=None)
+    job, prompt = _new_job("小团队用什么 CRM?")
     evidence = load_evidence_registry()
 
     runner.execute_job(job=job, adapters={"two_model": TwoModelAdapter(broke_model=SILENT)},
@@ -149,12 +149,12 @@ def test_account_problem_halts_job_plainly_and_resume_keeps_account_rows_out_of_
     assert "credit balance" in job.error_params["detail"] and job.error is None
     restored = DiagnosisJob.from_snapshot(job.to_snapshot())  # 出错说明进快照:去充值期间重启也不丢
     assert (restored.error_code, restored.error_params) == (job.error_code, job.error_params)
-    [variant] = storage.variants_for_need(need.need_id)
-    rows = storage.runs_for_variant(variant.variant_id, surface="two_model", model=SILENT)
+    assert [p.text for p in restored.prompts] == [prompt.text]
+    rows = storage.runs_for_prompt(prompt.prompt_id, surface="two_model", model=SILENT)
     assert len(rows) == 1 and rows[0].error.error_type is RunErrorType.ACCOUNT_CREDIT  # 失败不蒸发
 
     # 再塞两条「v0.4.21 之前」风格的账户问题行(当时只会记成 PERMANENT):原始层不可改,
-    # 续跑读出时必须按同一条规则重新解读——否则 2/8 = 25% 的"失败率"会把结论压成低置信
+    # 续跑读出时必须按同一条规则重新解读——否则 2/5 的"失败率"会把结论压成低置信
     for i in range(2):
         storage.insert_surface_run(rows[0].model_copy(update={
             "run_id": f"legacy-account-row-{i}",
@@ -164,10 +164,10 @@ def test_account_problem_halts_job_plainly_and_resume_keeps_account_rows_out_of_
 
     runner.execute_job(job=job, adapters={"two_model": TwoModelAdapter()}, dsn=TEST_DSN, evidence=evidence)
     assert job.state is JobState.DONE, job.error
-    assert _citation_status(job) == {CITES: StageStatus.PASS, SILENT: StageStatus.WEAK}
-    [report] = job.need_reports
+    assert _citation_status(job) == {CITES: StageStatus.PASS, SILENT: StageStatus.FAIL}
+    [report] = job.class_reports
     silent_block = next(b for b in report.diagnosis.surfaces if b.model == SILENT)
     citation = next(f for f in silent_block.findings if f.stage is Stage.CITATION)
     assert not citation.low_confidence  # 三条账户行都没有被算成失败率
-    rows = storage.runs_for_variant(variant.variant_id, surface="two_model", model=SILENT)
-    assert sum(r.outcome is Outcome.SUCCESS for r in rows) == 6 and len(rows) == 9  # 6 次有效 + 3 条账户行
+    rows = storage.runs_for_prompt(prompt.prompt_id, surface="two_model", model=SILENT)
+    assert sum(r.outcome is Outcome.SUCCESS for r in rows) == 3 and len(rows) == 6  # 3 次有效 + 3 条账户行

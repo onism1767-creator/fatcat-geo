@@ -1,5 +1,5 @@
-"""L3 组装:一道题上全部被测对象的指标 → 各对象的四阶段诊断块 + 每家 AI 一句话的原料
-(架构书附录 v0.4.24 第 5 节 ④)。
+"""L3 组装:一个题型上全部被测对象的指标 → 各对象的四阶段诊断块 + 每家 AI 一句话的原料
+(架构书附录 v0.4.24 第 5 节 ④;v0.4.26 S2 起按题型聚合)。
 
 检索阶段只认本仪器自己暴露的检索链路(能力 supports_query_trace);不暴露的如实记不可观测,
 不从别处借数据、不用引用反推(铁律 7;产品文档 15.3,v0.4.26 S1)。
@@ -18,16 +18,16 @@ from diagnosis.representation_diag import diagnose_representation
 from diagnosis.retrieval_dependency import diagnose_retrieval_dependency
 from diagnosis.retrieval_diag import retrieval_not_observable
 from diagnosis.verdict import VerdictInput, verdict_input
-from engine.aggregate import NeedSurfaceMetric, TargetMeasurement
-from engine.models import CitationEvidence, NeedIntent, Target
+from engine.aggregate import ClassSurfaceMetric, TargetMeasurement
+from engine.models import CitationEvidence, PromptIntent, Target
 
 
-def diagnose_need_targets(
+def diagnose_class_targets(
     *,
-    intent: NeedIntent,
+    intent: PromptIntent,
     access: StageFinding,
     measurements: list[TargetMeasurement],
-    closed_book: dict[Target, NeedSurfaceMetric],
+    closed_book: dict[Target, ClassSurfaceMetric],
     evidence_map: dict[str, CitationEvidence],
     brand_name: str,
     registry: list[EvidenceEntry],

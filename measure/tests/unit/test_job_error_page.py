@@ -5,7 +5,7 @@ from fastapi.testclient import TestClient
 
 from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
 from diagnosis.recommender import load_evidence_registry
-from engine.models import BrandSpec, InformationNeed, NeedIntent, Target
+from engine.models import BrandSpec, Prompt, PromptIntent, PromptOrigin, Target
 from report.app import create_app
 from report.jobs import DiagnosisJob, JobState
 
@@ -26,8 +26,9 @@ class DummyAdapter(SurfaceAdapter):
 def _failed_job(code: str | None, text: str | None = None) -> DiagnosisJob:
     job = DiagnosisJob(brand=BrandSpec(name="X", domains=["x.com"]), website="https://x.com",
                        category="C", locale="zh-CN", candidates=[], competitors_suggested=[])
-    job.freeze(needs=[InformationNeed(statement="q?", intent=NeedIntent.DISCOVERY)], competitors=[],
-               targets=[Target(surface="s1", model="m1")], tier_id="quick", variants_per_need=1, budget_usd=None)
+    prompt = Prompt(text="q?", intent=PromptIntent.CATEGORY_DISCOVERY, origin=PromptOrigin.USER, locale="zh-CN")
+    job.freeze(prompts=[prompt],
+               competitors=[], targets=[Target(surface="s1", model="m1")], budget_usd=None)
     job.state, job.phase = JobState.FAILED, "phase_failed"
     job.error_code = code
     job.error_params = {"ai": "S1", "model": "m1", "detail": "Your credit balance is too low"} if code else {}

@@ -31,7 +31,7 @@ entries:
     sources:
       zh: [各平台官方爬虫文档]
       en: [Official crawler documentation of each platform]
-    supported_intents: [discovery, comparison, scenario, brand_probe]
+    supported_intents: [category_discovery, recommendation, comparison_alternative, problem_solution, brand_fact]
     contraindications:
       zh: [内容策略上有意屏蔽 AI 使用的站点]
       en: [Sites that deliberately block AI use as a content policy]
@@ -57,7 +57,7 @@ entries:
     sources:
       zh: [各平台官方 IP 段文档, 主流 CDN verified-bots 机制文档]
       en: [Official crawler IP-range docs, mainstream CDN verified-bots documentation]
-    supported_intents: [discovery, comparison, scenario, brand_probe]
+    supported_intents: [category_discovery, recommendation, comparison_alternative, problem_solution, brand_fact]
     contraindications:
       zh: []
       en: []
@@ -83,7 +83,7 @@ entries:
     sources:
       zh: [各平台官方爬虫文档(主流 AI 爬虫不执行 JS)]
       en: [Official crawler docs (mainstream AI crawlers do not execute JS)]
-    supported_intents: [discovery, comparison, scenario, brand_probe]
+    supported_intents: [category_discovery, recommendation, comparison_alternative, problem_solution, brand_fact]
     contraindications:
       zh: []
       en: []
@@ -109,7 +109,7 @@ entries:
     sources:
       zh: [传统搜索引擎收录实践的描述性外推]
       en: [Descriptive extrapolation from traditional search-engine indexing practice]
-    supported_intents: [discovery, comparison, scenario, brand_probe]
+    supported_intents: [category_discovery, recommendation, comparison_alternative, problem_solution, brand_fact]
     contraindications:
       zh: []
       en: []
@@ -136,7 +136,7 @@ entries:
     sources:
       zh: [SAGEO-Arena(支持:结构化信息利于检索), C-SEO-Bench(检索位次效应显著)]
       en: ["SAGEO-Arena (supports: structured signals help retrieval)", "C-SEO-Bench (strong retrieval-position effect)"]
-    supported_intents: [discovery, comparison, scenario]
+    supported_intents: [category_discovery, recommendation, comparison_alternative, problem_solution]
     contraindications:
       zh: [已高度优化的页面继续堆砌, 与页面真实内容不符的标题]
       en: [Further stuffing already-optimized pages, Titles inconsistent with actual page content]
@@ -162,7 +162,7 @@ entries:
     sources:
       zh: [SAGEO-Arena(间接支持), 传统检索共识(描述性)]
       en: [SAGEO-Arena (indirect support), Traditional IR consensus (descriptive)]
-    supported_intents: [discovery, scenario]
+    supported_intents: [category_discovery, recommendation, problem_solution]
     contraindications:
       zh: [大量薄内容页面]
       en: [Mass-producing thin-content pages]
@@ -188,7 +188,7 @@ entries:
     sources:
       zh: [本项目实测观察(检索候选集由第三方内容主导,描述性), C-SEO-Bench(来源位次效应)]
       en: [This project's field observation (candidate sets dominated by third-party content; descriptive), C-SEO-Bench (source-position effect)]
-    supported_intents: [discovery, comparison]
+    supported_intents: [category_discovery, recommendation, comparison_alternative]
     contraindications:
       zh: [伪造第三方背书(黑帽,禁止)]
       en: [Faking third-party endorsements (black-hat; forbidden)]
@@ -215,7 +215,7 @@ entries:
     sources:
       zh: [KDD2024(支持), C-SEO-Bench(削弱:跨域复测多数无效)]
       en: [KDD2024 (supports), C-SEO-Bench (weakens - mostly ineffective in cross-domain replication)]
-    supported_intents: [discovery, comparison]
+    supported_intents: [category_discovery, recommendation, comparison_alternative]
     contraindications:
       zh: [页面已高密度统计, 数字无法溯源]
       en: [Pages already dense with statistics, Numbers that cannot be traced to sources]
@@ -241,7 +241,7 @@ entries:
     sources:
       zh: [KDD2024(引述类改写有正效应), C-SEO-Bench(多数改写基本无效)]
       en: [KDD2024 (quotation-style edits show positive effect), C-SEO-Bench (most rewrites largely ineffective)]
-    supported_intents: [discovery, comparison, scenario]
+    supported_intents: [category_discovery, recommendation, comparison_alternative, problem_solution]
     contraindications:
       zh: [与正文主张不符的断言句]
       en: [Assertions inconsistent with the page's actual claims]
@@ -267,7 +267,7 @@ entries:
     sources:
       zh: [描述性关联,无对照研究]
       en: [Descriptive association; no controlled study]
-    supported_intents: [discovery, scenario]
+    supported_intents: [category_discovery, recommendation, problem_solution]
     contraindications:
       zh: [与页面主题无关的 FAQ 堆砌]
       en: [Stuffing FAQs unrelated to the page topic]
@@ -294,7 +294,7 @@ entries:
     sources:
       zh: [描述性关联]
       en: [Descriptive association]
-    supported_intents: [brand_probe, discovery]
+    supported_intents: [brand_fact, category_discovery, recommendation]
     contraindications:
       zh: []
       en: []
@@ -320,7 +320,7 @@ entries:
     sources:
       zh: [描述性关联(回答内容大量取材于被引第三方,本项目引用观测)]
       en: [Descriptive association (answers draw heavily on cited third parties; this project's citation observations)]
-    supported_intents: [brand_probe, comparison]
+    supported_intents: [brand_fact, comparison_alternative]
     contraindications:
       zh: [无法联系的来源方]
       en: [Sources that cannot be contacted]

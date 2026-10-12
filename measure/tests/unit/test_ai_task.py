@@ -37,8 +37,8 @@ class ScriptedAdapter(SurfaceAdapter):
         if isinstance(step, Exception):
             raise step
         return SurfaceRun(
-            run_id=request.run_id, information_need_id=request.information_need_id,
-            prompt_variant_id=request.prompt_variant_id, provider="test_provider", surface="t", model="m",
+            run_id=request.run_id, prompt_id=request.prompt_id,
+            run_index=request.run_index, provider="test_provider", surface="t", model="m",
             search_mode=request.search_mode, locale=request.locale, outcome=Outcome.SUCCESS,
             answer=Answer(answer_text=step, citations_available=False),
             timestamp=datetime.now(UTC), latency_ms=1, cost_usd=0.01,
@@ -53,7 +53,7 @@ def _digit(text: str) -> int:
 
 
 def _run(adapter, ledger=None):
-    return run_task(adapter, "说一个数字", _digit, label="测试任务", need_id="n", locale="zh-CN",
+    return run_task(adapter, "说一个数字", _digit, label="测试任务", prompt_id="n", locale="zh-CN",
                     ledger=(ledger if ledger is not None else []).append, sleep=lambda s: None)
 
 

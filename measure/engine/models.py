@@ -77,22 +77,22 @@ class PromptOrigin(StrEnum):
     ASSISTED = "assisted"
 
 
-class NeedIntent(StrEnum):
-    """需求意图分型(17.2)。指标解释按意图分层,不得混算:
-    中立三型测自然可见度;brand_probe 点名焦点品牌,专测 REPRESENTATION。"""
+class PromptIntent(StrEnum):
+    """题型(产品文档 15.2 的五类 prompt;v0.4.26 S2)。指标按题型分开看,不得混算:
+    前四类不点名焦点品牌,测自然可见度;品牌事实点名焦点品牌,专测 REPRESENTATION。"""
 
-    DISCOVERY = "discovery"
-    COMPARISON = "comparison"
-    SCENARIO = "scenario"
-    BRAND_PROBE = "brand_probe"
+    CATEGORY_DISCOVERY = "category_discovery"  # 品类发现:「XX 类最好的有哪些」
+    PROBLEM_SOLUTION = "problem_solution"  # 问题与方案:「怎么解决 XX」
+    COMPARISON_ALTERNATIVE = "comparison_alternative"  # 对比与替代:「X 的替代品」「X 和 Y 怎么选」(可点名竞品)
+    RECOMMENDATION = "recommendation"  # 推荐:「你会推荐什么」
+    BRAND_FACT = "brand_fact"  # 品牌事实:「[品牌] 是做什么的、怎么样」(点名焦点品牌)
 
 
 class StopReason(StrEnum):
-    """采样停止原因(7.2)。必须随指标一起进报告——N=6 因收敛而停与
-    N=6 因预算截断,是完全不同强度的结论(铁律 5)。"""
+    """采样计划的停止原因(v0.4.26 S2:次数固定,不按结果提前停)。必须随指标一起进报告——
+    72 次全部问完与预算截断在 40 次,是完全不同强度的结论(铁律 5)。"""
 
-    CI_CONVERGED = "CI_CONVERGED"
-    MAX_N_REACHED = "MAX_N_REACHED"
+    COMPLETED = "COMPLETED"  # 全部题目 × 次数都问完了
     FAILURE_RATE_EXCEEDED = "FAILURE_RATE_EXCEEDED"
     BUDGET_EXHAUSTED = "BUDGET_EXHAUSTED"
     SURFACE_DISABLED = "SURFACE_DISABLED"
@@ -101,7 +101,7 @@ class StopReason(StrEnum):
     NOT_RESAMPLED = "NOT_RESAMPLED"
 
 
-# ── 诊断对象与需求(1.3 / 6.5)─────────────────────────────────────────
+# ── 诊断对象与题目(1.3 / 6.5)─────────────────────────────────────────
 
 
 class BrandSpec(FrozenModel):
@@ -116,13 +116,15 @@ class BrandSpec(FrozenModel):
 
 
 
-class InformationNeed(FrozenModel):
-    """信息需求:分析与报告的基本单位,指标聚合到这一层。
-    intent 为必填:意图是口径的一部分(17.2),不允许无标签的需求。"""
+class Prompt(FrozenModel):
+    """一道题(产品文档 15.2):原样问 runs_per_prompt 次,不改措辞——改了就不是严格的重复观察。
+    题型是口径的一部分,必填;指标按题型聚合。"""
 
-    need_id: str = Field(default_factory=lambda: str(uuid4()))
-    statement: str
-    intent: NeedIntent
+    prompt_id: str = Field(default_factory=lambda: str(uuid4()))
+    text: str
+    intent: PromptIntent
+    origin: PromptOrigin
+    locale: str  # 提问语言(测量语境,16.5)
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
@@ -151,30 +153,20 @@ class Target(FrozenModel):
         return cls(surface=surface, model=model)
 
 
-class PromptVariant(FrozenModel):
-    """同一需求的一种问法。用户原话 ≠ 实际执行的查询,故以需求为聚合单位。"""
-
-    variant_id: str = Field(default_factory=lambda: str(uuid4()))
-    need_id: str
-    prompt_text: str
-    origin: PromptOrigin
-    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-
-
 # ── AskRequest(引擎 → 适配器,6.2)─────────────────────────────────────
 
 
 class AskRequest(FrozenModel):
     """引擎下发给适配器的统一请求。
 
-    run_id / information_need_id / prompt_variant_id 为关联键:
+    run_id / prompt_id / run_index 为关联键:
     由引擎生成,适配器原样写入 SurfaceRun,与结构化日志(13.4)同源。
     重试由引擎统一持有,适配器内禁止自行重试(13.1)。
     """
 
     run_id: str
-    information_need_id: str
-    prompt_variant_id: str
+    prompt_id: str
+    run_index: int  # 第几次原样提问(1 起);同一题同一对象同一模式下的槽位号
     prompt_text: str
     search_mode: SearchMode = SearchMode.DEFAULT
     model: str | None = None  # None 时取适配器 meta 的默认模型
@@ -240,8 +232,8 @@ class SurfaceRun(FrozenModel):
     """
 
     run_id: str
-    information_need_id: str
-    prompt_variant_id: str
+    prompt_id: str
+    run_index: int
     provider: str
     surface: str
     model: str

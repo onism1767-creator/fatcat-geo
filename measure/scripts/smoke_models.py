@@ -64,8 +64,8 @@ def main() -> int:
                 if args.only is not None and model not in args.only:
                     continue
                 request = AskRequest(
-                    run_id=f"smoke-{uuid.uuid4().hex[:8]}", information_need_id="smoke-need",
-                    prompt_variant_id="smoke-variant", prompt_text=SMOKE_PROMPT,
+                    run_id=f"smoke-{uuid.uuid4().hex[:8]}", prompt_id="smoke-prompt",
+                    run_index=1, prompt_text=SMOKE_PROMPT,
                     search_mode=SearchMode.DEFAULT, model=model, locale="zh-CN", timeout_s=300.0,
                 )
                 try:

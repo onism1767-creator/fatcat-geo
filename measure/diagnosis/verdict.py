@@ -1,9 +1,9 @@
-"""每家 AI 一句话(v0.4.14):把一家 surface 跨需求的观测压成品牌方能读懂的一句结论。
+"""每家 AI 一句话(v0.4.14):把一家 surface 跨题型的观测压成品牌方能读懂的一句结论。
 
 规则表由用户拍板(2026-09-08),本模块只做查表,不做新观测:
-- 「经常 / 有时 / 几乎不」是现有区间三态(PASS / WEAK / FAIL)的直接映射,不引入新判断;
+- 「经常 / 有时 / 几乎不」是比例三态(PASS / WEAK / FAIL)的直接映射,不引入新判断(S2:看比例,线不变);
 - 「官网有没有被用上」= 检索或引用任一 PASS;两项皆不可观测时记本次看不到;
-- 某一项本次没测(没有该场景的需求 / 无可观测项)就在句尾说明,不猜、不补。
+- 某一项本次没测(没有该题型的题 / 无可观测项)就在句尾说明,不猜、不补。
 
 本模块不含任何 provider/surface 名字符串;AI 的显示名由报告层代入结论码参数。
 """
@@ -12,9 +12,9 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from diagnosis.findings import DiagnosisThresholds, StageFinding, StageStatus, interval_status
-from engine.aggregate import NeedSurfaceMetric
-from engine.models import FrozenModel, NeedIntent
+from diagnosis.findings import DiagnosisThresholds, StageFinding, StageStatus, rate_status
+from engine.aggregate import ClassSurfaceMetric
+from engine.models import FrozenModel, PromptIntent
 
 
 class Band(StrEnum):
@@ -29,16 +29,16 @@ _BAND_OF: dict[StageStatus, Band] = {
     StageStatus.FAIL: Band.RARELY,
 }
 _RANK: dict[Band, int] = {Band.RARELY: 0, Band.SOMETIMES: 1, Band.OFTEN: 2}
-PROBE_INTENTS = frozenset({NeedIntent.BRAND_PROBE})
+PROBE_INTENTS = frozenset({PromptIntent.BRAND_FACT})  # 点名焦点品牌的题型
 
 
 def band_of(status: StageStatus) -> Band | None:
-    """区间三态 → 档位;NOT_OBSERVABLE → None。"""
+    """比例三态 → 档位;NOT_OBSERVABLE → None。"""
     return _BAND_OF.get(status)
 
 
 def combine(bands: list[Band]) -> Band | None:
-    """同一场景多个需求的合并:平均档位,半档向上;没有观测 → None(本次没测)。"""
+    """同一类题型多个观测的合并:平均档位,半档向上;没有观测 → None(本次没测)。"""
     if not bands:
         return None
     rank = int(sum(_RANK[b] for b in bands) / len(bands) + 0.5)
@@ -46,29 +46,29 @@ def combine(bands: list[Band]) -> Band | None:
 
 
 class VerdictInput(FrozenModel):
-    """一家 surface 在一个需求上的观测(由执行器按需求汇总)。"""
+    """一家 surface 在一个题型上的观测(由执行器按题型汇总)。"""
 
-    intent: NeedIntent
+    intent: PromptIntent
     mention: Band | None  # 回答里提到品牌的档位;无有效样本 → None
     site_used: bool | None  # 官网被用上(检索或引用任一 PASS);两项皆不可观测 → None
 
 
 def verdict_input(
-    intent: NeedIntent,
-    mention: NeedSurfaceMetric,
+    intent: PromptIntent,
+    mention: ClassSurfaceMetric,
     retrieval: StageFinding,
     citation: StageFinding,
     thresholds: DiagnosisThresholds = DiagnosisThresholds(),
 ) -> VerdictInput:
-    """一个被测对象在一道题上的一句话原料:提及档位 = 提及率区间三态的直接映射;
+    """一个被测对象在一个题型上的一句话原料:提及档位 = 提及比例三态的直接映射;
     官网被用上 = 检索或引用任一 PASS(两项皆不可观测 → None)。"""
     mention_band = None
-    if mention.estimate is not None:
-        status, _ = interval_status(
-            mention.estimate,
+    if mention.rate is not None:
+        status, _ = rate_status(
+            mention.rate,
             low_confidence=mention.accounting.low_confidence,
-            fail_ci_high=thresholds.mention_fail_ci_high,
-            pass_ci_low=thresholds.mention_pass_ci_low,
+            fail_below=thresholds.mention_fail_below,
+            pass_from=thresholds.mention_pass_from,
         )
         mention_band = band_of(status)
     site = [f for f in (retrieval, citation) if f.status is not StageStatus.NOT_OBSERVABLE]
@@ -97,7 +97,7 @@ def _lookup(probe: Band | None, organic: Band | None, site: bool | None) -> str:
             Band.RARELY: ("verdict.only_when_named_site_used", "verdict.only_when_named"),
             None: ("verdict.known_site_used", "verdict.known_site_rare"),
         }
-    else:  # 没有「直接问起」的需求:不谈知不知道你
+    else:  # 没有「直接问起」的题:不谈知不知道你
         table = {
             Band.OFTEN: ("verdict.unnamed_often_site_used", "verdict.unnamed_often_site_rare"),
             Band.SOMETIMES: ("verdict.unnamed_sometimes_site_used", "verdict.unnamed_sometimes_site_rare"),

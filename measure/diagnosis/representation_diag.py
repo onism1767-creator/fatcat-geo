@@ -1,9 +1,8 @@
 """REPRESENTATION 诊断:AI 怎么描述你?(5.2)
 
-指标解释按需求意图分层(17.2):
-- 中立需求(discovery/comparison/scenario):先看提及率——未稳定进入回答,
-  就谈不上"被如何描述";提及充分再看情感分布。
-- brand_probe(点名探针):提及率天然≈100%,无判定价值;状态只由情感分布决定。
+指标解释按题型分层(产品文档 15.2):
+- 不点名的四类题:先看提及比例——未稳定进入回答,就谈不上"被如何描述";提及充分再看情感分布。
+- 品牌事实(点名焦点品牌):提及率天然≈100%,无判定价值;状态只由情感分布决定。
 
 描述正确性判定需要品牌事实清单作参照,v1 未启用,如实标注。
 输出为结论码 + 参数(v1.1),组句在渲染层。
@@ -19,13 +18,13 @@ from diagnosis.findings import (
     Stage,
     StageFinding,
     StageStatus,
-    estimate_params,
-    interval_status,
     msg,
-    variant_msgs,
+    prompt_msgs,
+    rate_params,
+    rate_status,
 )
-from engine.aggregate import NeedSurfaceMetric
-from engine.models import NeedIntent, Sentiment
+from engine.aggregate import ClassSurfaceMetric
+from engine.models import PromptIntent, Sentiment
 
 
 def _sentiment_summary(counts: Mapping[Sentiment, int]) -> tuple[int, float, Msg]:
@@ -43,48 +42,48 @@ def _sentiment_summary(counts: Mapping[Sentiment, int]) -> tuple[int, float, Msg
     return total, share, line
 
 
-def _caliber(metric: NeedSurfaceMetric, intent: NeedIntent) -> Msg:
+def _caliber(metric: ClassSurfaceMetric, intent: PromptIntent) -> Msg:
     accounting = metric.accounting
     return msg(
         "repr.caliber",
         surface=metric.surface,
         model=metric.model,
+        n_prompts=len(metric.per_prompt),
         n_valid=accounting.n_valid,
         n_total=accounting.n_total,
         stop_reasons=", ".join(r.value for r in metric.stop_reasons),
         intent=intent.value,
-        n_variants=len(metric.variant_estimates),
     )
 
 
 def diagnose_representation(
-    intent: NeedIntent,
-    mention_metric: NeedSurfaceMetric | None,
+    intent: PromptIntent,
+    mention_metric: ClassSurfaceMetric | None,
     sentiment_counts: Mapping[Sentiment, int],
     thresholds: DiagnosisThresholds = DiagnosisThresholds(),
 ) -> StageFinding:
-    if mention_metric is None or mention_metric.estimate is None:
+    if mention_metric is None or mention_metric.rate is None:
         return StageFinding(
             stage=Stage.REPRESENTATION,
             status=StageStatus.NOT_OBSERVABLE,
             headline=msg("repr.headline.not_observable"),
         )
-    estimate = mention_metric.estimate
+    r = mention_metric.rate
     accounting = mention_metric.accounting
     n_sentiment, negative_share, sentiment_line = _sentiment_summary(sentiment_counts)
     caliber = _caliber(mention_metric, intent)
 
-    if intent is NeedIntent.BRAND_PROBE:
-        # 探针需求:提及率无判定价值,状态由情感决定
+    if intent is PromptIntent.BRAND_FACT:
+        # 点名焦点品牌的题:提及率无判定价值,状态由情感决定
         if n_sentiment == 0:
             return StageFinding(
                 stage=Stage.REPRESENTATION,
                 status=StageStatus.NOT_OBSERVABLE,
                 headline=msg("repr.headline.probe_none"),
                 evidence_lines=[
-                    msg("repr.mention_rate", **estimate_params(estimate)),
+                    msg("repr.mention_rate", **rate_params(r)),
                     caliber,
-                    *variant_msgs(mention_metric),
+                    *prompt_msgs(mention_metric),
                     msg("repr.claims_note"),
                 ],
             )
@@ -103,18 +102,18 @@ def diagnose_representation(
                 msg("repr.thresholds.probe",
                     weak=thresholds.negative_share_weak, fail=thresholds.negative_share_fail),
                 caliber,
-                *variant_msgs(mention_metric),
+                *prompt_msgs(mention_metric),
                 msg("repr.claims_note"),
             ],
             low_confidence=accounting.low_confidence,
         )
 
-    # 中立需求:先提及率,后情感封顶
-    status, notes = interval_status(
-        estimate,
+    # 不点名的题:先提及比例,后情感封顶
+    status, notes = rate_status(
+        r,
         low_confidence=accounting.low_confidence,
-        fail_ci_high=thresholds.mention_fail_ci_high,
-        pass_ci_low=thresholds.mention_pass_ci_low,
+        fail_below=thresholds.mention_fail_below,
+        pass_from=thresholds.mention_pass_from,
     )
     if status is StageStatus.PASS and negative_share > thresholds.negative_share_weak:
         notes.append(msg("repr.negative_cap", share=negative_share))
@@ -135,13 +134,13 @@ def diagnose_representation(
         status=status,
         headline=msg(headline),
         evidence_lines=[
-            msg("repr.mention_rate", **estimate_params(estimate)),
+            msg("repr.mention_rate", **rate_params(r)),
             *sentiment_part,
             msg("repr.thresholds.neutral",
-                fail=thresholds.mention_fail_ci_high, pass_=thresholds.mention_pass_ci_low,
+                fail=thresholds.mention_fail_below, pass_=thresholds.mention_pass_from,
                 neg=thresholds.negative_share_weak),
             caliber,
-            *variant_msgs(mention_metric),
+            *prompt_msgs(mention_metric),
             msg("repr.claims_note"),
             *notes,
         ],

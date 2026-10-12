@@ -34,8 +34,8 @@ SURFACE = "perplexity_agent"
 def make_request(prompt: str) -> AskRequest:
     return AskRequest(
         run_id=f"smoke-{uuid.uuid4().hex[:8]}",
-        information_need_id="smoke-need",
-        prompt_variant_id="smoke-variant",
+        prompt_id="smoke-prompt",
+        run_index=1,
         prompt_text=prompt,
         locale="zh-CN",
         timeout_s=60.0,

@@ -5,6 +5,7 @@ v1.1 结构化输出(16.5):L3 只产出**结论码 + 参数**(Msg),不产出任�
 阈值是产品口径的一部分:每个 StageFinding 在 evidence_lines 里自报
 所用阈值,报告渲染时随指标一并展示(铁律 5)。
 LOW_CONFIDENCE 的指标不允许给出确定性 PASS/FAIL 结论,一律降权 WEAK(7.3)。
+判定直接看比例(v0.4.26 S2,用户定 T1):不再算区间——同一道题的几次回答是一簇,区间是虚假精度。
 """
 
 from __future__ import annotations
@@ -13,8 +14,8 @@ from enum import StrEnum
 from typing import Any
 
 from diagnosis.messages import Msg, msg
-from engine.aggregate import NeedSurfaceMetric
-from engine.metrics import ProportionEstimate
+from engine.aggregate import ClassSurfaceMetric
+from engine.metrics import Rate
 from engine.models import FrozenModel
 
 
@@ -35,25 +36,23 @@ class StageStatus(StrEnum):
 class DiagnosisThresholds(FrozenModel):
     """阶段判定阈值(可配;默认值为 v1 操作阈值,随结论自报)。
 
-    判定一律基于 95% 区间端点而非点估计:FAIL 要求区间上界都低于阈值
-    (确信缺席),PASS 要求区间下界都高于阈值(确信在场),两者之间 WEAK。
+    普世线(v0.4.17 用户拍板;v0.4.26 S2 改为直接看比例,线不变):比例 < 20% 为 FAIL,≥ 50% 为 PASS,
+    中间 WEAK。红绿灯在所有项目上含义一致,行业差异靠竞品对比体现而非靠线。
 
-    v0.4.17(用户拍板):三项统一为「普世线」——整个区间 ≤ 20% 才 FAIL,整个区间
-    ≥ 50% 才 PASS,中间黄区留宽;红绿灯在所有项目上含义一致,行业差异靠竞品对比
-    体现而非靠线。样本少时 k=0 的上界收不进 20%(0/8 ≈ 0.26)只判 WEAK——
-    样本越少越不敢下定论,这是特性不是缺陷。
+    rate_gap:两个比例相差 ≥ 20 个百分点才说「不一样」——竞品对比的领先 / 落后、同仪器漏斗的落差、
+    检索依赖的开闭卷差别都用它。S2 初始值,待用户过目(架构书附录 v0.4.26 拍板结果 T1)。
     """
 
-    retrieval_fail_ci_high: float = 0.20
-    retrieval_pass_ci_low: float = 0.50
-    citation_fail_ci_high: float = 0.20
-    citation_pass_ci_low: float = 0.50
-    mention_fail_ci_high: float = 0.20
-    mention_pass_ci_low: float = 0.50
+    retrieval_fail_below: float = 0.20
+    retrieval_pass_from: float = 0.50
+    citation_fail_below: float = 0.20
+    citation_pass_from: float = 0.50
+    mention_fail_below: float = 0.20
+    mention_pass_from: float = 0.50
     negative_share_weak: float = 0.30  # 情感负面占比超此值,状态封顶 WEAK
-    negative_share_fail: float = 0.50  # 探针需求下负面过半 → FAIL
-    # 检索依赖(第 9 章):闭卷区间上界 < 开卷区间下界 × 此值 → HIGH(2026-09 用户拍板)
-    dependency_high_ratio: float = 0.5
+    negative_share_fail: float = 0.50  # 品牌事实题下负面过半 → FAIL
+    rate_gap: float = 0.20
+    dependency_high_ratio: float = 0.5  # 检索依赖(第 9 章):闭卷比例 < 开卷比例 × 此值 → HIGH
 
 
 class StageFinding(FrozenModel):
@@ -64,64 +63,51 @@ class StageFinding(FrozenModel):
     low_confidence: bool = False
 
 
-def estimate_params(estimate: ProportionEstimate) -> dict[str, Any]:
-    return {
-        "point": estimate.point,
-        "low": estimate.ci_low,
-        "high": estimate.ci_high,
-        "n": estimate.n,
-        "k": estimate.k,  # 用户视图用原始计数「N 次里 k 次」,不出单点概率
-    }
+def rate_params(r: Rate) -> dict[str, Any]:
+    return {"k": r.k, "n": r.n, "share": r.share}  # 用户视图用原始计数「N 次里 k 次」
 
 
-def caliber_msg(metric: NeedSurfaceMetric) -> Msg:
+def caliber_msg(metric: ClassSurfaceMetric) -> Msg:
     accounting = metric.accounting
     return msg(
         "common.caliber",
         surface=metric.surface,
         model=metric.model,
+        n_prompts=len(metric.per_prompt),
         n_valid=accounting.n_valid,
         n_total=accounting.n_total,
         stop_reasons=", ".join(r.value for r in metric.stop_reasons),
         refusal=accounting.refusal_rate,
         failure=accounting.failure_rate,
-        n_variants=len(metric.variant_estimates),
     )
 
 
-def variant_msgs(metric: NeedSurfaceMetric) -> list[Msg]:
-    """问法并列 + 措辞敏感警示(v0.4.13 条目 2)。问法是语义层的独立单位,需求层
-    合并估计只是冻结问法集上的观测率;任意两问法可信区间不重叠即措辞敏感。
-    单问法无并列可言,返回空。"""
+def prompt_msgs(metric: ClassSurfaceMetric) -> list[Msg]:
+    """逐题并列 + 题目覆盖率(产品文档 15.2):72 次里的 31 次命中可能全集中在少数几道题上。"""
     items = [
-        msg("common.variant_item", idx=i, **estimate_params(e))
-        if e is not None else msg("common.variant_item_none", idx=i)
-        for i, e in enumerate(metric.variant_estimates, start=1)
+        msg("common.prompt_item", idx=i, **rate_params(r))
+        if r is not None else msg("common.prompt_item_none", idx=i)
+        for i, r in enumerate(metric.per_prompt, start=1)
     ]
-    if len(items) < 2:
-        return []
-    lines = [msg("common.per_variant", items=items)]
-    estimates = [e for e in metric.variant_estimates if e is not None]
-    if any(
-        a.ci_high < b.ci_low or b.ci_high < a.ci_low
-        for i, a in enumerate(estimates)
-        for b in estimates[i + 1:]
-    ):
-        lines.append(msg("common.variant_sensitive"))
+    lines: list[Msg] = []
+    if len(items) >= 2:
+        lines.append(msg("common.per_prompt", items=items))
+    if metric.prompt_coverage is not None:
+        lines.append(msg("common.prompt_coverage", **rate_params(metric.prompt_coverage)))
     return lines
 
 
-def interval_status(
-    estimate: ProportionEstimate,
+def rate_status(
+    r: Rate,
     *,
     low_confidence: bool,
-    fail_ci_high: float,
-    pass_ci_low: float,
+    fail_below: float,
+    pass_from: float,
 ) -> tuple[StageStatus, list[Msg]]:
-    """区间三态判定 + LOW_CONFIDENCE 降权。返回 (状态, 附注)。"""
-    if estimate.ci_high <= fail_ci_high:
+    """比例三态判定 + LOW_CONFIDENCE 降权。返回 (状态, 附注)。"""
+    if r.share < fail_below:
         status = StageStatus.FAIL
-    elif estimate.ci_low >= pass_ci_low:
+    elif r.share >= pass_from:
         status = StageStatus.PASS
     else:
         status = StageStatus.WEAK
@@ -130,3 +116,12 @@ def interval_status(
         notes.append(msg("common.low_confidence_downgrade"))
         status = StageStatus.WEAK
     return status, notes
+
+
+def compare_rates(a: Rate, b: Rate, gap: float) -> int:
+    """两个比例的差别:a 比 b 高 ≥ gap → 1;低 ≥ gap → −1;差距不足 gap → 0(分不出)。"""
+    if a.share - b.share >= gap:
+        return 1
+    if b.share - a.share >= gap:
+        return -1
+    return 0

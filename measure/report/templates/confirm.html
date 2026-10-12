@@ -12,7 +12,7 @@
     <h3>{{ t["candidates_title"] }}</h3>
     {% for cand in job.candidates %}
     <label style="font-weight:400">
-      <input type="checkbox" name="needs_selected" value="{{ loop.index0 }}"
+      <input type="checkbox" name="prompts_selected" value="{{ loop.index0 }}"
              {{ "checked" if loop.index0 in job.preselected else "" }}>
       <span class="chip intent">{{ intent_labels[cand.intent] }}</span> {{ cand.text }}
     </label>
@@ -42,30 +42,16 @@
         <div style="margin-bottom:6px">
           {% if group|length > 1 %}<span class="muted">{{ ai_name }}</span>{% endif %}
           {% for target in group %}
-          <label style="font-weight:400"><input type="checkbox" name="targets_selected" value="{{ target.key }}" checked> {{ target.model if group|length > 1 else ai_name }}</label>
+          <label style="font-weight:400"><input type="checkbox" name="targets_selected" value="{{ target.key }}" {{ "checked" if target.key in default_keys else "" }}> {{ target.model if group|length > 1 else ai_name }}</label>
           {% endfor %}
         </div>
         {% endfor %}
       </div>
-      <div><label>{{ t["tier_label"] }}</label>
-        <select name="tier">{% for tid in tiers %}
-          <option value="{{ tid }}" {{ "selected" if tid == "quick" else "" }}>{{ t["tier_" + tid] }}</option>
-        {% endfor %}</select>
-        <label>{{ t["variants_label"] }}</label>
-        <select name="variants"><option>1</option><option>2</option><option selected>3</option><option>4</option><option>5</option></select>
-      </div>
       <div><label>{{ t["budget_label"] }}</label>
-        <input type="number" name="budget" step="0.1" min="0.1" placeholder="2.0">
+        <input type="number" name="budget" step="0.1" min="0.1" placeholder="10.0">
       </div>
     </div>
-    <table>
-      <caption class="muted" style="text-align:left">{{ t["tier_table_caption"] }}</caption>
-      <tr>{% for head in tier_table[0] %}<th>{{ head }}</th>{% endfor %}</tr>
-      {% for row in tier_table[1:] %}
-      <tr>{% for cell in row %}<td>{{ cell }}</td>{% endfor %}</tr>
-      {% endfor %}
-    </table>
-    <p class="muted" style="margin:2px 0 8px">{{ t["tier_table_note"] }}</p>
+    <p class="muted" style="margin:2px 0 8px">{{ t["runs_note"].format(n=runs_per_prompt) }}</p>
     <label style="font-weight:400"><input type="checkbox" name="dependency" value="on"> {{ t["dep_label"] }}</label>
     <p class="muted" style="margin:2px 0 8px">{{ t["dep_hint"] }}</p>
     <p class="kv">{{ t["est_label"] }}<b><span id="est-calls">–</span></b> {{ t["est_calls_word"] }} ·

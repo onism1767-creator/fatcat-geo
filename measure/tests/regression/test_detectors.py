@@ -38,8 +38,8 @@ def make_run(
 ) -> SurfaceRun:
     return SurfaceRun(
         run_id=run_id,
-        information_need_id="need-1",
-        prompt_variant_id="variant-1",
+        prompt_id="need-1",
+        run_index=1,
         provider="test_provider",
         surface="test_surface",
         model="test-model",

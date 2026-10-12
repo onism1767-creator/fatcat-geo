@@ -30,7 +30,7 @@ $DataDir = Join-Path $RepoRoot ".pgdata"
 $PidFile = Join-Path $DataDir "postmaster.pid"
 $Port = 5433
 $User = "geo"
-$Db = "geo_tool"
+$Db = "geo_toast"  # v0.4.26 S2 起的新库(表结构换代);旧方法的数据留在 geo_tool,原样不动
 $StartTimeoutSec = 180
 
 $PgBin = Get-ChildItem "C:\Program Files\PostgreSQL\*\bin" -ErrorAction SilentlyContinue |
@@ -124,6 +124,16 @@ function Kill-Server {
     return 0
 }
 
+function Ensure-Database {
+    # 库不存在就建(换库名后老机器也能直接 start)
+    & (Join-Path $PgBin "psql.exe") -p $Port -U $User -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$Db'" | Out-String -OutVariable exists | Out-Null
+    if ($exists.Trim() -ne "1") {
+        & (Join-Path $PgBin "createdb.exe") -p $Port -U $User $Db
+        if ($LASTEXITCODE -ne 0) { throw "createdb 失败" }
+        Write-Host "已创建数据库 $Db"
+    }
+}
+
 $code = 0
 switch ($Action) {
     "init" {
@@ -135,14 +145,9 @@ switch ($Action) {
         }
         $code = Start-Server
         if ($code -ne 0) { exit $code }
-        & (Join-Path $PgBin "psql.exe") -p $Port -U $User -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$Db'" | Out-String -OutVariable exists | Out-Null
-        if ($exists.Trim() -ne "1") {
-            & (Join-Path $PgBin "createdb.exe") -p $Port -U $User $Db
-            if ($LASTEXITCODE -ne 0) { throw "createdb 失败" }
-            Write-Host "已创建数据库 $Db"
-        }
+        Ensure-Database
     }
-    "start"  { $code = Start-Server }
+    "start"  { $code = Start-Server; if ($code -eq 0) { Ensure-Database } }
     "status" {
         if (Test-Answering) { Write-Host "RUNNING_OK:在跑且能连(端口 $Port)"; $code = 0 }
         elseif (Test-Listening) { Write-Host "[PG_ZOMBIE] 端口在听但不接连接 → .\scripts\pgdev.ps1 restart"; $code = 11 }

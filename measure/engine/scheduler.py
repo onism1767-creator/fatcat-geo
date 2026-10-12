@@ -1,18 +1,16 @@
-"""L2 序贯采样调度器:停止规则状态机(7.2)+ 重试与熔断(13.2)。
+"""L2 采样调度器:每道题原样问 runs_per_prompt 次(产品文档 15.2;v0.4.26 S2)+ 重试与熔断(13.2)。
 
 职责边界:
 - 重试/退避/熔断全部在这里,适配器内禁止(13.1);
 - 每次采样尝试必落一条 SurfaceRun,失败不蒸发(6.3):适配器抛出的
   Transient(重试耗尽)/Permanent 错误由本模块翻译为失败运行落库;
 - CapabilityNotSupportedError 是编程错误:直接上抛,不落库、不重试;
-- 收敛判据的"命中"由调用方注入(hit_fn:SurfaceRun → bool | None),
-  None 表示该运行不可观测此指标,不进分母——调度器不内嵌任何判定逻辑。
+- 调度器不内嵌任何判定逻辑:次数固定,不按结果提前停——同一道题的几次回答是一簇,
+  不是独立样本,「收敛」无从谈起。
 
-v1 实现口径(偏架构书细化,见文档附录):
-- 失败率熔断窗口为近 failure_window 次,但只要累计尝试 ≥ failure_min_attempts
-  即开始评估——若必须攒满 20 次才评估,max_n=20 的计划将永远得不到保护;
-- 分母长期为空(如全拒答)时由 max_total_attempts 兜底停止,记 MAX_N_REACHED,
-  真相由口径中的拒答率/失败率负责呈现。
+一个计划 = 一个被测对象(仪器 × 型号)× 一种检索模式,跨全部题目:失败率熔断窗口与预算都按计划计。
+幂等键 = (题 × surface × 型号 × 检索模式 × 第几次):已落库的槽位不再提问——任何终态都算一次尝试,
+拒答与失败如实进口径;账户问题行除外(那不是尝试,v0.4.21),其槽位续跑时重问。
 """
 
 from __future__ import annotations
@@ -34,19 +32,13 @@ from adapters.base import (
     SurfaceAdapter,
 )
 from adapters.http_support import classify_account_problem
-from engine.metrics import (
-    ProportionEstimate,
-    SampleAccounting,
-    account_outcomes,
-    estimate_proportion,
-)
+from engine.metrics import SampleAccounting, account_outcomes
 from engine.models import (
     ACCOUNT_ERROR_TYPES,
     AskRequest,
     FrozenModel,
-    InformationNeed,
     Outcome,
-    PromptVariant,
+    Prompt,
     RunError,
     RunErrorType,
     SearchMode,
@@ -98,12 +90,9 @@ class RunSink(Protocol):
 
 
 class SamplingPolicy(FrozenModel):
-    """停止规则与重试/熔断参数(7.2 / 13.2,阈值可配)。"""
+    """次数与重试/熔断参数(13.2,阈值可配)。"""
 
-    min_n: int = 5
-    max_n: int = 20
-    ci_width_threshold: float = 0.20
-    max_total_attempts: int = 60  # 分母停滞时的兜底上限
+    runs_per_prompt: int = 3  # 每道题原样问几次(产品文档 15.2)
     max_attempts: int = 3  # 单次采样的最大尝试数(含首次),仅 Transient 重试
     backoff_base_s: float = 1.0
     backoff_max_s: float = 30.0
@@ -115,23 +104,20 @@ class SamplingPolicy(FrozenModel):
 
 
 class SamplingResult(FrozenModel):
-    """一个 (PromptVariant × surface) 采样计划的结果与完整口径。"""
+    """一个采样计划(被测对象 × 检索模式,跨全部题目)的结果与口径。"""
 
-    information_need_id: str
-    prompt_variant_id: str
     provider: str
     surface: str
     model: str
+    search_mode: SearchMode
     stop_reason: StopReason
     n_attempts: int
     accounting: SampleAccounting
-    k_hits: int
-    estimate: ProportionEstimate | None  # 分母为空时 None
     total_cost_usd: float
     run_ids: list[str]
 
 
-class SequentialSampler:
+class RepeatSampler:
     def __init__(
         self,
         storage: RunSink,
@@ -146,133 +132,116 @@ class SequentialSampler:
     def run_plan(
         self,
         adapter: SurfaceAdapter,
-        need: InformationNeed,
-        variant: PromptVariant,
+        prompts: list[Prompt],
         *,
-        hit_fn: Callable[[SurfaceRun], bool | None],
         policy: SamplingPolicy | None = None,
         search_mode: SearchMode = SearchMode.DEFAULT,
         model: str | None = None,
         locale: str = "zh-CN",
         region: str | None = None,
-        prior_runs: list[SurfaceRun] | None = None,
+        prior_runs: dict[str, list[SurfaceRun]] | None = None,
         allow_new_calls: bool = True,
     ) -> SamplingResult:
-        """prior_runs:幂等续跑(v0.4.9)——本计划已落库的运行按时间序作为前缀,
-        指标、成本、熔断窗口与预算合并计算;既有样本已满足停止条件时零新调用。
-        幂等键 = (问法 × surface × 型号 × 检索模式),尝试序号由时间戳顺序隐含;
-        调用方传入的 prior_runs 必须已按这四项筛过(型号是口径的一部分,v0.4.19)。
+        """prior_runs:幂等续跑(v0.4.9)——按题已落库的运行(调用方必须已按 surface × 型号 × 检索模式
+        筛过;型号是口径的一部分,v0.4.19)。已填的槽位(run_index)直接复用,指标与成本合并计算。
         allow_new_calls=False:只按既有样本重算(重新生成报告),一次新调用都不发;
-        没满足任何停止条件就记 NOT_RESAMPLED。"""
+        有空槽位就记 NOT_RESAMPLED。"""
         policy = policy or SamplingPolicy()
         meta = adapter.meta()
         resolved_model = model or meta.default_model
+        prior_runs = prior_runs or {}
 
-        # 账户问题行(v0.4.21)不是尝试:只计数,不进 outcomes / 命中 / 熔断窗口
-        n_account_error = sum(is_account_error(r) for r in prior_runs or [])
-        prior_runs = [r for r in prior_runs or [] if not is_account_error(r)]
-        outcomes: list[Outcome] = [r.outcome for r in prior_runs]
-        hits: list[bool] = []
-        for prior in prior_runs:
-            if prior.outcome is Outcome.SUCCESS and (prior_hit := hit_fn(prior)) is not None:
-                hits.append(prior_hit)
+        outcomes: list[Outcome] = []
+        run_ids: list[str] = []
+        total_cost = 0.0
+        n_account_error = 0
         # 失败率熔断只看本次运行(v0.4.21):它防的是"现在还在失败就别再花钱",上一次运行的
         # 失败已是过去式——用它开场就熔断,会让续跑一次新调用都发不出
         recent_failures: deque[bool] = deque(maxlen=policy.failure_window)
-        run_ids: list[str] = [r.run_id for r in prior_runs]
-        total_cost = sum(r.cost_usd for r in prior_runs)
-        # 续跑:先按既有样本判停——已收敛的计划一分钱新调用都不发
-        stop_reason: StopReason | None = self._statistical_stop(hits, policy)
+        stop_reason: StopReason | None = None
 
-        while stop_reason is None:
-            # ── 采样前检查(会阻止花钱的停止条件)──────────────────────
-            if (
-                len(recent_failures) >= policy.failure_min_attempts
-                and sum(recent_failures) / len(recent_failures) > policy.failure_rate_threshold
-            ):
-                stop_reason = StopReason.FAILURE_RATE_EXCEEDED
-                log.warning("failure_breaker_tripped", surface=meta.surface,
-                            window=len(recent_failures), failures=sum(recent_failures))
+        for prompt in prompts:
+            prior = prior_runs.get(prompt.prompt_id, [])
+            n_account_error += sum(is_account_error(r) for r in prior)
+            filled: dict[int, SurfaceRun] = {}
+            for run in prior:
+                if not is_account_error(run):
+                    filled[run.run_index] = run
+            for run in filled.values():
+                outcomes.append(run.outcome)
+                run_ids.append(run.run_id)
+                total_cost += run.cost_usd
+            for run_index in range(1, policy.runs_per_prompt + 1):
+                if run_index in filled:
+                    continue
+                stop_reason = self._pre_call_stop(
+                    recent_failures, total_cost, policy, allow_new_calls=allow_new_calls, surface=meta.surface,
+                )
+                if stop_reason is not None:
+                    break
+                request = AskRequest(
+                    run_id=str(uuid4()),
+                    prompt_id=prompt.prompt_id,
+                    run_index=run_index,
+                    prompt_text=prompt.text,
+                    search_mode=search_mode,
+                    model=model,
+                    locale=locale,
+                    region=region,
+                    timeout_s=policy.timeout_s,
+                )
+                run = ask_with_retries(adapter, request, policy, sleep=self._sleep, rng=self._rng)
+                self._storage.insert_surface_run(run)
+                if is_account_error(run):  # 落库后立刻停:不进本计划的任何统计,也不再花一分钱
+                    assert run.error is not None
+                    raise AccountProblem(provider=meta.provider, surface=meta.surface, model=resolved_model,
+                                         error_type=run.error.error_type, message=run.error.message)
+                outcomes.append(run.outcome)
+                run_ids.append(run.run_id)
+                total_cost += run.cost_usd
+                recent_failures.append(
+                    run.outcome in (Outcome.TRANSIENT_FAILURE, Outcome.PERMANENT_FAILURE)
+                )
+                log.info("sample_recorded", run_id=run.run_id, surface=meta.surface, prompt_id=prompt.prompt_id,
+                         run_index=run_index, outcome=run.outcome.value, latency_ms=run.latency_ms,
+                         cost_usd=run.cost_usd)
+            if stop_reason is not None:
                 break
-            if policy.budget_usd is not None and total_cost >= policy.budget_usd:
-                stop_reason = StopReason.BUDGET_EXHAUSTED
-                log.warning("budget_exhausted", surface=meta.surface, cost_usd=total_cost)
-                break
-            if len(outcomes) >= policy.max_total_attempts:
-                stop_reason = StopReason.MAX_N_REACHED
-                log.warning("total_attempts_exhausted", surface=meta.surface,
-                            n_attempts=len(outcomes), n_valid=len(hits))
-                break
-            if not allow_new_calls:  # 只重算:结构上不可能再花钱
-                stop_reason = StopReason.NOT_RESAMPLED
-                break
 
-            # ── 执行一次采样(含 Transient 重试)────────────────────────
-            request = AskRequest(
-                run_id=str(uuid4()),
-                information_need_id=need.need_id,
-                prompt_variant_id=variant.variant_id,
-                prompt_text=variant.prompt_text,
-                search_mode=search_mode,
-                model=model,
-                locale=locale,
-                region=region,
-                timeout_s=policy.timeout_s,
-            )
-            run = ask_with_retries(adapter, request, policy, sleep=self._sleep, rng=self._rng)
-            self._storage.insert_surface_run(run)
-            if is_account_error(run):  # 落库后立刻停:不进本计划的任何统计,也不再花一分钱
-                assert run.error is not None
-                raise AccountProblem(provider=meta.provider, surface=meta.surface, model=resolved_model,
-                                     error_type=run.error.error_type, message=run.error.message)
-            run_ids.append(run.run_id)
-            outcomes.append(run.outcome)
-            total_cost += run.cost_usd
-            recent_failures.append(
-                run.outcome in (Outcome.TRANSIENT_FAILURE, Outcome.PERMANENT_FAILURE)
-            )
-            log.info("sample_recorded", run_id=run.run_id, surface=meta.surface,
-                     outcome=run.outcome.value, latency_ms=run.latency_ms, cost_usd=run.cost_usd)
-
-            if run.outcome is Outcome.SUCCESS:
-                hit = hit_fn(run)
-                if hit is not None:
-                    hits.append(hit)
-
-            # ── 采样后检查(统计停止条件,7.2 顺序)────────────────────
-            stop_reason = self._statistical_stop(hits, policy)
-
-        estimate = estimate_proportion(sum(hits), len(hits)) if hits else None
         result = SamplingResult(
-            information_need_id=need.need_id,
-            prompt_variant_id=variant.variant_id,
             provider=meta.provider,
             surface=meta.surface,
             model=resolved_model,
-            stop_reason=stop_reason,
+            search_mode=search_mode,
+            stop_reason=stop_reason or StopReason.COMPLETED,
             n_attempts=len(outcomes),
             accounting=account_outcomes(outcomes, n_account_error=n_account_error),
-            k_hits=sum(hits),
-            estimate=estimate,
             total_cost_usd=total_cost,
             run_ids=run_ids,
         )
-        log.info("plan_stopped", surface=meta.surface, stop_reason=stop_reason.value,
-                 n_attempts=result.n_attempts, n_valid=result.accounting.n_valid,
-                 k_hits=result.k_hits, cost_usd=total_cost)
+        log.info("plan_stopped", surface=meta.surface, model=resolved_model, search_mode=search_mode.value,
+                 stop_reason=result.stop_reason.value, n_attempts=result.n_attempts,
+                 n_valid=result.accounting.n_valid, cost_usd=total_cost)
         return result
 
     @staticmethod
-    def _statistical_stop(hits: list[bool], policy: SamplingPolicy) -> StopReason | None:
-        """统计停止条件(7.2):收敛优先于 max_n。既用于逐样本后检查,
-        也用于续跑时对既有样本的开场判停。"""
-        n_valid = len(hits)
-        if n_valid >= policy.min_n:
-            interim = estimate_proportion(sum(hits), n_valid)
-            if interim.width <= policy.ci_width_threshold:
-                return StopReason.CI_CONVERGED
-        if n_valid >= policy.max_n:
-            return StopReason.MAX_N_REACHED
+    def _pre_call_stop(
+        recent_failures: deque[bool], total_cost: float, policy: SamplingPolicy, *,
+        allow_new_calls: bool, surface: str,
+    ) -> StopReason | None:
+        """采样前检查(会阻止花钱的停止条件)。"""
+        if (
+            len(recent_failures) >= policy.failure_min_attempts
+            and sum(recent_failures) / len(recent_failures) > policy.failure_rate_threshold
+        ):
+            log.warning("failure_breaker_tripped", surface=surface,
+                        window=len(recent_failures), failures=sum(recent_failures))
+            return StopReason.FAILURE_RATE_EXCEEDED
+        if policy.budget_usd is not None and total_cost >= policy.budget_usd:
+            log.warning("budget_exhausted", surface=surface, cost_usd=total_cost)
+            return StopReason.BUDGET_EXHAUSTED
+        if not allow_new_calls:  # 只重算:结构上不可能再花钱
+            return StopReason.NOT_RESAMPLED
         return None
 
 
@@ -350,8 +319,8 @@ def _failure_run(
     meta = adapter.meta()  # 只在失败时取:构造失败记录要知道是哪台仪器、哪个型号
     return SurfaceRun(
         run_id=request.run_id,
-        information_need_id=request.information_need_id,
-        prompt_variant_id=request.prompt_variant_id,
+        prompt_id=request.prompt_id,
+        run_index=request.run_index,
         provider=meta.provider,
         surface=meta.surface,
         model=request.model or meta.default_model,

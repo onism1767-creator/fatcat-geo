@@ -3,16 +3,16 @@
 from diagnosis.findings import StageStatus
 from diagnosis.messages import msg, render_msg
 from diagnosis.verdict import Band, VerdictInput, band_of, combine, surface_verdict
-from engine.models import NeedIntent
+from engine.models import PromptIntent
 
-P, D = NeedIntent.BRAND_PROBE, NeedIntent.DISCOVERY
+P, D = PromptIntent.BRAND_FACT, PromptIntent.CATEGORY_DISCOVERY
 
 
 def vi(intent, mention, site):
     return VerdictInput(intent=intent, mention=mention, site_used=site)
 
 
-def test_band_maps_interval_status_only():
+def test_band_maps_rate_status_only():
     assert band_of(StageStatus.PASS) is Band.OFTEN
     assert band_of(StageStatus.WEAK) is Band.SOMETIMES
     assert band_of(StageStatus.FAIL) is Band.RARELY

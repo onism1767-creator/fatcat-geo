@@ -1,8 +1,8 @@
 """L4 任务执行器:只做编排(架构书附录 v0.4.24 第 5 节 ⑥),跑在后台线程,进度写回 job。
 
-流程:ACCESS 审计(秒级先出)→ 准备问法 → 采样(计划间并发、计划内严格串行;psycopg 连接
-非线程安全,每计划独立连接)→ 引用独立核验 → 逐题:观测(L2 engine.observe)→ 聚合
-(L2 engine.aggregate)→ 诊断(L3 diagnosis.assemble)→ 落档。任何未预期异常 → FAILED,页面如实展示。
+流程:ACCESS 审计(秒级先出)→ 题目落库 → 采样(计划 = 被测对象 × 检索模式,跨全部题目;计划间并发、
+计划内严格串行;psycopg 连接非线程安全,每计划独立连接)→ 引用独立核验 → 逐题型:观测(L2 engine.observe)
+→ 聚合(L2 engine.aggregate)→ 诊断(L3 diagnosis.assemble)→ 落档。任何未预期异常 → FAILED,页面如实展示。
 
 算数在 L2、下结论在 L3;本模块不含判定规则,也不含任何 surface 名字符串。
 """
@@ -18,35 +18,39 @@ import structlog
 from adapters.base import SurfaceAdapter
 from diagnosis import access_audit
 from diagnosis.access_audit import PathProbe, with_path_probes
-from diagnosis.assemble import diagnose_need_targets
+from diagnosis.assemble import diagnose_class_targets
 from diagnosis.citation_verify import CitationVerifier
-from diagnosis.diagnose import access_finding, diagnose_need
+from diagnosis.diagnose import access_finding, diagnose_class
 from diagnosis.recommender import EvidenceEntry
 from diagnosis.verdict import VerdictInput, surface_verdict
-from engine.aggregate import NeedSurfaceMetric, TargetMeasurement, measure_closed_book, measure_target
+from engine.aggregate import ClassSurfaceMetric, TargetMeasurement, measure_closed_book, measure_target
 from engine.models import (
     CitationEvidence,
-    InformationNeed,
-    PromptOrigin,
-    PromptVariant,
+    Prompt,
+    PromptIntent,
     RunErrorType,
     SearchMode,
     StopReason,
     SurfaceRun,
     Target,
 )
-from engine.observe import RunObservations, convergence_hit, observe, persist_observations
+from engine.observe import RunObservations, observe, persist_observations
 from engine.official_domains import official_candidates
-from engine.scheduler import AccountProblem, SamplingResult, SequentialSampler, reinterpret_account_errors
+from engine.scheduler import (
+    AccountProblem,
+    RepeatSampler,
+    SamplingResult,
+    is_account_error,
+    reinterpret_account_errors,
+)
 from engine.storage import Storage, StorageUnavailable
-from engine.variants import generate_variants
 from report.archive import attach_latest_report
 from report.jobs import (
     PLAN_CONCURRENCY,
-    TIERS,
+    POLICY,
+    ClassReport,
     DiagnosisJob,
     JobState,
-    NeedReport,
     current_code_version,
 )
 
@@ -58,13 +62,13 @@ _TRUNCATION_REASONS = (
     StopReason.SURFACE_DISABLED,
 )
 
-PlanKey = tuple[str, Target, SearchMode]  # (需求, 被测对象, 检索模式)
-RunsKey = tuple[str, Target]  # (需求, 被测对象)
+PlanKey = tuple[Target, SearchMode]  # 一个采样计划:被测对象 × 检索模式,跨全部题目
+RunsKey = tuple[str, Target]  # (题, 被测对象)
 
 
 class _ProgressSink:
-    """包一层存储:每落一条样本就给任务盖个时间戳,任务页据此显示「最近一次新结果在几分钟前」,
-    超过阈值就报 JOB_STALLED(v0.4.22)。"""
+    """包一层存储:每落一条样本就给任务盖个时间戳、进度加一,任务页据此显示进度与
+    「最近一次新结果在几分钟前」,超过阈值就报 JOB_STALLED(v0.4.22)。"""
 
     def __init__(self, storage: Storage, job: DiagnosisJob, lock: threading.Lock) -> None:
         self._storage, self._job, self._lock = storage, job, lock
@@ -72,6 +76,7 @@ class _ProgressSink:
     def insert_surface_run(self, run: SurfaceRun) -> None:
         self._storage.insert_surface_run(run)
         with self._lock:
+            self._job.completed_runs += 1
             self._job.last_result_at = datetime.now(UTC)
 
 
@@ -83,7 +88,7 @@ def execute_job(
     evidence: list[EvidenceEntry],
     replay: bool = False,
 ) -> None:
-    """replay=True:重新生成报告——只用库里已有的样本重算,不向 AI 提问(问法不补、样本不补)。"""
+    """replay=True:重新生成报告——只用库里已有的样本重算,不向 AI 提问(样本不补)。"""
     try:
         _execute(job, adapters=adapters, dsn=dsn, evidence=evidence, replay=replay)
     except AccountProblem as exc:  # v0.4.21:我方账户问题——停下、说人话、等充值后续跑
@@ -137,54 +142,61 @@ def _execute(
         storage.upsert_job_snapshot(job.to_snapshot())
         # 被测对象 = 仪器 × 型号(v0.4.19):型号是口径的一部分,计划、样本、指标、诊断块一律按对象分开
         adapter_of = {target: adapters[target.surface] for target in job.targets}
-        variants_by_need = _prepare_variants(job, storage, adapter_of, replay=replay)
-        results = _sample(job, dsn, adapter_of, variants_by_need, replay=replay)
+        for prompt in job.prompts:
+            storage.insert_prompt(prompt)  # 幂等:续跑不重复
+        job.spent_usd = storage.aux_spent_usd(job.job_id)  # 辅助调用(出题)记在账本里,续跑也不丢
+        results = _sample(job, dsn, adapter_of, replay=replay)
 
         job.phase = "phase_verify"
-        runs_by, offline_runs_by = _load_runs(job, storage, variants_by_need)
+        runs_by, offline_runs_by = _load_runs(job, storage)
         observations = {
             key: [observe(run, job.brand, job.competitors) for run in runs] for key, runs in runs_by.items()
+        }
+        offline_observations = {
+            key: [observe(run, job.brand, job.competitors) for run in runs] for key, runs in offline_runs_by.items()
         }
         evidence_map = _verify_citations(job, storage, observations)
 
         job.phase = "phase_scoring"
         access = access_finding(job.access_result)
-        verdict_inputs: dict[Target, list[VerdictInput]] = {}  # 被测对象 → 逐题原料(每个型号一句话)
-        for need in job.needs:
-            measurements, closed_book = _measure_need(
-                job, need, adapter_of, results, observations, variants_by_need)
-            blocks, need_verdicts = diagnose_need_targets(
-                intent=need.intent, access=access, measurements=measurements,
-                closed_book=closed_book, evidence_map=evidence_map, brand_name=job.brand.name,
-                registry=evidence,
+        verdict_inputs: dict[Target, list[VerdictInput]] = {}  # 被测对象 → 逐题型原料(每个型号一句话)
+        for intent in PromptIntent:  # 报告按题型分块,顺序即产品文档 15.2 的五类
+            prompts = [p for p in job.prompts if p.intent is intent]
+            if not prompts:
+                continue
+            measurements, closed_book = _measure_class(
+                job, intent, prompts, adapter_of, results, observations, offline_observations)
+            blocks, class_verdicts = diagnose_class_targets(
+                intent=intent, access=access, measurements=measurements, closed_book=closed_book,
+                evidence_map=evidence_map, brand_name=job.brand.name, registry=evidence,
             )
-            for target, verdict in need_verdicts.items():
+            for target, verdict in class_verdicts.items():
                 verdict_inputs.setdefault(target, []).append(verdict)
-            persist_observations(storage, [
-                run for target in adapter_of
-                for run in runs_by[(need.need_id, target)] + offline_runs_by[(need.need_id, target)]
-            ], job.brand)
-            job.need_reports.append(NeedReport(
-                need=need,
-                variant_texts=[v.prompt_text for v in variants_by_need[need.need_id]],
-                diagnosis=diagnose_need(need, access=access, surfaces=blocks),
+            job.class_reports.append(ClassReport(
+                intent=intent,
+                prompt_texts=[p.text for p in prompts],
+                diagnosis=diagnose_class(intent, access=access, surfaces=blocks),
             ))
+        persist_observations(storage, [
+            run for key in runs_by for run in runs_by[key] + offline_runs_by[key]
+        ], job.brand)
         job.surface_verdicts = [
             surface_verdict(target.surface, target.model, inputs) for target, inputs in verdict_inputs.items()
         ]
         # 数据里出现、可能也是官网的网址(如各地区官网):只提示,用户确认后才算官网(v0.4.24 D4)
         job.official_candidates = official_candidates([run for runs in runs_by.values() for run in runs], job.brand)
-        truncated = any(r.stop_reason in _TRUNCATION_REASONS for plan in results.values() for r in plan)
+        truncated = any(r.stop_reason in _TRUNCATION_REASONS for r in results.values())
         _finish(job, storage, truncated=truncated)
 
 
 def _reset_progress(job: DiagnosisJob) -> None:
-    """可重入(v0.4.9 幂等续跑):进度字段清零重算;已存的问法与运行按幂等键复用。"""
+    """可重入(v0.4.9 幂等续跑):进度字段清零重算;已存的运行按幂等键复用。"""
     job.state = JobState.RUNNING
     job.phase = "phase_access"
-    job.completed_plans = 0
+    job.total_runs = 0
+    job.completed_runs = 0
     job.spent_usd = 0.0
-    job.need_reports = []
+    job.class_reports = []
     job.surface_verdicts = []
     job.official_candidates = []
     job.started_at = datetime.now(UTC)
@@ -192,95 +204,62 @@ def _reset_progress(job: DiagnosisJob) -> None:
     job.error_code, job.error_params, job.error = None, {}, None
 
 
-def _prepare_variants(
-    job: DiagnosisJob, storage: Storage, adapter_of: dict[Target, SurfaceAdapter], *, replay: bool,
-) -> dict[str, list[PromptVariant]]:
-    """每道题的问法:续跑复用库里已有的(不重烧起草费),不够数再让 AI 改写补齐(只重算时不补)。"""
-    generation_adapter = next(
-        (a for a in adapter_of.values() if a.meta().capabilities.supports_citations), None
-    )
-    job.phase = "phase_variants"
-    variants_by_need: dict[str, list[PromptVariant]] = {}
-    for need in job.needs:
-        storage.insert_information_need(need)
-        variants = storage.variants_for_need(need.need_id)
-        if not variants:
-            variants = [
-                PromptVariant(need_id=need.need_id, prompt_text=need.statement, origin=PromptOrigin.USER)
-            ]
-            storage.insert_prompt_variant(variants[0])
-        extra = job.variants_per_need - len(variants)
-        if extra > 0 and generation_adapter is not None and not replay:
-            fresh = generate_variants(
-                generation_adapter, need, count=extra, locale=job.locale,
-                ledger=lambda run: storage.insert_aux_call(job_id=job.job_id, task="变体生成", run=run),
-            )
-            for variant in fresh:
-                storage.insert_prompt_variant(variant)
-            variants += fresh
-        variants_by_need[need.need_id] = variants
-    job.spent_usd = storage.aux_spent_usd(job.job_id)  # 辅助调用(出题、改写问法)全部记在账本里,续跑也不丢
-    return variants_by_need
-
-
 def _sample(
     job: DiagnosisJob,
     dsn: str,
     adapter_of: dict[Target, SurfaceAdapter],
-    variants_by_need: dict[str, list[PromptVariant]],
     *,
     replay: bool,
-) -> dict[PlanKey, list[SamplingResult]]:
+) -> dict[PlanKey, SamplingResult]:
     # 检索依赖对照(第 9 章挂靠):启用时,为支持 search_disabled 的对象追加闭卷腿计划——
-    # 同一批问法、同采样策略,仅检索模式不同(模式即口径)
+    # 同一批题目、同采样参数,仅检索模式不同(模式即口径)
     dependency_targets = [
         target for target, adapter in adapter_of.items()
         if job.dependency_enabled and adapter.meta().capabilities.supports_search_disabled
     ]
-    plans = [
-        (need, target, SearchMode.DEFAULT) for need in job.needs for target in adapter_of
-    ] + [
-        (need, target, SearchMode.SEARCH_DISABLED) for need in job.needs for target in dependency_targets
+    plans: list[PlanKey] = [(target, SearchMode.DEFAULT) for target in adapter_of] + [
+        (target, SearchMode.SEARCH_DISABLED) for target in dependency_targets
     ]
-    job.total_plans = len(plans)
     per_plan_budget = job.budget_usd / len(plans) if job.budget_usd else None
-    policy = TIERS[job.tier_id].policy.model_copy(update={"budget_usd": per_plan_budget})
+    policy = POLICY.model_copy(update={"budget_usd": per_plan_budget})
+    job.total_runs = len(job.prompts) * policy.runs_per_prompt * len(plans)
 
     job.phase = "phase_sampling"
     progress_lock = threading.Lock()
     halt = threading.Event()  # 任一计划撞上账户问题即举旗:还没开始的计划不再发一次调用
-    results: dict[PlanKey, list[SamplingResult]] = {}
+    results: dict[PlanKey, SamplingResult] = {}
 
-    def run_one(plan: tuple[InformationNeed, Target, SearchMode]) -> None:
+    def run_one(plan: PlanKey) -> None:
         if halt.is_set():
             return
-        need, target, mode = plan
+        target, mode = plan
         adapter = adapter_of[target]
-        hit_fn = convergence_hit(adapter.meta().capabilities, mode, job.brand)
         plan_storage = Storage(dsn)  # psycopg 连接非线程安全:每计划独立连接
         try:
-            sampler = SequentialSampler(_ProgressSink(plan_storage, job, progress_lock))
-            plan_results = []
-            for variant in variants_by_need[need.need_id]:
-                prior = reinterpret_account_errors([  # 幂等键 (问法 × surface × 型号 × 模式) 下已存的运行,续跑作前缀
-                    r for r in plan_storage.runs_for_variant(
-                        variant.variant_id, surface=target.surface, model=target.model)
+            prior = {  # 幂等键 (题 × surface × 型号 × 模式) 下已存的运行,续跑直接复用槽位
+                prompt.prompt_id: reinterpret_account_errors([
+                    r for r in plan_storage.runs_for_prompt(
+                        prompt.prompt_id, surface=target.surface, model=target.model)
                     if r.search_mode == mode
                 ])
-                plan_results.append(
-                    sampler.run_plan(adapter, need, variant, hit_fn=hit_fn, policy=policy,
-                                     search_mode=mode, model=target.model, locale=job.locale,
-                                     prior_runs=prior, allow_new_calls=not replay)
+                for prompt in job.prompts
+            }
+            with progress_lock:  # 复用的槽位也算进度(每题最多 runs_per_prompt 个)
+                job.completed_runs += sum(
+                    min(policy.runs_per_prompt, len({r.run_index for r in runs if not is_account_error(r)}))
+                    for runs in prior.values()
                 )
+            sampler = RepeatSampler(_ProgressSink(plan_storage, job, progress_lock))
+            result = sampler.run_plan(adapter, job.prompts, policy=policy, search_mode=mode, model=target.model,
+                                      locale=job.locale, prior_runs=prior, allow_new_calls=not replay)
         except AccountProblem:
             halt.set()
             raise
         finally:
             plan_storage.close()
         with progress_lock:
-            results[(need.need_id, target, mode)] = plan_results
-            job.completed_plans += 1
-            job.spent_usd += sum(r.total_cost_usd for r in plan_results)
+            results[plan] = result
+            job.spent_usd += result.total_cost_usd
 
     with ThreadPoolExecutor(max_workers=PLAN_CONCURRENCY) as pool:
         list(pool.map(run_one, plans))
@@ -288,23 +267,20 @@ def _sample(
 
 
 def _load_runs(
-    job: DiagnosisJob, storage: Storage, variants_by_need: dict[str, list[PromptVariant]]
+    job: DiagnosisJob, storage: Storage,
 ) -> tuple[dict[RunsKey, list[SurfaceRun]], dict[RunsKey, list[SurfaceRun]]]:
-    """取回每题每个对象的全部运行;闭卷腿单独归档——检索模式即口径,禁止混入开卷指标的分母。"""
+    """取回每题每个对象的全部运行(旧账户问题行按 L1 现行规则重新解读,与续跑同一条规则);
+    闭卷腿单独归档——检索模式即口径,禁止混入开卷指标的分母。"""
     runs_by: dict[RunsKey, list[SurfaceRun]] = {}
     offline_runs_by: dict[RunsKey, list[SurfaceRun]] = {}
-    for need in job.needs:
-        variant_ids = [v.variant_id for v in variants_by_need[need.need_id]]
+    for prompt in job.prompts:
         for target in job.targets:
-            all_runs = [
-                run
-                for vid in variant_ids
-                for run in storage.runs_for_variant(vid, surface=target.surface, model=target.model)
-            ]
-            runs_by[(need.need_id, target)] = [
+            all_runs = reinterpret_account_errors(
+                storage.runs_for_prompt(prompt.prompt_id, surface=target.surface, model=target.model))
+            runs_by[(prompt.prompt_id, target)] = [
                 run for run in all_runs if run.search_mode != SearchMode.SEARCH_DISABLED
             ]
-            offline_runs_by[(need.need_id, target)] = [
+            offline_runs_by[(prompt.prompt_id, target)] = [
                 run for run in all_runs if run.search_mode == SearchMode.SEARCH_DISABLED
             ]
     return runs_by, offline_runs_by
@@ -329,33 +305,37 @@ def _verify_citations(
     return evidence_map
 
 
-def _measure_need(
+def _measure_class(
     job: DiagnosisJob,
-    need: InformationNeed,
+    intent: PromptIntent,
+    prompts: list[Prompt],
     adapter_of: dict[Target, SurfaceAdapter],
-    results: dict[PlanKey, list[SamplingResult]],
+    results: dict[PlanKey, SamplingResult],
     observations: dict[RunsKey, list[RunObservations]],
-    variants_by_need: dict[str, list[PromptVariant]],
-) -> tuple[list[TargetMeasurement], dict[Target, NeedSurfaceMetric]]:
+    offline_observations: dict[RunsKey, list[RunObservations]],
+) -> tuple[list[TargetMeasurement], dict[Target, ClassSurfaceMetric]]:
     """按各对象声明的能力分派到 L2 聚合:能回答的出全套指标(检索链路可观测的多一截生成端检索指标),
-    跑过闭卷腿的出闭卷提及率。"""
-    variant_ids = [v.variant_id for v in variants_by_need[need.need_id]]
+    跑过闭卷腿的出闭卷提及比例。"""
+    prompt_ids = [p.prompt_id for p in prompts]
     competitor_names = [c.name for c in job.competitors]
     measurements: list[TargetMeasurement] = []
-    closed_book: dict[Target, NeedSurfaceMetric] = {}
+    closed_book: dict[Target, ClassSurfaceMetric] = {}
     for target, adapter in adapter_of.items():
         meta = adapter.meta()
-        plan_results = results[(need.need_id, target, SearchMode.DEFAULT)]
-        target_obs = observations[(need.need_id, target)]
-        if meta.capabilities.supports_citations:
-            measurements.append(measure_target(
-                target, meta.provider, plan_results, target_obs, variant_ids,
-                competitor_names=competitor_names,
-                exposes_retrieval=meta.capabilities.supports_query_trace,
-            ))
-            closed_key = (need.need_id, target, SearchMode.SEARCH_DISABLED)
-            if closed_key in results:
-                closed_book[target] = measure_closed_book(results[closed_key])
+        if not meta.capabilities.supports_citations:
+            continue
+        open_obs = [o for pid in prompt_ids for o in observations[(pid, target)]]
+        measurements.append(measure_target(
+            target, meta.provider, intent, open_obs, prompt_ids,
+            stop_reason=results[(target, SearchMode.DEFAULT)].stop_reason,
+            competitor_names=competitor_names,
+            exposes_retrieval=meta.capabilities.supports_query_trace,
+        ))
+        closed_key = (target, SearchMode.SEARCH_DISABLED)
+        if closed_key in results:
+            closed_obs = [o for pid in prompt_ids for o in offline_observations[(pid, target)]]
+            closed_book[target] = measure_closed_book(
+                target, meta.provider, intent, closed_obs, prompt_ids, stop_reason=results[closed_key].stop_reason)
     return measurements, closed_book
 
 
@@ -370,4 +350,4 @@ def _finish(job: DiagnosisJob, storage: Storage, *, truncated: bool) -> None:
     )
     attach_latest_report(job, storage)  # 装回档案信息(第几版、生成时间)
     log.info("job_finished", job_id=job.job_id, state=job.state.value,
-             plans=job.total_plans, spent_usd=round(job.spent_usd, 4))
+             runs=job.total_runs, spent_usd=round(job.spent_usd, 4))

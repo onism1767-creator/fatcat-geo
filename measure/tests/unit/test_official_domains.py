@@ -23,7 +23,7 @@ BRAND = BrandSpec(name="始祖鸟", domains=["arcteryx.com"])
 
 def _run(run_id: str, sources: list[str] | None, cited: list[str]) -> SurfaceRun:
     return SurfaceRun(
-        run_id=run_id, information_need_id="n", prompt_variant_id="v", provider="p", surface="s", model="m",
+        run_id=run_id, prompt_id="n", run_index=1, provider="p", surface="s", model="m",
         search_mode=SearchMode.DEFAULT, locale="zh-CN", outcome=Outcome.SUCCESS,
         search_trace=SearchTrace(retrieved_sources=[
             RetrievedSource(url=f"https://{d}/x", domain=d, rank=i + 1) for i, d in enumerate(sources)

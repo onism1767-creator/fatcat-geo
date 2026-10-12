@@ -40,11 +40,11 @@
   {% endif %}
 </div>
 
-{% for nr in job.need_reports %}
-{% set d = nr.diagnosis %}
+{% for cr in job.class_reports %}
+{% set d = cr.diagnosis %}
 <div class="card">
-  <h2 style="margin-top:0">{{ t["sec2_title"] }} · {{ intent_labels[nr.need.intent] }}</h2>
-  <p class="kv">「{{ nr.need.statement }}」</p>
+  <h2 style="margin-top:0">{{ t["sec2_title"] }} · {{ intent_labels[cr.intent] }}</h2>
+  <p class="kv muted">{{ t["prompts_in_class"].format(n=cr.prompt_texts|length, runs=runs_per_prompt) }}</p>
   <table>
     <tr><th>{{ t["col_ai"] }}</th>{% for stage in funnel_stages %}<th>{{ stage_msg(stage)|plain(lang) }}</th>{% endfor %}<th>{{ t["dep_col"] }}</th></tr>
     {% for sd in d.surfaces %}
@@ -61,13 +61,12 @@
 </div>
 {% endfor %}
 
-{% for nr in job.need_reports %}
+{% for cr in job.class_reports %}
 <div class="card">
-  <h2 style="margin-top:0">{{ t["sec3_title"] }} · {{ intent_labels[nr.need.intent] }}</h2>
-  <p class="kv">「{{ nr.need.statement }}」</p>
+  <h2 style="margin-top:0">{{ t["sec3_title"] }} · {{ intent_labels[cr.intent] }}</h2>
   <table class="brief">
     <tr><th>{{ t["col_ai"] }}</th><th>{{ t["col_seen"] }}</th><th>{{ t["col_basis"] }}</th><th>{{ t["col_notes"] }}</th></tr>
-    {% for eb in summary.engines[nr.need.need_id] %}
+    {% for eb in summary.engines[cr.intent.value] %}
     <tr>
       <td><b>{{ eb.display }}</b></td>
       <td>{{ eb.phenomenon|plain(lang) }}</td>
@@ -96,7 +95,7 @@
             {{ t["sources_word"] }}:{{ "; ".join(rec.sources[lang]) }}
             {% if rec.guardrail %}<br>{{ t["guardrail_word"] }}:{{ rec.guardrail[lang] }}{% endif %}
             {% if rec.contraindications[lang] %}<br>{{ t["contra_word"] }}:{{ "; ".join(rec.contraindications[lang]) }}{% endif %}
-            <br>{{ t["supporters_summary"] }}:{% for statement, display in a.supporters %}「{{ statement }}」× {{ display }}{% if not loop.last %};{% endif %}{% endfor %}</div>
+            <br>{{ t["supporters_summary"] }}:{% for intent, display in a.supporters %}「{{ intent_labels[intent] }}」× {{ display }}{% if not loop.last %};{% endif %}{% endfor %}</div>
         </details></td>
       <td>{{ rec.verify[lang] }}</td>
     </tr>
@@ -127,11 +126,12 @@
   </details>
   {% else %}<p class="muted">{{ t["access_missing"] }}</p>{% endif %}
 
-  {% for nr in job.need_reports %}
-  {% set d = nr.diagnosis %}
+  {% for cr in job.class_reports %}
+  {% set d = cr.diagnosis %}
   <details class="audit">
-    <summary><b>{{ intent_labels[nr.need.intent] }} · {{ nr.need.statement }}</b> — {{ t["audit_open"] }}</summary>
-    <p class="kv">{{ t["sampled_variants"] }}:{% for vt in nr.variant_texts %}「{{ vt }}」{% endfor %}</p>
+    <summary><b>{{ intent_labels[cr.intent] }}</b> — {{ t["audit_open"] }}</summary>
+    <p class="kv">{{ t["sampled_prompts"] }}:</p>
+    <ol class="ev">{% for pt in cr.prompt_texts %}<li>{{ pt }}</li>{% endfor %}</ol>
 
     {% for sd in d.surfaces %}
     <h3 style="border-top:1px solid #e4e9f0; padding-top:10px">◆ {{ sd.surface }}
@@ -176,7 +176,8 @@
   </details>
   {% endfor %}
 
-  <p class="muted" style="margin-top:14px">{{ t["fingerprint_word"] }} {{ job.fingerprint }} · {{ t["tier_" + job.tier_id] }} ·
+  <p class="muted" style="margin-top:14px">{{ t["fingerprint_word"] }} {{ job.fingerprint }} ·
+    {{ t["method_line"].format(prompts=job.prompts|length, runs=runs_per_prompt) }} ·
     {{ t["locale_word"] }} {{ job.locale }} · {{ job.created_at.strftime("%Y-%m-%d %H:%M") }} {{ t["started_word"] }} ·
     {{ t["cost_word"] }} ${{ "%.4f"|format(job.spent_usd) }}
     {% if job.state.value == "PARTIAL" %} · <b>{{ t["partial_note"] }}</b>{% endif %}

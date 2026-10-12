@@ -1,4 +1,4 @@
-"""L4 成本与时长预估(16.4;v0.4.17 起按库里实测;v0.4.19 按型号)——全项目唯一一份预估公式。
+"""L4 成本与时长预估(16.4;v0.4.17 起按库里实测;v0.4.19 按型号;v0.4.26 S2 次数固定)——全项目唯一一份预估公式。
 
 确认页每次勾选变化都向服务端要一次结果(POST /jobs/{id}/estimate),页面脚本只负责显示,不再自带公式。
 """
@@ -8,7 +8,7 @@ from __future__ import annotations
 from adapters.base import SurfaceAdapter
 from engine.models import FrozenModel, SearchMode, Target
 from engine.storage import CallStat
-from report.jobs import PLAN_CONCURRENCY, TIERS
+from report.jobs import PLAN_CONCURRENCY
 
 # 兜底值(v0.4.17):库里没有足量历史时用;有历史即按实测均值(香奈儿首单加权均值 20.2 s)
 AVG_SECONDS_PER_CALL = 20.0
@@ -65,16 +65,15 @@ class Estimate(FrozenModel):
 
 def estimate_job(
     *,
-    n_needs: int,
-    variants_per_need: int,
+    n_prompts: int,
+    runs_per_prompt: int,
     targets: list[Target],
-    tier_id: str,
     dependency: bool,
     prices: UnitPrices,
 ) -> Estimate:
-    """每条腿(一个对象 × 一种检索模式)的期望调用数 = 题数 × 问法数 × 档位期望采样数;
+    """每条腿(一个对象 × 一种检索模式)的调用数 = 题数 × 每题次数(次数固定,v0.4.26 S2);
     启用检索依赖对照时,支持闭卷的对象多一条闭卷腿,按闭卷单价另计。"""
-    per_leg_calls = n_needs * variants_per_need * TIERS[tier_id].expected_calls_per_plan
+    per_leg_calls = n_prompts * runs_per_prompt
     per_target: list[tuple[Target, float]] = []
     legs = 0
     for target in targets:
@@ -86,7 +85,7 @@ def estimate_job(
         per_target.append((target, cost))
     calls = per_leg_calls * legs
     return Estimate(
-        calls=int(calls + 0.5),  # 四舍五入(与页面原先的显示一致,不用银行家舍入)
+        calls=calls,
         cost_usd=sum(cost for _, cost in per_target),
         minutes=calls * prices.seconds_per_call / 60 / PLAN_CONCURRENCY,
         per_target=per_target,

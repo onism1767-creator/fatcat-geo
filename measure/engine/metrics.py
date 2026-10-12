@@ -1,11 +1,7 @@
-"""L2 阶段指标:比例估计与可信区间(第 7 章)。
+"""L2 阶段指标:计数与比例(产品文档 15.2;v0.4.26 S2)。
 
-区间构造定死为 Jeffreys(7.1):取 Beta(k+0.5, n−k+0.5) 后验的
-2.5% / 97.5% 分位数,用 scipy.stats.beta.ppf,不自造公式。
-它是当前模型假设下的后验可信区间,不是任意停止时间下具一致覆盖的置信区间(v0.4.13 条目 3)。
-采用标准 Jeffreys 边界约定(Brown–Cai–DasGupta 2001):
-k=0 时下界取 0,k=n 时上界取 1——否则区间不覆盖点估计,
-违反 12.1 要求的属性(覆盖点估计、边界不退化)。
+不显示区间:同一道题的几次回答是一簇,72 条回答不是 72 个独立样本,把它们当独立的伯努利试验
+算区间是虚假精度。写法一律「k / n = 比例」;以后要做区间,以题为抽样单位做 cluster bootstrap(另案)。
 
 分母规则以 7.3 为唯一权威:比例指标分母 = outcome 为 SUCCESS 的运行数;
 拒答与失败不进分母,但拒答率/失败率必须作为口径随指标输出;
@@ -17,46 +13,37 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Iterable
 
-from scipy.stats import beta
-
 from engine.models import FrozenModel, Outcome
 
 LOW_CONFIDENCE_THRESHOLD = 0.20  # 7.3:无效样本占比超此阈值 → LOW_CONFIDENCE(可配)
 
 
-def jeffreys_interval(k: int, n: int) -> tuple[float, float]:
-    """二元结果命中概率的 95% 可信区间(Jeffreys 先验)。k=命中次数,n=有效样本数。"""
-    if n <= 0:
-        raise ValueError(f"n 必须为正,收到 {n}")
-    if not 0 <= k <= n:
-        raise ValueError(f"k 必须在 [0, n] 内,收到 k={k}, n={n}")
-    lower = 0.0 if k == 0 else float(beta.ppf(0.025, k + 0.5, n - k + 0.5))
-    upper = 1.0 if k == n else float(beta.ppf(0.975, k + 0.5, n - k + 0.5))
-    return lower, upper
+class Rate(FrozenModel):
+    """一个比例指标:k 次命中 / n 次有效观测。
 
-
-class ProportionEstimate(FrozenModel):
-    """一个比例指标:点估计 + 95% 可信区间(Jeffreys 先验)。
-
-    这只是数值部分;完整口径(surface/model/N/stop_reason/时间窗/地区)
+    这只是数值部分;完整口径(surface/model/题数/每题次数/stop_reason/时间窗/地区)
     由聚合层在其外层补齐(7.4),缺口径的数值不允许单独进报告。
     """
 
     k: int
     n: int
-    point: float
-    ci_low: float
-    ci_high: float
-    method: str = "jeffreys-95"
 
     @property
-    def width(self) -> float:
-        return self.ci_high - self.ci_low
+    def share(self) -> float:
+        return self.k / self.n
 
 
-def estimate_proportion(k: int, n: int) -> ProportionEstimate:
-    lower, upper = jeffreys_interval(k, n)
-    return ProportionEstimate(k=k, n=n, point=k / n, ci_low=lower, ci_high=upper)
+def rate(k: int, n: int) -> Rate:
+    if n <= 0:
+        raise ValueError(f"n 必须为正,收到 {n}")
+    if not 0 <= k <= n:
+        raise ValueError(f"k 必须在 [0, n] 内,收到 k={k}, n={n}")
+    return Rate(k=k, n=n)
+
+
+def rate_of(flags: list[bool]) -> Rate | None:
+    """一组是/否观测的比例;没有观测 → None(不进分母,不是 0)。"""
+    return rate(sum(flags), len(flags)) if flags else None
 
 
 class SampleAccounting(FrozenModel):
@@ -80,7 +67,7 @@ def merge_accounting(
     parts: Iterable[SampleAccounting],
     low_confidence_threshold: float = LOW_CONFIDENCE_THRESHOLD,
 ) -> SampleAccounting:
-    """合并多份记账(如同一需求下多个问法的采样),比率按合并后总数重算。"""
+    """合并多份记账,比率按合并后总数重算。"""
     n_total = n_valid = n_refused = n_transient = n_permanent = n_account = 0
     for part in parts:
         n_total += part.n_total

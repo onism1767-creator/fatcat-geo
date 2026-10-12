@@ -7,21 +7,23 @@ import re
 
 from fastapi.testclient import TestClient
 
-from engine.models import BrandSpec, InformationNeed, NeedIntent, PromptOrigin
-from engine.variants import generate_variants
+from engine.models import BrandSpec
 from report.app import create_app
-from tests.unit.test_needs import COMPETITORS_OK, RecordingAdapter
+from tests.unit.test_needs import COMPARISON_OK, COMPETITORS_OK, FACTS_OK, RecordingAdapter
 from tests.unit.test_report_page import REGISTRY, DummyAdapter, finished_job
 
 BRAND = BrandSpec(name="AuroraCRM", domains=["aurora-crm.com"])
 
-NEUTRAL_EN = {
-    "discovery": [f"discovery q{i}" for i in range(1, 7)],
-    "comparison": [f"comparison q{i}" for i in range(1, 5)],
-    "scenario": [f"scenario q{i}" for i in range(1, 5)],
+BLIND_EN = {
+    "category_discovery": [f"discovery q{i}" for i in range(1, 9)],
+    "problem_solution": [f"problem q{i}" for i in range(1, 5)],
+    "recommendation": [f"recommendation q{i}" for i in range(1, 5)],
 }
-PROBES_EN = {"brand_probe": ["Is AuroraCRM good? Strengths and weaknesses?",
-                             "How does AuroraCRM compare on value for money?"]}
+COMPARISON_EN = {"comparison_alternative": [f"comparison q{i}" for i in range(1, 5)]}
+COMPETITORS_EN = {"competitors": [{"name": "SalesLoop", "domain": "salesloop.example"},
+                                  {"name": "CloudDesk", "domain": "clouddesk.example"}]}  # 英文题的竞品名也是英文
+FACTS_EN = {"brand_fact": ["Is AuroraCRM good? Strengths and weaknesses?", "What does AuroraCRM do?",
+                           "How does AuroraCRM compare on value for money?", "Who is AuroraCRM for?"]}
 
 
 def has_cjk(text: str) -> bool:
@@ -29,53 +31,25 @@ def has_cjk(text: str) -> bool:
 
 
 def test_en_locale_selects_english_drafting_prompts():
-    from engine.needs import draft_need_candidates
+    from engine.drafting import draft_prompt_candidates
 
-    adapter = RecordingAdapter([NEUTRAL_EN, COMPETITORS_OK, PROBES_EN])
-    draft_need_candidates(adapter, category="CRM software", brand=BRAND, locale="en-US", ledger=lambda run: None)
-    neutral_prompt, competitor_prompt, probe_prompt = adapter.prompts
-    assert "Draft EXACTLY" in neutral_prompt and not has_cjk(neutral_prompt)
+    adapter = RecordingAdapter([BLIND_EN, COMPETITORS_EN, COMPARISON_EN, FACTS_EN])
+    draft_prompt_candidates(adapter, category="CRM software", brand=BRAND, locale="en-US", ledger=lambda run: None)
+    blind_prompt, competitor_prompt, comparison_prompt, facts_prompt = adapter.prompts
+    assert "Draft EXACTLY" in blind_prompt and not has_cjk(blind_prompt)
     assert "EXCLUDING" in competitor_prompt and not has_cjk(competitor_prompt)
-    assert "TWO-SIDED" in probe_prompt and not has_cjk(probe_prompt)
+    assert "alternatives" in comparison_prompt and not has_cjk(comparison_prompt)
+    assert "TWO-SIDED" in facts_prompt and not has_cjk(facts_prompt)
 
 
 def test_zh_locale_keeps_chinese_drafting_prompts():
-    from engine.needs import draft_need_candidates
-    from tests.unit.test_needs import NEUTRAL_OK, PROBES_OK
+    from engine.drafting import draft_prompt_candidates
+    from tests.unit.test_needs import BLIND_OK
 
-    adapter = RecordingAdapter([NEUTRAL_OK, COMPETITORS_OK, PROBES_OK])
-    draft_need_candidates(adapter, category="CRM", brand=BrandSpec(name="极光CRM"), locale="zh-CN",
+    adapter = RecordingAdapter([BLIND_OK, COMPETITORS_OK, COMPARISON_OK, FACTS_OK])
+    draft_prompt_candidates(adapter, category="CRM", brand=BrandSpec(name="极光CRM"), locale="zh-CN",
                           ledger=lambda run: None)
     assert has_cjk(adapter.prompts[0])
-
-
-def test_variant_template_follows_locale():
-    from datetime import UTC, datetime
-
-    from engine.models import Answer, Outcome, SurfaceRun
-
-    class LineAdapter:
-        def __init__(self):
-            self.prompt = None
-
-        def ask(self, request):
-            self.prompt = request.prompt_text
-            return SurfaceRun(
-                run_id=request.run_id, information_need_id=request.information_need_id,
-                prompt_variant_id=request.prompt_variant_id,
-                provider="p", surface="s", model="m",
-                search_mode=request.search_mode, locale=request.locale,
-                outcome=Outcome.SUCCESS,
-                answer=Answer(answer_text="Which CRM fits a small team?",
-                              citations_available=False),
-                timestamp=datetime.now(UTC), latency_ms=1, cost_usd=0.0,
-            )
-
-    need = InformationNeed(statement="Best CRM for small teams", intent=NeedIntent.DISCOVERY)
-    adapter = LineAdapter()
-    variants = generate_variants(adapter, need, count=1, locale="en-US", ledger=lambda run: None)
-    assert not has_cjk(adapter.prompt)
-    assert variants[0].origin is PromptOrigin.ASSISTED
 
 
 def test_ui_language_toggle():
@@ -98,7 +72,7 @@ def test_report_page_fully_english():
     html = client.get(f"/jobs/{job.job_id}/report?lang=en").text
     assert "AI Visibility Report" in html
     assert "the brand rarely reaches the model" in html  # L3 结论英文化(s2 生成端检索 FAIL;撇号会被转义)
-    assert "Significantly behind competitor" in html
+    assert "points behind competitor" in html
     assert "NOT recommended" in html  # 不建议全页改写的英文警示
     assert "experiment recommended" in html  # C 级以下实验标注英文版
     assert "stop_reasons" in html and "EVIDENCE_" in html  # 口径要素不丢
@@ -119,18 +93,18 @@ def test_catalog_bilingual_completeness():
 
 def test_plain_register_renders_counts_and_falls_back():
     """用户视图人话版:比例用「N 次里 k 次」的原始计数,不出单点概率;无人话版的码回落技术版。"""
-    from diagnosis.findings import estimate_params
+    from diagnosis.findings import rate_params
     from diagnosis.messages import msg, render_msg
-    from engine.metrics import estimate_proportion
+    from engine.metrics import rate
 
-    line = msg("citation.rate", **estimate_params(estimate_proportion(7, 16)))
+    line = msg("citation.rate", **rate_params(rate(7, 16)))
     assert render_msg(line, "zh", "plain") == "本次 16 次回答里,7 次引用了你的官网"
     assert "%" not in render_msg(line, "zh", "plain")
-    assert "95% 可信区间" in render_msg(line, "zh")  # 审计视图不变
+    assert render_msg(line, "zh") == "被引比例:7/16 = 44%"  # 审计视图:计数 + 比例,不出区间
     nested = msg("caution.unobservable", stages=[msg("stage.ACCESS"), msg("stage.RETRIEVAL")])
     assert "爬虫能不能进入你的网站(ACCESS)" in render_msg(nested, "zh", "plain")
     assert render_msg(nested, "zh") == "以下阶段不可观测,未参与瓶颈定位:ACCESS、RETRIEVAL"
-    assert render_msg(msg("common.caliber", surface="s", model="m", n_variants=1, n_valid=1, n_total=1,
+    assert render_msg(msg("common.caliber", surface="s", model="m", n_prompts=1, n_valid=1, n_total=1,
                           stop_reasons="", refusal=0.0, failure=0.0), "zh", "plain").startswith("口径")
 
 
@@ -139,7 +113,7 @@ def test_all_diagnosis_output_renders_in_both_languages():
     from diagnosis.messages import render_msg
 
     job = finished_job()
-    diagnosis = job.need_reports[0].diagnosis
+    diagnosis = job.class_reports[0].diagnosis
     messages = [diagnosis.access.headline, *diagnosis.access.evidence_lines]
     for sd in diagnosis.surfaces:
         messages += [f.headline for f in sd.findings]

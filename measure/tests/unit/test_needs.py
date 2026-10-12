@@ -1,7 +1,7 @@
-"""需求辅助生成测试(第 17 章):盲起草三步序、机械质检、竞品解析。
+"""出题测试(产品文档 15.2 五类 + 第 17 章盲起草):四步序、机械质检、竞品解析。
 
 假适配器记录收到的每个 prompt——"真盲"不是靠嘴说,是断言出来的:
-中立题的生成 prompt 里绝不允许出现品牌名/别名/域名。
+不点名的题的生成 prompt 里绝不允许出现品牌名/别名/域名。
 """
 
 import json
@@ -9,23 +9,22 @@ from datetime import UTC, datetime
 
 import pytest
 
-from engine.models import Answer, BrandSpec, NeedIntent, Outcome, SurfaceRun
-from engine.needs import (
-    DEFAULT_NEUTRAL_COUNTS,
+from engine.drafting import (
+    DEFAULT_COUNTS,
     brand_collisions,
-    draft_need_candidates,
+    draft_prompt_candidates,
     suggest_competitors,
 )
+from engine.models import Answer, BrandSpec, Outcome, PromptIntent, PromptOrigin, SurfaceRun
 
 BRAND = BrandSpec(name="极光CRM", aliases=["AuroraCRM"], domains=["aurora-crm.com"])
 CATEGORY = "客户关系管理软件(CRM)"
 
-NEUTRAL_OK = {
-    "discovery": [f"发现题{i}" for i in range(1, 7)],
-    "comparison": [f"比较题{i}" for i in range(1, 5)],
-    "scenario": [f"场景题{i}" for i in range(1, 5)],
+BLIND_OK = {
+    "category_discovery": [f"发现题{i}" for i in range(1, 9)],
+    "problem_solution": [f"场景题{i}" for i in range(1, 5)],
+    "recommendation": [f"推荐题{i}" for i in range(1, 5)],
 }
-PROBES_OK = {"brand_probe": ["极光CRM 怎么样?优缺点分别是什么?", "极光CRM 和同类相比性价比如何?"]}
 COMPETITORS_OK = {
     "competitors": [
         {"name": "SalesLoop", "domain": "salesloop.example"},
@@ -34,6 +33,10 @@ COMPETITORS_OK = {
         {"name": "CloudDesk", "domain": "clouddesk.example"},
     ]
 }
+COMPARISON_OK = {"comparison_alternative": ["SalesLoop 的替代品有哪些?", "SalesLoop 和 CloudDesk 怎么选?",
+                                            "这类软件还有哪些更好的选择?", "CloudDesk 值不值得买?"]}
+FACTS_OK = {"brand_fact": ["极光CRM 是做什么的?", "极光CRM 怎么样?优缺点分别是什么?",
+                           "极光CRM 和同类相比性价比如何?", "极光CRM 适合什么样的团队?"]}
 
 
 class RecordingAdapter:
@@ -48,8 +51,8 @@ class RecordingAdapter:
         payload = self._payloads.pop(0)
         return SurfaceRun(
             run_id=request.run_id,
-            information_need_id=request.information_need_id,
-            prompt_variant_id=request.prompt_variant_id,
+            prompt_id=request.prompt_id,
+            run_index=request.run_index,
             provider="test_provider", surface="test_surface", model="m1",
             search_mode=request.search_mode, locale=request.locale,
             outcome=Outcome.SUCCESS,
@@ -60,48 +63,55 @@ class RecordingAdapter:
 
 
 def test_draft_orchestration_and_blindness():
-    adapter = RecordingAdapter([NEUTRAL_OK, COMPETITORS_OK, PROBES_OK])
-    candidates, competitors = draft_need_candidates(
+    adapter = RecordingAdapter([BLIND_OK, COMPETITORS_OK, COMPARISON_OK, FACTS_OK])
+    candidates, competitors = draft_prompt_candidates(
         adapter, category=CATEGORY, brand=BRAND, ledger=lambda run: None
     )
-    # 配比:6/4/4 中立 + 2 探针
-    by_intent = {intent: [c for c in candidates if c.intent is intent] for intent in NeedIntent}
-    assert len(by_intent[NeedIntent.DISCOVERY]) == DEFAULT_NEUTRAL_COUNTS[NeedIntent.DISCOVERY]
-    assert len(by_intent[NeedIntent.COMPARISON]) == DEFAULT_NEUTRAL_COUNTS[NeedIntent.COMPARISON]
-    assert len(by_intent[NeedIntent.SCENARIO]) == DEFAULT_NEUTRAL_COUNTS[NeedIntent.SCENARIO]
-    assert len(by_intent[NeedIntent.BRAND_PROBE]) == 2
-    # 真盲:第一步(中立题)的 prompt 不含品牌名/别名/域名;第三步(探针)必须含
-    neutral_prompt, competitor_prompt, probe_prompt = adapter.prompts
+    # 配比:8 / 4 / 4 / 4 / 4 = 24(产品文档 15.2)
+    by_intent = {intent: [c for c in candidates if c.intent is intent] for intent in PromptIntent}
+    assert {intent: len(items) for intent, items in by_intent.items()} == DEFAULT_COUNTS
+    assert len(candidates) == 24 and all(c.origin is PromptOrigin.ASSISTED for c in candidates)
+    # 真盲:第一步(不点名的三类)的 prompt 不含品牌名/别名/域名;对比题 prompt 带竞品名;品牌事实必须含焦点名
+    blind_prompt, competitor_prompt, comparison_prompt, facts_prompt = adapter.prompts
     for token in ("极光CRM", "auroracrm", "aurora-crm.com"):
-        assert token.lower() not in neutral_prompt.lower(), f"中立题 prompt 泄漏品牌:{token}"
+        assert token.lower() not in blind_prompt.lower(), f"不点名的题 prompt 泄漏品牌:{token}"
+        assert token.lower() not in comparison_prompt.lower(), f"对比题 prompt 泄漏品牌:{token}"
     assert "极光CRM" in competitor_prompt  # 竞品建议需要知道排除谁
-    assert "极光CRM" in probe_prompt
+    assert "SalesLoop" in comparison_prompt and "CloudDesk" in comparison_prompt
+    assert "极光CRM" in facts_prompt
     # 竞品:剔除焦点与重复
     assert [c.name for c in competitors] == ["SalesLoop", "CloudDesk"]
 
 
-def test_neutral_brand_leak_is_rejected_then_retried():
-    leaked = {**NEUTRAL_OK, "discovery": ["极光CRM 是最好的吗?"] + NEUTRAL_OK["discovery"][1:]}
-    adapter = RecordingAdapter([leaked, NEUTRAL_OK, COMPETITORS_OK, PROBES_OK])
-    candidates, _ = draft_need_candidates(adapter, category=CATEGORY, brand=BRAND, ledger=lambda run: None)
-    assert len(adapter.prompts) == 4  # 中立题第一次被质检打回,重试了一次
+def test_blind_brand_leak_is_rejected_then_retried():
+    leaked = {**BLIND_OK, "category_discovery": ["极光CRM 是最好的吗?"] + BLIND_OK["category_discovery"][1:]}
+    adapter = RecordingAdapter([leaked, BLIND_OK, COMPETITORS_OK, COMPARISON_OK, FACTS_OK])
+    candidates, _ = draft_prompt_candidates(adapter, category=CATEGORY, brand=BRAND, ledger=lambda run: None)
+    assert len(adapter.prompts) == 5  # 第一步第一次被质检打回,重试了一次
     assert not brand_collisions(
-        [c.text for c in candidates if c.intent is not NeedIntent.BRAND_PROBE], BRAND
+        [c.text for c in candidates if c.intent is not PromptIntent.BRAND_FACT], BRAND
     )
 
 
-def test_wrong_ratio_exhausts_retries_and_fails_loudly():
-    short = {**NEUTRAL_OK, "comparison": ["只有一条"]}
+def test_wrong_count_exhausts_retries_and_fails_loudly():
+    short = {**BLIND_OK, "problem_solution": ["只有一条"]}
     adapter = RecordingAdapter([short, short, short])
     with pytest.raises(ValueError, match="未产出合格结果"):
-        draft_need_candidates(adapter, category=CATEGORY, brand=BRAND, ledger=lambda run: None)
+        draft_prompt_candidates(adapter, category=CATEGORY, brand=BRAND, ledger=lambda run: None)
 
 
-def test_probe_must_name_focal_brand():
-    bad_probes = {"brand_probe": ["这家公司怎么样?", "它和同类相比如何?"]}
-    adapter = RecordingAdapter([NEUTRAL_OK, COMPETITORS_OK] + [bad_probes] * 3)
+def test_comparison_prompts_must_not_name_focal_brand():
+    bad = {"comparison_alternative": ["极光CRM 的替代品有哪些?", "a", "b", "c"]}
+    adapter = RecordingAdapter([BLIND_OK, COMPETITORS_OK] + [bad] * 3)
     with pytest.raises(ValueError, match="未产出合格结果"):
-        draft_need_candidates(adapter, category=CATEGORY, brand=BRAND, ledger=lambda run: None)
+        draft_prompt_candidates(adapter, category=CATEGORY, brand=BRAND, ledger=lambda run: None)
+
+
+def test_brand_fact_prompts_must_name_focal_brand():
+    bad_facts = {"brand_fact": ["这家公司怎么样?", "它和同类相比如何?", "它是做什么的?", "它适合谁?"]}
+    adapter = RecordingAdapter([BLIND_OK, COMPETITORS_OK, COMPARISON_OK] + [bad_facts] * 3)
+    with pytest.raises(ValueError, match="未产出合格结果"):
+        draft_prompt_candidates(adapter, category=CATEGORY, brand=BRAND, ledger=lambda run: None)
 
 
 def test_suggest_competitors_standalone():
@@ -116,11 +126,7 @@ def test_brand_collisions_scans_name_alias_domain():
 
 
 def test_json_tolerates_markdown_fences():
-    fenced = RecordingAdapter([NEUTRAL_OK, COMPETITORS_OK, PROBES_OK])
-    fenced._payloads = list(fenced._payloads)  # 保持接口
-    # 用带围栏的回答验证 extract_json 容错:改造第一个 payload 的包装
-    adapter = RecordingAdapter([NEUTRAL_OK, COMPETITORS_OK, PROBES_OK])
-
+    adapter = RecordingAdapter([BLIND_OK, COMPETITORS_OK, COMPARISON_OK, FACTS_OK])
     original_ask = adapter.ask
 
     def ask_with_fence(request):
@@ -131,5 +137,5 @@ def test_json_tolerates_markdown_fences():
         })
 
     adapter.ask = ask_with_fence
-    candidates, _ = draft_need_candidates(adapter, category=CATEGORY, brand=BRAND, ledger=lambda run: None)
-    assert len(candidates) == 16
+    candidates, _ = draft_prompt_candidates(adapter, category=CATEGORY, brand=BRAND, ledger=lambda run: None)
+    assert len(candidates) == 24

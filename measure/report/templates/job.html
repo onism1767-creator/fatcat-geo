@@ -6,10 +6,10 @@
 <div class="card">
   {% set state = state_labels[job.state.value] %}{% set phase = t.get(job.phase, job.phase) %}
   <p><b>{{ state }}</b>{% if phase != state %} · {{ phase }}{% endif %}
-     <span class="muted">{{ job.needs|length }} {{ t["needs_word"] }} × {{ job.variants_per_need }} {{ t["variants_word"] }} × {{ job.targets|length }} {{ t["surfaces_word"] }}
+     <span class="muted">{{ job.prompts|length }} {{ t["prompts_word"] }} × {{ runs_per_prompt }} {{ t["runs_word"] }} × {{ job.targets|length }} {{ t["surfaces_word"] }}
      · {{ t["fingerprint_word"] }} {{ job.fingerprint or "—" }}</span></p>
   <div class="bar"><div style="width: {{ job.progress_pct }}%"></div></div>
-  <p class="kv">{{ t["progress_word"] }} {{ job.progress_pct }}%({{ t["plans_word"] }} {{ job.completed_plans }}/{{ job.total_plans }})
+  <p class="kv">{{ t["progress_word"] }} {{ job.progress_pct }}%({{ t["runs_done_word"] }} {{ job.completed_runs }}/{{ job.total_runs }})
      · {{ t["spent_word"] }} ${{ "%.4f"|format(job.spent_usd) }}{% if job.budget_usd %} / {{ t["budget_word"] }} ${{ job.budget_usd }}{% endif %}</p>
   {% if elapsed_minutes is not none %}
   <p class="kv">{% if eta_minutes is not none %}{{ t["eta_line"].format(elapsed=elapsed_minutes|round(1), eta=eta_minutes|round(1)) }}{% else %}{{ t["eta_waiting"].format(elapsed=elapsed_minutes|round(1)) }}{% endif %}</p>

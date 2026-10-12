@@ -18,7 +18,7 @@ from diagnosis.recommender import (
     load_evidence_registry,
     recommend,
 )
-from engine.models import NeedIntent
+from engine.models import PromptIntent
 
 REGISTRY = load_evidence_registry()
 
@@ -46,7 +46,7 @@ def diagnose(**statuses):
     """按状态表构造一家 surface 的分诊(v0.4.11:定位与药方以 surface 为单位)。"""
     return diagnose_surface(
         provider="test_provider", surface="s1", model="m1",
-        intent=NeedIntent.DISCOVERY, registry=REGISTRY, **findings_for(**statuses),
+        intent=PromptIntent.CATEGORY_DISCOVERY, registry=REGISTRY, **findings_for(**statuses),
     )
 
 
@@ -64,7 +64,7 @@ def test_registry_entries_carry_plain_wording():
     for entry in REGISTRY:
         assert set(entry.plain) == {"zh", "en"} and entry.plain["zh"].strip() and entry.plain["en"].strip(), entry.id
         assert entry.plain["zh"] != entry.hypothesis["zh"], entry.id
-    recs = recommend(REGISTRY, stage=Stage.RETRIEVAL, intent=NeedIntent.DISCOVERY)
+    recs = recommend(REGISTRY, stage=Stage.RETRIEVAL, intent=PromptIntent.CATEGORY_DISCOVERY)
     assert all(rec.plain[lang] and rec.verify[lang] for rec in recs for lang in ("zh", "en"))
     for entry in REGISTRY:  # v0.4.17:做完之后怎么检查效果,人话
         assert set(entry.verify) == {"zh", "en"} and entry.verify["zh"].strip(), entry.id
@@ -92,7 +92,7 @@ def test_registry_rejects_duplicate_ids(tmp_path):
 
 
 def test_recommend_only_returns_registry_ids_for_the_given_stage():
-    recs = recommend(REGISTRY, stage=Stage.RETRIEVAL, intent=NeedIntent.DISCOVERY)
+    recs = recommend(REGISTRY, stage=Stage.RETRIEVAL, intent=PromptIntent.CATEGORY_DISCOVERY)
     assert recs, "RETRIEVAL×discovery 应有建议"
     registry_ids = {entry.id for entry in REGISTRY}
     assert all(rec.evidence_id in registry_ids for rec in recs)
@@ -100,14 +100,14 @@ def test_recommend_only_returns_registry_ids_for_the_given_stage():
 
 
 def test_recommend_excludes_level_e_entries():
-    recs = recommend(REGISTRY, stage=Stage.RETRIEVAL, intent=NeedIntent.DISCOVERY)
+    recs = recommend(REGISTRY, stage=Stage.RETRIEVAL, intent=PromptIntent.CATEGORY_DISCOVERY)
     ids = {rec.evidence_id for rec in recs}
     assert "EVIDENCE_LLMSTXT_V1" not in ids  # E 级永不输出
     assert "EVIDENCE_KEYWORD_STUFFING_V1" not in ids
 
 
 def test_recommend_marks_experiment_for_c_and_below():
-    recs = recommend(REGISTRY, stage=Stage.CITATION, intent=NeedIntent.DISCOVERY)
+    recs = recommend(REGISTRY, stage=Stage.CITATION, intent=PromptIntent.CATEGORY_DISCOVERY)
     assert recs
     for rec in recs:
         assert rec.needs_experiment is (rec.evidence_level in ("C", "D"))
@@ -115,11 +115,11 @@ def test_recommend_marks_experiment_for_c_and_below():
 
 
 def test_recommend_filters_by_intent():
-    assert recommend(REGISTRY, stage=Stage.CITATION, intent=NeedIntent.BRAND_PROBE) == []
+    assert recommend(REGISTRY, stage=Stage.CITATION, intent=PromptIntent.BRAND_FACT) == []
 
 
 def test_recommend_sorts_stronger_evidence_first():
-    recs = recommend(REGISTRY, stage=Stage.RETRIEVAL, intent=NeedIntent.DISCOVERY)
+    recs = recommend(REGISTRY, stage=Stage.RETRIEVAL, intent=PromptIntent.CATEGORY_DISCOVERY)
     levels = [rec.evidence_level for rec in recs]
     assert levels == sorted(levels)
 
@@ -148,7 +148,7 @@ def test_localize_failure_table(statuses, expected):
     assert localize_failure(findings) is expected
 
 
-# ── diagnose_need:上游 FAIL 禁下游药方 ───────────────────────────────
+# ── diagnose_surface:上游 FAIL 禁下游药方 ───────────────────────────────
 
 
 def test_upstream_fail_yields_only_upstream_recommendations():

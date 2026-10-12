@@ -44,7 +44,7 @@
       <form method="post" action="/jobs/{{ j.job_id }}/resume?lang={{ lang }}" style="display:inline">
         <button type="submit">{{ t["btn_resume"] }}</button>
       </form>
-      {% elif j.finished and j.need_reports %}
+      {% elif j.finished and j.class_reports %}
       <a href="/jobs/{{ j.job_id }}/report?lang={{ lang }}">{{ t["view_report"] }}</a>
       {% elif j.finished %}
       <form method="post" action="/jobs/{{ j.job_id }}/resume?lang={{ lang }}" style="display:inline">

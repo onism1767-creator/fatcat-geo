@@ -47,8 +47,9 @@ def msg(code: str, **params: Any) -> Msg:
     return Msg(code=code, params=params)
 
 
-_EST = "{point:.0%} [95% 可信区间(Jeffreys 先验): {low:.0%}–{high:.0%}](N={n})"
-_EST_EN = "{point:.0%} [95% credible interval (Jeffreys prior): {low:.0%}–{high:.0%}] (N={n})"
+# 比例一律「k/n = 比例」,不出区间(产品文档 15.2;v0.4.26 S2)
+_RATE = "{k}/{n} = {share:.0%}"
+_RATE_EN = "{k}/{n} = {share:.0%}"
 
 CATALOG: dict[str, dict[str, str]] = {
     # ── 公共 ──────────────────────────────────────────────────────────
@@ -57,29 +58,28 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "Invalid-sample share exceeds threshold (LOW_CONFIDENCE); definitive verdicts are downgraded to WEAK (§7.3)",
     },
     "common.caliber": {
-        "zh": "口径(冻结问法集上的观测率,不外推到需求总体):surface={surface} model={model} "
-              "问法数={n_variants} N_valid={n_valid}/{n_total} stop_reasons=[{stop_reasons}] "
+        "zh": "口径(冻结题目集上的观测率,不外推到需求总体):surface={surface} model={model} "
+              "题数={n_prompts} N_valid={n_valid}/{n_total} stop_reasons=[{stop_reasons}] "
               "拒答率={refusal:.0%} 失败率={failure:.0%}",
         "en": "Caliber (observed rate on the frozen prompt set; not extrapolated to the need population): "
-              "surface={surface} model={model} prompts={n_variants} N_valid={n_valid}/{n_total} "
+              "surface={surface} model={model} prompts={n_prompts} N_valid={n_valid}/{n_total} "
               "stop_reasons=[{stop_reasons}] refusal={refusal:.0%} failure={failure:.0%}",
     },
-    "common.per_variant": {
-        "zh": "各问法并列(问法是语义层的独立单位,运行只是问法内重复):{items}",
-        "en": "Per prompt (prompts are the independent semantic units; runs only repeat within a prompt): {items}",
+    "common.per_prompt": {
+        "zh": "各题并列(同一道题的几次回答是一簇,不是独立样本):{items}",
+        "en": "Per prompt (the repeated runs of one prompt form a cluster, not independent samples): {items}",
     },
-    "common.variant_item": {
-        "zh": "问法{idx} {point:.0%} [{low:.0%}–{high:.0%}](N={n})",
-        "en": "prompt {idx} {point:.0%} [{low:.0%}–{high:.0%}] (N={n})",
+    "common.prompt_item": {
+        "zh": "题{idx} {k}/{n}",
+        "en": "prompt {idx} {k}/{n}",
     },
-    "common.variant_item_none": {
-        "zh": "问法{idx} 无有效样本",
+    "common.prompt_item_none": {
+        "zh": "题{idx} 无有效样本",
         "en": "prompt {idx} no valid samples",
     },
-    "common.variant_sensitive": {
-        "zh": "问法间可信区间不重叠:措辞敏感,需求层合并估计不稳,建议增加问法数后复测(v0.4.13 条目 2)",
-        "en": "Credible intervals of different prompts do not overlap: wording-sensitive — the pooled "
-              "need-level estimate is unstable; add prompts and re-measure (v0.4.13 item 2)",
+    "common.prompt_coverage": {
+        "zh": "题目覆盖率:{n} 道有有效样本的题里 {k} 道至少命中一次({share:.0%})——防止少数几道题撑起总数",
+        "en": "Prompt coverage: {k} of {n} prompts with valid samples hit at least once ({share:.0%}) — guards against a few prompts carrying the total",
     },
     # ── RETRIEVAL(仪器不暴露检索链路 → 不可观测;公共证据行供生成端链路复用)──────
     "retrieval.headline.not_observable": {
@@ -99,8 +99,8 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "The brand domain never entered the retrieval candidate set (k=0)",
     },
     "retrieval.thresholds": {
-        "zh": "操作阈值(v1 初始值,未经校准):FAIL 上界≤{fail:.0%},PASS 下界≥{pass_:.0%}",
-        "en": "Operating thresholds (v1 initial values, uncalibrated): FAIL if CI upper ≤{fail:.0%}, PASS if CI lower ≥{pass_:.0%}",
+        "zh": "操作阈值(v1 初始值,未经校准):比例 < {fail:.0%} 为 FAIL,≥ {pass_:.0%} 为 PASS",
+        "en": "Operating thresholds (v1 initial values, uncalibrated): FAIL if the rate is below {fail:.0%}, PASS if at or above {pass_:.0%}",
     },
     # ── RETRIEVAL 生成端检索链路 ──────────────────────────────────────
     "genret.headline.fail": {
@@ -120,30 +120,28 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "The generative-side retrieval channel has no valid samples — not observable",
     },
     "genret.presence": {
-        "zh": f"候选在场率(模型自拟检索词换来的候选集中出现品牌域名):{_EST}",
-        "en": f"Candidate presence rate (brand domain among results fetched for model-authored queries): {_EST_EN}",
+        "zh": f"候选在场率(模型自拟检索词换来的候选集中出现品牌域名):{_RATE}",
+        "en": f"Candidate presence rate (brand domain among results fetched for model-authored queries): {_RATE_EN}",
     },
     "genret.query_entry": {
-        "zh": f"检索词品牌入场率(模型自拟检索词中出现品牌名/别名):{_EST}",
-        "en": f"Query entry rate (brand name/alias appears in model-authored queries): {_EST_EN}",
+        "zh": f"检索词品牌入场率(模型自拟检索词中出现品牌名/别名):{_RATE}",
+        "en": f"Query entry rate (brand name/alias appears in model-authored queries): {_RATE_EN}",
     },
     "genret.funnel.pair": {
-        "zh": "同仪器漏斗:候选在场 {presence_point:.0%} [{presence_low:.0%}–{presence_high:.0%}](N={presence_n})"
-              " vs 被引 {cited_point:.0%} [{cited_low:.0%}–{cited_high:.0%}](N={cited_n})",
-        "en": "Same-instrument funnel: candidate presence {presence_point:.0%} [{presence_low:.0%}–{presence_high:.0%}] (N={presence_n})"
-              " vs cited {cited_point:.0%} [{cited_low:.0%}–{cited_high:.0%}] (N={cited_n})",
+        "zh": "同仪器漏斗:候选在场 {presence_k}/{presence_n} = {presence_share:.0%} vs 被引 {cited_k}/{cited_n} = {cited_share:.0%}",
+        "en": "Same-instrument funnel: candidate presence {presence_k}/{presence_n} = {presence_share:.0%} vs cited {cited_k}/{cited_n} = {cited_share:.0%}",
     },
     "genret.funnel.gap": {
-        "zh": "被引区间显著低于在场区间——资料递到了模型手上却常落选,缺席主因偏向内容竞争力而非检索可见度(同一批运行内部对比,零跨仪器混淆)",
-        "en": "The cited interval is significantly below the presence interval — material reaches the model but often loses out; the absence leans toward content competitiveness rather than retrieval visibility (same-run comparison, no cross-instrument confound)",
+        "zh": "被引比例比在场比例低 {gap:.0%} 个百分点以上——资料递到了模型手上却常落选,缺席主因偏向内容竞争力而非检索可见度(同一批运行内部对比,零跨仪器混淆)",
+        "en": "The cited rate is at least {gap:.0%} points below the presence rate — material reaches the model but often loses out; the absence leans toward content competitiveness rather than retrieval visibility (same-run comparison, no cross-instrument confound)",
     },
     "genret.funnel.aligned": {
-        "zh": "在场率与被引率区间重叠——递上来的资料被采用的程度与在场程度无法区分",
-        "en": "Presence and cited intervals overlap — adoption of delivered material is indistinguishable from its presence",
+        "zh": "在场与被引比例相差不足 {gap:.0%}——递上来的资料被采用的程度与在场程度无法区分",
+        "en": "Presence and cited rates differ by less than {gap:.0%} — adoption of delivered material is indistinguishable from its presence",
     },
     "genret.triggered": {
-        "zh": f"检索触发率:{_EST};未触发检索的运行计入各分母——不检索本身就是自然行为的一部分",
-        "en": f"Search trigger rate: {_EST_EN}; runs without search count in denominators — not searching is itself part of natural behavior",
+        "zh": f"检索触发率:{_RATE};未触发检索的运行计入各分母——不检索本身就是自然行为的一部分",
+        "en": f"Search trigger rate: {_RATE_EN}; runs without search count in denominators — not searching is itself part of natural behavior",
     },
     # ── CITATION ─────────────────────────────────────────────────────
     "citation.headline.fail": {
@@ -154,10 +152,6 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": "品牌域名进入引用集但不稳定",
         "en": "The brand domain enters citation sets inconsistently",
     },
-    "citation.headline.weak_zero": {
-        "zh": "样本内未见被引;样本量不足以下 FAIL 结论",
-        "en": "No citations observed in the sample; sample size is too small for a FAIL verdict",
-    },
     "citation.headline.pass": {
         "zh": "品牌域名稳定进入引用集",
         "en": "The brand domain reliably enters citation sets",
@@ -167,12 +161,12 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "No citation observation channel or no valid samples — the citation stage is not observable",
     },
     "citation.rate": {
-        "zh": f"被引概率:{_EST}",
-        "en": f"Citation probability: {_EST_EN}",
+        "zh": f"被引比例:{_RATE}",
+        "en": f"Citation rate: {_RATE_EN}",
     },
     "citation.thresholds": {
-        "zh": "操作阈值(v1 初始值,未经校准):FAIL 上界≤{fail:.0%},PASS 下界≥{pass_:.0%}",
-        "en": "Operating thresholds (v1 initial values, uncalibrated): FAIL if CI upper ≤{fail:.0%}, PASS if CI lower ≥{pass_:.0%}",
+        "zh": "操作阈值(v1 初始值,未经校准):比例 < {fail:.0%} 为 FAIL,≥ {pass_:.0%} 为 PASS",
+        "en": "Operating thresholds (v1 initial values, uncalibrated): FAIL if the rate is below {fail:.0%}, PASS if at or above {pass_:.0%}",
     },
     "citation.tier_note": {
         "zh": "三档证据口径:提及 → 被引 → 已核验。「已核验」= 本工具自行重抓被引 URL,"
@@ -201,16 +195,16 @@ CATALOG: dict[str, dict[str, str]] = {
               "low coverage reflects this tool's verifier vantage, not a platform citation problem",
     },
     "citation.compare.behind": {
-        "zh": f"显著落后于竞品 {{name}}(其被引 {_EST})",
-        "en": f"Significantly behind competitor {{name}} (their citation rate: {_EST_EN})",
+        "zh": f"落后竞品 {{name}} {{gap:.0%}} 个百分点以上(其被引 {_RATE})",
+        "en": f"At least {{gap:.0%}} points behind competitor {{name}} (their citation rate: {_RATE_EN})",
     },
     "citation.compare.ahead": {
-        "zh": f"显著领先竞品 {{name}}(其被引 {_EST})",
-        "en": f"Significantly ahead of competitor {{name}} (their citation rate: {_EST_EN})",
+        "zh": f"领先竞品 {{name}} {{gap:.0%}} 个百分点以上(其被引 {_RATE})",
+        "en": f"At least {{gap:.0%}} points ahead of competitor {{name}} (their citation rate: {_RATE_EN})",
     },
-    "citation.compare.overlap": {
-        "zh": f"与竞品 {{name}} 区间重叠,无法区分(其被引 {_EST})",
-        "en": f"Interval overlaps with competitor {{name}} — not distinguishable (their citation rate: {_EST_EN})",
+    "citation.compare.close": {
+        "zh": f"与竞品 {{name}} 相差不足 {{gap:.0%}},分不出高低(其被引 {_RATE})",
+        "en": f"Within {{gap:.0%}} of competitor {{name}} — not distinguishable (their citation rate: {_RATE_EN})",
     },
     # ── REPRESENTATION ───────────────────────────────────────────────
     "repr.headline.not_observable": {
@@ -246,8 +240,8 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "The brand reliably appears in answers with neutral/positive descriptions",
     },
     "repr.mention_rate": {
-        "zh": f"提及率:{_EST}",
-        "en": f"Mention rate: {_EST_EN}",
+        "zh": f"提及比例:{_RATE}",
+        "en": f"Mention rate: {_RATE_EN}",
     },
     "repr.sentiment_dist": {
         "zh": "提及句情感分布:正面 {positive}、中性 {neutral}、负面 {negative}、混合 {mixed}(负面占比 {share:.0%})",
@@ -258,19 +252,19 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "Sentiment analysis: not applicable — insufficient mention samples",
     },
     "repr.caliber": {
-        "zh": "口径(冻结问法集上的观测率,不外推到需求总体):surface={surface} model={model} "
-              "问法数={n_variants} N_valid={n_valid}/{n_total} stop_reasons=[{stop_reasons}] 意图={intent}",
+        "zh": "口径(冻结题目集上的观测率,不外推到需求总体):surface={surface} model={model} "
+              "题数={n_prompts} N_valid={n_valid}/{n_total} stop_reasons=[{stop_reasons}] 题型={intent}",
         "en": "Caliber (observed rate on the frozen prompt set; not extrapolated to the need population): "
-              "surface={surface} model={model} prompts={n_variants} N_valid={n_valid}/{n_total} "
+              "surface={surface} model={model} prompts={n_prompts} N_valid={n_valid}/{n_total} "
               "stop_reasons=[{stop_reasons}] intent={intent}",
     },
     "repr.thresholds.neutral": {
-        "zh": "操作阈值(v1 初始值,未经校准):FAIL 上界≤{fail:.0%},PASS 下界≥{pass_:.0%},负面占比 >{neg:.0%} 封顶 WEAK",
-        "en": "Operating thresholds (v1 initial values, uncalibrated): FAIL if CI upper ≤{fail:.0%}, PASS if CI lower ≥{pass_:.0%}; negative share >{neg:.0%} caps at WEAK",
+        "zh": "操作阈值(v1 初始值,未经校准):比例 < {fail:.0%} 为 FAIL,≥ {pass_:.0%} 为 PASS,负面占比 >{neg:.0%} 封顶 WEAK",
+        "en": "Operating thresholds (v1 initial values, uncalibrated): FAIL if the rate is below {fail:.0%}, PASS if at or above {pass_:.0%}; negative share >{neg:.0%} caps at WEAK",
     },
     "repr.thresholds.probe": {
-        "zh": "操作阈值(v1 初始值,未经校准):负面占比 >{weak:.0%} 为 WEAK,≥{fail:.0%} 为 FAIL(探针需求提及率不参与判定)",
-        "en": "Operating thresholds (v1 initial values, uncalibrated): negative share >{weak:.0%} → WEAK, ≥{fail:.0%} → FAIL (mention rate is not judged for probe questions)",
+        "zh": "操作阈值(v1 初始值,未经校准):负面占比 >{weak:.0%} 为 WEAK,≥{fail:.0%} 为 FAIL(点名品牌的题提及率不参与判定)",
+        "en": "Operating thresholds (v1 initial values, uncalibrated): negative share >{weak:.0%} → WEAK, ≥{fail:.0%} → FAIL (mention rate is not judged for brand-fact prompts)",
     },
     "repr.negative_cap": {
         "zh": "提及充分但负面占比 {share:.0%} 超阈值,状态封顶 WEAK",
@@ -495,29 +489,27 @@ CATALOG: dict[str, dict[str, str]] = {
     },
     # ── 检索依赖(第 9 章挂靠)─────────────────────────────────────────
     "dependency.headline.high": {
-        "zh": "检索依赖:高——禁用检索后提及率不足开卷下界的一半,可见度主要靠实时检索支撑",
-        "en": "Retrieval dependency: HIGH — with search disabled the mention rate falls below half of the search-on lower bound; visibility relies mainly on live retrieval",
+        "zh": "检索依赖:高——禁用检索后提及比例不足开卷的一半,可见度主要靠实时检索支撑",
+        "en": "Retrieval dependency: HIGH — with search disabled the mention rate falls below half of the search-on rate; visibility relies mainly on live retrieval",
     },
     "dependency.headline.medium": {
-        "zh": "检索依赖:中——禁用检索工具后提及率显著下降,两种模式下的观测差异明显",
-        "en": "Retrieval dependency: MEDIUM — the mention rate drops significantly with the search tool disabled; the observed gap between modes is substantial",
+        "zh": "检索依赖:中——禁用检索工具后提及比例明显下降,两种模式下的观测差异明显",
+        "en": "Retrieval dependency: MEDIUM — the mention rate drops clearly with the search tool disabled; the observed gap between modes is substantial",
     },
     "dependency.headline.low": {
-        "zh": "检索依赖:低——开卷与闭卷提及率无法区分,两种模式下未观测到差异",
-        "en": "Retrieval dependency: LOW — search-on and search-off mention rates are indistinguishable; no gap observed between modes",
+        "zh": "检索依赖:低——开卷与闭卷提及比例接近,两种模式下未观测到差异",
+        "en": "Retrieval dependency: LOW — search-on and search-off mention rates are close; no gap observed between modes",
     },
     "dependency.headline.inconclusive": {
         "zh": "检索依赖:无法判定",
         "en": "Retrieval dependency: INCONCLUSIVE",
     },
     "dependency.pair": {
-        "zh": "开卷(正常检索)提及:{on_point:.0%} [95% 可信区间(Jeffreys 先验): {on_low:.0%}–{on_high:.0%}](N={on_n});"
-              "闭卷(禁用检索)提及:{off_point:.0%} [95% 可信区间(Jeffreys 先验): {off_low:.0%}–{off_high:.0%}](N={off_n})",
-        "en": "Search-on mention: {on_point:.0%} [95% credible interval (Jeffreys prior): {on_low:.0%}–{on_high:.0%}] (N={on_n}); "
-              "search-off mention: {off_point:.0%} [95% credible interval (Jeffreys prior): {off_low:.0%}–{off_high:.0%}] (N={off_n})",
+        "zh": "开卷(正常检索)提及:{on_k}/{on_n} = {on_share:.0%};闭卷(禁用检索)提及:{off_k}/{off_n} = {off_share:.0%}",
+        "en": "Search-on mention: {on_k}/{on_n} = {on_share:.0%}; search-off mention: {off_k}/{off_n} = {off_share:.0%}",
     },
     "dependency.note.meaning": {
-        "zh": "口径说明:闭卷 = 同一问法在不提供检索工具下重复采样;闭卷能答不等于「AI 记住了品牌」。"
+        "zh": "口径说明:闭卷 = 同一批题目在不提供检索工具下重复采样;闭卷能答不等于「AI 记住了品牌」。"
               "禁用检索工具同时可能改变平台的路由与回答风格,差异是两种模式下的观测差异,"
               "不解读为实时检索的因果增量(第 9 章)。本观测不参与瓶颈定位",
         "en": "Caliber note: search-off = the same prompts re-sampled without the search tool; answering "
@@ -527,18 +519,18 @@ CATALOG: dict[str, dict[str, str]] = {
               "bottleneck localization",
     },
     "dependency.note.absent_online": {
-        "zh": "开卷提及本身处于缺席水平(区间上界不高于缺席阈值),依赖度无从谈起",
-        "en": "Search-on mention is itself at absence level (CI upper bound at or below the absence threshold); dependency is moot",
+        "zh": "开卷提及本身处于缺席水平(比例低于缺席线),依赖度无从谈起",
+        "en": "Search-on mention is itself at absence level (rate below the absence line); dependency is moot",
     },
     "dependency.note.missing_leg": {
         "zh": "开卷或闭卷缺少有效样本,无法对比",
         "en": "The search-on or search-off leg has no valid samples; comparison is not possible",
     },
     "dependency.thresholds": {
-        "zh": "判定规则(只认区间端点):区间重叠 → LOW;分离 → MEDIUM;闭卷上界 < 开卷下界×{ratio:.0%} → HIGH;"
-              "开卷上界 ≤ {absent:.0%} 或任一腿缺样本 → 无法判定",
-        "en": "Verdict rule (interval endpoints only): overlap → LOW; separated → MEDIUM; search-off upper < "
-              "search-on lower ×{ratio:.0%} → HIGH; search-on upper ≤ {absent:.0%} or a missing leg → INCONCLUSIVE",
+        "zh": "判定规则(看比例):开卷与闭卷相差不足 {gap:.0%} → LOW;闭卷 < 开卷×{ratio:.0%} → HIGH;其余 → MEDIUM;"
+              "开卷 < {absent:.0%} 或任一腿缺样本 → 无法判定",
+        "en": "Verdict rule (rates): search-on and search-off within {gap:.0%} → LOW; search-off < search-on ×{ratio:.0%} → HIGH; "
+              "otherwise MEDIUM; search-on below {absent:.0%} or a missing leg → INCONCLUSIVE",
     },
     "dependency.leg_caliber": {
         "zh": "{leg},{caliber}",
@@ -677,7 +669,6 @@ PLAIN: dict[str, dict[str, str]] = {
     "genret.headline.not_observable": {"zh": "这家 AI 不公开搜索结果,这一项本次看不到", "en": "This AI does not expose its search results; this item could not be observed"},
     "citation.headline.fail": {"zh": "AI 基本没有把你的官网当作来源", "en": "The AI basically never uses your site as a source"},
     "citation.headline.weak": {"zh": "AI 有时引用你的官网,不稳定", "en": "The AI sometimes cites your site, not reliably"},
-    "citation.headline.weak_zero": {"zh": "本次没有看到 AI 引用你的官网,但测试次数还不够下结论", "en": "No citations of your site were seen this time, but there were too few tests to conclude"},
     "citation.headline.pass": {"zh": "AI 稳定引用你的官网", "en": "The AI reliably cites your site"},
     "citation.headline.not_observable": {"zh": "这家 AI 不公开引用来源,这一项本次看不到", "en": "This AI does not expose its sources; this item could not be observed"},
     "repr.headline.not_observable": {"zh": "没有拿到可分析的回答,这一项本次看不到", "en": "No analyzable answers; this item could not be observed"},
@@ -704,6 +695,7 @@ PLAIN: dict[str, dict[str, str]] = {
     "genret.query_entry": {"zh": "AI 自己拟的搜索词里,{k}/{n} 次带上了你的品牌名", "en": "The AI's own search queries included your brand name in {k} of {n} runs"},
     "citation.rate": {"zh": "本次 {n} 次回答里,{k} 次引用了你的官网", "en": "Your site was cited in {k} of {n} answers this time"},
     "repr.mention_rate": {"zh": "本次 {n} 次回答里,{k} 次提到了你", "en": "You were mentioned in {k} of {n} answers this time"},
+    "common.prompt_coverage": {"zh": "{n} 道题里,{k} 道至少有一次提到你", "en": "You came up at least once in {k} of {n} questions"},
     "dependency.pair": {"zh": "用联网搜索时 {on_n} 次回答里 {on_k} 次提到你;不用联网搜索时 {off_n} 次里 {off_k} 次提到你", "en": "With web search you were mentioned in {on_k} of {on_n} answers; without it, in {off_k} of {off_n}"},
 }
 

@@ -1,11 +1,11 @@
-"""单需求诊断编排:按 AI 分家(v0.4.11)——每台仪器一套漏斗、一次定位、一份药方。
+"""单题型诊断编排:按 AI 分家(v0.4.11)——每台仪器一套漏斗、一次定位、一份药方(v0.4.26 S2 起按题型聚合)。
 
 分家理由(实测实证):各家 AI 的搜索习惯完全不同(有的成批定向品牌点名
 查询,有的少量宽品类查询——实据见交接文档冒烟记录),同样的缺席病灶分布
 不同,混在一个漏斗里 = 把两种病写成一张方子。研究单位本就是
 Provider × Surface(铁律),数据层从第一天分记,本次把报告层补齐。
 
-结构:NeedDiagnosis = 共享的 ACCESS 结论(全站一次,门槛对所有 AI 生效)
+结构:ClassDiagnosis = 共享的 ACCESS 结论(全站一次,门槛对所有 AI 生效)
 + 每家 surface 一个 SurfaceDiagnosis(RETRIEVAL/CITATION/REPRESENTATION
 三阶段 + 各自定位 + 各自建议 + 各自开卷/闭卷对照)。
 
@@ -26,13 +26,13 @@ from diagnosis.access_audit import CheckStatus as AccessCheckStatus
 from diagnosis.findings import Msg, Stage, StageFinding, StageStatus, msg
 from diagnosis.recommender import EvidenceEntry, Recommendation, recommend
 from diagnosis.retrieval_dependency import DependencyFinding
-from engine.models import FrozenModel, InformationNeed, NeedIntent
+from engine.models import FrozenModel, PromptIntent
 
 _FUNNEL = (Stage.RETRIEVAL, Stage.CITATION, Stage.REPRESENTATION)
 
 
 class SurfaceDiagnosis(FrozenModel):
-    """一家 surface(一台 AI 仪器)在该需求上的完整分诊。
+    """一家 surface(一台 AI 仪器)在该题型上的完整分诊。
     provider/surface/model 为运行时口径数据,非源码硬编码(13.4 说明)。"""
 
     provider: str
@@ -45,10 +45,10 @@ class SurfaceDiagnosis(FrozenModel):
     retrieval_dependency: DependencyFinding | None = None  # 第 9 章挂靠,不参与定位
 
 
-class NeedDiagnosis(FrozenModel):
-    need_id: str
-    statement: str
-    intent: NeedIntent
+class ClassDiagnosis(FrozenModel):
+    """一个题型(产品文档 15.2 的五类之一)上全部被测对象的分诊。"""
+
+    intent: PromptIntent
     access: StageFinding  # 全站一次,门槛对所有 AI 生效
     surfaces: list[SurfaceDiagnosis]
 
@@ -101,7 +101,7 @@ def diagnose_surface(
     retrieval: StageFinding,
     citation: StageFinding,
     representation: StageFinding,
-    intent: NeedIntent,
+    intent: PromptIntent,
     registry: list[EvidenceEntry],
     retrieval_dependency: DependencyFinding | None = None,
 ) -> SurfaceDiagnosis:
@@ -148,16 +148,10 @@ def diagnose_surface(
     )
 
 
-def diagnose_need(
-    need: InformationNeed,
+def diagnose_class(
+    intent: PromptIntent,
     *,
     access: StageFinding,
     surfaces: list[SurfaceDiagnosis],
-) -> NeedDiagnosis:
-    return NeedDiagnosis(
-        need_id=need.need_id,
-        statement=need.statement,
-        intent=need.intent,
-        access=access,
-        surfaces=surfaces,
-    )
+) -> ClassDiagnosis:
+    return ClassDiagnosis(intent=intent, access=access, surfaces=surfaces)

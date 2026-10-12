@@ -1,7 +1,7 @@
 """CITATION 诊断:AI 会选择你当参考来源吗?(5.2)
 
-输出被引概率 + 区间 + 竞品差距。竞品对比遵循「区间重叠即无法区分」
-原则(v0.4.2 附录):禁止在重叠区间上硬排序——与"无总分"同源。
+输出被引比例 + 竞品差距。竞品对比只认「相差 ≥ rate_gap 个百分点」,差距不足就说分不出
+——禁止在差不多的比例上硬排序,与"无总分"同源。
 输出为结论码 + 参数(v1.1),组句在渲染层。
 """
 
@@ -14,13 +14,14 @@ from diagnosis.findings import (
     StageFinding,
     StageStatus,
     caliber_msg,
-    estimate_params,
-    interval_status,
+    compare_rates,
     msg,
-    variant_msgs,
+    prompt_msgs,
+    rate_params,
+    rate_status,
 )
-from engine.aggregate import NeedSurfaceMetric
-from engine.metrics import ProportionEstimate
+from engine.aggregate import ClassSurfaceMetric
+from engine.metrics import Rate
 from engine.models import FrozenModel
 
 _HEADLINES = {
@@ -30,18 +31,17 @@ _HEADLINES = {
 }
 
 
-def _compare_line(focal: ProportionEstimate, name: str, competitor: ProportionEstimate) -> Msg:
-    if focal.ci_high < competitor.ci_low:
-        code = "citation.compare.behind"
-    elif competitor.ci_high < focal.ci_low:
-        code = "citation.compare.ahead"
-    else:
-        code = "citation.compare.overlap"
-    return msg(code, name=name, **estimate_params(competitor))
+def _compare_line(focal: Rate, name: str, competitor: Rate, gap: float) -> Msg:
+    code = {
+        -1: "citation.compare.behind",
+        1: "citation.compare.ahead",
+        0: "citation.compare.close",
+    }[compare_rates(focal, competitor, gap)]
+    return msg(code, name=name, gap=gap, **rate_params(competitor))
 
 
 class VerificationSummary(FrozenModel):
-    """三档证据「已核验」层的需求级汇总:被引 URL 的四态计数(v0.4.13 条目 5)。
+    """三档证据「已核验」层的题型级汇总:被引 URL 的四态计数(v0.4.13 条目 5)。
 
     URL 级而非运行级——「已核验被引概率」已撤销,它把「平台有没有引用」与
     「本工具能不能再抓到」混成一个数。只有 content_mismatch 是负面证据。
@@ -65,31 +65,31 @@ class VerificationSummary(FrozenModel):
 
 
 def diagnose_citation(
-    metric: NeedSurfaceMetric | None,
-    competitors: list[tuple[str, ProportionEstimate]] | None = None,
+    metric: ClassSurfaceMetric | None,
+    competitors: list[tuple[str, Rate]] | None = None,
     thresholds: DiagnosisThresholds = DiagnosisThresholds(),
     verification: VerificationSummary | None = None,
 ) -> StageFinding:
-    if metric is None or metric.estimate is None:
+    if metric is None or metric.rate is None:
         return StageFinding(
             stage=Stage.CITATION,
             status=StageStatus.NOT_OBSERVABLE,
             headline=msg("citation.headline.not_observable"),
         )
-    estimate = metric.estimate
+    r = metric.rate
     accounting = metric.accounting
-    status, notes = interval_status(
-        estimate,
+    status, notes = rate_status(
+        r,
         low_confidence=accounting.low_confidence,
-        fail_ci_high=thresholds.citation_fail_ci_high,
-        pass_ci_low=thresholds.citation_pass_ci_low,
+        fail_below=thresholds.citation_fail_below,
+        pass_from=thresholds.citation_pass_from,
     )
     evidence = [
-        msg("citation.rate", **estimate_params(estimate)),
+        msg("citation.rate", **rate_params(r)),
         caliber_msg(metric),
-        *variant_msgs(metric),
+        *prompt_msgs(metric),
         msg("citation.thresholds",
-            fail=thresholds.citation_fail_ci_high, pass_=thresholds.citation_pass_ci_low),
+            fail=thresholds.citation_fail_below, pass_=thresholds.citation_pass_from),
     ]
     if verification is not None:
         evidence.append(msg("citation.tier_note"))
@@ -109,15 +109,12 @@ def diagnose_citation(
                 attempted=verification.attempted,
                 coverage=verification.coverage,
             ))
-    evidence.extend(_compare_line(estimate, name, comp) for name, comp in (competitors or []))
+    evidence.extend(_compare_line(r, name, comp, thresholds.rate_gap) for name, comp in (competitors or []))
     evidence.extend(notes)
-    headline_code = _HEADLINES[status]
-    if status is StageStatus.WEAK and metric.k_hits == 0:
-        headline_code = "citation.headline.weak_zero"
     return StageFinding(
         stage=Stage.CITATION,
         status=status,
-        headline=msg(headline_code),
+        headline=msg(_HEADLINES[status]),
         evidence_lines=evidence,
         low_confidence=accounting.low_confidence,
     )

@@ -47,7 +47,7 @@ def run_task[T](
     parse: Callable[[str], T],
     *,
     label: str,
-    need_id: str,
+    prompt_id: str,
     locale: str,
     ledger: Ledger,
     search_mode: SearchMode = SearchMode.DEFAULT,
@@ -61,8 +61,8 @@ def run_task[T](
     for _ in range(MAX_ROUNDS):
         request = AskRequest(
             run_id=f"task-{uuid4().hex[:12]}",
-            information_need_id=need_id,
-            prompt_variant_id=f"__{label}__",
+            prompt_id=prompt_id,
+            run_index=len(runs) + 1,  # 第几轮(不合格重问)
             prompt_text=prompt,
             locale=locale,
             search_mode=search_mode,

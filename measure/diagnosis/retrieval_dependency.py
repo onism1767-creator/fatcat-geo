@@ -1,19 +1,19 @@
-"""检索依赖诊断(第 9 章挂靠):开卷 vs 闭卷提及率对比。
+"""检索依赖诊断(第 9 章挂靠):开卷 vs 闭卷提及比例对比。
 
 回答的问题:品牌在 AI 回答中的呈现,主要依赖实时检索,还是模型参数化知识?
 注意口径:闭卷能答 ≠ 「AI 记住了品牌」(第 9 章原文),仅说明可见度不依赖
 临场检索,结论码里如实注明。
 
-规则(与 findings.interval_status 同家法:只认区间端点,不认点估计):
+规则(与 findings.rate_status 同家法:直接看比例,v0.4.26 S2 用户定 T1):
 - 无闭卷腿(功能未启用 / 无支持 surface)→ 返回 None,报告不出此段;
 - 任一腿无有效样本 → INCONCLUSIVE;
-- 开卷提及本身处于缺席水平(区间上界 ≤ mention_fail_ci_high)→ INCONCLUSIVE,
+- 开卷提及本身处于缺席水平(比例 < mention_fail_below)→ INCONCLUSIVE,
   开卷都不提及,「依赖什么」无从谈起;
-- 两区间重叠 → LOW(闭卷与开卷无法区分,检索不是可见度主要来源);
-- 区间分离且闭卷上界 < 开卷下界 × dependency_high_ratio → HIGH;
-- 其余分离情形 → MEDIUM。
+- 开卷与闭卷相差不足 rate_gap → LOW(检索不是可见度主要来源);
+- 闭卷比例 < 开卷比例 × dependency_high_ratio → HIGH;
+- 其余 → MEDIUM。
 
-两条区间必须并排展示,不做四象限硬判(第 9 章);依赖度不是漏斗阶段,
+两个比例必须并排展示,不做四象限硬判(第 9 章);依赖度不是漏斗阶段,
 不参与失败定位。开卷与闭卷两腿必须来自同一 surface/model(跨仪器禁比,
 调用方保证,本模块校验)。
 """
@@ -24,7 +24,7 @@ from enum import StrEnum
 
 from diagnosis.findings import DiagnosisThresholds, caliber_msg
 from diagnosis.messages import Msg, msg
-from engine.aggregate import NeedSurfaceMetric
+from engine.aggregate import ClassSurfaceMetric
 from engine.models import FrozenModel
 
 
@@ -42,8 +42,8 @@ class DependencyFinding(FrozenModel):
 
 
 def diagnose_retrieval_dependency(
-    online: NeedSurfaceMetric | None,
-    offline: NeedSurfaceMetric | None,
+    online: ClassSurfaceMetric | None,
+    offline: ClassSurfaceMetric | None,
     thresholds: DiagnosisThresholds | None = None,
 ) -> DependencyFinding | None:
     if offline is None:
@@ -58,8 +58,9 @@ def diagnose_retrieval_dependency(
     meaning = msg("dependency.note.meaning")
     rule_line = msg(
         "dependency.thresholds",
+        gap=thresholds.rate_gap,
         ratio=thresholds.dependency_high_ratio,
-        absent=thresholds.mention_fail_ci_high,
+        absent=thresholds.mention_fail_below,
     )
     calibers = [
         msg("dependency.leg_caliber", leg=msg(f"dependency.leg.{leg}"), caliber=caliber_msg(metric))
@@ -67,8 +68,8 @@ def diagnose_retrieval_dependency(
         if metric is not None
     ]
 
-    on = online.estimate if online is not None else None
-    off = offline.estimate
+    on = online.rate if online is not None else None
+    off = offline.rate
     if on is None or off is None:
         return DependencyFinding(
             level=DependencyLevel.INCONCLUSIVE,
@@ -78,18 +79,18 @@ def diagnose_retrieval_dependency(
 
     pair = msg(
         "dependency.pair",
-        on_point=on.point, on_low=on.ci_low, on_high=on.ci_high, on_n=on.n,
-        off_point=off.point, off_low=off.ci_low, off_high=off.ci_high, off_n=off.n,
+        on_k=on.k, on_n=on.n, on_share=on.share,
+        off_k=off.k, off_n=off.n, off_share=off.share,
     )
-    if on.ci_high <= thresholds.mention_fail_ci_high:
+    if on.share < thresholds.mention_fail_below:
         return DependencyFinding(
             level=DependencyLevel.INCONCLUSIVE,
             headline=msg("dependency.headline.inconclusive"),
             evidence_lines=[msg("dependency.note.absent_online"), pair, meaning, rule_line, *calibers],
         )
-    if off.ci_high >= on.ci_low:
+    if on.share - off.share < thresholds.rate_gap:
         level, headline = DependencyLevel.LOW, msg("dependency.headline.low")
-    elif off.ci_high < on.ci_low * thresholds.dependency_high_ratio:
+    elif off.share < on.share * thresholds.dependency_high_ratio:
         level, headline = DependencyLevel.HIGH, msg("dependency.headline.high")
     else:
         level, headline = DependencyLevel.MEDIUM, msg("dependency.headline.medium")

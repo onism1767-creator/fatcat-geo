@@ -8,27 +8,20 @@ from __future__ import annotations
 
 SCHEMA_STATEMENTS: tuple[str, ...] = (
     """
-    CREATE TABLE IF NOT EXISTS information_need (
-        need_id text PRIMARY KEY,
-        statement text NOT NULL,
+    CREATE TABLE IF NOT EXISTS prompt (
+        prompt_id text PRIMARY KEY,
+        text text NOT NULL,
         intent text NOT NULL,
-        created_at timestamptz NOT NULL
-    )
-    """,
-    """
-    CREATE TABLE IF NOT EXISTS prompt_variant (
-        variant_id text PRIMARY KEY,
-        need_id text NOT NULL REFERENCES information_need(need_id),
-        prompt_text text NOT NULL,
         origin text NOT NULL,
+        locale text NOT NULL,
         created_at timestamptz NOT NULL
     )
     """,
     """
     CREATE TABLE IF NOT EXISTS surface_run (
         run_id text PRIMARY KEY,
-        information_need_id text NOT NULL,
-        prompt_variant_id text NOT NULL,
+        prompt_id text NOT NULL,
+        run_index integer NOT NULL,
         provider text NOT NULL,
         surface text NOT NULL,
         model text NOT NULL,
@@ -45,8 +38,7 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         cost_usd double precision NOT NULL
     )
     """,
-    "CREATE INDEX IF NOT EXISTS surface_run_variant_idx ON surface_run (prompt_variant_id, surface)",
-    "CREATE INDEX IF NOT EXISTS surface_run_need_idx ON surface_run (information_need_id)",
+    "CREATE INDEX IF NOT EXISTS surface_run_prompt_idx ON surface_run (prompt_id, surface, model)",
     """
     CREATE TABLE IF NOT EXISTS derived_observation (
         observation_id text PRIMARY KEY,

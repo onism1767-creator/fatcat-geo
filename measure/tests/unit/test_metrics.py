@@ -1,79 +1,29 @@
-"""metrics 属性测试(12.1):防 CI 计算错误静默产出错误区间。
-
-属性清单来自架构书 12.1:区间 ⊆ [0,1]、覆盖点估计、k=0 与 k=n 边界不退化、
-同比例下 n 增大区间单调收窄。另加 Beta 对称性作为公式抄错的哨兵。
-名义覆盖率的蒙特卡洛校验不进 CI,随调度器交付为手动脚本(12.1)。
-"""
+"""metrics 测试(12.1):比例的边界与记账的分母规则(v0.4.26 S2:不再算区间)。"""
 
 import pytest
-from hypothesis import given
-from hypothesis import strategies as st
 
-from engine.metrics import (
-    LOW_CONFIDENCE_THRESHOLD,
-    account_outcomes,
-    estimate_proportion,
-    jeffreys_interval,
-)
+from engine.metrics import LOW_CONFIDENCE_THRESHOLD, Rate, account_outcomes, merge_accounting, rate, rate_of
 from engine.models import Outcome
 
-k_and_n = st.integers(min_value=1, max_value=300).flatmap(
-    lambda n: st.tuples(st.integers(min_value=0, max_value=n), st.just(n))
-)
+
+def test_rate_packaging_and_share():
+    r = rate(2, 8)
+    assert (r.k, r.n) == (2, 8) and r.share == pytest.approx(0.25)
+    assert rate(0, 5).share == 0.0 and rate(5, 5).share == 1.0
 
 
-@given(k_and_n)
-def test_interval_within_unit_and_covers_point_estimate(kn):
-    k, n = kn
-    low, high = jeffreys_interval(k, n)
-    assert 0.0 <= low <= k / n <= high <= 1.0
-
-
-@pytest.mark.parametrize("n", [1, 5, 20, 100])
-def test_boundaries_do_not_degenerate(n):
-    low, high = jeffreys_interval(0, n)  # 品牌从未被引:我们的常态,Wald 在此失效
-    assert low == 0.0 and 0.0 < high < 1.0
-    low, high = jeffreys_interval(n, n)
-    assert 0.0 < low < 1.0 and high == 1.0
-
-
-@given(
-    st.tuples(st.integers(0, 10), st.integers(1, 10)).filter(lambda ab: ab[0] <= ab[1]),
-    st.integers(1, 8),
-    st.integers(2, 6),
-)
-def test_same_proportion_larger_n_narrower_interval(ab, m, factor):
-    a, b = ab
-    small = jeffreys_interval(a * m, b * m)
-    large = jeffreys_interval(a * m * factor, b * m * factor)
-    assert (large[1] - large[0]) <= (small[1] - small[0]) + 1e-9
-
-
-@given(k_and_n)
-def test_beta_symmetry(kn):
-    """区间(k,n) 与 区间(n-k,n) 应互为镜像——公式抄错的第一道哨兵。"""
-    k, n = kn
-    low, high = jeffreys_interval(k, n)
-    mirror_low, mirror_high = jeffreys_interval(n - k, n)
-    assert low == pytest.approx(1.0 - mirror_high, abs=1e-9)
-    assert high == pytest.approx(1.0 - mirror_low, abs=1e-9)
-
-
-def test_invalid_inputs_rejected():
+def test_invalid_rates_rejected():
     with pytest.raises(ValueError):
-        jeffreys_interval(0, 0)
+        rate(0, 0)
     with pytest.raises(ValueError):
-        jeffreys_interval(5, 3)
+        rate(5, 3)
     with pytest.raises(ValueError):
-        jeffreys_interval(-1, 3)
+        rate(-1, 3)
 
 
-def test_estimate_proportion_packaging():
-    est = estimate_proportion(2, 8)
-    assert est.point == pytest.approx(0.25)
-    assert est.method == "jeffreys-95"
-    assert est.ci_low < est.point < est.ci_high
-    assert est.width == pytest.approx(est.ci_high - est.ci_low)
+def test_rate_of_flags_and_empty_is_none():
+    assert rate_of([True, False, True]) == Rate(k=2, n=3)
+    assert rate_of([]) is None  # 没有观测 → None,不是 0
 
 
 def test_account_outcomes_denominator_rule():
@@ -104,3 +54,12 @@ def test_account_outcomes_empty_is_safe():
     acc = account_outcomes([])
     assert acc.n_total == 0 and acc.n_valid == 0
     assert acc.low_confidence is False
+
+
+def test_merge_accounting_recomputes_ratios_on_totals():
+    merged = merge_accounting([
+        account_outcomes([Outcome.SUCCESS] * 3, n_account_error=1),
+        account_outcomes([Outcome.SUCCESS, Outcome.TRANSIENT_FAILURE]),
+    ])
+    assert merged.n_total == 5 and merged.n_valid == 4 and merged.n_account_error == 1
+    assert merged.failure_rate == pytest.approx(0.2) and merged.low_confidence is False

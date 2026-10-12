@@ -6,22 +6,25 @@
 
 from __future__ import annotations
 
-from engine.models import NeedIntent
+from engine.models import PromptIntent
 
 LANGS = ("zh", "en")
 
-INTENT_LABELS: dict[str, dict[NeedIntent, str]] = {
+# 五类题型(产品文档 15.2;v0.4.26 S2)
+INTENT_LABELS: dict[str, dict[PromptIntent, str]] = {
     "zh": {
-        NeedIntent.DISCOVERY: "用户没有点名品牌时(品类推荐)",
-        NeedIntent.COMPARISON: "用户比较多个品牌时",
-        NeedIntent.SCENARIO: "用户描述具体场景时",
-        NeedIntent.BRAND_PROBE: "用户直接询问品牌时",
+        PromptIntent.CATEGORY_DISCOVERY: "用户问这类产品有哪些好的时(品类发现)",
+        PromptIntent.PROBLEM_SOLUTION: "用户描述具体问题或场景时(问题与方案)",
+        PromptIntent.COMPARISON_ALTERNATIVE: "用户比较或找替代品时(对比与替代)",
+        PromptIntent.RECOMMENDATION: "用户直接要推荐时(推荐)",
+        PromptIntent.BRAND_FACT: "用户直接询问你的品牌时(品牌事实)",
     },
     "en": {
-        NeedIntent.DISCOVERY: "When users don't name a brand (category recommendation)",
-        NeedIntent.COMPARISON: "When users compare several brands",
-        NeedIntent.SCENARIO: "When users describe a specific situation",
-        NeedIntent.BRAND_PROBE: "When users ask about the brand directly",
+        PromptIntent.CATEGORY_DISCOVERY: "When users ask what is good in this category (category discovery)",
+        PromptIntent.PROBLEM_SOLUTION: "When users describe a problem or situation (problem & solution)",
+        PromptIntent.COMPARISON_ALTERNATIVE: "When users compare or look for alternatives (comparison & alternatives)",
+        PromptIntent.RECOMMENDATION: "When users ask for a recommendation (recommendation)",
+        PromptIntent.BRAND_FACT: "When users ask about your brand directly (brand facts)",
     },
 }
 
@@ -48,32 +51,10 @@ LEVEL_LABELS: dict[str, dict[str, str]] = {
     "zh": {"A": "研究支持:强", "B": "研究支持:中等", "C": "研究支持:初步", "D": "研究支持:很弱", "E": "研究支持:无"},
     "en": {"A": "Research support: strong", "B": "Research support: moderate", "C": "Research support: preliminary", "D": "Research support: very weak", "E": "Research support: none"},
 }
-# 确认页「两个档位差在哪」对照表(v0.4.18),首行是表头。数字来自 scripts/mc_tier_lights.py
-# (真实停止规则 + 真实亮灯规则,每格模拟 2000 回);改档位策略或亮灯线后必须重跑并同步这里。
-TIER_TABLE: dict[str, list[list[str]]] = {
-    "zh": [
-        ["如果 AI 实际上……", "快扫档会亮什么灯", "标准档会亮什么灯"],
-        ["从来不提你", "一定亮红灯", "一定亮红灯"],
-        ["20 次里提到 1 次", "10 回里约 4 回亮红灯,其余亮黄灯", "10 回里约 9 回亮红灯,其余亮黄灯"],
-        ["10 次里提到 1 次", "多半亮黄灯(10 回里只有 1–2 回亮红灯)", "红灯、黄灯各一半"],
-        ["10 次里提到 3–4 次", "亮黄灯", "亮黄灯"],
-        ["10 次里提到 6–7 次", "10 回里约 3 回亮绿灯,其余亮黄灯", "10 回里约 6–7 回亮绿灯,其余亮黄灯"],
-        ["10 次里提到 8 次", "10 回里约 9 回亮绿灯,其余亮黄灯", "几乎一定亮绿灯"],
-    ],
-    "en": [
-        ["If the AI actually…", "Quick scan shows", "Standard shows"],
-        ["never mentions you", "always red", "always red"],
-        ["mentions you 1 time in 20", "red about 4 times in 10, otherwise yellow", "red about 9 times in 10, otherwise yellow"],
-        ["mentions you 1 time in 10", "mostly yellow (red only 1–2 times in 10)", "red and yellow about half each"],
-        ["mentions you 3–4 times in 10", "yellow", "yellow"],
-        ["mentions you 6–7 times in 10", "green about 3 times in 10, otherwise yellow", "green about 6–7 times in 10, otherwise yellow"],
-        ["mentions you 8 times in 10", "green about 9 times in 10, otherwise yellow", "almost always green"],
-    ],
-}
 
 MESSAGES: dict[str, dict[str, str]] = {
     "zh": {
-        "tagline": "本机运行 · 看你的品牌在 AI 回答里的表现 · 只给次数和范围,不打分",
+        "tagline": "本机运行 · 看你的品牌在 AI 回答里的表现 · 只给次数和比例,不打分",
         "lang_switch": "English",
         # 首页(v0.4.15:全部人话)
         "new_diag": "开始一次检测",
@@ -93,7 +74,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "category_ph": "如:客户关系管理软件(CRM)",
         "locale_label": "用哪种语言向 AI 提问(不同语言的结果不能互相代替)",
         "questions_label": "你希望 AI 在回答哪些问题时提到你(每行一个;可以不填,让系统帮你出题)",
-        "generate_label": "让系统帮我出题(先不告诉 AI 你是谁,出一批用户会问的问题,再列出可能的竞品;约 30–60 秒,费用约 $0.02)",
+        "generate_label": "让系统帮我出题(先不告诉 AI 你是谁,出 24 道用户会问的题,分五类;再列出可能的竞品;约 1–2 分钟,费用约 $0.03)",
         "no_surface": "还没有接入任何 AI(请检查 .env 里的 API key),现在只能手动填问题。",
         "submit_next": "下一步:看看这些问题,再决定测哪些",
         "history": "过去的检测",
@@ -103,20 +84,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "confirm_title": "确认要测的问题和方式",
         "confirm_note": "确认之前不会产生任何费用。问题怎么问对结果影响很大,请逐条看一遍。",
         "brand_word": "品牌", "category_word": "品类", "locale_word": "提问语言",
-        "candidates_title": "候选问题(已先帮你勾了 2 个最有代表性的;最多勾 10 个,每多勾一个费用就多一份,下面的预估会跟着变)",
-        "custom_label": "自己补充问题(每行一个;问题里写了你的品牌名,就算「用户直接询问品牌时」,没写就算「用户没有点名品牌时」)",
+        "candidates_title": "候选问题(默认全勾;不想测的去掉勾,最多 40 道;每多一道费用就多一份,下面的预估会跟着变)",
+        "custom_label": "自己补充问题(每行一个;问题里写了你的品牌名,就算「用户直接询问你的品牌时」,没写就算「品类发现」)",
         "competitors_title": "要对比的竞品(勾选后报告会比较谁更常被 AI 引用)",
         "plan_title": "怎么测",
-        "surfaces_label": "要测的 AI(同一家 AI 的不同型号回答不一样,所以每个型号分开测、分开报;默认全测)",
-        "tier_label": "测多少次",
-        "tier_standard": "标准档:每种说法最多问 20 次,前 11 次结果完全一样就提前停;费用约为快扫档的 2–2.5 倍,「很少提」和「多半会提」也能分清",
-        "tier_quick": "快扫档:每种说法最多问 8 次,前 6 次结果完全一样就提前停;便宜、快,只能确认「从来不提」和「经常提」,适合先查有没有大问题",
-        "tier_table_caption": "两个档位差在哪(按每个问题换 3 种说法算:快扫档每个问题、每家 AI 一共问 18–24 次,标准档 33–60 次)",
-        "tier_table_note": "红灯 = 几乎不提你,绿灯 = 经常提你,黄灯 = 介于中间,或者问的次数还不够下结论。"
-                           "两个档位都不会把灯亮反(把「经常提」说成「几乎不提」,或者反过来):各模拟 2000 回,一回都没出现;"
-                           "看不清的时候只会亮黄灯。这张表是用电脑模拟算出来的,前提是「不管怎么问,AI 提到你的比例都一样」;"
-                           "如果换个问法结果就差很多,实际把握会比表里低。",
-        "variants_label": "每个问题换几种说法问(原话 + AI 改写)",
+        "surfaces_label": "要测的 AI(同一家 AI 的不同型号回答不一样,所以每个型号分开测、分开报;默认每家只勾一个主力型号)",
+        "runs_note": "每道题原样问 {n} 次,不换说法:AI 的回答有随机性,问几次才看得出它稳不稳定。",
         "budget_label": "费用上限(美元,可以不填;超过就自动停)",
         "dep_label": "同时测一遍不联网的 AI",
         "dep_hint": "把同一批问题再问一遍不许联网搜索的 AI,对比两次提到你的次数,看 AI 是本来就知道你,还是全靠临时搜索才提到你。"
@@ -125,7 +98,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "est_breakdown": "各 AI 分别:",
         "est_calls_word": "次提问",
         "est_min_word": "分钟",
-        "est_note": "3 个同时进行;结果一致时提前停,只会更快更省",
+        "est_note": "3 个同时进行",
         "est_basis_measured": "预估按过去实测的平均费用和耗时算:{names}。",
         "est_basis_declared": "{names} 还没有足够的历史记录,先按声明的单价算。",
         "est_basis_tail": "实际费用随 AI 回答的长短浮动。",
@@ -134,19 +107,19 @@ MESSAGES: dict[str, dict[str, str]] = {
         "confirm_submit": "确认,开始检测(从这里开始计费)",
         # 任务页
         "job_title": "检测",
-        "fingerprint_word": "编号", "tier_word": "档",
-        "needs_word": "个问题", "variants_word": "种说法", "surfaces_word": "个 AI 型号",
-        "progress_word": "进度", "plans_word": "已完成",
+        "fingerprint_word": "编号",
+        "prompts_word": "道题", "runs_word": "次", "surfaces_word": "个 AI 型号",
+        "progress_word": "进度", "runs_done_word": "已问",
         "spent_word": "已花费", "budget_word": "上限",
         "access_early": "官网抓取情况(先出的结果)",
         "access_detail": "技术检查明细",
-        "auto_refresh": "页面每 3 秒自动刷新;结果一致时会提前停,实际会比预估快。",
+        "auto_refresh": "页面每 3 秒自动刷新。",
         "eta_line": "已用 {elapsed} 分钟;按目前的速度,预计还需约 {eta} 分钟",
         "eta_waiting": "已用 {elapsed} 分钟;第一批结果还没回来,稍后会显示预计剩余时间",
         "job_failed": "出错了",
-        "err_needs_count": "要测的问题请选 1 到 10 个。",
+        "err_prompts_count": "要测的题请选 1 到 40 道。",
         "err_no_target": "请至少选一个要测的 AI 型号。",
-        "err_bad_params": "档位、问法数或预算填得不对,请检查后再试。",
+        "err_bad_params": "预算填得不对,请检查后再试。",
         "err_no_question": "请至少手填一个问题,或者勾选「让系统帮我出题」。",
         "err_missing_ai": "有的 AI 没接入(缺少 API key),不能接着跑:{names}",
         # 账户问题两种代码(v0.4.21):换 key / 充值,各自一句话;{detail} 是平台原话
@@ -166,11 +139,13 @@ MESSAGES: dict[str, dict[str, str]] = {
         # 报告页
         "report_title": "AI 可见度报告",
         "started_word": "起测", "cost_word": "实际花费",
+        "method_line": "{prompts} 道题,每题原样问 {runs} 次",
         "partial_note": "部分完成(存在熔断截断,见各指标 stop_reasons)",
         "access_missing": "本次没有检测官网抓取情况。",
         "caveats_summary": "口径与局限",
         "evidence_summary": "证据与口径",
-        "sampled_variants": "采样问法",
+        "sampled_prompts": "本题型的题目(每题原样问了同样的次数)",
+        "prompts_in_class": "{n} 道题,每题问 {runs} 次",
         "dep_section": "检索依赖(开卷 vs 闭卷,挂靠观测,不参与定位)",
         "localization_title": "▶ 瓶颈定位(可观测证据)",
         "loc_pre": "当前可观测证据中,最强瓶颈信号在", "loc_post": "阶段。",
@@ -184,7 +159,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "missing_pre": "其中:",
         "first_word": "建议先做",
         "no_actions": "没有发现明显问题,暂时不需要动作。",
-        "sec2_title": "各场景的表现",
+        "sec2_title": "各题型的表现",
         "col_ai": "AI",
         "dep_col": "联网与不联网的差别(检索依赖)",
         "matrix_note": "各家 AI 公开的信息不一样,只能各看各的,不能相减比较;颜色只是概括,具体次数见「各 AI 详情」。",
@@ -196,9 +171,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "col_do": "建议怎么做", "col_verify": "做完之后怎么检查效果",
         "evidence_id_word": "研究依据编号",
         "claim_word": "研究主张原句",
-        "supporters_summary": "支持来源(场景 × AI)",
+        "supporters_summary": "支持来源(题型 × AI)",
         "sec5_title": "检测依据与方法",
-        "audit_intro": "以下是给技术人员和审核者看的完整记录:测试次数、可信区间、停止原因、阈值、判定器版本、核验结果、研究依据编号。默认折叠。",
+        "audit_intro": "以下是给技术人员和审核者看的完整记录:测试次数、逐题计数、停止原因、阈值、判定器版本、核验结果、研究依据编号。默认折叠。",
         "preflight_detail": "官网抓取的分层检查",
         "audit_open": "展开完整记录",
         "level_word": "证据等级",
@@ -207,7 +182,6 @@ MESSAGES: dict[str, dict[str, str]] = {
         "phase_draft": "等你确认",
         "phase_confirmed": "已确认,排队中",
         "phase_access": "正在检查官网能不能被抓取",
-        "phase_variants": "正在生成问题的不同说法",
         "phase_sampling": "正在向各家 AI 提问",
         "phase_verify": "正在核对 AI 引用的网页",
         "phase_scoring": "正在整理结果",
@@ -217,12 +191,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "phase_interrupted": "被中断了(可以接着跑,花过的钱不会重复花)",
         "btn_resume": "接着跑",
         "btn_recompute": "重新生成报告",
-        "footer": "本报告不打分:各阶段结论 = 概率 + 95% 可信区间(Jeffreys 先验)+ 完整口径"
-                  "(surface / model / N / stop_reasons / 拒答率 / 失败率 / 操作阈值)。"
-                  "原始观测只追加留档,判定器升级后可全量重算复核。",
+        "footer": "本报告不打分:各阶段结论 = 计数与比例(本次 N 次里 k 次)+ 完整口径"
+                  "(surface / model / 题数 / 每题次数 / stop_reasons / 拒答率 / 失败率 / 操作阈值);不显示置信区间——"
+                  "同一道题的几次回答是一簇,不是独立样本。原始观测只追加留档,判定器升级后可全量重算复核。",
     },
     "en": {
-        "tagline": "Runs locally · how your brand shows up in AI answers · counts and ranges, no scores",
+        "tagline": "Runs locally · how your brand shows up in AI answers · counts and rates, no scores",
         "lang_switch": "中文",
         "new_diag": "Start a check",
         "brand_name": "Brand name",
@@ -241,7 +215,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "category_ph": "e.g. Customer Relationship Management (CRM) software",
         "locale_label": "Which language to ask the AI in (results in different languages are not interchangeable)",
         "questions_label": "Questions you want AI to mention you in (one per line; optional — let the system draft them)",
-        "generate_label": "Draft questions for me (without telling the AI who you are, draft what users would ask, then list likely competitors; ~30–60 s, ~$0.02)",
+        "generate_label": "Draft questions for me (without telling the AI who you are, draft 24 questions in five types, then list likely competitors; ~1–2 min, ~$0.03)",
         "no_surface": "No AI connected yet (check the API keys in .env); you can only type questions by hand.",
         "submit_next": "Next: review the questions and choose what to test",
         "history": "Past checks",
@@ -250,20 +224,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "confirm_title": "Confirm what to test and how",
         "confirm_note": "Nothing is billed before you confirm. How a question is worded strongly affects the result — please read each one.",
         "brand_word": "Brand", "category_word": "Category", "locale_word": "Question language",
-        "candidates_title": "Candidate questions (the 2 most representative are pre-checked; pick up to 10 — each extra one adds cost, and the estimate below updates)",
-        "custom_label": "Add your own questions (one per line; a question that names your brand counts as \"asked about the brand directly\", otherwise as \"when users don't name a brand\")",
+        "candidates_title": "Candidate questions (all checked by default; untick what you don't want, up to 40 — each one adds cost, and the estimate below updates)",
+        "custom_label": "Add your own questions (one per line; a question that names your brand counts as \"asked about your brand directly\", otherwise as \"category discovery\")",
         "competitors_title": "Competitors to compare (the report will show who gets cited more often)",
         "plan_title": "How to test",
-        "surfaces_label": "AIs to test (different models of the same AI answer differently, so each model is tested and reported separately; all are on by default)",
-        "tier_label": "How many times to ask",
-        "tier_standard": "Standard: ask each phrasing up to 20 times; stop early if the first 11 answers all agree. About 2–2.5× the cost of a quick scan; also tells \"rarely\" from \"usually\"",
-        "tier_quick": "Quick scan: ask each phrasing up to 8 times; stop early if the first 6 answers all agree. Cheap and fast; only confirms \"never mentioned\" and \"often mentioned\" — good for a first look",
-        "tier_table_caption": "How the two tiers differ (with 3 phrasings per question: a quick scan asks each AI 18–24 times per question, standard 33–60 times)",
-        "tier_table_note": "Red = almost never mentions you, green = often mentions you, yellow = in between, or not enough asks to tell. "
-                           "Neither tier shows the opposite light (calling \"often\" \"almost never\" or the reverse): 0 cases in 2,000 simulated runs each; "
-                           "when unsure it shows yellow. This table comes from computer simulation and assumes the AI mentions you at the same rate however the question is worded; "
-                           "if rewording changes the result a lot, real-world certainty is lower than shown.",
-        "variants_label": "Phrasings per question (original + AI rewrites)",
+        "surfaces_label": "AIs to test (different models of the same AI answer differently, so each model is tested and reported separately; one main model per AI is on by default)",
+        "runs_note": "Each question is asked {n} times verbatim, never reworded: AI answers vary, and it takes a few asks to see how stable they are.",
         "budget_label": "Spending cap (USD, optional; stops automatically when exceeded)",
         "dep_label": "Also test the AI without web search",
         "dep_hint": "Asks the same questions again with web search turned off and compares how often you are mentioned — does the AI know you already, or only find you by searching? "
@@ -272,7 +238,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "est_breakdown": "Per AI: ",
         "est_calls_word": "questions asked",
         "est_min_word": "min",
-        "est_note": "3 run at once; consistent answers stop early, which only makes it faster and cheaper",
+        "est_note": "3 run at once",
         "est_basis_measured": "Estimate uses the measured average cost and time from past runs: {names}.",
         "est_basis_declared": "{names} have too little history yet, so their declared unit price is used.",
         "est_basis_tail": "Actual cost varies with how long the AI's answers are.",
@@ -281,19 +247,19 @@ MESSAGES: dict[str, dict[str, str]] = {
                             "results already collected are kept, and after topping up you can press Resume.",
         "confirm_submit": "Confirm and start (billing starts here)",
         "job_title": "Check",
-        "fingerprint_word": "ID", "tier_word": "tier",
-        "needs_word": "questions", "variants_word": "phrasings", "surfaces_word": "AI models",
-        "progress_word": "Progress", "plans_word": "done",
+        "fingerprint_word": "ID",
+        "prompts_word": "questions", "runs_word": "asks each", "surfaces_word": "AI models",
+        "progress_word": "Progress", "runs_done_word": "asked",
         "spent_word": "Spent", "budget_word": "cap",
         "access_early": "Site crawlability (early result)",
         "access_detail": "Technical check details",
-        "auto_refresh": "Auto-refreshes every 3 s; consistent answers stop early, so it usually finishes faster than estimated.",
+        "auto_refresh": "Auto-refreshes every 3 s.",
         "eta_line": "{elapsed} min so far; at the current pace about {eta} min remain",
         "eta_waiting": "{elapsed} min so far; the first results are not back yet — remaining time will show shortly",
         "job_failed": "Something went wrong",
-        "err_needs_count": "Please pick 1 to 10 questions to test.",
+        "err_prompts_count": "Please pick 1 to 40 questions to test.",
         "err_no_target": "Please pick at least one AI model to test.",
-        "err_bad_params": "The tier, number of phrasings or budget is not valid — please check and try again.",
+        "err_bad_params": "The budget is not valid — please check and try again.",
         "err_no_question": "Enter at least one question, or tick “Draft questions for me”.",
         "err_missing_ai": "Some AIs are not connected (missing API key), so this job cannot resume: {names}",
         "job_error.account_auth": "The API key for {ai} (model {model}) is invalid or lacks permission. The run has stopped and will spend nothing more. "
@@ -311,11 +277,13 @@ MESSAGES: dict[str, dict[str, str]] = {
         "regen_hint": "After rules or wording change, regenerate a new version from the same collected data; no new AI calls or API spend (the site-crawlability check runs again); old versions are kept.",
         "report_title": "AI Visibility Report",
         "started_word": "started", "cost_word": "actual cost",
+        "method_line": "{prompts} questions, each asked {runs} times verbatim",
         "partial_note": "PARTIAL (breaker-truncated; see stop_reasons per metric)",
         "access_missing": "Site crawlability was not checked this time.",
         "caveats_summary": "Caliber & limitations",
         "evidence_summary": "Evidence & caliber",
-        "sampled_variants": "Sampled phrasings",
+        "sampled_prompts": "Questions in this type (each asked the same number of times verbatim)",
+        "prompts_in_class": "{n} questions, each asked {runs} times",
         "dep_section": "Retrieval dependency (search-on vs search-off; piggyback observation, not used for localization)",
         "localization_title": "▶ Bottleneck localization (observable evidence)",
         "loc_pre": "Among observable evidence, the strongest bottleneck signal is at the", "loc_post": "stage.",
@@ -328,7 +296,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "missing_pre": "note: ",
         "first_word": "Do first",
         "no_actions": "No obvious problem found — no action needed for now.",
-        "sec2_title": "Performance by situation",
+        "sec2_title": "Performance by question type",
         "col_ai": "AI",
         "dep_col": "With vs without web search (retrieval dependency)",
         "matrix_note": "Each AI exposes different information, so they can only be read side by side, never subtracted; colors are a summary — counts are in \"Per-AI details\".",
@@ -340,9 +308,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "col_do": "What to do", "col_verify": "How to check whether it worked",
         "evidence_id_word": "research reference",
         "claim_word": "Original research claim",
-        "supporters_summary": "Supporting findings (situation × AI)",
+        "supporters_summary": "Supporting findings (question type × AI)",
         "sec5_title": "Evidence & methods",
-        "audit_intro": "The full record for technical readers and auditors: sample counts, credible intervals, stop reasons, thresholds, detector versions, verification outcomes, research references. Collapsed by default.",
+        "audit_intro": "The full record for technical readers and auditors: sample counts, per-question counts, stop reasons, thresholds, detector versions, verification outcomes, research references. Collapsed by default.",
         "preflight_detail": "Layered site-crawlability checks",
         "audit_open": "Open the full record",
         "level_word": "evidence level",
@@ -351,7 +319,6 @@ MESSAGES: dict[str, dict[str, str]] = {
         "phase_draft": "Awaiting review",
         "phase_confirmed": "Confirmed, queued",
         "phase_access": "Checking whether your site can be crawled",
-        "phase_variants": "Drafting alternative phrasings",
         "phase_sampling": "Asking each AI",
         "phase_verify": "Checking the pages the AIs cited",
         "phase_scoring": "Putting the results together",
@@ -361,8 +328,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "phase_interrupted": "Interrupted (can resume; money already spent is not spent again)",
         "btn_resume": "Resume",
         "btn_recompute": "Regenerate report",
-        "footer": "This report has no scores: every stage conclusion = probability + 95% credible interval (Jeffreys prior) "
-                  "+ full caliber (surface / model / N / stop_reasons / refusal & failure rates / thresholds). "
+        "footer": "This report has no scores: every stage conclusion = counts and rates (k of N this time) "
+                  "+ full caliber (surface / model / prompts / asks per prompt / stop_reasons / refusal & failure rates / thresholds); "
+                  "no confidence interval is shown — the repeated asks of one question form a cluster, not independent samples. "
                   "Raw observations are append-only; detector upgrades recompute all history.",
     },
 }

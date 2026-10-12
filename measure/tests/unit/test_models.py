@@ -22,8 +22,8 @@ from engine.models import (
 def make_run(**overrides) -> SurfaceRun:
     fields = dict(
         run_id="run-1",
-        information_need_id="need-1",
-        prompt_variant_id="variant-1",
+        prompt_id="need-1",
+        run_index=1,
         provider="test_provider",
         surface="test_surface",
         model="test-model-1",

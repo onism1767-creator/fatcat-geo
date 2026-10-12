@@ -16,8 +16,8 @@ from engine.models import (
 WHITELISTS = {
     SurfaceRun: {
         "run_id",
-        "information_need_id",
-        "prompt_variant_id",
+        "prompt_id",
+        "run_index",
         "provider",
         "surface",
         "model",

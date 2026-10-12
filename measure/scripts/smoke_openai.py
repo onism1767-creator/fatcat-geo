@@ -35,8 +35,8 @@ SMOKE_PROMPT = "中小团队用什么 CRM 好?"
 def make_request(prompt: str, mode: SearchMode) -> AskRequest:
     return AskRequest(
         run_id=f"smoke-{uuid.uuid4().hex[:8]}",
-        information_need_id="smoke-need",
-        prompt_variant_id="smoke-variant",
+        prompt_id="smoke-prompt",
+        run_index=1,
         prompt_text=prompt,
         search_mode=mode,
         locale="zh-CN",

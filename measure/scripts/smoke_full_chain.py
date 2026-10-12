@@ -1,10 +1,9 @@
-"""端到端手动 smoke:架构书第 3 章走查的真实执行(L2 全流水线)。
+"""端到端手动 smoke:架构书第 3 章走查的真实执行(L2 全流水线;v0.4.26 S2 方法)。
 
-配置装载(surfaces.yaml)→ 问法变体生成(LLM 辅助,走适配器)→
-每个问法序贯采样(真实 API)→ 只追加落库(真实库)→
-四个判定器 → 需求层聚合(概率 + 95% 区间 + 完整口径)。
+配置装载(surfaces.yaml)→ 两道题原样各问 2 次(真实 API)→ 只追加落库(真实库)→
+规则判定器 → 题型层聚合(计数 + 比例,逐题并列,题目覆盖率)。
 
-策略刻意收紧控制成本(单次全链约 $0.15)。
+策略刻意收紧控制成本(单次全链约 $0.05)。
 前置:.env 有 PERPLEXITY_API_KEY;本地库在跑(scripts/pgdev.ps1 start)。
 用法: .venv\\Scripts\\python scripts\\smoke_full_chain.py
 """
@@ -18,111 +17,68 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-from engine.aggregate import NeedSurfaceMetric, aggregate_need_surface  # noqa: E402
-from engine.detectors.brand_mention import BrandMentionDetector  # noqa: E402
-from engine.detectors.citation import CitationDetector  # noqa: E402
-from engine.detectors.runner import observe_runs  # noqa: E402
-from engine.detectors.sentiment import SentimentDetector  # noqa: E402
+from engine.aggregate import ClassSurfaceMetric, measure_target  # noqa: E402
 from engine.envfile import load_env_file  # noqa: E402
 from engine.loader import build_adapters  # noqa: E402
-from engine.models import (  # noqa: E402
-    BrandSpec,
-    InformationNeed,
-    NeedIntent,
-    PromptOrigin,
-    PromptVariant,
-    SurfaceRun,
-)
-from engine.scheduler import SamplingPolicy, SequentialSampler  # noqa: E402
+from engine.models import BrandSpec, Prompt, PromptIntent, PromptOrigin, Target  # noqa: E402
+from engine.observe import observe, persist_observations  # noqa: E402
+from engine.scheduler import RepeatSampler, SamplingPolicy  # noqa: E402
 from engine.storage import Storage, default_dsn  # noqa: E402
-from engine.variants import generate_variants  # noqa: E402
 
-POLICY = SamplingPolicy(min_n=5, max_n=6, ci_width_threshold=0.35, budget_usd=0.10)
-
+POLICY = SamplingPolicy(runs_per_prompt=2, budget_usd=0.10)
+SURFACE = "perplexity_agent"
 BRAND = BrandSpec(name="HubSpot", aliases=["hubspot"], domains=["hubspot.com"])
+PROMPTS = [
+    Prompt(text="中小团队用什么 CRM 好?", intent=PromptIntent.CATEGORY_DISCOVERY, origin=PromptOrigin.USER,
+           locale="zh-CN"),
+    Prompt(text="十人团队怎么选客户管理系统?", intent=PromptIntent.CATEGORY_DISCOVERY, origin=PromptOrigin.USER,
+           locale="zh-CN"),
+]
 
-# 用哪个判定器做收敛判据(hit 语义)
-CHANNEL_HIT_DETECTORS = {
-    "perplexity_agent": ("被引", CitationDetector(), lambda obs: obs.cited),
-}
 
-
-def print_metric(label: str, metric: NeedSurfaceMetric) -> None:
+def print_metric(label: str, metric: ClassSurfaceMetric) -> None:
     acc = metric.accounting
-    if metric.estimate:
-        e = metric.estimate
-        headline = f"{e.point:.0%} [95% 区间(Jeffreys): {e.ci_low:.0%}–{e.ci_high:.0%}]"
-    else:
-        headline = "无有效样本"
-    reasons = ",".join(r.value for r in metric.stop_reasons)
-    print(f"\n  {label}{headline}")
-    print(f"    口径:surface={metric.surface} model={metric.model} "
-          f"N_valid={acc.n_valid}/{acc.n_total}(跨 {len(metric.per_variant)} 个问法)")
-    print(f"         stop_reasons=[{reasons}] 拒答率={acc.refusal_rate:.0%} "
-          f"失败率={acc.failure_rate:.0%}{' [LOW_CONFIDENCE]' if acc.low_confidence else ''}")
+    headline = f"{metric.rate.k}/{metric.rate.n} = {metric.rate.share:.0%}" if metric.rate else "无有效样本"
+    per_prompt = ", ".join(f"题{i} {r.k}/{r.n}" if r else f"题{i} 无" for i, r in enumerate(metric.per_prompt, 1))
+    coverage = (f"{metric.prompt_coverage.k}/{metric.prompt_coverage.n} 道题至少命中一次"
+                if metric.prompt_coverage else "—")
+    print(f"\n  {label}{headline}(逐题:{per_prompt};题目覆盖率 {coverage})")
+    print(f"    口径:surface={metric.surface} model={metric.model} 题数={len(metric.per_prompt)} "
+          f"N_valid={acc.n_valid}/{acc.n_total} stop_reasons=[{', '.join(r.value for r in metric.stop_reasons)}] "
+          f"拒答率={acc.refusal_rate:.0%} 失败率={acc.failure_rate:.0%}"
+          f"{' [LOW_CONFIDENCE]' if acc.low_confidence else ''}")
 
 
 def main() -> int:
     load_env_file()
     adapters = build_adapters(os.environ)
-    if not adapters:
-        print("没有可用 surface(检查 .env 的 key)", file=sys.stderr)
+    if SURFACE not in adapters:
+        print(f"{SURFACE} 不可用(检查 .env 的 key)", file=sys.stderr)
         return 1
-    print(f"配置装载:{', '.join(adapters)}")
+    adapter = adapters[SURFACE]
+    meta = adapter.meta()
+    target = Target(surface=SURFACE, model=meta.default_model)
 
     storage = Storage(default_dsn())
     storage.ensure_schema()
+    for prompt in PROMPTS:
+        storage.insert_prompt(prompt)
+        print(f"题:{prompt.text}")
 
-    need = InformationNeed(statement="中小团队的 CRM 选型", intent=NeedIntent.DISCOVERY)
-    storage.insert_information_need(need)
-
-    user_variant = PromptVariant(need_id=need.need_id, prompt_text="中小团队用什么 CRM 好?",
-                                 origin=PromptOrigin.USER)
-    assisted = generate_variants(
-        adapters["perplexity_agent"], need, count=2,
-        ledger=lambda run: storage.insert_aux_call(job_id="__smoke_full_chain__", task="变体生成", run=run),
-    )
-    variants = [user_variant, assisted[0]]  # 控制成本:原话 + 1 个生成变体
-    for variant in variants:
-        storage.insert_prompt_variant(variant)
-    print("问法:")
-    for variant in variants:
-        print(f"  [{variant.origin.value}] {variant.prompt_text}")
-
-    sampler = SequentialSampler(storage)
-    total_cost = 0.0
-    all_runs: list[SurfaceRun] = []
-    metrics: list[tuple[str, NeedSurfaceMetric]] = []
-
-    for surface, (label, detector, extract) in CHANNEL_HIT_DETECTORS.items():
-        adapter = adapters[surface]
-
-        def hit_fn(run: SurfaceRun, detector=detector, extract=extract) -> bool | None:
-            observation = detector.detect(run, BRAND)
-            return None if observation is None else extract(observation)
-
-        results = [
-            sampler.run_plan(adapter, need, variant, hit_fn=hit_fn, policy=POLICY)
-            for variant in variants
-        ]
-        metric = aggregate_need_surface(results, metric_label=detector.name)
-        metrics.append((label, metric))
-        total_cost += sum(r.total_cost_usd for r in results)
-        for variant in variants:
-            all_runs.extend(storage.runs_for_variant(variant.variant_id, surface=surface))
-
-    observations = observe_runs(
-        storage, all_runs,
-        [BrandMentionDetector(), CitationDetector(), SentimentDetector()],
-        BRAND,
+    result = RepeatSampler(storage).run_plan(adapter, PROMPTS, policy=POLICY, model=target.model)
+    runs = [r for p in PROMPTS for r in storage.runs_for_prompt(p.prompt_id, surface=SURFACE, model=target.model)]
+    observations = [observe(run, BRAND, []) for run in runs]
+    persist_observations(storage, runs, BRAND)
+    measurement = measure_target(
+        target, meta.provider, PromptIntent.CATEGORY_DISCOVERY, observations, [p.prompt_id for p in PROMPTS],
+        stop_reason=result.stop_reason, competitor_names=[], exposes_retrieval=meta.capabilities.supports_query_trace,
     )
 
-    print("\n════ 需求层指标(第 3 章步骤 7)════")
-    print(f"需求:{need.statement} / 品牌:{BRAND.name}({', '.join(BRAND.domains)})")
-    for label, metric in metrics:
-        print_metric(f"{label}:", metric)
-    print(f"\n判定观测写入 {observations} 条 / 落库 run {len(all_runs)} 条 / "
-          f"采样成本 ${total_cost:.4f}")
+    print("\n════ 题型层指标(第 3 章步骤 7)════")
+    print(f"品牌:{BRAND.name}({', '.join(BRAND.domains)})")
+    print_metric("被引:", measurement.citation)
+    print_metric("提及:", measurement.mention)
+    print(f"\n落库 run {len(runs)} 条 / 采样成本 ${result.total_cost_usd:.4f} / 停止原因 {result.stop_reason.value}")
     storage.close()
     return 0
 

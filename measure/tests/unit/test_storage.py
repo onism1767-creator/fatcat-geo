@@ -15,11 +15,10 @@ from engine.models import (
     Answer,
     BrandSpec,
     Citation,
-    InformationNeed,
-    NeedIntent,
     Outcome,
+    Prompt,
+    PromptIntent,
     PromptOrigin,
-    PromptVariant,
     RunError,
     RunErrorType,
     SearchMode,
@@ -38,8 +37,8 @@ def make_run(run_id: str, *, cited: bool = True) -> SurfaceRun:
     )
     return SurfaceRun(
         run_id=run_id,
-        information_need_id="need-s1",
-        prompt_variant_id="variant-s1",
+        prompt_id="need-s1",
+        run_index=1,
         provider="test_provider",
         surface="test_surface",
         model="m1",
@@ -95,24 +94,18 @@ def test_call_stats_average_cost_and_latency(storage):
 def test_models_of_one_surface_are_kept_apart(storage):
     """v0.4.19 型号是口径的一部分:同一 surface 的两个型号,取样本与算均价都必须分开——
     否则续跑会拿甲型号的样本给乙型号当前缀,预估会把贵型号和便宜型号搅成一个价。"""
-    storage.insert_information_need(
-        InformationNeed(need_id="need-mm", statement="多型号", intent=NeedIntent.DISCOVERY)
-    )
-    storage.insert_prompt_variant(PromptVariant(
-        variant_id="variant-mm", need_id="need-mm", prompt_text="问?", origin=PromptOrigin.USER,
-    ))
     for run_id, model, cost in (("run-mm-a1", "model-a", 0.01), ("run-mm-a2", "model-a", 0.03),
                                 ("run-mm-b1", "model-b", 0.50)):
         storage.insert_surface_run(make_run(run_id).model_copy(update={
-            "information_need_id": "need-mm", "prompt_variant_id": "variant-mm",
+            "prompt_id": "prompt-mm",
             "surface": "surface-mm", "model": model, "cost_usd": cost,
         }))
     by_model = {
-        model: {r.run_id for r in storage.runs_for_variant("variant-mm", surface="surface-mm", model=model)}
+        model: {r.run_id for r in storage.runs_for_prompt("prompt-mm", surface="surface-mm", model=model)}
         for model in ("model-a", "model-b")
     }
     assert by_model == {"model-a": {"run-mm-a1", "run-mm-a2"}, "model-b": {"run-mm-b1"}}
-    assert len(storage.runs_for_variant("variant-mm", surface="surface-mm")) == 3  # 不给型号 = 不筛
+    assert len(storage.runs_for_prompt("prompt-mm", surface="surface-mm")) == 3  # 不给型号 = 不筛
     stats = {s.model: s for s in storage.call_stats() if s.surface == "surface-mm"}
     assert stats["model-a"].n == 2 and stats["model-a"].avg_cost_usd == pytest.approx(0.02)
     assert stats["model-b"].n == 1 and stats["model-b"].avg_cost_usd == pytest.approx(0.50)
@@ -122,9 +115,9 @@ def test_report_snapshot_is_versioned_and_append_only(storage):
     """报告快照(v0.4.16):同一任务多版并存,latest 取最新并报版本数;库层拒绝改写。"""
     assert storage.latest_report_snapshot("job-r1") is None
     storage.insert_report_snapshot(job_id="job-r1", fingerprint="f1", code_version="abc1234",
-                                   spent_usd=1.5, payload={"need_reports": [], "v": 1})
+                                   spent_usd=1.5, payload={"class_reports": [], "v": 1})
     storage.insert_report_snapshot(job_id="job-r1", fingerprint="f1", code_version=None,
-                                   spent_usd=1.5, payload={"need_reports": [], "v": 2})
+                                   spent_usd=1.5, payload={"class_reports": [], "v": 2})
     latest = storage.latest_report_snapshot("job-r1")
     assert latest["payload"]["v"] == 2 and latest["versions"] == 2 and latest["spent_usd"] == 1.5
     assert latest["code_version"] is None  # 拿不到程序版本就如实为空,不编
@@ -140,9 +133,9 @@ def test_aux_call_ledger_sums_per_job_and_is_append_only(storage):
     def costing(run_id: str, cost: float) -> SurfaceRun:
         return make_run(run_id).model_copy(update={"cost_usd": cost})
 
-    storage.insert_aux_call(job_id="job-aux", task="需求生成", run=costing("aux-1", 0.01))
-    storage.insert_aux_call(job_id="job-aux", task="变体生成", run=costing("aux-2", 0.02))
-    storage.insert_aux_call(job_id="job-other", task="变体生成", run=costing("aux-3", 5.0))
+    storage.insert_aux_call(job_id="job-aux", task="出题", run=costing("aux-1", 0.01))
+    storage.insert_aux_call(job_id="job-aux", task="猜品类", run=costing("aux-2", 0.02))
+    storage.insert_aux_call(job_id="job-other", task="出题", run=costing("aux-3", 5.0))
     assert storage.aux_spent_usd("job-aux") == pytest.approx(0.03)
     archived = storage._conn.execute("SELECT run FROM aux_call WHERE call_id = 'aux-1'").fetchone()[0]
     assert SurfaceRun.model_validate(archived).run_id == "aux-1"  # 原样存档,可复原
@@ -154,12 +147,6 @@ def test_aux_call_ledger_sums_per_job_and_is_append_only(storage):
 
 def test_observation_exactly_once_per_run_detector_version(storage):
     """幂等续跑重复评分不产生重复观测行(同 run × 判定器 × 版本至多一条)。"""
-    storage.insert_information_need(
-        InformationNeed(need_id="need-s1", statement="测试", intent=NeedIntent.DISCOVERY)
-    )
-    storage.insert_prompt_variant(PromptVariant(
-        variant_id="variant-s1", need_id="need-s1", prompt_text="问?", origin=PromptOrigin.USER,
-    ))
     run = make_run("run-once-1")
     storage.insert_surface_run(run)
     observe_runs(storage, [run], [CitationDetector()], BRAND)
@@ -167,33 +154,21 @@ def test_observation_exactly_once_per_run_detector_version(storage):
     assert len(storage.observations_for_run("run-once-1")) == 1
 
 
-def test_variants_for_need_round_trip(storage):
-    storage.insert_information_need(
-        InformationNeed(need_id="need-vfn", statement="变体测试", intent=NeedIntent.DISCOVERY)
-    )
-    user_variant = PromptVariant(
-        variant_id="vfn-user", need_id="need-vfn", prompt_text="原话?", origin=PromptOrigin.USER,
-        created_at=datetime(2026, 9, 8, 10, 0, tzinfo=UTC),
-    )
-    assisted = PromptVariant(
-        variant_id="vfn-a1", need_id="need-vfn", prompt_text="改写?", origin=PromptOrigin.ASSISTED,
-        created_at=datetime(2026, 9, 8, 10, 0, 1, tzinfo=UTC),
-    )
-    storage.insert_prompt_variant(assisted)
-    storage.insert_prompt_variant(user_variant)
-    loaded = storage.variants_for_need("need-vfn")
-    assert [v.variant_id for v in loaded] == ["vfn-user", "vfn-a1"]  # 时间序:原话在前
-    assert loaded[0].origin is PromptOrigin.USER and loaded[0].prompt_text == "原话?"
+def test_insert_prompt_is_idempotent(storage):
+    prompt = Prompt(prompt_id="prompt-idem", text="原话?", intent=PromptIntent.CATEGORY_DISCOVERY,
+                    origin=PromptOrigin.USER, locale="zh-CN", created_at=datetime(2026, 9, 8, 10, 0, tzinfo=UTC))
+    storage.insert_prompt(prompt)
+    storage.insert_prompt(prompt)  # 续跑重复插入:静默跳过
+    rows = storage._conn.execute(
+        "SELECT text, intent, origin, locale FROM prompt WHERE prompt_id = %s", ("prompt-idem",)
+    ).fetchall()
+    assert rows == [("原话?", "category_discovery", "user", "zh-CN")]
 
 
 def test_surface_run_round_trip(storage):
-    storage.insert_information_need(InformationNeed(need_id="need-s1", statement="测试", intent=NeedIntent.DISCOVERY))
-    storage.insert_prompt_variant(PromptVariant(
-        variant_id="variant-s1", need_id="need-s1", prompt_text="问?", origin=PromptOrigin.USER,
-    ))
     original = make_run("run-rt-1")
     storage.insert_surface_run(original)
-    fetched = storage.runs_for_variant("variant-s1", surface="test_surface")
+    fetched = storage.runs_for_prompt("need-s1", surface="test_surface")
     assert any(r == original for r in fetched)  # 逐字段等值往返
 
 
@@ -207,7 +182,7 @@ def test_failure_run_round_trip(storage):
         "cost_usd": 0.0,
     })
     storage.insert_surface_run(failure)
-    fetched = {r.run_id: r for r in storage.runs_for_variant("variant-s1")}
+    fetched = {r.run_id: r for r in storage.runs_for_prompt("need-s1")}
     assert fetched["run-rt-2"] == failure
 
 

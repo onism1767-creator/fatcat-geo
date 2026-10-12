@@ -8,6 +8,7 @@
   每次全量重算落一条 RecomputeEvent 审计(没有这张表,指标变化时
   分不清是世界变了还是判定器变了)。
 - 建表语句与触发器在 engine/schema.py(v1 单机,无迁移框架,幂等可重复执行)。
+  表结构换代(v0.4.26 S2:题目取代需求 + 问法)用新库 geo_toast;旧方法的数据留在 geo_tool,原样不动。
 """
 
 from __future__ import annotations
@@ -26,9 +27,8 @@ from engine.models import (
     CitationEvidence,
     DerivedObservation,
     FrozenModel,
-    InformationNeed,
     Outcome,
-    PromptVariant,
+    Prompt,
     RunError,
     SearchTrace,
     SurfaceRun,
@@ -36,7 +36,7 @@ from engine.models import (
 from engine.schema import SCHEMA_STATEMENTS
 
 _RUN_COLUMNS = (
-    "run_id, information_need_id, prompt_variant_id, provider, surface, model, "
+    "run_id, prompt_id, run_index, provider, surface, model, "
     "search_mode, locale, region, outcome, error, search_trace, answer, raw_payload, "
     "run_timestamp, latency_ms, cost_usd"
 )
@@ -65,7 +65,7 @@ class StorageUnavailable(RuntimeError):
 
 
 CONNECT_TIMEOUT_S = 10
-DEFAULT_DSN = "postgresql://geo@localhost:5433/geo_tool"  # 项目专用库(scripts/pgdev.ps1 管理)
+DEFAULT_DSN = "postgresql://geo@localhost:5433/geo_toast"  # 项目专用库(scripts/pgdev.ps1 管理)
 
 
 def default_dsn() -> str:
@@ -97,19 +97,13 @@ class Storage:
 
     # ── 写入(只追加)──────────────────────────────────────────────────
 
-    def insert_information_need(self, need: InformationNeed) -> None:
+    def insert_prompt(self, prompt: Prompt) -> None:
+        """题目幂等落库(续跑重复插入静默跳过)。"""
         self._conn.execute(
-            "INSERT INTO information_need (need_id, statement, intent, created_at) "
-            "VALUES (%s, %s, %s, %s) ON CONFLICT (need_id) DO NOTHING",
-            (need.need_id, need.statement, need.intent.value, need.created_at),
-        )
-
-    def insert_prompt_variant(self, variant: PromptVariant) -> None:
-        self._conn.execute(
-            "INSERT INTO prompt_variant (variant_id, need_id, prompt_text, origin, created_at) "
-            "VALUES (%s, %s, %s, %s, %s) ON CONFLICT (variant_id) DO NOTHING",
-            (variant.variant_id, variant.need_id, variant.prompt_text,
-             variant.origin.value, variant.created_at),
+            "INSERT INTO prompt (prompt_id, text, intent, origin, locale, created_at) "
+            "VALUES (%s, %s, %s, %s, %s, %s) ON CONFLICT (prompt_id) DO NOTHING",
+            (prompt.prompt_id, prompt.text, prompt.intent.value, prompt.origin.value,
+             prompt.locale, prompt.created_at),
         )
 
     def insert_surface_run(self, run: SurfaceRun) -> None:
@@ -118,8 +112,8 @@ class Storage:
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 run.run_id,
-                run.information_need_id,
-                run.prompt_variant_id,
+                run.prompt_id,
+                run.run_index,
                 run.provider,
                 run.surface,
                 run.model,
@@ -297,28 +291,15 @@ class Storage:
             "spent_usd": spent_usd, "payload": payload, "versions": versions,
         }
 
-    def variants_for_need(self, need_id: str) -> list[PromptVariant]:
-        """续跑复用已存问法(不重烧起草费)。按创建时间序:用户原话先于生成变体。"""
-        rows = self._conn.execute(
-            "SELECT variant_id, need_id, prompt_text, origin, created_at "
-            "FROM prompt_variant WHERE need_id = %s ORDER BY created_at",
-            (need_id,),
-        ).fetchall()
-        return [
-            PromptVariant(variant_id=r[0], need_id=r[1], prompt_text=r[2],
-                          origin=r[3], created_at=r[4])
-            for r in rows
-        ]
-
     # ── 读取 ─────────────────────────────────────────────────────────
 
-    def runs_for_variant(
-        self, prompt_variant_id: str, surface: str | None = None, model: str | None = None,
+    def runs_for_prompt(
+        self, prompt_id: str, surface: str | None = None, model: str | None = None,
     ) -> list[SurfaceRun]:
-        """型号是口径的一部分(v0.4.19):同一 surface 的不同型号各测各的,
-        取样本时必须按型号分开,否则续跑前缀与指标分母会串型号。"""
-        sql = f"SELECT {_RUN_COLUMNS} FROM surface_run WHERE prompt_variant_id = %s"
-        params: list[Any] = [prompt_variant_id]
+        """一道题在一台仪器(可限型号)上的全部运行,按时间序。型号是口径的一部分(v0.4.19):
+        取样本时必须按型号分开,否则续跑槽位与指标分母会串型号。"""
+        sql = f"SELECT {_RUN_COLUMNS} FROM surface_run WHERE prompt_id = %s"
+        params: list[Any] = [prompt_id]
         if surface is not None:
             sql += " AND surface = %s"
             params.append(surface)
@@ -355,12 +336,12 @@ class Storage:
 
 
 def _row_to_run(row: tuple) -> SurfaceRun:
-    (run_id, need_id, variant_id, provider, surface, model, search_mode, locale, region,
+    (run_id, prompt_id, run_index, provider, surface, model, search_mode, locale, region,
      outcome, error, search_trace, answer, raw_payload, run_timestamp, latency_ms, cost_usd) = row
     return SurfaceRun(
         run_id=run_id,
-        information_need_id=need_id,
-        prompt_variant_id=variant_id,
+        prompt_id=prompt_id,
+        run_index=run_index,
         provider=provider,
         surface=surface,
         model=model,

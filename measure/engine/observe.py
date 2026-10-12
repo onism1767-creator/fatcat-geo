@@ -6,10 +6,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
 from dataclasses import dataclass
 
-from adapters.base import CapabilityRegistry
 from engine.detectors.brand_mention import BrandMentionDetector
 from engine.detectors.citation import CitationDetector
 from engine.detectors.matching import matches_any_brand_domain
@@ -23,7 +21,6 @@ from engine.models import (
     CitationObservation,
     QueryTraceObservation,
     RetrievalRankObservation,
-    SearchMode,
     SentimentObservation,
     SurfaceRun,
 )
@@ -73,15 +70,3 @@ def observe(run: SurfaceRun, brand: BrandSpec, competitors: list[BrandSpec]) -> 
 def persist_observations(storage: ObservationStore, runs: list[SurfaceRun], brand: BrandSpec) -> None:
     """规则判定逐条存档(幂等:同 run × 判定器 × 版本至多一条)。"""
     observe_runs(storage, runs, list(RULE_DETECTORS), brand)
-
-
-def convergence_hit(
-    capabilities: CapabilityRegistry, mode: SearchMode, brand: BrandSpec
-) -> Callable[[SurfaceRun], bool | None]:
-    """采样的收敛判据(按能力声明泛型分派,不认 surface 名):闭卷腿看提及(该模式没有引用机制);
-    开卷腿看被引。"""
-    if mode is SearchMode.SEARCH_DISABLED:
-        return lambda run: None if (o := _MENTION.detect(run, brand)) is None else o.mentioned
-    if capabilities.supports_citations:
-        return lambda run: None if (o := _CITATION.detect(run, brand)) is None else o.cited
-    raise ValueError("该仪器未声明可作收敛判据的能力(引用)")

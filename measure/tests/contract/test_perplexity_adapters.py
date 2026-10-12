@@ -31,8 +31,8 @@ def golden(surface: str, name: str) -> dict:
 def make_request(**overrides) -> AskRequest:
     fields = dict(
         run_id="run-1",
-        information_need_id="need-1",
-        prompt_variant_id="variant-1",
+        prompt_id="need-1",
+        run_index=1,
         prompt_text="中小团队用什么 CRM 好?",
         locale="zh-CN",
     )
@@ -46,7 +46,7 @@ def test_agent_success_with_citations_translates_field_by_field():
     route = respx.post(CHAT_URL).mock(return_value=httpx.Response(200, json=body))
     run = PerplexityAgentAdapter(api_key="test-key").ask(make_request())
 
-    assert (run.run_id, run.information_need_id, run.prompt_variant_id) == ("run-1", "need-1", "variant-1")
+    assert (run.run_id, run.prompt_id, run.run_index) == ("run-1", "need-1", 1)
     assert (run.provider, run.surface, run.model) == ("perplexity", "perplexity_agent", "sonar")
     assert run.search_mode is SearchMode.DEFAULT and run.locale == "zh-CN" and run.region is None
     assert run.outcome is Outcome.SUCCESS and run.error is None

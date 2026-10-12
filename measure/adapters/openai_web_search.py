@@ -195,8 +195,8 @@ def _translate(
     answer_text = "".join(answer_parts)
     run_fields: dict[str, Any] = dict(
         run_id=request.run_id,
-        information_need_id=request.information_need_id,
-        prompt_variant_id=request.prompt_variant_id,
+        prompt_id=request.prompt_id,
+        run_index=request.run_index,
         provider="openai",
         surface="openai_web_search",
         model=model,

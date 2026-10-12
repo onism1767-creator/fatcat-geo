@@ -1,5 +1,6 @@
 """调度器表驱动测试(12.1):构造观测序列(含失败与拒答)→
-断言停止点、stop_reason、分母计数、重试与熔断行为。零网络零数据库。"""
+断言次数、stop_reason、分母计数、重试与熔断行为。零网络零数据库。
+v0.4.26 S2:每道题原样问 runs_per_prompt 次,不按结果提前停。"""
 
 import random
 from datetime import UTC, datetime
@@ -15,27 +16,25 @@ from adapters.base import (
     SurfaceAdapter,
     SurfaceMeta,
 )
-from engine.metrics import jeffreys_interval
 from engine.models import (
     Answer,
     AskRequest,
-    InformationNeed,
-    NeedIntent,
     Outcome,
+    Prompt,
+    PromptIntent,
     PromptOrigin,
-    PromptVariant,
     RunError,
     RunErrorType,
     SearchMode,
     StopReason,
     SurfaceRun,
 )
-from engine.scheduler import AccountProblem, SamplingPolicy, SequentialSampler
+from engine.scheduler import AccountProblem, RepeatSampler, SamplingPolicy
 
-NEED = InformationNeed(need_id="need-1", statement="测试需求", intent=NeedIntent.DISCOVERY)
-VARIANT = PromptVariant(
-    variant_id="variant-1", need_id="need-1", prompt_text="测试问题?", origin=PromptOrigin.USER
-)
+P1 = Prompt(prompt_id="p-1", text="测试问题一?", intent=PromptIntent.CATEGORY_DISCOVERY,
+            origin=PromptOrigin.USER, locale="zh-CN")
+P2 = Prompt(prompt_id="p-2", text="测试问题二?", intent=PromptIntent.CATEGORY_DISCOVERY,
+            origin=PromptOrigin.USER, locale="zh-CN")
 
 
 class MemoryStorage:
@@ -48,7 +47,7 @@ class MemoryStorage:
 
 class ScriptedAdapter(SurfaceAdapter):
     """脚本化适配器:script 元素按 ask() 调用逐个消费(重试也消费),
-    耗尽后重复最后一个。元素:'hit' / 'miss' / 'refuse' 或异常实例。"""
+    耗尽后重复最后一个。元素:'ok' / 'refuse' 或异常实例。"""
 
     def __init__(self, script):
         self._script = list(script)
@@ -69,8 +68,8 @@ class ScriptedAdapter(SurfaceAdapter):
             raise step
         common = dict(
             run_id=request.run_id,
-            information_need_id=request.information_need_id,
-            prompt_variant_id=request.prompt_variant_id,
+            prompt_id=request.prompt_id,
+            run_index=request.run_index,
             provider="test_provider", surface="test_surface", model="m1",
             search_mode=request.search_mode, locale=request.locale,
             timestamp=datetime.now(UTC), latency_ms=10, cost_usd=0.005,
@@ -84,128 +83,91 @@ class ScriptedAdapter(SurfaceAdapter):
         return SurfaceRun(
             outcome=Outcome.SUCCESS,
             answer=Answer(answer_text="回答", citations_available=True),
-            raw_payload={"hit": step == "hit"}, **common,
+            raw_payload={"text": request.prompt_text}, **common,
         )
 
     def healthcheck(self) -> bool:
         return True
 
 
-def hit_fn(run: SurfaceRun):
-    return run.raw_payload["hit"]
-
-
 def make_sampler(storage, sleeps=None):
     sleep = sleeps.append if sleeps is not None else (lambda s: None)
-    return SequentialSampler(storage, sleep=sleep, rng=random.Random(0))
+    return RepeatSampler(storage, sleep=sleep, rng=random.Random(0))
 
 
-def first_converging_n(width_threshold: float = 0.20, min_n: int = 5) -> int:
-    """全命中流下首个满足宽度阈值的 n(用 metrics 同源函数推期望停止点)。"""
-    for n in range(min_n, 100):
-        low, high = jeffreys_interval(n, n)
-        if high - low <= width_threshold:
-            return n
-    raise AssertionError("unreachable")
-
-
-def test_stable_hits_converge():
+def test_every_prompt_is_asked_runs_per_prompt_times_verbatim():
     storage = MemoryStorage()
-    result = make_sampler(storage).run_plan(
-        ScriptedAdapter(["hit"]), NEED, VARIANT, hit_fn=hit_fn
-    )
-    expected_n = first_converging_n()
-    assert result.stop_reason is StopReason.CI_CONVERGED
-    assert result.n_attempts == expected_n == len(storage.runs)
-    assert result.accounting.n_valid == expected_n
-    assert result.k_hits == expected_n
-    assert result.estimate.ci_high == 1.0
-    assert len(set(result.run_ids)) == expected_n  # run_id 唯一
+    result = make_sampler(storage).run_plan(ScriptedAdapter(["ok"]), [P1, P2])
+    assert result.stop_reason is StopReason.COMPLETED
+    assert result.n_attempts == 6 == len(storage.runs) == result.accounting.n_valid
+    assert [(r.prompt_id, r.run_index) for r in storage.runs] == [("p-1", 1), ("p-1", 2), ("p-1", 3),
+                                                                   ("p-2", 1), ("p-2", 2), ("p-2", 3)]
+    assert {r.raw_payload["text"] for r in storage.runs} == {P1.text, P2.text}  # 原样问,不改措辞
+    assert len(set(result.run_ids)) == 6  # run_id 唯一
+    assert result.total_cost_usd == pytest.approx(0.03)
 
 
-def test_alternating_hits_stop_at_max_n():
+def test_refusals_fill_their_slot_and_stay_out_of_denominator():
+    """拒答也是一次尝试:槽位算填了(不补问),进口径、不进分母。"""
     storage = MemoryStorage()
-    result = make_sampler(storage).run_plan(
-        ScriptedAdapter(["hit", "miss"] * 20), NEED, VARIANT, hit_fn=hit_fn
-    )
-    assert result.stop_reason is StopReason.MAX_N_REACHED
-    assert result.accounting.n_valid == 20
-    assert result.k_hits == 10
-    assert result.estimate.width > 0.20  # 确实没收敛,报告须注明
-
-
-def test_refusals_excluded_from_denominator_but_recorded():
-    storage = MemoryStorage()
-    result = make_sampler(storage).run_plan(
-        ScriptedAdapter(["refuse", "hit"]), NEED, VARIANT, hit_fn=hit_fn
-    )
-    assert result.stop_reason is StopReason.CI_CONVERGED
-    assert result.accounting.n_refused == 1  # 拒答落库进口径
-    assert result.accounting.n_valid == first_converging_n()  # 但不进分母
+    result = make_sampler(storage).run_plan(ScriptedAdapter(["refuse", "ok"]), [P1])
+    assert result.stop_reason is StopReason.COMPLETED
+    assert result.n_attempts == 3 and result.accounting.n_refused == 1 and result.accounting.n_valid == 2
     refused = [r for r in storage.runs if r.outcome is Outcome.REFUSED]
     assert len(refused) == 1 and refused[0].error.error_type is RunErrorType.REFUSAL
 
 
-def make_prior(run_id: str, *, outcome=Outcome.SUCCESS, hit: bool = True,
+def make_prior(run_id: str, run_index: int, *, prompt_id: str = "p-1", outcome=Outcome.SUCCESS,
                cost: float = 0.005) -> SurfaceRun:
-    """幂等续跑测试用:模拟此前会话已落库的运行(raw_payload 携带 hit_fn 判据)。"""
+    """幂等续跑测试用:模拟此前会话已落库的运行。"""
     return SurfaceRun(
-        run_id=run_id, information_need_id="need-1", prompt_variant_id="variant-1",
-        provider="test_provider", surface="test_surface", model="test-model",
+        run_id=run_id, prompt_id=prompt_id, run_index=run_index,
+        provider="test_provider", surface="test_surface", model="m1",
         search_mode=SearchMode.DEFAULT, locale="zh-CN",
         outcome=outcome,
         error=(None if outcome is Outcome.SUCCESS
                else RunError(error_type=RunErrorType.TRANSIENT, message="x")),
-        raw_payload={"hit": hit},
+        raw_payload={},
         timestamp=datetime(2026, 9, 8, tzinfo=UTC), latency_ms=1, cost_usd=cost,
     )
 
 
-def test_resume_with_converged_priors_makes_zero_calls():
-    """幂等续跑(v0.4.9):既有样本已收敛 → 零新调用、零新落库。"""
+def test_resume_with_all_slots_filled_makes_zero_calls():
+    """幂等续跑(v0.4.9):槽位都填了 → 零新调用、零新落库。"""
     storage = MemoryStorage()
-    priors = [make_prior(f"p-{i}") for i in range(first_converging_n())]
-    result = make_sampler(storage).run_plan(
-        ScriptedAdapter(["hit"]), NEED, VARIANT, hit_fn=hit_fn, prior_runs=priors
-    )
-    assert result.stop_reason is StopReason.CI_CONVERGED
+    priors = {"p-1": [make_prior(f"p-{i}", i) for i in (1, 2, 3)]}
+    result = make_sampler(storage).run_plan(ScriptedAdapter(["ok"]), [P1], prior_runs=priors)
+    assert result.stop_reason is StopReason.COMPLETED
     assert storage.runs == []  # 一分钱新调用都没发
-    assert result.n_attempts == len(priors)
-    assert result.k_hits == len(priors)
-    assert set(result.run_ids) == {p.run_id for p in priors}
+    assert result.n_attempts == 3 and set(result.run_ids) == {"p-1", "p-2", "p-3"}
 
 
-def test_replay_only_never_calls_even_when_priors_have_not_converged():
-    """重新生成报告(allow_new_calls=False):已有样本没满足停止条件(如官网名单后改、判据变了)
-    也一次新调用都不发,如实记 NOT_RESAMPLED——「重新生成不花钱」由结构保证。"""
+def test_replay_only_never_calls_even_with_empty_slots():
+    """重新生成报告(allow_new_calls=False):有空槽位也一次新调用都不发,如实记 NOT_RESAMPLED
+    ——「重新生成不花钱」由结构保证。"""
     storage = MemoryStorage()
-    adapter = ScriptedAdapter(["hit"])
     result = make_sampler(storage).run_plan(
-        adapter, NEED, VARIANT, hit_fn=hit_fn,
-        prior_runs=[make_prior("p-0"), make_prior("p-1")], allow_new_calls=False,
+        ScriptedAdapter(["ok"]), [P1], prior_runs={"p-1": [make_prior("a", 1)]}, allow_new_calls=False,
     )
     assert result.stop_reason is StopReason.NOT_RESAMPLED
-    assert storage.runs == [] and result.n_attempts == 2 and result.k_hits == 2
+    assert storage.runs == [] and result.n_attempts == 1
 
 
-def test_resume_with_partial_priors_fills_gap_only():
+def test_resume_fills_only_empty_slots():
     storage = MemoryStorage()
-    result = make_sampler(storage).run_plan(
-        ScriptedAdapter(["hit"]), NEED, VARIANT, hit_fn=hit_fn,
-        prior_runs=[make_prior("p-0"), make_prior("p-1")],
-    )
-    assert result.stop_reason is StopReason.CI_CONVERGED
-    assert result.n_attempts == first_converging_n()  # 口径合并:前缀 + 新采样
-    assert len(storage.runs) == first_converging_n() - 2  # 只补缺口
-    assert result.estimate is not None and result.estimate.n == first_converging_n()
+    priors = {"p-1": [make_prior("a", 1), make_prior("b", 3)]}
+    result = make_sampler(storage).run_plan(ScriptedAdapter(["ok"]), [P1, P2], prior_runs=priors)
+    assert result.stop_reason is StopReason.COMPLETED
+    assert [(r.prompt_id, r.run_index) for r in storage.runs] == [("p-1", 2), ("p-2", 1), ("p-2", 2), ("p-2", 3)]
+    assert result.n_attempts == 6  # 口径合并:已有 + 新采样
 
 
 def test_resume_priors_count_against_budget():
     storage = MemoryStorage()
     result = make_sampler(storage).run_plan(
-        ScriptedAdapter(["hit"]), NEED, VARIANT, hit_fn=hit_fn,
+        ScriptedAdapter(["ok"]), [P1],
         policy=SamplingPolicy(budget_usd=0.01),
-        prior_runs=[make_prior("p-0", cost=0.02)],
+        prior_runs={"p-1": [make_prior("a", 1, cost=0.02)]},
     )
     assert result.stop_reason is StopReason.BUDGET_EXHAUSTED
     assert storage.runs == []  # 已花的钱计入预算,不再烧新钱
@@ -217,19 +179,18 @@ def test_failure_run_archives_platform_error_body():
     storage = MemoryStorage()
     body = '{"type": "error", "error": {"type": "invalid_request_error", "message": "bad"}}'
     make_sampler(storage).run_plan(
-        ScriptedAdapter(
-            [AdapterPermanentError("非法请求 HTTP 400", http_status=400, response_body=body), "hit"]
-        ),
-        NEED, VARIANT, hit_fn=hit_fn,
+        ScriptedAdapter([AdapterPermanentError("非法请求 HTTP 400", http_status=400, response_body=body), "ok"]),
+        [P1],
     )
     failure = storage.runs[0]
-    assert failure.outcome is Outcome.PERMANENT_FAILURE
+    assert failure.outcome is Outcome.PERMANENT_FAILURE and failure.run_index == 1
     assert failure.raw_payload == {"error_response_text": body}
+    assert len(storage.runs) == 3  # 失败占了槽位,不补问
     # 无响应体的失败(如超时)raw_payload 保持 None,不臆造
     storage2 = MemoryStorage()
     make_sampler(storage2).run_plan(
-        ScriptedAdapter([AdapterTransientError("请求超时")] * 3 + ["hit"]),
-        NEED, VARIANT, hit_fn=hit_fn, policy=SamplingPolicy(max_attempts=3),
+        ScriptedAdapter([AdapterTransientError("请求超时")] * 3 + ["ok"]), [P1],
+        policy=SamplingPolicy(max_attempts=3),
     )
     assert storage2.runs[0].outcome is Outcome.TRANSIENT_FAILURE
     assert storage2.runs[0].raw_payload is None
@@ -240,10 +201,9 @@ def test_transient_retries_then_breaker():
     sleeps = []
     policy = SamplingPolicy()
     result = make_sampler(storage, sleeps).run_plan(
-        ScriptedAdapter([AdapterTransientError("限流", http_status=429)]),
-        NEED, VARIANT, hit_fn=hit_fn, policy=policy,
+        ScriptedAdapter([AdapterTransientError("限流", http_status=429)]), [P1, P2], policy=policy,
     )
-    # 每次采样 3 次尝试(2 次退避),连续 4 次失败样本后熔断
+    # 每次采样 3 次尝试(2 次退避),连续 4 次失败样本后熔断(计划级窗口,跨题)
     assert result.stop_reason is StopReason.FAILURE_RATE_EXCEEDED
     assert result.n_attempts == policy.failure_min_attempts == len(storage.runs)
     assert all(r.outcome is Outcome.TRANSIENT_FAILURE for r in storage.runs)
@@ -251,15 +211,14 @@ def test_transient_retries_then_breaker():
     assert all(r.error.http_status == 429 for r in storage.runs)
     assert len(sleeps) == policy.failure_min_attempts * (policy.max_attempts - 1)
     assert all(0 <= s <= policy.backoff_max_s for s in sleeps)
-    assert result.estimate is None and result.accounting.n_valid == 0
+    assert result.accounting.n_valid == 0
 
 
 def test_permanent_failure_no_retry():
     storage = MemoryStorage()
     sleeps = []
     result = make_sampler(storage, sleeps).run_plan(
-        ScriptedAdapter([AdapterPermanentError("认证失败", http_status=401)]),
-        NEED, VARIANT, hit_fn=hit_fn,
+        ScriptedAdapter([AdapterPermanentError("认证失败", http_status=401)]), [P1, P2],
     )
     assert result.stop_reason is StopReason.FAILURE_RATE_EXCEEDED
     assert sleeps == []  # Permanent 不重试不退避
@@ -270,8 +229,7 @@ def test_permanent_failure_no_retry():
 def test_budget_breaker_stops_before_spending():
     storage = MemoryStorage()
     result = make_sampler(storage).run_plan(
-        ScriptedAdapter(["hit"]), NEED, VARIANT, hit_fn=hit_fn,
-        policy=SamplingPolicy(budget_usd=0.012),
+        ScriptedAdapter(["ok"]), [P1, P2], policy=SamplingPolicy(budget_usd=0.012),
     )
     # 每次 0.005:第 3 次后累计 0.015 >= 预算,第 4 次不再发生
     assert result.stop_reason is StopReason.BUDGET_EXHAUSTED
@@ -279,39 +237,18 @@ def test_budget_breaker_stops_before_spending():
     assert result.total_cost_usd == pytest.approx(0.015)
 
 
-def test_all_refused_hits_total_attempt_cap():
+def test_all_refused_still_completes_with_low_confidence_in_caliber():
     storage = MemoryStorage()
-    policy = SamplingPolicy(max_total_attempts=10)
-    result = make_sampler(storage).run_plan(
-        ScriptedAdapter(["refuse"]), NEED, VARIANT, hit_fn=hit_fn, policy=policy,
-    )
-    assert result.stop_reason is StopReason.MAX_N_REACHED
-    assert result.n_attempts == 10
-    assert result.accounting.n_refused == 10
+    result = make_sampler(storage).run_plan(ScriptedAdapter(["refuse"]), [P1, P2])
+    assert result.stop_reason is StopReason.COMPLETED
+    assert result.n_attempts == 6 and result.accounting.n_refused == 6
     assert result.accounting.low_confidence is True  # 真相由口径呈现
-    assert result.estimate is None
-
-
-def test_unobservable_hits_do_not_enter_denominator():
-    storage = MemoryStorage()
-    policy = SamplingPolicy(max_total_attempts=7)
-    result = make_sampler(storage).run_plan(
-        ScriptedAdapter(["hit"]), NEED, VARIANT,
-        hit_fn=lambda run: None,  # SUCCESS 但指标不可观测
-        policy=policy,
-    )
-    assert result.stop_reason is StopReason.MAX_N_REACHED
-    assert result.accounting.n_valid == 7  # SUCCESS 计入记账
-    assert result.k_hits == 0 and result.estimate is None  # 但分母为空
 
 
 def test_capability_error_propagates_without_recording():
     storage = MemoryStorage()
     with pytest.raises(CapabilityNotSupportedError):
-        make_sampler(storage).run_plan(
-            ScriptedAdapter([CapabilityNotSupportedError("未声明能力")]),
-            NEED, VARIANT, hit_fn=hit_fn,
-        )
+        make_sampler(storage).run_plan(ScriptedAdapter([CapabilityNotSupportedError("未声明能力")]), [P1])
     assert storage.runs == []  # 编程错误不落 SurfaceRun(13.1)
 
 
@@ -327,9 +264,9 @@ def test_account_error_is_recorded_then_halts_plan_without_retry():
             ScriptedAdapter([
                 AdapterAccountError(f"账户额度不足或欠费(HTTP 400): {body}", error_type=RunErrorType.ACCOUNT_CREDIT,
                                     http_status=400, response_body=body),
-                "hit",
+                "ok",
             ]),
-            NEED, VARIANT, hit_fn=hit_fn,
+            [P1],
         )
     assert sleeps == []  # 不重试不退避:充值前再试也是白试
     [run] = storage.runs  # 失败不蒸发:这一次尝试照常落库
@@ -340,26 +277,25 @@ def test_account_error_is_recorded_then_halts_plan_without_retry():
 
 
 def test_resume_excludes_account_error_priors_and_breaker_ignores_history():
-    """续跑时:①账户问题行只计数,不进分母 / 失败率 / 熔断;②上一次运行的普通失败不再
-    充当熔断窗口的开场——否则 4 条历史失败会让续跑一次新调用都发不出(2026-09-21 真实踩到)。"""
+    """续跑时:①账户问题行只计数、不占槽位,不进分母 / 失败率 / 熔断;②上一次运行的普通失败不再
+    充当熔断窗口的开场——否则几条历史失败会让续跑一次新调用都发不出(2026-09-21 真实踩到)。"""
     storage = MemoryStorage()
     account_rows = [
-        make_prior(f"acct-{i}", outcome=Outcome.PERMANENT_FAILURE).model_copy(update={
+        make_prior(f"acct-{i}", run_index=i % 3 + 1, outcome=Outcome.PERMANENT_FAILURE).model_copy(update={
             "error": RunError(error_type=RunErrorType.ACCOUNT_AUTH if i % 2 else RunErrorType.ACCOUNT_CREDIT,
                               message="credit balance is too low",
                               http_status=400),
         })
         for i in range(4)
     ]
-    stale_failures = [make_prior(f"old-fail-{i}", outcome=Outcome.TRANSIENT_FAILURE) for i in range(4)]
+    stale = [make_prior("old-fail", 1, outcome=Outcome.TRANSIENT_FAILURE), make_prior("old-ok", 2)]
     result = make_sampler(storage).run_plan(
-        ScriptedAdapter(["hit"]), NEED, VARIANT, hit_fn=hit_fn,
-        prior_runs=account_rows + stale_failures + [make_prior("old-ok")],
+        ScriptedAdapter(["ok"]), [P1], prior_runs={"p-1": account_rows + stale},
     )
-    assert result.stop_reason is StopReason.CI_CONVERGED  # 没被熔断,正常补齐后收敛
-    assert len(storage.runs) == first_converging_n() - 1  # 只补缺口
+    assert result.stop_reason is StopReason.COMPLETED  # 没被熔断,正常补齐
+    assert [(r.prompt_id, r.run_index) for r in storage.runs] == [("p-1", 3)]  # 只补空槽位
     acc = result.accounting
     assert acc.n_account_error == 4
-    assert acc.n_total == 4 + first_converging_n()  # 历史普通失败仍是观测,账户行不是
-    assert acc.n_transient_failure == 4 and acc.n_valid == first_converging_n()
+    assert acc.n_total == 3  # 历史普通失败仍是观测,账户行不是
+    assert acc.n_transient_failure == 1 and acc.n_valid == 2
     assert not any(r.startswith("acct-") for r in result.run_ids)

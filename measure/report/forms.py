@@ -8,12 +8,11 @@ from __future__ import annotations
 from urllib.parse import urlsplit
 
 from adapters.base import SurfaceAdapter
-from engine.models import BrandSpec, FrozenModel, InformationNeed, NeedIntent, Target
-from engine.needs import NeedCandidate, manual_intent
-from report.jobs import TIERS, DiagnosisJob
+from engine.drafting import PromptCandidate, manual_intent
+from engine.models import BrandSpec, FrozenModel, Prompt, PromptOrigin, Target
+from report.jobs import DiagnosisJob
 
-MAX_NEEDS = 10
-MAX_VARIANTS = 5
+MAX_PROMPTS = 40  # 产品文档默认 24 道;用户可增删,封顶 40
 
 
 def lines_of(text: str) -> list[str]:
@@ -35,7 +34,7 @@ def brand_from_form(
     brand_name: str, aliases: str, website: str, other_sites: str = ""
 ) -> tuple[BrandSpec, str]:
     """首页填的品牌 → (品牌, 规范化后的官网地址)。官网名单 = 主官网 + 用户另填的其他官网(如各地区官网),
-    只认用户填的(v0.4.24 D4)。"""
+    只认用户填的(v0.4.24 D4;S5 改为自动发现后撤掉其他官网输入框)。"""
     normalized = website if "://" in website else f"https://{website}"
     domains = [host for host in [_host(website), *map(_host, _comma_list(other_sites))] if host]
     brand = BrandSpec(
@@ -46,20 +45,22 @@ def brand_from_form(
     return brand, normalized
 
 
-def manual_candidates(questions: str, brand: BrandSpec) -> list[NeedCandidate]:
-    """用户手填的问题,按是否点名品牌归场景。"""
-    return [NeedCandidate(intent=manual_intent(text, brand), text=text) for text in lines_of(questions)]
+def manual_candidates(questions: str, brand: BrandSpec) -> list[PromptCandidate]:
+    """用户手填的题,按是否点名品牌归题型。"""
+    return [
+        PromptCandidate(origin=PromptOrigin.USER, intent=manual_intent(text, brand), text=text)
+        for text in lines_of(questions)
+    ]
 
 
-def preselect_candidates(candidates: list[NeedCandidate], *, n_manual: int) -> list[int]:
-    """确认页默认勾哪几道题(v0.4.18):用户自己填的(列表末尾 n_manual 道)全勾;
-    一道没填就只勾 2 道——第一个不点名品牌的题 + 第一个直接问品牌的题。
-    默认报价必须便宜,想多测由用户自己勾(预估实时更新)。"""
-    if n_manual:
-        return list(range(len(candidates) - n_manual, len(candidates)))
-    first_open = next((i for i, c in enumerate(candidates) if c.intent is not NeedIntent.BRAND_PROBE), None)
-    first_brand = next((i for i, c in enumerate(candidates) if c.intent is NeedIntent.BRAND_PROBE), None)
-    return [i for i in (first_open, first_brand) if i is not None]
+def preselect_candidates(candidates: list[PromptCandidate]) -> list[int]:
+    """确认页默认勾哪几道题:全部(产品文档 15.2 默认 24 道;不想测的由用户自己去掉,预估实时更新)。"""
+    return list(range(len(candidates)))
+
+
+def default_targets(adapters: dict[str, SurfaceAdapter]) -> set[str]:
+    """确认页默认勾的被测对象:每家只勾一个当前主力型号(产品文档 D17),其余用户自己勾。"""
+    return {Target(surface=name, model=adapter.meta().default_model).key for name, adapter in adapters.items()}
 
 
 def selected_targets(keys: list[str], adapters: dict[str, SurfaceAdapter]) -> list[Target]:
@@ -70,19 +71,17 @@ def selected_targets(keys: list[str], adapters: dict[str, SurfaceAdapter]) -> li
     ]
 
 
-def count_needs(job: DiagnosisJob, needs_selected: list[int], custom: str) -> int:
+def count_prompts(job: DiagnosisJob, prompts_selected: list[int], custom: str) -> int:
     """确认页当前勾了几道题(预估用;与 confirm_choice 同一口径)。"""
-    return sum(0 <= i < len(job.candidates) for i in needs_selected) + len(lines_of(custom))
+    return sum(0 <= i < len(job.candidates) for i in prompts_selected) + len(lines_of(custom))
 
 
 class ConfirmChoice(FrozenModel):
     """确认页定下的全部口径,原样交给 DiagnosisJob.freeze。"""
 
-    needs: list[InformationNeed]
+    prompts: list[Prompt]
     competitors: list[BrandSpec]
     targets: list[Target]
-    tier_id: str
-    variants_per_need: int
     budget_usd: float | None
     dependency_enabled: bool
 
@@ -91,24 +90,24 @@ def confirm_choice(
     job: DiagnosisJob,
     adapters: dict[str, SurfaceAdapter],
     *,
-    needs_selected: list[int],
+    prompts_selected: list[int],
     custom: str,
     competitors_selected: list[int],
     targets_selected: list[str],
-    tier: str,
-    variants: int,
     budget: str,
     dependency: str,
 ) -> ConfirmChoice | str:
     """确认页表单 → 口径;不合格返回错误码。"""
-    needs = [
-        InformationNeed(statement=job.candidates[i].text, intent=job.candidates[i].intent)
-        for i in needs_selected if 0 <= i < len(job.candidates)
+    prompts = [
+        Prompt(text=c.text, intent=c.intent, origin=c.origin, locale=job.locale)
+        for i in prompts_selected if 0 <= i < len(job.candidates)
+        for c in [job.candidates[i]]
     ] + [
-        InformationNeed(statement=text, intent=manual_intent(text, job.brand)) for text in lines_of(custom)
+        Prompt(text=text, intent=manual_intent(text, job.brand), origin=PromptOrigin.USER, locale=job.locale)
+        for text in lines_of(custom)
     ]
-    if not 1 <= len(needs) <= MAX_NEEDS:
-        return "err_needs_count"
+    if not 1 <= len(prompts) <= MAX_PROMPTS:
+        return "err_prompts_count"
     targets = selected_targets(targets_selected, adapters)
     if not targets:
         return "err_no_target"
@@ -116,13 +115,12 @@ def confirm_choice(
         budget_usd = float(budget) if budget.strip() else None
     except ValueError:
         return "err_bad_params"
-    if tier not in TIERS or not 1 <= variants <= MAX_VARIANTS or (budget_usd is not None and budget_usd <= 0):
+    if budget_usd is not None and budget_usd <= 0:
         return "err_bad_params"
     competitors = [
         BrandSpec(name=c.name, domains=[c.domain])
         for i in competitors_selected if 0 <= i < len(job.competitors_suggested)
         for c in [job.competitors_suggested[i]]
     ]
-    return ConfirmChoice(needs=needs, competitors=competitors, targets=targets, tier_id=tier,
-                         variants_per_need=variants, budget_usd=budget_usd,
-                         dependency_enabled=bool(dependency))
+    return ConfirmChoice(prompts=prompts, competitors=competitors, targets=targets,
+                         budget_usd=budget_usd, dependency_enabled=bool(dependency))

@@ -20,7 +20,7 @@ import yaml
 from pydantic import field_validator
 
 from diagnosis.findings import Stage
-from engine.models import FrozenModel, NeedIntent
+from engine.models import FrozenModel, PromptIntent
 
 DEFAULT_REGISTRY_PATH = Path(__file__).resolve().parents[1] / "config" / "evidence_registry.yaml"
 
@@ -43,7 +43,7 @@ class EvidenceEntry(FrozenModel):
     verify: dict[str, str]  # 做完之后怎么检查效果(v0.4.17)
     evidence_level: str
     sources: dict[str, list[str]]
-    supported_intents: list[NeedIntent] = []
+    supported_intents: list[PromptIntent] = []
     contraindications: dict[str, list[str]] = {"zh": [], "en": []}
     engines_tested: list[str] = []
     expected_effect: str = "unknown_experiment_required"
@@ -94,7 +94,7 @@ def recommend(
     entries: list[EvidenceEntry],
     *,
     stage: Stage,
-    intent: NeedIntent,
+    intent: PromptIntent,
 ) -> list[Recommendation]:
     """给定【已定位的失败阶段】与需求意图,产出建议。
     调用方只允许传 primary_failure 阶段——这是"上游 FAIL 禁下游药方"的执行点。"""

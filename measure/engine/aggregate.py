@@ -1,6 +1,6 @@
-"""L2 聚合:采样结果 + 逐条观测 → 各被测对象在一道题上的指标(架构书附录 v0.4.24 第 5 节 ③)。
+"""L2 聚合:逐条观测 → 各被测对象在一个题型上的指标(v0.4.26 S2;架构书附录 v0.4.24 第 5 节 ③)。
 
-只算数,不下结论:阶段状态、定位、建议都是 L3 的事。
+只算数,不下结论:阶段状态、定位、建议都是 L3 的事。指标一律「计数 + 比例」,不算区间(产品文档 15.2)。
 """
 
 from __future__ import annotations
@@ -12,124 +12,102 @@ from dataclasses import dataclass
 from engine.detectors.brand_mention import DETECTOR_NAME as MENTION_LABEL
 from engine.detectors.citation import DETECTOR_NAME as CITATION_LABEL
 from engine.detectors.retrieval_rank import DETECTOR_NAME as PRESENCE_LABEL
-from engine.metrics import ProportionEstimate, SampleAccounting, estimate_proportion, merge_accounting
-from engine.models import UNKNOWN, FrozenModel, Outcome, Sentiment, StopReason, Target
+from engine.metrics import Rate, SampleAccounting, account_outcomes, rate_of
+from engine.models import UNKNOWN, FrozenModel, Outcome, PromptIntent, Sentiment, StopReason, Target
 from engine.observe import RunObservations
-from engine.scheduler import SamplingResult
+from engine.scheduler import is_account_error
 
 
-class NeedSurfaceMetric(FrozenModel):
-    """需求层指标(第 3 章步骤 7):同一 InformationNeed 在一个 surface 上
-    跨全部问法的合并观测。合并是各问法命中的混合比例,正式名称是
-    「冻结问法集上的观测率」(v0.4.13 条目 2):问法是语义层的独立单位,运行只是
-    问法内的重复,合并估计不外推到需求总体;问法间的差异靠 variant_estimates
-    并列展示,per_variant 保留完整明细。"""
+class ClassSurfaceMetric(FrozenModel):
+    """题型层指标:同一题型下全部题目 × 每题几次在一个被测对象上的合并观测。
+    合并是各题命中的混合比例,正式名称是「冻结题目集上的观测率」,不外推到「该品牌在该类需求总体中
+    的可见度」;题间差异靠 per_prompt 并列展示;题目覆盖率防止少数几道题撑起总数(产品文档 15.2)。"""
 
-    information_need_id: str
+    intent: PromptIntent
     provider: str
     surface: str
     model: str
     metric_label: str  # 命中口径(通常为判定器名),如 citation_domain_match
     k_hits: int
-    estimate: ProportionEstimate | None
+    rate: Rate | None  # 分母为空 → None
     accounting: SampleAccounting
-    stop_reasons: list[StopReason]  # 逐问法,随口径进报告
-    per_variant: list[SamplingResult]
-    variant_estimates: list[ProportionEstimate | None]  # 逐问法,与问法同序;分母为空则 None
+    stop_reasons: list[StopReason]  # 该对象采样计划的停止原因(一个计划跨全部题型),随口径进报告
+    per_prompt: list[Rate | None]  # 逐题,与题同序;某题无有效样本 → None
+    prompt_coverage: Rate | None  # 至少命中一次的题数 ÷ 有有效样本的题数
 
 
-def aggregate_need_surface(
-    results: list[SamplingResult], *, metric_label: str
-) -> NeedSurfaceMetric:
-    """按采样时的收敛判据合并(命中数取自采样结果本身)。"""
-    if not results:
-        raise ValueError("没有可聚合的采样结果")
-    heads = {(r.information_need_id, r.provider, r.surface, r.model) for r in results}
-    if len(heads) != 1:
-        raise ValueError(f"只能聚合同一 (需求, surface, model) 的结果,收到 {heads}")
-    k_hits = sum(r.k_hits for r in results)
-    n_pooled = sum(r.estimate.n for r in results if r.estimate)
-    need_id, provider, surface, model = next(iter(heads))
-    return NeedSurfaceMetric(
-        information_need_id=need_id,
-        provider=provider,
-        surface=surface,
-        model=model,
-        metric_label=metric_label,
-        k_hits=k_hits,
-        estimate=estimate_proportion(k_hits, n_pooled) if n_pooled else None,
-        accounting=merge_accounting(r.accounting for r in results),
-        stop_reasons=[r.stop_reason for r in results],
-        per_variant=results,
-        variant_estimates=[r.estimate for r in results],
-    )
-
-
-def estimate_of(flags: list[bool]) -> ProportionEstimate | None:
-    """一组是/否观测的比例估计;没有观测 → None(不进分母,不是 0)。"""
-    return estimate_proportion(sum(flags), len(flags)) if flags else None
-
-
-def _variant_estimates(
-    observations: list[RunObservations],
-    variant_ids: list[str],
-    hit: Callable[[RunObservations], bool | None],
-) -> list[ProportionEstimate | None]:
-    """按问法分组的估计(与问法同序),供需求层指标并列展示问法间分歧(v0.4.13 条目 2)。"""
-    hits: dict[str, list[bool]] = {vid: [] for vid in variant_ids}
-    for obs in observations:
-        value = hit(obs)
-        if value is not None and obs.run.prompt_variant_id in hits:
-            hits[obs.run.prompt_variant_id].append(value)
-    return [estimate_of(v) for v in hits.values()]
+def _accounting(observations: list[RunObservations]) -> SampleAccounting:
+    real = [o.run for o in observations if not is_account_error(o.run)]
+    return account_outcomes([r.outcome for r in real], n_account_error=len(observations) - len(real))
 
 
 def rate_metric(
-    results: list[SamplingResult],
+    target: Target,
+    provider: str,
+    intent: PromptIntent,
     observations: list[RunObservations],
-    variant_ids: list[str],
+    prompt_ids: list[str],
     hit: Callable[[RunObservations], bool | None],
     *,
     metric_label: str,
-) -> NeedSurfaceMetric:
-    """按另一个判定重新数命中的指标(采样的收敛判据是引用,提及率 / 在场率要按各自判定器重数)。
-    口径(问法数、停止原因、样本账)沿用这批采样结果;逐问法明细不带(它记的是收敛判据的命中)。"""
-    flags = [value for obs in observations if (value := hit(obs)) is not None]
-    return aggregate_need_surface(results, metric_label=metric_label).model_copy(update={
-        "k_hits": sum(flags),
-        "estimate": estimate_of(flags),
-        "per_variant": [],
-        "variant_estimates": _variant_estimates(observations, variant_ids, hit),
-    })
+    stop_reason: StopReason,
+) -> ClassSurfaceMetric:
+    """按一个判定数命中:逐题分组(与题同序),再合并。"""
+    flags_by_prompt: dict[str, list[bool]] = {pid: [] for pid in prompt_ids}
+    for obs in observations:
+        value = hit(obs)
+        if value is not None and obs.run.prompt_id in flags_by_prompt:
+            flags_by_prompt[obs.run.prompt_id].append(value)
+    per_prompt = [rate_of(flags) for flags in flags_by_prompt.values()]
+    observed = [r for r in per_prompt if r is not None]
+    all_flags = [flag for flags in flags_by_prompt.values() for flag in flags]
+    return ClassSurfaceMetric(
+        intent=intent,
+        provider=provider,
+        surface=target.surface,
+        model=target.model,
+        metric_label=metric_label,
+        k_hits=sum(all_flags),
+        rate=rate_of(all_flags),
+        accounting=_accounting(observations),
+        stop_reasons=[stop_reason],
+        per_prompt=per_prompt,
+        prompt_coverage=rate_of([r.k > 0 for r in observed]),
+    )
 
 
 @dataclass(frozen=True)
 class GenerativeRetrieval:
-    """生成端检索链路的原料(v0.4.8):本仪器自己暴露检索词与候选集时才有。"""
+    """生成端检索链路的原料:本仪器自己暴露检索词与候选集时才有。"""
 
-    presence: NeedSurfaceMetric | None  # 品牌官网进候选集的比例(候选集全不可观测时 None)
+    presence: ClassSurfaceMetric | None  # 品牌官网进候选集的比例(候选集全不可观测时 None)
     best_ranks: list[int]
-    query: ProportionEstimate | None  # 品牌名进自拟检索词的比例
-    cited: ProportionEstimate | None  # 同仪器的被引比例(同仪器漏斗)
-    triggered: ProportionEstimate | None  # 触发检索的比例
+    query: Rate | None  # 品牌名进自拟检索词的比例
+    cited: Rate | None  # 同仪器的被引比例(同仪器漏斗)
+    triggered: Rate | None  # 触发检索的比例
 
 
 @dataclass(frozen=True)
 class TargetMeasurement:
-    """一个能回答的被测对象在一道题上的全部指标(开卷腿)。"""
+    """一个被测对象在一个题型上的全部指标(开卷腿)。"""
 
     target: Target
     provider: str
-    citation: NeedSurfaceMetric
-    mention: NeedSurfaceMetric
+    intent: PromptIntent
+    citation: ClassSurfaceMetric
+    mention: ClassSurfaceMetric
     sentiment_counts: dict[Sentiment, int]
-    competitor_citations: list[tuple[str, ProportionEstimate]]  # 有观测的竞品才列
+    competitor_citations: list[tuple[str, Rate]]  # 有观测的竞品才列
     generative_retrieval: GenerativeRetrieval | None  # 本仪器不暴露检索链路 → None
     brand_cited_urls: list[str]  # 本对象全部运行里被引的品牌官网 URL(未去重)
 
 
 def _mentioned(obs: RunObservations) -> bool | None:
     return None if obs.mention is None else obs.mention.mentioned
+
+
+def _cited(obs: RunObservations) -> bool | None:
+    return None if obs.citation is None else obs.citation.cited
 
 
 def _present(obs: RunObservations) -> bool | None:
@@ -144,37 +122,42 @@ def _best_ranks(observations: list[RunObservations]) -> list[int]:
 def measure_target(
     target: Target,
     provider: str,
-    results: list[SamplingResult],
+    intent: PromptIntent,
     observations: list[RunObservations],
-    variant_ids: list[str],
+    prompt_ids: list[str],
     *,
+    stop_reason: StopReason,
     competitor_names: list[str],
     exposes_retrieval: bool,
 ) -> TargetMeasurement:
+    def metric(hit: Callable[[RunObservations], bool | None], label: str) -> ClassSurfaceMetric:
+        return rate_metric(target, provider, intent, observations, prompt_ids, hit,
+                           metric_label=label, stop_reason=stop_reason)
+
     generative = None
     if exposes_retrieval:
         presence_obs = [o for o in observations if o.presence is not None]
         generative = GenerativeRetrieval(
-            presence=rate_metric(results, observations, variant_ids, _present, metric_label=PRESENCE_LABEL)
-            if presence_obs else None,
+            presence=metric(_present, PRESENCE_LABEL) if presence_obs else None,
             best_ranks=_best_ranks(observations),
-            query=estimate_of([o.query.present for o in observations if o.query is not None]),
-            cited=estimate_of([o.citation.cited for o in observations if o.citation is not None]),
-            triggered=estimate_of([
+            query=rate_of([o.query.present for o in observations if o.query is not None]),
+            cited=rate_of([o.citation.cited for o in observations if o.citation is not None]),
+            triggered=rate_of([
                 bool(o.run.search_trace.search_triggered) for o in observations
                 if o.run.outcome is Outcome.SUCCESS and o.run.search_trace.search_triggered != UNKNOWN
             ]),
         )
-    competitor_citations = []
+    competitor_citations: list[tuple[str, Rate]] = []
     for name in competitor_names:
         flags = [c.cited for o in observations if (c := o.competitor_citations[name]) is not None]
         if flags:
-            competitor_citations.append((name, estimate_proportion(sum(flags), len(flags))))
+            competitor_citations.append((name, Rate(k=sum(flags), n=len(flags))))
     return TargetMeasurement(
         target=target,
         provider=provider,
-        citation=aggregate_need_surface(results, metric_label=CITATION_LABEL),
-        mention=rate_metric(results, observations, variant_ids, _mentioned, metric_label=MENTION_LABEL),
+        intent=intent,
+        citation=metric(_cited, CITATION_LABEL),
+        mention=metric(_mentioned, MENTION_LABEL),
         sentiment_counts=dict(Counter(o.sentiment.sentiment for o in observations if o.sentiment is not None)),
         competitor_citations=competitor_citations,
         generative_retrieval=generative,
@@ -182,6 +165,15 @@ def measure_target(
     )
 
 
-def measure_closed_book(results: list[SamplingResult]) -> NeedSurfaceMetric:
-    """闭卷腿(search_disabled)的收敛判据就是提及,命中数直接取采样结果。"""
-    return aggregate_need_surface(results, metric_label=MENTION_LABEL)
+def measure_closed_book(
+    target: Target,
+    provider: str,
+    intent: PromptIntent,
+    observations: list[RunObservations],
+    prompt_ids: list[str],
+    *,
+    stop_reason: StopReason,
+) -> ClassSurfaceMetric:
+    """闭卷腿(search_disabled)只看提及。"""
+    return rate_metric(target, provider, intent, observations, prompt_ids, _mentioned,
+                       metric_label=MENTION_LABEL, stop_reason=stop_reason)

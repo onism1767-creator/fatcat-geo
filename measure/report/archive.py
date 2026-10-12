@@ -62,7 +62,7 @@ def attach_latest_report(job: DiagnosisJob, storage: Storage) -> None:
     except ValidationError as exc:
         log.warning("report_snapshot_unreadable", job_id=job.job_id,
                     code_version=row["code_version"], errors=exc.error_count())
-        job.need_reports = []
+        job.class_reports = []
         job.surface_verdicts = []
         return
     job.report_meta = ReportMeta(
