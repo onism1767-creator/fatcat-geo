@@ -23,14 +23,7 @@ from diagnosis.citation_verify import CitationVerifier
 from diagnosis.diagnose import access_finding, diagnose_need
 from diagnosis.recommender import EvidenceEntry
 from diagnosis.verdict import VerdictInput, surface_verdict
-from engine.aggregate import (
-    BareRetrieval,
-    NeedSurfaceMetric,
-    TargetMeasurement,
-    measure_bare,
-    measure_closed_book,
-    measure_target,
-)
+from engine.aggregate import NeedSurfaceMetric, TargetMeasurement, measure_closed_book, measure_target
 from engine.models import (
     CitationEvidence,
     InformationNeed,
@@ -158,10 +151,10 @@ def _execute(
         access = access_finding(job.access_result)
         verdict_inputs: dict[Target, list[VerdictInput]] = {}  # 被测对象 → 逐题原料(每个型号一句话)
         for need in job.needs:
-            measurements, bare_channels, closed_book = _measure_need(
+            measurements, closed_book = _measure_need(
                 job, need, adapter_of, results, observations, variants_by_need)
             blocks, need_verdicts = diagnose_need_targets(
-                intent=need.intent, access=access, measurements=measurements, bare_channels=bare_channels,
+                intent=need.intent, access=access, measurements=measurements,
                 closed_book=closed_book, evidence_map=evidence_map, brand_name=job.brand.name,
                 registry=evidence,
             )
@@ -343,20 +336,17 @@ def _measure_need(
     results: dict[PlanKey, list[SamplingResult]],
     observations: dict[RunsKey, list[RunObservations]],
     variants_by_need: dict[str, list[PromptVariant]],
-) -> tuple[list[TargetMeasurement], list[BareRetrieval], dict[Target, NeedSurfaceMetric]]:
-    """按各对象声明的能力分派到 L2 聚合:能回答的出全套指标,有检索排名能力的出裸检索指标,
+) -> tuple[list[TargetMeasurement], dict[Target, NeedSurfaceMetric]]:
+    """按各对象声明的能力分派到 L2 聚合:能回答的出全套指标(检索链路可观测的多一截生成端检索指标),
     跑过闭卷腿的出闭卷提及率。"""
     variant_ids = [v.variant_id for v in variants_by_need[need.need_id]]
     competitor_names = [c.name for c in job.competitors]
     measurements: list[TargetMeasurement] = []
-    bare_channels: list[BareRetrieval] = []
     closed_book: dict[Target, NeedSurfaceMetric] = {}
     for target, adapter in adapter_of.items():
         meta = adapter.meta()
         plan_results = results[(need.need_id, target, SearchMode.DEFAULT)]
         target_obs = observations[(need.need_id, target)]
-        if meta.capabilities.supports_retrieval_rank:
-            bare_channels.append(measure_bare(target, meta.provider, plan_results, target_obs))
         if meta.capabilities.supports_citations:
             measurements.append(measure_target(
                 target, meta.provider, plan_results, target_obs, variant_ids,
@@ -366,7 +356,7 @@ def _measure_need(
             closed_key = (need.need_id, target, SearchMode.SEARCH_DISABLED)
             if closed_key in results:
                 closed_book[target] = measure_closed_book(results[closed_key])
-    return measurements, bare_channels, closed_book
+    return measurements, closed_book
 
 
 def _finish(job: DiagnosisJob, storage: Storage, *, truncated: bool) -> None:

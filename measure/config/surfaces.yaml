@@ -7,20 +7,6 @@
 # enabled: 适配器落地并通过契约测试后才置 true。
 
 surfaces:
-  - name: perplexity_search
-    provider: perplexity
-    adapter: adapters.perplexity_search.PerplexitySearchAdapter
-    api_key_env: PERPLEXITY_API_KEY
-    enabled: true
-    capabilities:
-      supports_query_trace: false
-      supports_retrieval_rank: true   # 检索观测通道:返回带序的结果列表
-      supports_citations: false
-      supports_region: false
-      supports_forced_search: false
-      supports_search_disabled: false
-      supports_offline: false
-
   - name: perplexity_agent
     provider: perplexity
     adapter: adapters.perplexity_agent.PerplexityAgentAdapter
@@ -28,7 +14,6 @@ surfaces:
     enabled: true
     capabilities:
       supports_query_trace: false
-      supports_retrieval_rank: false
       supports_citations: true        # 生成+引用通道
       supports_region: false
       supports_forced_search: false
@@ -43,7 +28,6 @@ surfaces:
     enabled: true
     capabilities:
       supports_query_trace: true      # web_search_call.action 暴露检索词(queries/query)
-      supports_retrieval_rank: false  # 生成通道:候选可观测(action.sources)但不作检索排名口径
       supports_citations: true        # url_citation 锚注,按首次出现去重成引用池
       supports_region: true           # user_location(approximate country)
       supports_forced_search: true    # tool_choice=required——全链首个强制检索 surface
@@ -60,7 +44,6 @@ surfaces:
     enabled: true
     capabilities:
       supports_query_trace: true      # google_search_call 步骤暴露检索词(一步多词)
-      supports_retrieval_rank: false
       supports_citations: true        # url_citation 锚注,按 url(跳转链)去重成引用池
       supports_region: false          # 接地工具无地区参数
       supports_forced_search: false   # 平台无强制检索开关
@@ -68,8 +51,7 @@ surfaces:
       supports_offline: false
 
   # 2026-08-25 落地核对(暂定值修订):supports_offline 改 false——v1 未定义该
-  # 能力语义,不虚报;retrieval_rank 保持 false——候选集虽可观测(进
-  # retrieved_sources 存档),但本质是生成通道,不作检索排名口径/收敛判据。
+  # 能力语义,不虚报;候选集可观测(进 retrieved_sources 存档),走生成端检索链路口径,收敛判据仍是引用。
   - name: claude_web_search
     provider: anthropic
     adapter: adapters.claude_web_search.ClaudeWebSearchAdapter
@@ -77,7 +59,6 @@ surfaces:
     enabled: true
     capabilities:
       supports_query_trace: true      # server_tool_use 块暴露模型自拟检索词
-      supports_retrieval_rank: false
       supports_citations: true        # 文内锚定引用,按首次出现去重成引用池
       supports_region: true           # user_location(approximate country)
       supports_forced_search: false   # 平台无强制检索开关

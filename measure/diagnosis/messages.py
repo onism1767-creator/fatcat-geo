@@ -81,30 +81,14 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "Credible intervals of different prompts do not overlap: wording-sensitive — the pooled "
               "need-level estimate is unstable; add prompts and re-measure (v0.4.13 item 2)",
     },
-    # ── RETRIEVAL ────────────────────────────────────────────────────
-    "retrieval.headline.fail": {
-        "zh": "品牌网站基本不进检索候选——缺席从检索层开始",
-        "en": "The brand site is largely absent from retrieval candidates — the absence starts at retrieval",
-    },
-    "retrieval.headline.weak": {
-        "zh": "品牌网站在检索候选中不稳定在场",
-        "en": "The brand site appears inconsistently among retrieval candidates",
-    },
-    "retrieval.headline.pass": {
-        "zh": "品牌网站稳定进入检索候选",
-        "en": "The brand site reliably enters retrieval candidates",
-    },
+    # ── RETRIEVAL(仪器不暴露检索链路 → 不可观测;公共证据行供生成端链路复用)──────
     "retrieval.headline.not_observable": {
-        "zh": "无检索观测通道或无有效样本,检索阶段不可观测",
-        "en": "No retrieval observation channel or no valid samples — the retrieval stage is not observable",
+        "zh": "该仪器不公开检索结果,检索阶段不可观测",
+        "en": "This surface does not expose its retrieval results — the retrieval stage is not observable",
     },
     "retrieval.not_observable_note": {
-        "zh": "禁止用引用集反推检索排名(铁律 7),故此阶段如实记不可观测",
-        "en": "Inferring retrieval rank from citations is forbidden (iron rule 7), so this stage is honestly recorded as not observable",
-    },
-    "retrieval.presence": {
-        "zh": f"检索候选在场率:{_EST}",
-        "en": f"Retrieval-candidate presence rate: {_EST_EN}",
+        "zh": "禁止用引用集反推检索(铁律 7),也不从别的接口借数据,故此阶段如实记不可观测",
+        "en": "Inferring retrieval from citations is forbidden (iron rule 7) and no other interface's data is borrowed, so this stage is honestly recorded as not observable",
     },
     "retrieval.rank_summary": {
         "zh": "在场样本中的最优位次:中位数第 {median:.0f} 位(最好第 {best} 位,共 {count} 次在场)",
@@ -118,7 +102,7 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": "操作阈值(v1 初始值,未经校准):FAIL 上界≤{fail:.0%},PASS 下界≥{pass_:.0%}",
         "en": "Operating thresholds (v1 initial values, uncalibrated): FAIL if CI upper ≤{fail:.0%}, PASS if CI lower ≥{pass_:.0%}",
     },
-    # ── RETRIEVAL 生成端通道(v0.4.8 双通道架构)───────────────────────
+    # ── RETRIEVAL 生成端检索链路 ──────────────────────────────────────
     "genret.headline.fail": {
         "zh": "在 AI 自己的搜索习惯下,品牌基本不被递到模型手上",
         "en": "Under the AI's own search behavior, the brand rarely reaches the model's hands",
@@ -570,13 +554,13 @@ CATALOG: dict[str, dict[str, str]] = {
     },
     # ── 警示语(diagnose)──────────────────────────────────────────────
     "caution.divergence": {
-        "zh": "检索观测通道显示品牌缺席,但引用阶段 PASS——被引必先被检索,两通道结论矛盾。"
-              "这说明裸检索观测通道与生成端实际执行的检索(含查询改写与多语言扩展)不等同,"
-              "检索结论按观测通道分歧处理,不据此定位瓶颈(架构书风险 #5:观测通道不当真值)",
-        "en": "The retrieval observation channel shows the brand absent, yet the citation stage PASSes — "
-              "being cited requires being retrieved, so the two channels contradict. The bare-search channel "
-              "is not equivalent to the generator's actual retrieval (query rewriting, multilingual fan-out); "
-              "the retrieval result is treated as channel divergence and not used for bottleneck localization "
+        "zh": "接口返回的检索来源列表里品牌缺席,但引用阶段 PASS——被引必先被检索,两者矛盾。"
+              "这说明接口暴露的来源列表与模型实际执行的检索(含查询改写与多语言扩展)不等同,"
+              "检索结论按观测分歧处理,不据此定位瓶颈(架构书风险 #5:观测通道不当真值)",
+        "en": "The brand is absent from the retrieval sources the interface returned, yet the citation stage PASSes — "
+              "being cited requires being retrieved, so the two contradict. The exposed source list "
+              "is not equivalent to the model's actual retrieval (query rewriting, multilingual fan-out); "
+              "the retrieval result is treated as observation divergence and not used for bottleneck localization "
               "(architecture risk #5: observation channels are not ground truth)",
     },
     "caution.unobservable": {
@@ -686,9 +670,6 @@ PLAIN: dict[str, dict[str, str]] = {
     "stage.RETRIEVAL": {"zh": "AI 搜索时有没有找到你(RETRIEVAL)", "en": "Does the AI find you when it searches (RETRIEVAL)"},
     "stage.CITATION": {"zh": "AI 有没有把你的网站当作来源(CITATION)", "en": "Does the AI cite your site as a source (CITATION)"},
     "stage.REPRESENTATION": {"zh": "AI 回答里有没有提到你、怎么评价你(REPRESENTATION)", "en": "Does the AI mention you, and how (REPRESENTATION)"},
-    "retrieval.headline.fail": {"zh": "AI 搜索时基本没有找到你的官网", "en": "The AI's searches basically never find your site"},
-    "retrieval.headline.weak": {"zh": "AI 搜索时有时能找到你的官网,不稳定", "en": "The AI's searches sometimes find your site, not reliably"},
-    "retrieval.headline.pass": {"zh": "AI 搜索时能稳定找到你的官网", "en": "The AI's searches reliably find your site"},
     "retrieval.headline.not_observable": {"zh": "这家 AI 不公开搜索结果,这一项本次看不到", "en": "This AI does not expose its search results; this item could not be observed"},
     "genret.headline.fail": {"zh": "AI 按自己的习惯搜索时,基本没有找到你的官网", "en": "Searching its own way, the AI basically never finds your site"},
     "genret.headline.weak": {"zh": "AI 按自己的习惯搜索时,有时能找到你的官网,不稳定", "en": "Searching its own way, the AI sometimes finds your site, not reliably"},
@@ -719,7 +700,6 @@ PLAIN: dict[str, dict[str, str]] = {
     "caution.unobservable": {"zh": "以下项目本次看不到,没有参与判断:{stages}", "en": "The following items could not be observed and were not used: {stages}"},
     "caution.no_rewrite": {"zh": "问题主要出在「AI 能不能找到你」这一步,现在不建议大规模改写官网正文", "en": "The problem sits at \"can the AI find you\"; a large-scale rewrite of your site's copy is not advised now"},
     "caution.none": {"zh": "没有发现明显问题", "en": "No obvious problem found"},
-    "retrieval.presence": {"zh": "本次 {n} 次搜索里,{k} 次结果中出现了你的官网", "en": "Your site appeared in {k} of {n} searches this time"},
     "genret.presence": {"zh": "本次 {n} 次搜索里,{k} 次结果中出现了你的官网", "en": "Your site appeared in {k} of {n} searches this time"},
     "genret.query_entry": {"zh": "AI 自己拟的搜索词里,{k}/{n} 次带上了你的品牌名", "en": "The AI's own search queries included your brand name in {k} of {n} runs"},
     "citation.rate": {"zh": "本次 {n} 次回答里,{k} 次引用了你的官网", "en": "Your site was cited in {k} of {n} answers this time"},

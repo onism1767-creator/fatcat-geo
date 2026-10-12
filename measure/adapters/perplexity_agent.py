@@ -6,7 +6,7 @@
   顺序即 position)。「正文 [n] 标记是否真的引到某条」属 L2 判定器,
   从 raw_payload 重算,此处不判定。
 - 检索候选集在本通道不可观测:retrieved_sources 一律 NOT_OBSERVABLE,
-  禁止用引用集反推检索(铁律 7)。检索视角由裸检索通道 perplexity_search 提供。
+  禁止用引用集反推检索(铁律 7);诊断层把检索阶段如实记不可观测。
 - 显式拒答仅认机器可读信号 finish_reason=content_filter → outcome=REFUSED;
   从回答文本猜测"算不算拒答"属 L2 判定器,不做。
 """

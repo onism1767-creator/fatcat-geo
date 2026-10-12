@@ -1,8 +1,7 @@
-"""Perplexity 双通道适配器契约测试(12.1)。
+"""Perplexity 生成+引用适配器契约测试(12.1)。
 
 防的是:平台改返回格式 → 翻译静默出错 → 污染入库数据。
-golden payload 覆盖四类样本:正常带引用 / 正常引用空 / 显式拒答 / 限流错误
-(裸检索通道无拒答概念,以空结果样本替代,共同凑齐四类)。
+golden payload 覆盖四类样本:正常带引用 / 正常引用空 / 显式拒答 / 限流错误。
 断言逐字段进行,含 outcome 与 NOT_OBSERVABLE 标记;全部 respx 模拟,零真实网络。
 """
 
@@ -19,12 +18,10 @@ from adapters.base import (
     CapabilityNotSupportedError,
 )
 from adapters.perplexity_agent import PerplexityAgentAdapter
-from adapters.perplexity_search import PerplexitySearchAdapter
 from engine.models import NOT_OBSERVABLE, UNKNOWN, AskRequest, Outcome, RunErrorType, SearchMode
 
 GOLDEN = Path(__file__).parent / "golden"
 CHAT_URL = "https://api.perplexity.ai/chat/completions"
-SEARCH_URL = "https://api.perplexity.ai/search"
 
 
 def golden(surface: str, name: str) -> dict:
@@ -41,9 +38,6 @@ def make_request(**overrides) -> AskRequest:
     )
     fields.update(overrides)
     return AskRequest(**fields)
-
-
-# ── 生成+引用通道 ─────────────────────────────────────────────────────
 
 
 @respx.mock
@@ -152,73 +146,7 @@ def test_agent_healthcheck():
     assert PerplexityAgentAdapter(api_key="bad-key").healthcheck() is False
 
 
-# ── 裸检索通道 ────────────────────────────────────────────────────────
-
-
-@respx.mock
-def test_search_success_translates_ranked_results():
-    body = golden("perplexity_search", "success_ranked_results.json")
-    route = respx.post(SEARCH_URL).mock(return_value=httpx.Response(200, json=body))
-    run = PerplexitySearchAdapter(api_key="test-key").ask(make_request())
-
-    assert (run.provider, run.surface, run.model) == ("perplexity", "perplexity_search", "unversioned")
-    assert run.outcome is Outcome.SUCCESS and run.error is None
-    assert run.answer is None  # 该通道无生成回答
-    sources = run.search_trace.retrieved_sources
-    assert [s.rank for s in sources] == [1, 2, 3]
-    assert sources[0].domain == "www.example-review.com"
-    assert sources[2].url == "https://www.example-pricing.net/crm"
-    assert run.search_trace.search_triggered is True
-    assert run.search_trace.generated_queries == NOT_OBSERVABLE
-    assert run.raw_payload == body
-    assert run.cost_usd == pytest.approx(0.005)
-
-    sent = json.loads(route.calls[0].request.content)
-    assert sent == {"query": "中小团队用什么 CRM 好?", "max_results": 20}
-
-
-@respx.mock
-def test_search_empty_results_is_success_negative_observation():
-    body = golden("perplexity_search", "success_empty_results.json")
-    respx.post(SEARCH_URL).mock(return_value=httpx.Response(200, json=body))
-    run = PerplexitySearchAdapter(api_key="test-key").ask(make_request())
-    assert run.outcome is Outcome.SUCCESS
-    assert run.search_trace.retrieved_sources == []
-
-
-@respx.mock
-def test_search_rate_limit_raises_transient_and_does_not_retry():
-    body = golden("perplexity_search", "error_rate_limited.json")
-    route = respx.post(SEARCH_URL).mock(return_value=httpx.Response(429, json=body))
-    with pytest.raises(AdapterTransientError) as exc_info:
-        PerplexitySearchAdapter(api_key="test-key").ask(make_request())
-    assert exc_info.value.http_status == 429
-    assert route.call_count == 1
-
-
-@respx.mock
-def test_search_server_error_raises_transient():
-    respx.post(SEARCH_URL).mock(return_value=httpx.Response(503, text="unavailable"))
-    with pytest.raises(AdapterTransientError):
-        PerplexitySearchAdapter(api_key="test-key").ask(make_request())
-
-
-def test_search_undeclared_capabilities_raise_explicitly():
-    adapter = PerplexitySearchAdapter(api_key="test-key", client=httpx.Client())
-    with pytest.raises(CapabilityNotSupportedError):
-        adapter.ask(make_request(search_mode=SearchMode.SEARCH_DISABLED))
-    with pytest.raises(AdapterPermanentError):
-        adapter.ask(make_request(model="sonar"))  # 该 surface 无模型可选
-
-
 def test_close_releases_http_client():
-    for adapter_cls in (PerplexitySearchAdapter, PerplexityAgentAdapter):
-        client = httpx.Client()
-        adapter_cls(api_key="test-key", client=client).close()
-        assert client.is_closed
-
-
-@respx.mock
-def test_search_healthcheck():
-    respx.post(SEARCH_URL).mock(return_value=httpx.Response(200, json={"id": "s", "results": []}))
-    assert PerplexitySearchAdapter(api_key="test-key").healthcheck() is True
+    client = httpx.Client()
+    PerplexityAgentAdapter(api_key="test-key", client=client).close()
+    assert client.is_closed

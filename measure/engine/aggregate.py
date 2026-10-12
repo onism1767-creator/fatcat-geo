@@ -115,16 +115,6 @@ class GenerativeRetrieval:
 
 
 @dataclass(frozen=True)
-class BareRetrieval:
-    """裸检索通道(某家自己的搜索接口,如双通道架构 v0.4.8)的检索指标。"""
-
-    target: Target
-    provider: str
-    metric: NeedSurfaceMetric
-    best_ranks: list[int]
-
-
-@dataclass(frozen=True)
 class TargetMeasurement:
     """一个能回答的被测对象在一道题上的全部指标(开卷腿)。"""
 
@@ -189,18 +179,6 @@ def measure_target(
         competitor_citations=competitor_citations,
         generative_retrieval=generative,
         brand_cited_urls=[url for o in observations for url in o.brand_cited_urls],
-    )
-
-
-def measure_bare(
-    target: Target, provider: str, results: list[SamplingResult], observations: list[RunObservations],
-) -> BareRetrieval:
-    """裸检索通道的收敛判据本身就是在场,命中数直接取采样结果。"""
-    return BareRetrieval(
-        target=target,
-        provider=provider,
-        metric=aggregate_need_surface(results, metric_label=PRESENCE_LABEL),
-        best_ranks=_best_ranks(observations),
     )
 
 

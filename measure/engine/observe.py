@@ -79,11 +79,9 @@ def convergence_hit(
     capabilities: CapabilityRegistry, mode: SearchMode, brand: BrandSpec
 ) -> Callable[[SurfaceRun], bool | None]:
     """采样的收敛判据(按能力声明泛型分派,不认 surface 名):闭卷腿看提及(该模式没有引用机制);
-    有检索排名能力看在场;有引用能力看被引。"""
+    开卷腿看被引。"""
     if mode is SearchMode.SEARCH_DISABLED:
         return lambda run: None if (o := _MENTION.detect(run, brand)) is None else o.mentioned
-    if capabilities.supports_retrieval_rank:
-        return lambda run: None if (o := _PRESENCE.detect(run, brand)) is None else o.present
     if capabilities.supports_citations:
         return lambda run: None if (o := _CITATION.detect(run, brand)) is None else o.cited
-    raise ValueError("该仪器未声明可作收敛判据的能力(检索排名或引用)")
+    raise ValueError("该仪器未声明可作收敛判据的能力(引用)")

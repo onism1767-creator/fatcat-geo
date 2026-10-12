@@ -7,7 +7,7 @@ from diagnosis.citation_diag import diagnose_citation
 from diagnosis.findings import Stage, StageStatus
 from diagnosis.messages import render_msg
 from diagnosis.representation_diag import diagnose_representation
-from diagnosis.retrieval_diag import diagnose_retrieval
+from diagnosis.retrieval_diag import retrieval_not_observable
 from engine.aggregate import NeedSurfaceMetric
 from engine.metrics import account_outcomes, estimate_proportion
 from engine.models import NeedIntent, Outcome, Sentiment, StopReason
@@ -71,35 +71,12 @@ def test_variant_lines_and_wording_sensitivity():
 # ── RETRIEVAL ────────────────────────────────────────────────────────
 
 
-def test_retrieval_not_observable_without_metric():
-    finding = diagnose_retrieval(None, [])
+def test_retrieval_not_observable_when_surface_exposes_no_retrieval():
+    """仪器不暴露检索链路 → 不可观测,证据行写明不借数据、不反推(铁律 7;v0.4.26 S1)。"""
+    finding = retrieval_not_observable()
     assert finding.status is StageStatus.NOT_OBSERVABLE
     assert finding.stage is Stage.RETRIEVAL
-
-
-def test_retrieval_absent_fails_with_rank_evidence():
-    finding = diagnose_retrieval(make_metric(0, 30), [])
-    assert finding.status is StageStatus.FAIL
-    assert any("从未进入检索候选" in line for line in zh_lines(finding))
-    assert any("操作阈值(v1 初始值,未经校准)" in line for line in zh_lines(finding))  # 阈值自报进口径
-
-
-def test_retrieval_stable_presence_passes_with_rank_summary():
-    finding = diagnose_retrieval(make_metric(27, 30), [3, 7, 5])
-    assert finding.status is StageStatus.PASS
-    assert any("中位数第 5 位" in line for line in zh_lines(finding))
-
-
-def test_retrieval_middling_is_weak():
-    assert diagnose_retrieval(make_metric(3, 10), [8]).status is StageStatus.WEAK
-
-
-def test_retrieval_low_confidence_caps_fail_to_weak():
-    metric = make_metric(0, 30, failed=15)  # 无效样本占 1/3 > 20%
-    finding = diagnose_retrieval(metric, [])
-    assert finding.status is StageStatus.WEAK
-    assert finding.low_confidence is True
-    assert any("LOW_CONFIDENCE" in line for line in zh_lines(finding))
+    assert any("不从别的接口借数据" in line for line in zh_lines(finding))
 
 
 # ── CITATION ─────────────────────────────────────────────────────────

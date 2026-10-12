@@ -78,7 +78,6 @@ class CapabilityRegistry(FrozenModel):
     声明不支持的能力被请求时显式报错,禁止静默降级。"""
 
     supports_query_trace: bool = False
-    supports_retrieval_rank: bool = False
     supports_citations: bool = False
     supports_region: bool = False
     supports_forced_search: bool = False

@@ -9,13 +9,18 @@ import sys
 import uvicorn
 
 from engine.envfile import load_env_file
-from engine.storage import StorageUnavailable, default_dsn
+from engine.loader import load_surface_registry
+from engine.storage import Storage, StorageUnavailable, default_dsn
 from report.app import create_app
 from report.archive import restore_registry
 
 load_env_file()
 try:
-    app = create_app(registry=restore_registry(default_dsn()))
+    with Storage(default_dsn()) as startup_storage:
+        registry = restore_registry(
+            startup_storage, known_surfaces={entry.name for entry in load_surface_registry()},
+        )
+    app = create_app(registry=registry)
 except StorageUnavailable as exc:  # v0.4.22:不再无声挂起(2026-09-25 事故)
     print(
         "[DB_UNREACHABLE] 连不上本机数据库(端口 5433),服务没有启动。\n"

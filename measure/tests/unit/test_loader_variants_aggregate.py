@@ -28,9 +28,9 @@ from engine.variants import generate_variants, parse_variant_lines
 
 def test_registry_loads_bundled_config():
     entries = load_surface_registry(DEFAULT_SURFACES_PATH)
-    assert len(entries) == 5
+    assert len(entries) == 4
     enabled = [e for e in entries if e.enabled]
-    assert len(enabled) == 5  # 五个 surface 全部落地
+    assert len(enabled) == 4  # 四个生成+引用 surface(搜索接口 v0.4.26 S1 下线)
 
 
 def test_build_adapters_with_key_and_capability_consistency():
@@ -41,7 +41,7 @@ def test_build_adapters_with_key_and_capability_consistency():
         "GOOGLE_API_KEY": "test-key",
     })
     assert set(adapters) == {
-        "perplexity_search", "perplexity_agent", "claude_web_search",
+        "perplexity_agent", "claude_web_search",
         "openai_web_search", "gemini_grounding",
     }
     for name, adapter in adapters.items():

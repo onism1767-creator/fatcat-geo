@@ -1,4 +1,4 @@
-"""手动 smoke:对 Perplexity 双通道各打一发真实请求。
+"""手动 smoke:对 Perplexity 生成+引用接口打一发真实请求。
 
 12.3:真实 API 调用只存在于手动 smoke 脚本与 golden payload 更新流程,
 本脚本就是前者,永不进 CI。
@@ -24,11 +24,11 @@ sys.path.insert(0, str(ROOT))
 
 from adapters.base import AdapterError  # noqa: E402
 from adapters.perplexity_agent import PerplexityAgentAdapter  # noqa: E402
-from adapters.perplexity_search import PerplexitySearchAdapter  # noqa: E402
 from engine.envfile import load_env_file  # noqa: E402
-from engine.models import NOT_OBSERVABLE, AskRequest  # noqa: E402
+from engine.models import AskRequest  # noqa: E402
 
 SMOKE_PROMPT = "中小团队用什么 CRM 好?"
+SURFACE = "perplexity_agent"
 
 
 def make_request(prompt: str) -> AskRequest:
@@ -42,14 +42,9 @@ def make_request(prompt: str) -> AskRequest:
     )
 
 
-def summarize(surface: str, run) -> None:
-    print(f"\n── {surface} ──")
+def summarize(run) -> None:
+    print(f"\n── {SURFACE} ──")
     print(f"  outcome={run.outcome}  latency={run.latency_ms}ms  cost=${run.cost_usd:.4f}")
-    sources = run.search_trace.retrieved_sources
-    if sources != NOT_OBSERVABLE:
-        print(f"  检索结果 {len(sources)} 条,前 5:")
-        for s in sources[:5]:
-            print(f"    #{s.rank}  {s.domain}  {(s.title or '')[:50]}")
     if run.answer is not None:
         print(f"  回答(前 80 字):{run.answer.answer_text[:80]!r}")
         print(f"  citations_available={run.answer.citations_available},引用 {len(run.answer.citations)} 条:")
@@ -69,32 +64,24 @@ def main() -> int:
         return 1
     print(f"使用 key:****{api_key[-4:]}")
 
-    adapters = {
-        "perplexity_search": PerplexitySearchAdapter(api_key=api_key),
-        "perplexity_agent": PerplexityAgentAdapter(api_key=api_key),
-    }
-    exit_code = 0
-    for surface, adapter in adapters.items():
-        try:
-            healthy = adapter.healthcheck()
-            print(f"{surface}: healthcheck={'OK' if healthy else 'FAILED'}")
-            run = adapter.ask(make_request(SMOKE_PROMPT))
-            summarize(surface, run)
-            if args.capture:
-                args.capture.mkdir(parents=True, exist_ok=True)
-                out = args.capture / f"{surface}.json"
-                out.write_text(
-                    json.dumps(run.raw_payload, ensure_ascii=False, indent=2),
-                    encoding="utf-8",
-                )
-                print(f"  原始返回已写入 {out}")
-        except AdapterError as exc:
-            exit_code = 1
-            status = getattr(exc, "http_status", None)
-            print(f"{surface}: 契约异常 {type(exc).__name__} http_status={status}: {exc}")
-        finally:
-            adapter.close()
-    return exit_code
+    adapter = PerplexityAgentAdapter(api_key=api_key)
+    try:
+        healthy = adapter.healthcheck()
+        print(f"{SURFACE}: healthcheck={'OK' if healthy else 'FAILED'}")
+        run = adapter.ask(make_request(SMOKE_PROMPT))
+        summarize(run)
+        if args.capture:
+            args.capture.mkdir(parents=True, exist_ok=True)
+            out = args.capture / f"{SURFACE}.json"
+            out.write_text(json.dumps(run.raw_payload, ensure_ascii=False, indent=2), encoding="utf-8")
+            print(f"  原始返回已写入 {out}")
+    except AdapterError as exc:
+        status = getattr(exc, "http_status", None)
+        print(f"{SURFACE}: 契约异常 {type(exc).__name__} http_status={status}: {exc}")
+        return 1
+    finally:
+        adapter.close()
+    return 0
 
 
 if __name__ == "__main__":

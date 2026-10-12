@@ -97,12 +97,12 @@ def test_report_page_fully_english():
     client = TestClient(app)
     html = client.get(f"/jobs/{job.job_id}/report?lang=en").text
     assert "AI Visibility Report" in html
-    assert "largely absent from retrieval candidates" in html  # L3 结论英文化
+    assert "the brand rarely reaches the model" in html  # L3 结论英文化(s2 生成端检索 FAIL;撇号会被转义)
     assert "Significantly behind competitor" in html
     assert "NOT recommended" in html  # 不建议全页改写的英文警示
     assert "experiment recommended" in html  # C 级以下实验标注英文版
     assert "stop_reasons" in html and "EVIDENCE_" in html  # 口径要素不丢
-    assert "品牌网站基本不进检索候选" not in html  # 中文结论不残留
+    assert "在 AI 自己的搜索习惯下" not in html  # 中文结论不残留
 
 
 def test_catalog_bilingual_completeness():

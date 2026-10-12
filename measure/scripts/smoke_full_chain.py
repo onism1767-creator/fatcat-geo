@@ -1,7 +1,7 @@
 """端到端手动 smoke:架构书第 3 章走查的真实执行(L2 全流水线)。
 
 配置装载(surfaces.yaml)→ 问法变体生成(LLM 辅助,走适配器)→
-双通道 × 每个问法序贯采样(真实 API)→ 只追加落库(真实库)→
+每个问法序贯采样(真实 API)→ 只追加落库(真实库)→
 四个判定器 → 需求层聚合(概率 + 95% 区间 + 完整口径)。
 
 策略刻意收紧控制成本(单次全链约 $0.15)。
@@ -21,7 +21,6 @@ sys.path.insert(0, str(ROOT))
 from engine.aggregate import NeedSurfaceMetric, aggregate_need_surface  # noqa: E402
 from engine.detectors.brand_mention import BrandMentionDetector  # noqa: E402
 from engine.detectors.citation import CitationDetector  # noqa: E402
-from engine.detectors.retrieval_rank import RetrievalRankDetector  # noqa: E402
 from engine.detectors.runner import observe_runs  # noqa: E402
 from engine.detectors.sentiment import SentimentDetector  # noqa: E402
 from engine.envfile import load_env_file  # noqa: E402
@@ -42,10 +41,9 @@ POLICY = SamplingPolicy(min_n=5, max_n=6, ci_width_threshold=0.35, budget_usd=0.
 
 BRAND = BrandSpec(name="HubSpot", aliases=["hubspot"], domains=["hubspot.com"])
 
-# 各通道用哪个判定器做收敛判据(hit 语义)
+# 用哪个判定器做收敛判据(hit 语义)
 CHANNEL_HIT_DETECTORS = {
     "perplexity_agent": ("被引", CitationDetector(), lambda obs: obs.cited),
-    "perplexity_search": ("检索在场", RetrievalRankDetector(), lambda obs: obs.present),
 }
 
 
@@ -115,7 +113,7 @@ def main() -> int:
 
     observations = observe_runs(
         storage, all_runs,
-        [BrandMentionDetector(), CitationDetector(), RetrievalRankDetector(), SentimentDetector()],
+        [BrandMentionDetector(), CitationDetector(), SentimentDetector()],
         BRAND,
     )
 

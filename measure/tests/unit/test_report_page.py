@@ -19,7 +19,7 @@ from diagnosis.generative_retrieval import diagnose_generative_retrieval
 from diagnosis.recommender import load_evidence_registry
 from diagnosis.representation_diag import diagnose_representation
 from diagnosis.retrieval_dependency import diagnose_retrieval_dependency
-from diagnosis.retrieval_diag import diagnose_retrieval
+from diagnosis.retrieval_diag import retrieval_not_observable
 from diagnosis.verdict import SurfaceVerdict
 from engine.aggregate import NeedSurfaceMetric
 from engine.metrics import account_outcomes, estimate_proportion
@@ -69,11 +69,11 @@ def finished_job() -> DiagnosisJob:
     brand = BrandSpec(name="极光CRM", domains=["aurora-crm.com"])
     need = InformationNeed(statement="中小团队用什么 CRM 好?", intent=NeedIntent.DISCOVERY)
     access = access_finding(None)
-    # v0.4.11 分家:两家 surface 各自分诊——s1 借裸检索视角,s2 自带生成端链路
-    bare_block = diagnose_surface(
+    # v0.4.11 分家:两家 surface 各自分诊——s1 不暴露检索链路(检索不可观测),s2 自带生成端链路
+    blind_block = diagnose_surface(
         provider="test_provider", surface="s1", model="m1",
         access=access,
-        retrieval=diagnose_retrieval(make_metric(0, 30), []),
+        retrieval=retrieval_not_observable(),
         citation=diagnose_citation(
             make_metric(0, 30),
             [("竞品甲", estimate_proportion(20, 30))],
@@ -103,7 +103,7 @@ def finished_job() -> DiagnosisJob:
         representation=diagnose_representation(NeedIntent.DISCOVERY, make_metric(20, 30), {}),
         intent=NeedIntent.DISCOVERY, registry=REGISTRY,
     )
-    diagnosis = diagnose_need(need, access=access, surfaces=[bare_block, generative_block])
+    diagnosis = diagnose_need(need, access=access, surfaces=[blind_block, generative_block])
     job = DiagnosisJob(brand=brand, website="https://aurora-crm.com", category="CRM",
                        locale="zh-CN", candidates=[], competitors_suggested=[])
     job.freeze(needs=[need], competitors=[], targets=[Target(surface="s1", model="m1")], tier_id="quick",
@@ -189,8 +189,8 @@ def test_user_view_leads_with_plain_language(client_and_job):
     assert "用户主动问起时 S1 能介绍你,但用户不提你时 S1 几乎不会想到你" in html  # 显示名代入
     assert "用户直接问起你时的表现本次没测" in html  # 缺项句尾说明
     assert "🔴 较弱" in html and "🟡 不够稳定" in html  # 红绿灯 + 定性词(夹具无 PASS 项)
-    assert "有 2 处检测结果支持这条建议" in html
-    assert html.count('class="rec"') == 3  # 去重:两家 × 三条 → 三条动作
+    assert "有 1 处检测结果支持这条建议" in html  # s1 卡在引用、s2 卡在检索,各自的建议互不重合
+    assert html.count('class="rec"') == 6  # 两家各三条,去重后仍是六条动作
     assert "用户没有点名品牌时(品类推荐)" in html  # 场景人话
     assert "AI 搜索时有没有找到你(RETRIEVAL)" in html  # 人话(技术词)双写
     assert "本次 30 次搜索里,0 次结果中出现了你的官网" in html  # 比例用原始计数
@@ -357,9 +357,9 @@ def test_summarize_orders_by_evidence_level_then_support():
     summary = summarize(job.need_reports, job.surface_verdicts, lambda surface, model: surface.upper())
     levels = [a.recommendation.evidence_level for a in summary.actions]
     assert levels == sorted(levels)
-    assert all(a.support_count == 2 for a in summary.actions)
+    assert all(a.support_count == 1 for a in summary.actions)  # s1 卡在引用、s2 卡在检索:各家各自的建议
     (brief_s1, brief_s2) = summary.engines[job.needs[0].need_id]
-    assert brief_s1.primary is brief_s2.primary is Stage.RETRIEVAL
+    assert (brief_s1.primary, brief_s2.primary) == (Stage.CITATION, Stage.RETRIEVAL)
     assert brief_s1.display == "S1" and brief_s1.strongest_evidence is not None
     assert [v.display for v in summary.verdicts] == ["S1", "S2"]
     assert summarize([], [], lambda surface, model: surface).verdicts == []
@@ -690,3 +690,27 @@ def test_candidate_default_check_logic():
     # 确认页默认勾选前 4 条与 brand_probe(模板逻辑的输入侧约束:candidates 顺序稳定)
     cand = NeedCandidate(intent=NeedIntent.BRAND_PROBE, text="X 怎么样?")
     assert cand.intent is NeedIntent.BRAND_PROBE
+
+
+# ── 启动恢复:已下线仪器 ────────────────────────────────────────────
+
+
+def test_retired_surfaces_only_flags_surfaces_missing_from_registry():
+    """v0.4.26 S1:被测对象里的仪器已不在 surfaces.yaml 上 → 任务不装回;清单上有、只是缺 key 的不算。"""
+    from report.archive import retired_surfaces
+
+    job = finished_job()  # 被测对象只有 s1
+    assert retired_surfaces(job, known_surfaces={"s1", "s2"}) == []
+    assert retired_surfaces(job, known_surfaces={"s2"}) == ["s1"]
+
+
+def test_restore_registry_does_not_restore_jobs_with_retired_surface(storage):
+    """含已下线仪器的任务:快照留库,但启动时不装回(首页不列,点不到会炸的报告)。"""
+    from report.archive import restore_registry
+
+    job = finished_job()
+    storage.upsert_job_snapshot(job.to_snapshot())
+    restored_without = {j.job_id for j in restore_registry(storage, known_surfaces={"s2"}).recent(limit=100)}
+    restored_with = {j.job_id for j in restore_registry(storage, known_surfaces={"s1"}).recent(limit=100)}
+    assert job.job_id not in restored_without
+    assert job.job_id in restored_with

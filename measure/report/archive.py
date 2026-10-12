@@ -6,6 +6,8 @@ payload 的结构与「读不动怎么办」的规矩由这里(L4)定。
 
 from __future__ import annotations
 
+from collections.abc import Collection
+
 import structlog
 from pydantic import ValidationError
 
@@ -15,23 +17,33 @@ from report.jobs import DiagnosisJob, JobRegistry, JobState, ReportMeta
 log = structlog.get_logger("report.archive")
 
 
-def restore_registry(dsn: str) -> JobRegistry:
+def retired_surfaces(job: DiagnosisJob, known_surfaces: Collection[str]) -> list[str]:
+    """任务的被测对象里已不在仪器清单(config/surfaces.yaml)上的仪器。清单上有、只是缺 key 的不算——
+    那种任务照常装回,补上 key 就能接着跑。"""
+    return sorted({t.surface for t in job.targets if t.surface not in known_surfaces})
+
+
+def restore_registry(storage: Storage, known_surfaces: Collection[str]) -> JobRegistry:
     """启动恢复(v0.4.9):从库中快照重建任务登记处。
     上次进程死亡时正在跑或待跑的任务(CONFIRMED/RUNNING)标为 INTERRUPTED,
     等用户点「接着跑」——花钱的动作永远由用户触发。
-    已完成的任务顺带装回最新一版报告快照(v0.4.16),重启后报告直接可看。"""
+    已完成的任务顺带装回最新一版报告快照(v0.4.16),重启后报告直接可看。
+    被测对象含已下线仪器的任务不装回(v0.4.26 S1):程序已不认识那台仪器,报告也无法再算;
+    库里的快照与样本原样保留,下线前的报告页存在 docs/报告留档/。"""
     registry = JobRegistry()
-    with Storage(dsn) as storage:
-        storage.ensure_schema()
-        for snapshot in storage.load_job_snapshots():
-            job = DiagnosisJob.from_snapshot(snapshot)
-            if job.state in (JobState.CONFIRMED, JobState.RUNNING):
-                job.state = JobState.INTERRUPTED
-                job.phase = "phase_interrupted"
-                storage.upsert_job_snapshot(job.to_snapshot())
-            elif job.finished:
-                attach_latest_report(job, storage)
-            registry.add(job)
+    storage.ensure_schema()
+    for snapshot in storage.load_job_snapshots():
+        job = DiagnosisJob.from_snapshot(snapshot)
+        if retired := retired_surfaces(job, known_surfaces):
+            log.warning("job_not_restored_retired_surface", job_id=job.job_id, surfaces=retired)
+            continue
+        if job.state in (JobState.CONFIRMED, JobState.RUNNING):
+            job.state = JobState.INTERRUPTED
+            job.phase = "phase_interrupted"
+            storage.upsert_job_snapshot(job.to_snapshot())
+        elif job.finished:
+            attach_latest_report(job, storage)
+        registry.add(job)
     return registry
 
 
