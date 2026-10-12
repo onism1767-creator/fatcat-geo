@@ -47,7 +47,7 @@ class MemoryStorage:
 
 class ScriptedAdapter(SurfaceAdapter):
     """脚本化适配器:script 元素按 ask() 调用逐个消费(重试也消费),
-    耗尽后重复最后一个。元素:'ok' / 'refuse' 或异常实例。"""
+    耗尽后重复最后一个。元素:'ok' / 'refuse' / 'empty'(SUCCESS 但一个字没给)或异常实例。"""
 
     def __init__(self, script):
         self._script = list(script)
@@ -80,6 +80,8 @@ class ScriptedAdapter(SurfaceAdapter):
                 error=RunError(error_type=RunErrorType.REFUSAL, message="filtered"),
                 raw_payload={}, **common,
             )
+        if step == "empty":
+            return SurfaceRun(outcome=Outcome.SUCCESS, answer=None, raw_payload={}, **common)
         return SurfaceRun(
             outcome=Outcome.SUCCESS,
             answer=Answer(answer_text="回答", citations_available=True),
@@ -117,6 +119,40 @@ def test_refusals_fill_their_slot_and_stay_out_of_denominator():
     assert len(refused) == 1 and refused[0].error.error_type is RunErrorType.REFUSAL
 
 
+def test_empty_answers_fill_their_slot_but_count_as_invalid():
+    """SUCCESS 但正文为空(v0.4.26 S3):占槽、花了钱、进口径,但不进分母——数量单独记在 n_empty。"""
+    storage = MemoryStorage()
+    result = make_sampler(storage).run_plan(ScriptedAdapter(["empty", "ok"]), [P1])
+    assert result.stop_reason is StopReason.COMPLETED and len(storage.runs) == 3
+    acc = result.accounting
+    assert (acc.n_total, acc.n_valid, acc.n_empty, acc.n_refused) == (3, 2, 1, 0)
+    assert storage.runs[0].outcome is Outcome.SUCCESS and storage.runs[0].answer is None  # 原始层原样,不改写
+
+
+def test_retry_after_is_honored_within_the_cap():
+    """限流时等 max(退避, Retry-After)(v0.4.26 C5):首轮退避抖动 ≤ 1 秒,平台要 5 秒 → 等 5 秒。"""
+    storage = MemoryStorage()
+    sleeps = []
+    result = make_sampler(storage, sleeps).run_plan(
+        ScriptedAdapter([AdapterTransientError("限流", http_status=429, retry_after_s=5.0), "ok"]), [P1],
+    )
+    assert sleeps == [5.0] and result.accounting.n_valid == 3  # 等完一次就成功了
+
+
+def test_retry_after_beyond_the_cap_fails_now_without_waiting():
+    """平台要求等 300 秒 > 上限 120 秒:不挂死、不违约去硬试——这次直接记失败,计划继续下一槽位。"""
+    storage = MemoryStorage()
+    sleeps = []
+    result = make_sampler(storage, sleeps).run_plan(
+        ScriptedAdapter([AdapterTransientError("限流", http_status=429, retry_after_s=300.0), "ok"]), [P1],
+    )
+    assert sleeps == []
+    failure = storage.runs[0]
+    assert failure.outcome is Outcome.TRANSIENT_FAILURE and failure.error.attempts == 1
+    assert failure.error.http_status == 429 and "上限" in failure.error.message and "300" in failure.error.message
+    assert result.stop_reason is StopReason.COMPLETED and result.accounting.n_valid == 2  # 其余槽位照常补齐
+
+
 def make_prior(run_id: str, run_index: int, *, prompt_id: str = "p-1", outcome=Outcome.SUCCESS,
                cost: float = 0.005) -> SurfaceRun:
     """幂等续跑测试用:模拟此前会话已落库的运行。"""
@@ -127,6 +163,7 @@ def make_prior(run_id: str, run_index: int, *, prompt_id: str = "p-1", outcome=O
         outcome=outcome,
         error=(None if outcome is Outcome.SUCCESS
                else RunError(error_type=RunErrorType.TRANSIENT, message="x")),
+        answer=Answer(answer_text="回答", citations_available=True) if outcome is Outcome.SUCCESS else None,
         raw_payload={},
         timestamp=datetime(2026, 9, 8, tzinfo=UTC), latency_ms=1, cost_usd=cost,
     )

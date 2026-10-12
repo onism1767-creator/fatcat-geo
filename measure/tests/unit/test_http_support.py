@@ -1,20 +1,22 @@
 """L1 共享 HTTP 翻译(13.1)的错误分类:账户问题(v0.4.21)必须与普通 4xx / 限流分开。
 respx 拦截,零真实网络。"""
 
+from datetime import UTC, datetime
+
 import httpx
 import pytest
 import respx
 
 from adapters.base import AdapterAccountError, AdapterPermanentError, AdapterTransientError
-from adapters.http_support import classify_account_problem, contract_post
+from adapters.http_support import classify_account_problem, contract_post, retry_after_seconds
 from engine.models import RunErrorType
 
 URL = "https://example.test/v1/x"
 
 
-def _post(status: int, body: str):
+def _post(status: int, body: str, headers: dict[str, str] | None = None):
     with respx.mock:
-        respx.post(URL).mock(return_value=httpx.Response(status, text=body))
+        respx.post(URL).mock(return_value=httpx.Response(status, text=body, headers=headers))
         with httpx.Client() as client:
             return contract_post(client, URL, headers={}, payload={}, timeout_s=5.0)
 
@@ -54,6 +56,30 @@ def test_ordinary_errors_keep_their_classes_and_explain_themselves():
     with pytest.raises(AdapterTransientError) as outage:
         _post(503, "upstream unavailable")
     assert "平台内部错误" in str(outage.value)
+
+
+def test_retry_after_is_translated_into_the_exception_not_obeyed_here():
+    """v0.4.26 C5:适配器只把 Retry-After 翻译进异常;等不等、等多久归调度器。"""
+    with pytest.raises(AdapterTransientError) as limited:
+        _post(429, "slow down", {"Retry-After": "7"})
+    assert limited.value.retry_after_s == 7.0 and "7 秒后再试" in str(limited.value)
+    with pytest.raises(AdapterTransientError) as outage:
+        _post(503, "maintenance", {"Retry-After": "120"})
+    assert outage.value.retry_after_s == 120.0
+    with pytest.raises(AdapterTransientError) as plain:
+        _post(429, "slow down")  # 没有头 → None,不猜
+    assert plain.value.retry_after_s is None and "秒后再试" not in str(plain.value)
+
+
+def test_retry_after_seconds_accepts_seconds_or_http_date_only():
+    now = datetime(2026, 10, 12, 12, 0, 0, tzinfo=UTC)
+    assert retry_after_seconds(httpx.Headers({"Retry-After": "120"})) == 120.0
+    assert retry_after_seconds(httpx.Headers({"retry-after": " 3 "})) == 3.0
+    assert retry_after_seconds(httpx.Headers({"Retry-After": "Mon, 12 Oct 2026 12:01:30 GMT"}), now=now) == 90.0
+    expired = httpx.Headers({"Retry-After": "Mon, 12 Oct 2026 11:00:00 GMT"})
+    assert retry_after_seconds(expired, now=now) == 0.0  # 已过期 → 0,不为负
+    assert retry_after_seconds(httpx.Headers({})) is None
+    assert retry_after_seconds(httpx.Headers({"Retry-After": "soon"})) is None
 
 
 def test_classify_rule_is_reusable_on_stored_evidence():

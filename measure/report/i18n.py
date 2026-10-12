@@ -192,7 +192,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "btn_resume": "接着跑",
         "btn_recompute": "重新生成报告",
         "footer": "本报告不打分:各阶段结论 = 计数与比例(本次 N 次里 k 次)+ 完整口径"
-                  "(surface / model / 题数 / 每题次数 / stop_reasons / 拒答率 / 失败率 / 操作阈值);不显示置信区间——"
+                  "(surface / model / 题数 / 每题次数 / stop_reasons / 拒答、空回答、接口错误的数量 / 操作阈值);不显示置信区间——"
                   "同一道题的几次回答是一簇,不是独立样本。原始观测只追加留档,判定器升级后可全量重算复核。",
     },
     "en": {
@@ -329,7 +329,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "btn_resume": "Resume",
         "btn_recompute": "Regenerate report",
         "footer": "This report has no scores: every stage conclusion = counts and rates (k of N this time) "
-                  "+ full caliber (surface / model / prompts / asks per prompt / stop_reasons / refusal & failure rates / thresholds); "
+                  "+ full caliber (surface / model / prompts / asks per prompt / stop_reasons / counts of refusals, empty answers and provider errors / thresholds); "
                   "no confidence interval is shown — the repeated asks of one question form a cluster, not independent samples. "
                   "Raw observations are append-only; detector upgrades recompute all history.",
     },

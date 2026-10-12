@@ -15,7 +15,7 @@ from typing import Any
 
 from diagnosis.messages import Msg, msg
 from engine.aggregate import ClassSurfaceMetric
-from engine.metrics import Rate
+from engine.metrics import Rate, SampleAccounting
 from engine.models import FrozenModel
 
 
@@ -67,18 +67,25 @@ def rate_params(r: Rate) -> dict[str, Any]:
     return {"k": r.k, "n": r.n, "share": r.share}  # 用户视图用原始计数「N 次里 k 次」
 
 
+def accounting_params(accounting: SampleAccounting) -> dict[str, Any]:
+    """口径里的分母与三种无效的数量(产品文档 15.2:无效回答不进分母,单独显示数量)。"""
+    return {
+        "n_valid": accounting.n_valid,
+        "n_total": accounting.n_total,
+        "n_refused": accounting.n_refused,
+        "n_empty": accounting.n_empty,
+        "n_failed": accounting.n_transient_failure + accounting.n_permanent_failure,
+    }
+
+
 def caliber_msg(metric: ClassSurfaceMetric) -> Msg:
-    accounting = metric.accounting
     return msg(
         "common.caliber",
         surface=metric.surface,
         model=metric.model,
         n_prompts=len(metric.per_prompt),
-        n_valid=accounting.n_valid,
-        n_total=accounting.n_total,
         stop_reasons=", ".join(r.value for r in metric.stop_reasons),
-        refusal=accounting.refusal_rate,
-        failure=accounting.failure_rate,
+        **accounting_params(metric.accounting),
     )
 
 

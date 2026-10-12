@@ -37,7 +37,21 @@ class AdapterError(Exception):
 
 
 class AdapterTransientError(AdapterError):
-    """超时、限流、5xx。引擎按 13.2 重试;耗尽后落 outcome=TRANSIENT_FAILURE。"""
+    """超时、限流、5xx。引擎按 13.2 重试;耗尽后落 outcome=TRANSIENT_FAILURE。
+
+    retry_after_s:平台 Retry-After 头要求的等待秒数(v0.4.26 C5)。适配器只把头翻译进来,
+    等不等、等多久、等不起怎么办,全归调度器(有界等待,单次上限见 SamplingPolicy.max_wait_s)。"""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        http_status: int | None = None,
+        response_body: str | None = None,
+        retry_after_s: float | None = None,
+    ) -> None:
+        super().__init__(message, http_status=http_status, response_body=response_body)
+        self.retry_after_s = retry_after_s
 
 
 class AdapterPermanentError(AdapterError):

@@ -18,6 +18,7 @@ from diagnosis.findings import (
     Stage,
     StageFinding,
     StageStatus,
+    accounting_params,
     msg,
     prompt_msgs,
     rate_params,
@@ -43,16 +44,14 @@ def _sentiment_summary(counts: Mapping[Sentiment, int]) -> tuple[int, float, Msg
 
 
 def _caliber(metric: ClassSurfaceMetric, intent: PromptIntent) -> Msg:
-    accounting = metric.accounting
     return msg(
         "repr.caliber",
         surface=metric.surface,
         model=metric.model,
         n_prompts=len(metric.per_prompt),
-        n_valid=accounting.n_valid,
-        n_total=accounting.n_total,
         stop_reasons=", ".join(r.value for r in metric.stop_reasons),
         intent=intent.value,
+        **accounting_params(metric.accounting),
     )
 
 

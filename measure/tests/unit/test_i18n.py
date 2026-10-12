@@ -105,7 +105,7 @@ def test_plain_register_renders_counts_and_falls_back():
     assert "爬虫能不能进入你的网站(ACCESS)" in render_msg(nested, "zh", "plain")
     assert render_msg(nested, "zh") == "以下阶段不可观测,未参与瓶颈定位:ACCESS、RETRIEVAL"
     assert render_msg(msg("common.caliber", surface="s", model="m", n_prompts=1, n_valid=1, n_total=1,
-                          stop_reasons="", refusal=0.0, failure=0.0), "zh", "plain").startswith("口径")
+                          stop_reasons="", n_refused=0, n_empty=0, n_failed=0), "zh", "plain").startswith("口径")
 
 
 def test_all_diagnosis_output_renders_in_both_languages():

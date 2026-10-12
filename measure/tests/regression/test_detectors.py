@@ -33,9 +33,16 @@ BRAND = BrandSpec(
 )
 
 
+_DEFAULT_ANSWER = object()
+
+
 def make_run(
-    run_id: str, *, outcome=Outcome.SUCCESS, answer=None, error=None, search_trace=None
+    run_id: str, *, outcome=Outcome.SUCCESS, answer=_DEFAULT_ANSWER, error=None, search_trace=None
 ) -> SurfaceRun:
+    """没指定回答的 SUCCESS 样本给一段中性正文(v2 起空回答不可判定,检索 / 检索词样本需要一条有效回答;
+    v1 判定器不看正文,v1 的归档期望不受影响)。"""
+    if answer is _DEFAULT_ANSWER:
+        answer = answer_with("一般性说明。") if outcome is Outcome.SUCCESS else None
     return SurfaceRun(
         run_id=run_id,
         prompt_id="need-1",
@@ -83,6 +90,15 @@ SAMPLES = {
     "mention_earliest_alias_wins": make_run(
         "r-m4", answer=answer_with("Aurora CRM(即极光CRM)近来讨论度高。")
     ),
+    # v2 词边界样本(D18):拉丁字母的名字两侧查词边界,中文按子串
+    "mention_latin_substring_rejected": make_run(
+        "r-m6", answer=answer_with("The auroracrms plugin and Aurora CRMS are different products.")
+    ),
+    "mention_latin_then_cjk": make_run("r-m7", answer=answer_with("我们用AuroraCRM管理客户。")),
+    "mention_cjk_name_then_cjk": make_run("r-m8", answer=answer_with("极光CRM系统很好用。")),
+    "mention_cjk_name_latin_tail_rejected": make_run("r-m9", answer=answer_with("极光CRMPro 是另一款产品。")),
+    "mention_name_with_punctuation": make_run("r-m10", answer=answer_with("Try AuroraCRM, it's cheap.")),
+    "empty_answer_success": make_run("r-e1", answer=answer_with("  \n")),  # SUCCESS 但正文为空:v2 判不了
     "refused_run": make_run(
         "r-m5",
         outcome=Outcome.REFUSED,
@@ -113,6 +129,10 @@ SAMPLES = {
     "citations_not_available": make_run(
         "r-c4", answer=answer_with("回答正文。", available=False)
     ),
+    "citation_empty_answer": make_run(
+        "r-c5",
+        answer=answer_with("", [Citation(url="https://aurora-crm.com/case", domain="aurora-crm.com", position=1)]),
+    ),
     "rank_hit_with_subdomain": make_run(
         "r-r1",
         search_trace=sources_trace(
@@ -130,6 +150,9 @@ SAMPLES = {
         "r-r4", search_trace=sources_trace(("aurora-crm.com", NOT_OBSERVABLE)),
     ),
     "rank_candidates_not_observable": make_run("r-r5"),  # 默认 NOT_OBSERVABLE ≠ 空集
+    "rank_empty_answer": make_run(
+        "r-r6", answer=answer_with(""), search_trace=sources_trace(("aurora-crm.com", 1)),
+    ),
     "sentiment_positive": make_run(
         "r-s1", answer=answer_with("对于中小团队,极光CRM 值得一试。另一段无关文字。")
     ),
@@ -162,6 +185,14 @@ SAMPLES = {
         "r-q3", search_trace=SearchTrace(search_triggered=False, generated_queries=[]),
     ),
     "query_not_observable": make_run("r-q4"),  # 默认 NOT_OBSERVABLE ≠ 空列表
+    "query_latin_substring_rejected": make_run(
+        "r-q5",
+        search_trace=SearchTrace(search_triggered=True, generated_queries=["auroracrms review", "best crm 2026"]),
+    ),
+    "query_empty_answer": make_run(
+        "r-q6", answer=answer_with(" "),
+        search_trace=SearchTrace(search_triggered=True, generated_queries=["极光CRM 评测"]),
+    ),
 }
 
 # ── 期望值,按 detector_version 归档(只增不改)──────────────────────────
@@ -179,6 +210,16 @@ MENTION_EXPECTED = {
         "refused_run": None,  # 不可判定 → 无观测
     }
 }
+# v2(v0.4.26 S3):拉丁字母按词边界、中文按子串;空回答不可判定。v1 的样本行为不变,只新增边界样本
+MENTION_EXPECTED[2] = {
+    **MENTION_EXPECTED[1],
+    "mention_latin_substring_rejected": dict(mentioned=False, matched_alias=None, first_position=None),
+    "mention_latin_then_cjk": dict(mentioned=True, matched_alias="AuroraCRM", first_position=3),
+    "mention_cjk_name_then_cjk": dict(mentioned=True, matched_alias="极光CRM", first_position=0),
+    "mention_cjk_name_latin_tail_rejected": dict(mentioned=False, matched_alias=None, first_position=None),
+    "mention_name_with_punctuation": dict(mentioned=True, matched_alias="AuroraCRM", first_position=4),
+    "empty_answer_success": None,
+}
 
 CITATION_EXPECTED = {
     1: {
@@ -189,6 +230,7 @@ CITATION_EXPECTED = {
         "refused_run": None,
     }
 }
+CITATION_EXPECTED[2] = {**CITATION_EXPECTED[1], "citation_empty_answer": None}  # v2:空回答不可判定
 
 
 RETRIEVAL_RANK_EXPECTED = {
@@ -206,6 +248,7 @@ RETRIEVAL_RANK_EXPECTED = {
         "refused_run": None,
     }
 }
+RETRIEVAL_RANK_EXPECTED[2] = {**RETRIEVAL_RANK_EXPECTED[1], "rank_empty_answer": None}  # v2:空回答不可判定
 
 SENTIMENT_EXPECTED = {
     1: {
@@ -217,6 +260,11 @@ SENTIMENT_EXPECTED = {
         "mention_absent": None,  # 未提及 → 情感不可判定
         "refused_run": None,
     }
+}
+SENTIMENT_EXPECTED[2] = {  # v2:随匹配原语改词边界提版;空回答不可判定
+    **SENTIMENT_EXPECTED[1],
+    "mention_latin_substring_rejected": None,  # 词边界下未提及 → 情感不可判定
+    "empty_answer_success": None,
 }
 
 
@@ -231,6 +279,11 @@ QUERY_TRACE_EXPECTED = {
         "query_not_observable": None,  # 检索词不可观测 → 无观测
         "refused_run": None,
     }
+}
+QUERY_TRACE_EXPECTED[2] = {  # v2:拉丁字母按词边界;空回答不可判定
+    **QUERY_TRACE_EXPECTED[1],
+    "query_latin_substring_rejected": dict(present=False, matched_alias=None, matched_queries=[]),
+    "query_empty_answer": None,
 }
 
 
@@ -301,3 +354,4 @@ def test_current_versions_have_archived_expectations():
     assert CitationDetector().version in CITATION_EXPECTED
     assert RetrievalRankDetector().version in RETRIEVAL_RANK_EXPECTED
     assert SentimentDetector().version in SENTIMENT_EXPECTED
+    assert QueryTraceDetector().version in QUERY_TRACE_EXPECTED

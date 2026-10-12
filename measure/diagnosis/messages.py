@@ -60,10 +60,10 @@ CATALOG: dict[str, dict[str, str]] = {
     "common.caliber": {
         "zh": "口径(冻结题目集上的观测率,不外推到需求总体):surface={surface} model={model} "
               "题数={n_prompts} N_valid={n_valid}/{n_total} stop_reasons=[{stop_reasons}] "
-              "拒答率={refusal:.0%} 失败率={failure:.0%}",
+              "无效:拒答 {n_refused}、空回答 {n_empty}、接口错误 {n_failed}",
         "en": "Caliber (observed rate on the frozen prompt set; not extrapolated to the need population): "
               "surface={surface} model={model} prompts={n_prompts} N_valid={n_valid}/{n_total} "
-              "stop_reasons=[{stop_reasons}] refusal={refusal:.0%} failure={failure:.0%}",
+              "stop_reasons=[{stop_reasons}] invalid: refused {n_refused}, empty {n_empty}, provider errors {n_failed}",
     },
     "common.per_prompt": {
         "zh": "各题并列(同一道题的几次回答是一簇,不是独立样本):{items}",
@@ -253,10 +253,12 @@ CATALOG: dict[str, dict[str, str]] = {
     },
     "repr.caliber": {
         "zh": "口径(冻结题目集上的观测率,不外推到需求总体):surface={surface} model={model} "
-              "题数={n_prompts} N_valid={n_valid}/{n_total} stop_reasons=[{stop_reasons}] 题型={intent}",
+              "题数={n_prompts} N_valid={n_valid}/{n_total} stop_reasons=[{stop_reasons}] "
+              "无效:拒答 {n_refused}、空回答 {n_empty}、接口错误 {n_failed} 题型={intent}",
         "en": "Caliber (observed rate on the frozen prompt set; not extrapolated to the need population): "
               "surface={surface} model={model} prompts={n_prompts} N_valid={n_valid}/{n_total} "
-              "stop_reasons=[{stop_reasons}] intent={intent}",
+              "stop_reasons=[{stop_reasons}] invalid: refused {n_refused}, empty {n_empty}, provider errors {n_failed} "
+              "intent={intent}",
     },
     "repr.thresholds.neutral": {
         "zh": "操作阈值(v1 初始值,未经校准):比例 < {fail:.0%} 为 FAIL,≥ {pass_:.0%} 为 PASS,负面占比 >{neg:.0%} 封顶 WEAK",

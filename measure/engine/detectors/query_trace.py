@@ -1,8 +1,9 @@
-"""检索词判定器 v1:品牌名/别名是否进入模型自拟检索词(别名表子串匹配)。
+"""检索词判定器 v2:品牌名/别名是否进入模型自拟检索词(别名表匹配,拉丁字母按词边界)。
 
 生成端检索链路的上游环节:检索词里没有你,
 候选集里就不可能因「搜你」而出现你。与提及判定器共用别名匹配原语,
 匹配规则变更须两边同步提版本。
+v2(v0.4.26 S3):随匹配原语改词边界同步提版;空回答(SUCCESS 但正文为空)不可判定。
 """
 
 from __future__ import annotations
@@ -10,16 +11,11 @@ from __future__ import annotations
 from datetime import UTC, datetime
 
 from engine.detectors.matching import find_first_alias
-from engine.models import (
-    NOT_OBSERVABLE,
-    BrandSpec,
-    Outcome,
-    QueryTraceObservation,
-    SurfaceRun,
-)
+from engine.models import NOT_OBSERVABLE, BrandSpec, QueryTraceObservation, SurfaceRun
+from engine.validity import is_valid_answer
 
 DETECTOR_NAME = "query_alias_match"
-DETECTOR_VERSION = 1
+DETECTOR_VERSION = 2
 
 
 class QueryTraceDetector:
@@ -27,10 +23,10 @@ class QueryTraceDetector:
     version = DETECTOR_VERSION
 
     def detect(self, run: SurfaceRun, brand: BrandSpec) -> QueryTraceObservation | None:
-        """不可判定返回 None:非 SUCCESS 或检索词不可观测(NOT_OBSERVABLE ≠ 空列表!)。
+        """不可判定返回 None:没有有效回答,或检索词不可观测(NOT_OBSERVABLE ≠ 空列表!)。
         检索词为空(未触发检索)是真实负观测,产出 present=False——
         没写检索词本身就意味着品牌不在检索方向里。"""
-        if run.outcome is not Outcome.SUCCESS:
+        if not is_valid_answer(run):
             return None
         queries = run.search_trace.generated_queries
         if queries == NOT_OBSERVABLE:

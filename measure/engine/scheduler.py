@@ -4,6 +4,8 @@
 - 重试/退避/熔断全部在这里,适配器内禁止(13.1);
 - 每次采样尝试必落一条 SurfaceRun,失败不蒸发(6.3):适配器抛出的
   Transient(重试耗尽)/Permanent 错误由本模块翻译为失败运行落库;
+- 限流时遵守 Retry-After(v0.4.26 C5):等 max(退避, Retry-After),单次等待上限 max_wait_s;
+  平台要求等得更久就不等了,这次直接记失败(有界等待,不挂死);
 - CapabilityNotSupportedError 是编程错误:直接上抛,不落库、不重试;
 - 调度器不内嵌任何判定逻辑:次数固定,不按结果提前停——同一道题的几次回答是一簇,
   不是独立样本,「收敛」无从谈起。
@@ -32,7 +34,7 @@ from adapters.base import (
     SurfaceAdapter,
 )
 from adapters.http_support import classify_account_problem
-from engine.metrics import SampleAccounting, account_outcomes
+from engine.metrics import SampleAccounting, account_runs
 from engine.models import (
     ACCOUNT_ERROR_TYPES,
     AskRequest,
@@ -45,6 +47,7 @@ from engine.models import (
     StopReason,
     SurfaceRun,
 )
+from engine.validity import public_error_code
 
 log = structlog.get_logger("engine.scheduler")
 
@@ -96,6 +99,7 @@ class SamplingPolicy(FrozenModel):
     max_attempts: int = 3  # 单次采样的最大尝试数(含首次),仅 Transient 重试
     backoff_base_s: float = 1.0
     backoff_max_s: float = 30.0
+    max_wait_s: float = 120.0  # 单次等待上限(含 Retry-After);平台要求等得更久就当这次失败(v0.4.26 C5)
     failure_window: int = 20
     failure_min_attempts: int = 4
     failure_rate_threshold: float = 0.5
@@ -151,7 +155,7 @@ class RepeatSampler:
         resolved_model = model or meta.default_model
         prior_runs = prior_runs or {}
 
-        outcomes: list[Outcome] = []
+        counted: list[SurfaceRun] = []  # 进口径的尝试(账户问题行不算)
         run_ids: list[str] = []
         total_cost = 0.0
         n_account_error = 0
@@ -168,7 +172,7 @@ class RepeatSampler:
                 if not is_account_error(run):
                     filled[run.run_index] = run
             for run in filled.values():
-                outcomes.append(run.outcome)
+                counted.append(run)
                 run_ids.append(run.run_id)
                 total_cost += run.cost_usd
             for run_index in range(1, policy.runs_per_prompt + 1):
@@ -196,15 +200,16 @@ class RepeatSampler:
                     assert run.error is not None
                     raise AccountProblem(provider=meta.provider, surface=meta.surface, model=resolved_model,
                                          error_type=run.error.error_type, message=run.error.message)
-                outcomes.append(run.outcome)
+                counted.append(run)
                 run_ids.append(run.run_id)
                 total_cost += run.cost_usd
                 recent_failures.append(
                     run.outcome in (Outcome.TRANSIENT_FAILURE, Outcome.PERMANENT_FAILURE)
                 )
+                code = public_error_code(run)
                 log.info("sample_recorded", run_id=run.run_id, surface=meta.surface, prompt_id=prompt.prompt_id,
                          run_index=run_index, outcome=run.outcome.value, latency_ms=run.latency_ms,
-                         cost_usd=run.cost_usd)
+                         cost_usd=run.cost_usd, error_code=code.value if code else None)
             if stop_reason is not None:
                 break
 
@@ -214,8 +219,8 @@ class RepeatSampler:
             model=resolved_model,
             search_mode=search_mode,
             stop_reason=stop_reason or StopReason.COMPLETED,
-            n_attempts=len(outcomes),
-            accounting=account_outcomes(outcomes, n_account_error=n_account_error),
+            n_attempts=len(counted),
+            accounting=account_runs(counted, n_account_error=n_account_error),
             total_cost_usd=total_cost,
             run_ids=run_ids,
         )
@@ -253,7 +258,8 @@ def ask_with_retries(
     sleep: Callable[[float], None] = time.sleep,
     rng: random.Random | None = None,
 ) -> SurfaceRun:
-    """一次调用 = 最多 max_attempts 次尝试(仅 Transient 重试,指数退避+抖动)。耗尽 / 永久失败 →
+    """一次调用 = 最多 max_attempts 次尝试(仅 Transient 重试,指数退避+抖动;限流时等 max(退避, Retry-After),
+    单次等待不超过 max_wait_s——平台要求等得更久就不等、这次直接记失败)。耗尽 / 永久失败 →
     构造失败 SurfaceRun 返回(失败不蒸发)。采样与辅助 AI 调用(engine/ai_task.py)共用这一套(13.2)。"""
     rng = rng or random.Random()
     started_at = datetime.now(UTC)
@@ -264,9 +270,9 @@ def ask_with_retries(
         try:
             return adapter.ask(request)
         except AdapterTransientError as exc:
-            log.warning("adapter_retry", run_id=request.run_id, surface=adapter.meta().surface,
-                        attempt=attempts, http_status=exc.http_status, error=str(exc))
             if attempts >= policy.max_attempts:
+                log.warning("adapter_retries_exhausted", run_id=request.run_id, surface=adapter.meta().surface,
+                            attempt=attempts, http_status=exc.http_status, error=str(exc))
                 return _failure_run(
                     adapter, request, started_at, t0,
                     outcome=Outcome.TRANSIENT_FAILURE,
@@ -277,7 +283,28 @@ def ask_with_retries(
                     response_body=exc.response_body,
                 )
             cap = min(policy.backoff_max_s, policy.backoff_base_s * (2 ** (attempts - 1)))
-            sleep(rng.uniform(0, cap))
+            wait_s = rng.uniform(0, cap)
+            if exc.retry_after_s is not None:
+                wait_s = max(wait_s, exc.retry_after_s)
+            if wait_s > policy.max_wait_s:  # 等不起:不挂死,这次直接记失败(有界等待)
+                message = (f"{exc}(平台要求等 {wait_s:.0f} 秒,超过单次等待上限 "
+                           f"{policy.max_wait_s:.0f} 秒,本次不再重试)")
+                log.warning("adapter_wait_exceeds_cap", run_id=request.run_id, surface=adapter.meta().surface,
+                            attempt=attempts, http_status=exc.http_status, retry_after_s=exc.retry_after_s,
+                            max_wait_s=policy.max_wait_s)
+                return _failure_run(
+                    adapter, request, started_at, t0,
+                    outcome=Outcome.TRANSIENT_FAILURE,
+                    error=RunError(
+                        error_type=RunErrorType.TRANSIENT, message=message,
+                        http_status=exc.http_status, attempts=attempts,
+                    ),
+                    response_body=exc.response_body,
+                )
+            log.warning("adapter_retry", run_id=request.run_id, surface=adapter.meta().surface,
+                        attempt=attempts, http_status=exc.http_status, retry_after_s=exc.retry_after_s,
+                        wait_s=round(wait_s, 1), error=str(exc))
+            sleep(wait_s)
         except AdapterAccountError as exc:  # 子类须先于 AdapterPermanentError 捕获
             meta = adapter.meta()
             log.error("adapter_account_problem", run_id=request.run_id, surface=meta.surface,

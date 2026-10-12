@@ -1,4 +1,4 @@
-"""情感判定器 v1:品牌提及句的词表极性统计。
+"""情感判定器 v2:品牌提及句的词表极性统计。
 
 明确的 v1 局限(规则打底,LLM 复核升级为 v2,升级后全量重算):
 - 只看首次提及品牌所在的单句,不做跨句归因;
@@ -14,10 +14,11 @@ import re
 from datetime import UTC, datetime
 
 from engine.detectors.matching import find_first_alias
-from engine.models import BrandSpec, Outcome, Sentiment, SentimentObservation, SurfaceRun
+from engine.models import BrandSpec, Sentiment, SentimentObservation, SurfaceRun
+from engine.validity import is_valid_answer
 
 DETECTOR_NAME = "sentiment_lexicon"
-DETECTOR_VERSION = 1
+DETECTOR_VERSION = 2
 
 _SENTENCE_SPLIT = re.compile(r"[。!?;\n]|[.!?;](?=\s|$)")
 
@@ -66,8 +67,9 @@ class SentimentDetector:
     version = DETECTOR_VERSION
 
     def detect(self, run: SurfaceRun, brand: BrandSpec) -> SentimentObservation | None:
-        if run.outcome is not Outcome.SUCCESS or run.answer is None:
+        if not is_valid_answer(run):
             return None
+        assert run.answer is not None
         found = find_first_alias(run.answer.answer_text, brand)
         if found is None:
             return None  # 未提及 → 情感不可判定,不产出观测

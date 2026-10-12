@@ -19,8 +19,9 @@ from typing import Any
 from uuid import uuid4
 
 from adapters.base import SurfaceAdapter
-from engine.models import AskRequest, Outcome, SearchMode, SurfaceRun
+from engine.models import AskRequest, SearchMode, SurfaceRun
 from engine.scheduler import AccountProblem, SamplingPolicy, ask_with_retries, is_account_error
+from engine.validity import is_valid_answer
 
 MAX_ROUNDS = 3  # 一件事最多问几轮(每轮内部另有 Transient 重试)
 
@@ -75,9 +76,10 @@ def run_task[T](
             assert run.error is not None
             raise AccountProblem(provider=run.provider, surface=run.surface, model=run.model,
                                  error_type=run.error.error_type, message=run.error.message)
-        if run.outcome is not Outcome.SUCCESS or run.answer is None:
+        if not is_valid_answer(run):  # 失败 / 拒答 / 空回答都算没办成,重问(有效口径全项目一处定)
             last = ValueError(f"调用未成功:outcome={run.outcome.value}")
             continue
+        assert run.answer is not None
         try:
             return TaskResult(value=parse(run.answer.answer_text), runs=runs)
         except (ValueError, KeyError, TypeError) as exc:

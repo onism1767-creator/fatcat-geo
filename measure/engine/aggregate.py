@@ -12,10 +12,11 @@ from dataclasses import dataclass
 from engine.detectors.brand_mention import DETECTOR_NAME as MENTION_LABEL
 from engine.detectors.citation import DETECTOR_NAME as CITATION_LABEL
 from engine.detectors.retrieval_rank import DETECTOR_NAME as PRESENCE_LABEL
-from engine.metrics import Rate, SampleAccounting, account_outcomes, rate_of
-from engine.models import UNKNOWN, FrozenModel, Outcome, PromptIntent, Sentiment, StopReason, Target
+from engine.metrics import Rate, SampleAccounting, account_runs, rate_of
+from engine.models import UNKNOWN, FrozenModel, PromptIntent, Sentiment, StopReason, Target
 from engine.observe import RunObservations
 from engine.scheduler import is_account_error
+from engine.validity import is_valid_answer
 
 
 class ClassSurfaceMetric(FrozenModel):
@@ -38,7 +39,7 @@ class ClassSurfaceMetric(FrozenModel):
 
 def _accounting(observations: list[RunObservations]) -> SampleAccounting:
     real = [o.run for o in observations if not is_account_error(o.run)]
-    return account_outcomes([r.outcome for r in real], n_account_error=len(observations) - len(real))
+    return account_runs(real, n_account_error=len(observations) - len(real))
 
 
 def rate_metric(
@@ -144,7 +145,7 @@ def measure_target(
             cited=rate_of([o.citation.cited for o in observations if o.citation is not None]),
             triggered=rate_of([
                 bool(o.run.search_trace.search_triggered) for o in observations
-                if o.run.outcome is Outcome.SUCCESS and o.run.search_trace.search_triggered != UNKNOWN
+                if is_valid_answer(o.run) and o.run.search_trace.search_triggered != UNKNOWN
             ]),
         )
     competitor_citations: list[tuple[str, Rate]] = []

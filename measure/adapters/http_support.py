@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import time
 from datetime import UTC, datetime
+from email.utils import parsedate_to_datetime
 from typing import Any
 from urllib.parse import urlsplit
 
@@ -51,6 +52,27 @@ _ACCOUNT_MESSAGES = {
 }
 
 
+def retry_after_seconds(headers: httpx.Headers, *, now: datetime | None = None) -> float | None:
+    """Retry-After 头 → 秒数(RFC 9110:整数秒,或 HTTP 日期)。没有这个头、或看不懂 → None,不猜。"""
+    raw = headers.get("retry-after")
+    if raw is None:
+        return None
+    raw = raw.strip()
+    if raw.isdigit():
+        return float(raw)
+    try:
+        when = parsedate_to_datetime(raw)
+    except (TypeError, ValueError, IndexError):
+        return None
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=UTC)
+    return max(0.0, (when - (now or datetime.now(UTC))).total_seconds())
+
+
+def _retry_hint(retry_after_s: float | None) -> str:
+    return f",平台要求 {retry_after_s:.0f} 秒后再试" if retry_after_s is not None else ""
+
+
 def contract_post(
     client: httpx.Client,
     url: str,
@@ -65,7 +87,8 @@ def contract_post(
     - 超时/连接失败等传输层错误 → AdapterTransientError
     - 账户问题 → AdapterAccountError:401 / 403 = key 无效或没权限(ACCOUNT_AUTH);
       402,或 400 / 429 且响应体是欠费措辞 = 额度不足或欠费(ACCOUNT_CREDIT)
-    - 其余 HTTP 429(限流)/ 5xx(平台内部错误)→ AdapterTransientError(带 http_status)
+    - 其余 HTTP 429(限流)/ 5xx(平台内部错误)→ AdapterTransientError(带 http_status;
+      429 / 503 的 Retry-After 头翻译成 retry_after_s,v0.4.26 C5——只翻译,不在这里等)
     - 其余 4xx → AdapterPermanentError(非法请求)
     - 2xx 但响应体非 JSON → AdapterTransientError(疑似网关/代理污染)
     """
@@ -88,15 +111,16 @@ def contract_post(
             f"{explanation}: {response.text[:200]}", error_type=account_kind,
             http_status=status, response_body=body,
         )
+    retry_after = retry_after_seconds(response.headers) if status in (429, 503) else None
     if status == 429:
         raise AdapterTransientError(
-            f"限流(HTTP 429,平台要求放慢请求速度,引擎会退避重试): {response.text[:200]}",
-            http_status=status, response_body=body,
+            f"限流(HTTP 429,平台要求放慢请求速度{_retry_hint(retry_after)},引擎会退避重试): {response.text[:200]}",
+            http_status=status, response_body=body, retry_after_s=retry_after,
         )
     if status >= 500:
         raise AdapterTransientError(
-            f"平台内部错误(HTTP {status},引擎会重试): {response.text[:200]}",
-            http_status=status, response_body=body,
+            f"平台内部错误(HTTP {status}{_retry_hint(retry_after)},引擎会重试): {response.text[:200]}",
+            http_status=status, response_body=body, retry_after_s=retry_after,
         )
     if status >= 400:
         raise AdapterPermanentError(
