@@ -99,7 +99,7 @@
     <tr>
       <td><b>{{ eb.display }}</b></td>
       <td>{{ eb.phenomenon|plain(lang) }}{% if eb.third_party %}<br><span class="muted">{{ t["tp_prefix"] }}</span>{{ eb.third_party|plain(lang) }}{% endif %}</td>
-      <td>{% if eb.strongest_evidence %}{{ eb.strongest_evidence|plain(lang) }}{% else %}<span class="muted">—</span>{% endif %}</td>
+      <td>{% if eb.strongest_evidence %}{{ eb.strongest_evidence|plain(lang) }}{% else %}<span class="muted">—</span>{% endif %}{% if eb.third_party_evidence %}<br>{{ eb.third_party_evidence|plain(lang) }}{% endif %}</td>
       <td>{% for c in eb.limitations %}{{ c|plain(lang) }}{% if not loop.last %}<br>{% endif %}{% else %}<span class="muted">—</span>{% endfor %}</td>
     </tr>
     {% endfor %}

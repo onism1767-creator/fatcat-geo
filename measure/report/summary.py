@@ -48,6 +48,7 @@ class EngineBrief(FrozenModel):
     strongest_evidence: Msg | None
     limitations: list[Msg]
     third_party: Msg | None = None  # 第三方线一句(引用步的结论;S6.1),与官网线并列、不合并
+    third_party_evidence: Msg | None = None  # 第三方线的数字(「N 次里 k 次」),与官网的数字并排、不相加(用户定)
 
 
 class PriorityAction(FrozenModel):
@@ -92,6 +93,9 @@ def _engine_brief(sd: SurfaceDiagnosis, display: str) -> EngineBrief:
         ),
         limitations=[c for c in sd.cautions if c.code != "caution.none"],
         third_party=next((f.headline for f in sd.third_party if f.stage is Stage.CITATION), None),
+        third_party_evidence=next(
+            (f.evidence_lines[0] for f in sd.third_party if f.stage is Stage.CITATION and f.evidence_lines), None,
+        ),
     )
 
 
