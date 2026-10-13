@@ -741,19 +741,19 @@ CATALOG: dict[str, dict[str, str]] = {
     },
     # 第三方线一句(S6.1;措辞用户 2026-10-13 拍板:口语版,v0.4.24 D10)
     "verdict.thirdparty.often": {
-        "zh": "它常常拿别人写你的文章当参考",
+        "zh": "它常常拿别人提到你的文章当参考",
         "en": "It often uses other people's pages about you as references",
     },
     "verdict.thirdparty.sometimes": {
-        "zh": "它偶尔拿别人写你的文章当参考",
+        "zh": "它偶尔拿别人提到你的文章当参考",
         "en": "It occasionally uses other people's pages about you as references",
     },
     "verdict.thirdparty.rarely": {
-        "zh": "它基本不拿别人写你的文章当参考",
+        "zh": "它基本不拿别人提到你的文章当参考",
         "en": "It basically never uses other people's pages about you as references",
     },
     "verdict.missing.thirdparty": {
-        "zh": "别人写你的文章有没有被它参考,这次看不出来",
+        "zh": "别人提到你的文章有没有被它参考,这次看不出来",
         "en": "whether it used other people's pages about you could not be told this time",
     },
 }
@@ -777,19 +777,19 @@ PLAIN: dict[str, dict[str, str]] = {
     "citation.headline.pass": {"zh": "AI 稳定引用你的官网", "en": "The AI reliably cites your site"},
     "citation.headline.not_observable": {"zh": "这家 AI 不公开引用来源,这一项本次看不到", "en": "This AI does not expose its sources; this item could not be observed"},
     "repr.headline.not_observable": {"zh": "没有拿到可分析的回答,这一项本次看不到", "en": "No analyzable answers; this item could not be observed"},
-    # 第三方线的人话一律说「别人写你的文章」(用户定 2026-10-13,措辞已拍板)
-    "thirdparty.retrieved.headline.fail": {"zh": "它搜索时基本找不到别人写你的文章", "en": "When it searches, it basically never finds other people's pages about you"},
-    "thirdparty.retrieved.headline.weak": {"zh": "它搜索时偶尔能找到别人写你的文章", "en": "When it searches, it occasionally finds other people's pages about you"},
-    "thirdparty.retrieved.headline.pass": {"zh": "它搜索时常常能找到别人写你的文章", "en": "When it searches, it often finds other people's pages about you"},
+    # 第三方线的人话一律说「别人提到你的文章」(用户定 2026-10-13,措辞已拍板)
+    "thirdparty.retrieved.headline.fail": {"zh": "它搜索时基本找不到别人提到你的文章", "en": "When it searches, it basically never finds other people's pages about you"},
+    "thirdparty.retrieved.headline.weak": {"zh": "它搜索时偶尔能找到别人提到你的文章", "en": "When it searches, it occasionally finds other people's pages about you"},
+    "thirdparty.retrieved.headline.pass": {"zh": "它搜索时常常能找到别人提到你的文章", "en": "When it searches, it often finds other people's pages about you"},
     "thirdparty.retrieved.headline.not_observable": {"zh": "它不公开搜索结果,或者那些文章这次打不开,看不出来", "en": "It does not show its search results, or those pages could not be opened this time; cannot tell"},
-    "thirdparty.cited.headline.fail": {"zh": "它基本不拿别人写你的文章当参考", "en": "It basically never uses other people's pages about you as references"},
-    "thirdparty.cited.headline.weak": {"zh": "它偶尔拿别人写你的文章当参考", "en": "It occasionally uses other people's pages about you as references"},
-    "thirdparty.cited.headline.pass": {"zh": "它常常拿别人写你的文章当参考", "en": "It often uses other people's pages about you as references"},
+    "thirdparty.cited.headline.fail": {"zh": "它基本不拿别人提到你的文章当参考", "en": "It basically never uses other people's pages about you as references"},
+    "thirdparty.cited.headline.weak": {"zh": "它偶尔拿别人提到你的文章当参考", "en": "It occasionally uses other people's pages about you as references"},
+    "thirdparty.cited.headline.pass": {"zh": "它常常拿别人提到你的文章当参考", "en": "It often uses other people's pages about you as references"},
     "thirdparty.cited.headline.not_observable": {"zh": "它不公开参考来源,或者那些文章这次打不开,看不出来", "en": "It does not show its references, or those pages could not be opened this time; cannot tell"},
-    "thirdparty.retrieved.rate": {"zh": "本次 {n} 次回答里,{k} 次搜到了别人写你的文章", "en": "In {k} of {n} answers this time, its search turned up other people's pages about you"},
-    "thirdparty.cited.rate": {"zh": "本次 {n} 次回答里,{k} 次拿别人写你的文章当参考(和官网分开算)", "en": "In {k} of {n} answers this time, it used other people's pages about you as references (counted apart from your own site)"},
+    "thirdparty.retrieved.rate": {"zh": "本次 {n} 次回答里,{k} 次搜到了别人提到你的文章", "en": "In {k} of {n} answers this time, its search turned up other people's pages about you"},
+    "thirdparty.cited.rate": {"zh": "本次 {n} 次回答里,{k} 次拿别人提到你的文章当参考(和官网分开算)", "en": "In {k} of {n} answers this time, it used other people's pages about you as references (counted apart from your own site)"},
     "thirdparty.unobservable": {"zh": "有 {n} 篇文章这次看不到,没有参与判断:{items}", "en": "{n} page(s) could not be checked this time and were not used: {items}"},
-    "caution.thirdparty.divergence": {"zh": "搜索结果里没看到别人写你的文章,回答却参考了:AI 实际的搜索和我们看到的不完全一样,这一项不作为问题依据", "en": "No page about you by others showed up in the visible search results, yet one was used as a reference: the AI's actual search differs from what we can see, so this item is not used as evidence of a problem"},
+    "caution.thirdparty.divergence": {"zh": "搜索结果里没看到别人提到你的文章,回答却参考了:AI 实际的搜索和我们看到的不完全一样,这一项不作为问题依据", "en": "No page about you by others showed up in the visible search results, yet one was used as a reference: the AI's actual search differs from what we can see, so this item is not used as evidence of a problem"},
     "repr.headline.probe_none": {"zh": "用户直接问起你时,回答里没有出现你的品牌名(不正常,建议检查测试)", "en": "Your brand name did not appear even when users asked directly (abnormal; check the test)"},
     "repr.headline.probe_fail": {"zh": "用户直接问起你时,AI 对你的评价以负面为主", "en": "When users ask about you directly, the AI's description is mostly negative"},
     "repr.headline.probe_weak": {"zh": "用户直接问起你时,AI 对你的评价里有明显负面内容", "en": "When users ask about you directly, the AI's description contains clearly negative content"},
