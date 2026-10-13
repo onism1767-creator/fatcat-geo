@@ -85,6 +85,21 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
     )
     """,
     "CREATE INDEX IF NOT EXISTS citation_evidence_url_idx ON citation_evidence (normalized_url, fetched_at DESC)",
+    # 引用链接还原跳转(v0.4.26 S4,C2):原链接 → 终点链接、跳数、状态、还原器版本;只追加,按链接复用
+    """
+    CREATE TABLE IF NOT EXISTS citation_resolution (
+        resolution_id text PRIMARY KEY,
+        url text NOT NULL,
+        final_url text,
+        hops integer NOT NULL,
+        status text NOT NULL,
+        http_status integer,
+        error text,
+        resolver_version integer NOT NULL,
+        resolved_at timestamptz NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS citation_resolution_url_idx ON citation_resolution (url, resolved_at DESC)",
     # 触发器函数必须先于全部触发器语句创建(全新库依赖此顺序)
     """
     CREATE OR REPLACE FUNCTION reject_mutation() RETURNS trigger AS $$
@@ -143,6 +158,16 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
     """
     CREATE OR REPLACE TRIGGER recompute_event_no_truncate
         BEFORE TRUNCATE ON recompute_event
+        FOR EACH STATEMENT EXECUTE FUNCTION reject_mutation()
+    """,
+    """
+    CREATE OR REPLACE TRIGGER citation_resolution_append_only
+        BEFORE UPDATE OR DELETE ON citation_resolution
+        FOR EACH ROW EXECUTE FUNCTION reject_mutation()
+    """,
+    """
+    CREATE OR REPLACE TRIGGER citation_resolution_no_truncate
+        BEFORE TRUNCATE ON citation_resolution
         FOR EACH STATEMENT EXECUTE FUNCTION reject_mutation()
     """,
     # 辅助调用账本(2026-09-29,用户定「专门一张账本」):出题、改写问法、以后的 AI 裁判——

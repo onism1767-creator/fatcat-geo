@@ -69,7 +69,12 @@ def diagnose_citation(
     competitors: list[tuple[str, Rate]] | None = None,
     thresholds: DiagnosisThresholds = DiagnosisThresholds(),
     verification: VerificationSummary | None = None,
+    *,
+    primary: ClassSurfaceMetric | None = None,
+    by_domain: list[tuple[str, Rate]] | None = None,
+    unresolved: int = 0,
 ) -> StageFinding:
+    """红绿灯看官网引用率(任一官网域名);主站引用率、按域名拆分、还原失败的引用条数只作证据行(v0.4.26 S4)。"""
     if metric is None or metric.rate is None:
         return StageFinding(
             stage=Stage.CITATION,
@@ -86,6 +91,16 @@ def diagnose_citation(
     )
     evidence = [
         msg("citation.rate", **rate_params(r)),
+    ]
+    if primary is not None and primary.rate is not None:
+        evidence.append(msg("citation.primary_rate", **rate_params(primary.rate)))
+    if by_domain:
+        evidence.append(msg("citation.by_domain", items=[
+            msg("citation.domain_item", domain=domain, k=dr.k, n=dr.n) for domain, dr in by_domain
+        ]))
+    if unresolved:
+        evidence.append(msg("citation.unresolved", n=unresolved))
+    evidence += [
         caliber_msg(metric),
         *prompt_msgs(metric),
         msg("citation.thresholds",

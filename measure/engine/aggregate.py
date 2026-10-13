@@ -18,6 +18,8 @@ from engine.observe import RunObservations
 from engine.scheduler import is_account_error
 from engine.validity import is_valid_answer
 
+PRIMARY_CITATION_LABEL = f"{CITATION_LABEL}:primary"  # 主站引用率的命中口径(v0.4.26 S4)
+
 
 class ClassSurfaceMetric(FrozenModel):
     """题型层指标:同一题型下全部题目 × 每题几次在一个被测对象上的合并观测。
@@ -34,7 +36,7 @@ class ClassSurfaceMetric(FrozenModel):
     accounting: SampleAccounting
     stop_reasons: list[StopReason]  # 该对象采样计划的停止原因(一个计划跨全部题型),随口径进报告
     per_prompt: list[Rate | None]  # 逐题,与题同序;某题无有效样本 → None
-    prompt_coverage: Rate | None  # 至少命中一次的题数 ÷ 有有效样本的题数
+    prompt_coverage: Rate | None  # 至少命中一次的题数 ÷ 题目总数(产品文档 15.2;没拿到有效回答的题按没命中算)
 
 
 def _accounting(observations: list[RunObservations]) -> SampleAccounting:
@@ -73,7 +75,11 @@ def rate_metric(
         accounting=_accounting(observations),
         stop_reasons=[stop_reason],
         per_prompt=per_prompt,
-        prompt_coverage=rate_of([r.k > 0 for r in observed]),
+        # 题目覆盖率(产品文档 15.2):至少命中一次的题数 ÷ 题目总数,没拿到有效回答的题按没命中算;
+        # 一道题都没观测到时为 None(整块不可观测,不是 0)
+        prompt_coverage=(
+            Rate(k=sum(r is not None and r.k > 0 for r in per_prompt), n=len(prompt_ids)) if observed else None
+        ),
     )
 
 
@@ -95,7 +101,10 @@ class TargetMeasurement:
     target: Target
     provider: str
     intent: PromptIntent
-    citation: ClassSurfaceMetric
+    citation: ClassSurfaceMetric  # 官网引用率:任一官网域名,一条回答只算一次
+    primary_citation: ClassSurfaceMetric | None  # 主站引用率:主站注册域名;没有主站 → None(v0.4.26 S4)
+    citations_by_domain: list[tuple[str, Rate]]  # 按域名拆分:各官网注册域名各算一次,按次数降序
+    unresolved_citations: int  # 跳转链还原失败、记「看不到」的引用条数(不进任何分子分母)
     mention: ClassSurfaceMetric
     sentiment_counts: dict[Sentiment, int]
     competitor_citations: list[tuple[str, Rate]]  # 有观测的竞品才列
@@ -130,10 +139,23 @@ def measure_target(
     stop_reason: StopReason,
     competitor_names: list[str],
     exposes_retrieval: bool,
+    primary_domain: str | None = None,
 ) -> TargetMeasurement:
+    """primary_domain:主站的注册域名(没有就不出主站引用率)。"""
     def metric(hit: Callable[[RunObservations], bool | None], label: str) -> ClassSurfaceMetric:
         return rate_metric(target, provider, intent, observations, prompt_ids, hit,
                            metric_label=label, stop_reason=stop_reason)
+
+    def primary_cited(obs: RunObservations) -> bool | None:
+        return None if obs.citation is None else primary_domain in obs.citation.matched_domains
+
+    cited_obs = [o.citation for o in observations if o.citation is not None]
+    by_domain: list[tuple[str, Rate]] = []
+    for domain in sorted({d for c in cited_obs for d in c.matched_domains}):
+        r = rate_of([domain in c.matched_domains for c in cited_obs])
+        if r is not None:
+            by_domain.append((domain, r))
+    by_domain.sort(key=lambda item: (-item[1].k, item[0]))
 
     generative = None
     if exposes_retrieval:
@@ -158,6 +180,9 @@ def measure_target(
         provider=provider,
         intent=intent,
         citation=metric(_cited, CITATION_LABEL),
+        primary_citation=metric(primary_cited, PRIMARY_CITATION_LABEL) if primary_domain else None,
+        citations_by_domain=by_domain,
+        unresolved_citations=sum(c.unresolved for c in cited_obs),
         mention=metric(_mentioned, MENTION_LABEL),
         sentiment_counts=dict(Counter(o.sentiment.sentiment for o in observations if o.sentiment is not None)),
         competitor_citations=competitor_citations,

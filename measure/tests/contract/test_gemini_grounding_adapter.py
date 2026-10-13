@@ -80,9 +80,11 @@ def test_success_with_citations_translates_field_by_field():
         "对于中小团队,HubSpot 与 Zoho CRM 是最常被推荐的选择,两者都提供免费档位。"
         "如果预算敏感,可优先试用免费档。"
     )
-    # 引用池:3 个锚注、2 个唯一跳转链 → 按 url 去重;域名取 title(平台以域名作标题)
+    # 引用池:3 个锚注、2 个唯一跳转链 → 按 url 去重;domain = 链接本身的主机名(跳转服务),不从 title 推(S4)
     assert run.answer.citations_available is True
-    assert [c.domain for c in run.answer.citations] == ["example-review.com", "zoho.com.cn"]
+    assert [c.domain for c in run.answer.citations] == ["vertexaisearch.cloud.google.com"] * 2
+    assert [c.title for c in run.answer.citations] == ["example-review.com", "zoho.com.cn"]
+    assert GeminiGroundingAdapter(api_key="k").meta().capabilities.citation_urls_redirect is True
     assert [c.position for c in run.answer.citations] == [1, 2]
     assert run.answer.citations[0].url.startswith(
         "https://vertexaisearch.cloud.google.com/grounding-api-redirect/"

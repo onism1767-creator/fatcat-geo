@@ -25,6 +25,7 @@ from engine.models import (
     SearchTrace,
     SurfaceRun,
 )
+from engine.resolve import ResolutionContext
 
 BRAND = BrandSpec(
     name="极光CRM",
@@ -37,7 +38,8 @@ _DEFAULT_ANSWER = object()
 
 
 def make_run(
-    run_id: str, *, outcome=Outcome.SUCCESS, answer=_DEFAULT_ANSWER, error=None, search_trace=None
+    run_id: str, *, outcome=Outcome.SUCCESS, answer=_DEFAULT_ANSWER, error=None, search_trace=None,
+    surface: str = "test_surface",
 ) -> SurfaceRun:
     """没指定回答的 SUCCESS 样本给一段中性正文(v2 起空回答不可判定,检索 / 检索词样本需要一条有效回答;
     v1 判定器不看正文,v1 的归档期望不受影响)。"""
@@ -48,7 +50,7 @@ def make_run(
         prompt_id="need-1",
         run_index=1,
         provider="test_provider",
-        surface="test_surface",
+        surface=surface,
         model="test-model",
         search_mode=SearchMode.DEFAULT,
         locale="zh-CN",
@@ -132,6 +134,18 @@ SAMPLES = {
     "citation_empty_answer": make_run(
         "r-c5",
         answer=answer_with("", [Citation(url="https://aurora-crm.com/case", domain="aurora-crm.com", position=1)]),
+    ),
+    # v3:跳转仪器的引用按还原后的终点判;还原失败的那条记看不到(S4)
+    "cited_redirect_resolved_and_one_unresolved": make_run(
+        "r-c6", surface="redirect_surface",
+        answer=answer_with("正文。", [
+            Citation(url="https://redir.test/t1", domain="redir.test", position=1),
+            Citation(url="https://redir.test/t2", domain="redir.test", position=2),
+        ]),
+    ),
+    "cited_redirect_all_unresolved": make_run(
+        "r-c7", surface="redirect_surface",
+        answer=answer_with("正文。", [Citation(url="https://redir.test/t9", domain="redir.test", position=1)]),
     ),
     "rank_hit_with_subdomain": make_run(
         "r-r1",
@@ -231,6 +245,21 @@ CITATION_EXPECTED = {
     }
 }
 CITATION_EXPECTED[2] = {**CITATION_EXPECTED[1], "citation_empty_answer": None}  # v2:空回答不可判定
+# v3(S4):跳转链先还原;命中的注册域名与判定用链接一并记录。跳转仪器样本用下面这个上下文判
+REDIRECT_CONTEXT = ResolutionContext(frozenset({"redirect_surface"}), {
+    "https://redir.test/t1": "https://www.aurora-crm.com/landing",
+})
+CITATION_EXPECTED[3] = {
+    **CITATION_EXPECTED[2],
+    "cited_exact_domain": dict(cited=True, positions=[2], matched_domains=["aurora-crm.com"],
+                               matched_urls=["https://aurora-crm.com/case"], unresolved=0),
+    "cited_subdomain_and_www": dict(cited=True, positions=[1, 2], matched_domains=["aurora-crm.com"], unresolved=0),
+    "cited_redirect_resolved_and_one_unresolved": dict(
+        cited=True, positions=[1], matched_domains=["aurora-crm.com"],
+        matched_urls=["https://www.aurora-crm.com/landing"], unresolved=1,
+    ),
+    "cited_redirect_all_unresolved": dict(cited=False, positions=[], matched_domains=[], unresolved=1),
+}
 
 
 RETRIEVAL_RANK_EXPECTED = {
@@ -330,7 +359,7 @@ def test_brand_mention_detector_matches_archived_expectations():
 
 
 def test_citation_detector_matches_archived_expectations():
-    detector = CitationDetector()
+    detector = CitationDetector(REDIRECT_CONTEXT)
     expectations = CITATION_EXPECTED[detector.version]
     for sample_name, expected in expectations.items():
         observation = detector.detect(SAMPLES[sample_name], BRAND)

@@ -17,10 +17,12 @@ from engine.models import (
     AskRequest,
     BrandSpec,
     Citation,
+    CitationResolution,
     Outcome,
     Prompt,
     PromptIntent,
     PromptOrigin,
+    ResolutionStatus,
     RunError,
     RunErrorType,
     SearchTrace,
@@ -86,10 +88,33 @@ class _NoNetworkVerifier:
         pass
 
 
+class _StubResolver:
+    """不联网的还原器:表里有的链接算还原成功,其余记「没跳」。"""
+
+    destinations: dict[str, str] = {}
+
+    def __init__(self, storage) -> None:
+        pass
+
+    def resolve(self, urls: list[str]) -> dict[str, CitationResolution]:
+        result = {}
+        for url in urls:
+            final = self.destinations.get(url)
+            result[url] = CitationResolution(
+                url=url, final_url=final, hops=1 if final else 0, resolver_version=1,
+                status=ResolutionStatus.RESOLVED if final else ResolutionStatus.NOT_REDIRECTED,
+            )
+        return result
+
+    def close(self) -> None:
+        pass
+
+
 @pytest.fixture()
 def offline(monkeypatch):
     monkeypatch.setattr(runner.access_audit, "audit", lambda website: None)
     monkeypatch.setattr(runner, "CitationVerifier", _NoNetworkVerifier)
+    monkeypatch.setattr(runner, "UrlResolver", _StubResolver)
 
 
 def _citation_status(job: DiagnosisJob) -> dict[str, StageStatus]:
@@ -171,3 +196,55 @@ def test_account_problem_halts_job_plainly_and_resume_keeps_account_rows_out_of_
     assert not citation.low_confidence  # 三条账户行都没有被算成失败率
     rows = storage.runs_for_prompt(prompt.prompt_id, surface="two_model", model=SILENT)
     assert sum(r.outcome is Outcome.SUCCESS for r in rows) == 3 and len(rows) == 6  # 3 次有效 + 3 条账户行
+
+
+class RedirectAdapter(SurfaceAdapter):
+    """给跳转链当引用的假仪器(能力 citation_urls_redirect):两条引用,一条能还原到官网、一条还原不出去向。"""
+
+    def meta(self) -> SurfaceMeta:
+        return SurfaceMeta(display_name="假跳转 AI", provider="test_provider", surface="redirect_ai",
+                           models=["r1"], default_model="r1",
+                           capabilities=CapabilityRegistry(supports_citations=True, citation_urls_redirect=True),
+                           est_cost_per_call_usd={"r1": 0.01})
+
+    def ask(self, request: AskRequest) -> SurfaceRun:
+        return SurfaceRun(
+            run_id=request.run_id, prompt_id=request.prompt_id, run_index=request.run_index,
+            provider="test_provider", surface="redirect_ai", model="r1",
+            search_mode=request.search_mode, locale=request.locale,
+            outcome=Outcome.SUCCESS, search_trace=SearchTrace(search_triggered=True),
+            answer=Answer(answer_text="推荐极光CRM。", citations_available=True, citations=[
+                Citation(url="https://redir.test/ok", domain="redir.test", title="aurora-crm.com", position=1),
+                Citation(url="https://redir.test/lost", domain="redir.test", title="aurora-crm.com", position=2),
+            ]),
+            raw_payload={}, timestamp=datetime.now(UTC), latency_ms=1, cost_usd=0.01,
+        )
+
+    def healthcheck(self) -> bool:
+        return True
+
+
+def test_redirect_citations_are_judged_by_resolved_destination_not_title(storage, offline):
+    """S4:跳转仪器的引用按还原后的终点判——能还原到官网的算被引,还原不出的记看不到;标题不作依据。"""
+    _StubResolver.destinations = {"https://redir.test/ok": "https://www.aurora-crm.com/landing"}
+    prompt = Prompt(text="中小团队用什么 CRM 好?", intent=PromptIntent.CATEGORY_DISCOVERY,
+                    origin=PromptOrigin.USER, locale="zh-CN")
+    job = DiagnosisJob(brand=BRAND, website="https://aurora-crm.com", category="CRM",
+                       locale="zh-CN", candidates=[], competitors_suggested=[])
+    job.freeze(prompts=[prompt], competitors=[], targets=[Target(surface="redirect_ai", model="r1")], budget_usd=None)
+    try:
+        runner.execute_job(job=job, adapters={"redirect_ai": RedirectAdapter()}, dsn=TEST_DSN,
+                           evidence=load_evidence_registry())
+    finally:
+        _StubResolver.destinations = {}
+    assert job.state is JobState.DONE, job.error
+    [report] = job.class_reports
+    [block] = report.diagnosis.surfaces
+    citation = next(f for f in block.findings if f.stage is Stage.CITATION)
+    assert citation.status is StageStatus.PASS  # 3/3 回答都有一条还原到官网的引用
+    codes = {line.code for line in citation.evidence_lines}
+    assert {"citation.primary_rate", "citation.by_domain", "citation.unresolved"} <= codes
+    unresolved = next(line for line in citation.evidence_lines if line.code == "citation.unresolved")
+    assert unresolved.params["n"] == 3  # 每条回答一条还原不出去向的引用,记看不到
+    by_domain = next(line for line in citation.evidence_lines if line.code == "citation.by_domain")
+    assert [(item.params["domain"], item.params["k"]) for item in by_domain.params["items"]] == [("aurora-crm.com", 3)]

@@ -16,10 +16,10 @@
 - 候选集不暴露:google_search_result 仅含搜索建议组件(界面用 HTML),
   retrieved_sources 如实记 NOT_OBSERVABLE(铁律 7,禁止用引用反推);
 - 引用为文内锚注 url_citation,但 url 是平台跳转链
-  (vertexaisearch.cloud.google.com/grounding-api-redirect/…),真实域名装在
-  title 字段(平台以域名作标题)。翻译口径:Citation.domain 取 title
-  (平台提供的域名数据,非猜测),url 原样保留跳转链——核验器重抓时
-  跳转会解析到真实页面(final_url 记录)。实测同一来源的跳转链稳定复用,
+  (vertexaisearch.cloud.google.com/grounding-api-redirect/…)。能力声明
+  citation_urls_redirect=True:Citation.domain 就是链接本身的主机名(跳转服务),
+  不从 title 推真实域名——引擎采样后跟随跳转还原终点(engine/resolve.py,S4),
+  判定用终点链接,还原失败记看不到。实测同一来源的跳转链稳定复用,
   按 url 去重成立(75 锚注 → 16 唯一 URL);
 - search_disabled = 不带工具(citations_available=False,结构性无引用);
 - 拒答:Interactions API 未见文档化的机器可读拒答信号,v1 不做 REFUSED
@@ -47,7 +47,7 @@ from adapters.base import (
     SurfaceAdapter,
     SurfaceMeta,
 )
-from adapters.http_support import contract_post
+from adapters.http_support import contract_post, domain_of
 from engine.models import (
     NOT_OBSERVABLE,
     Answer,
@@ -79,6 +79,7 @@ _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
     supports_citations=True,
     supports_search_disabled=True,
+    citation_urls_redirect=True,  # 引用是平台跳转链,引擎采样后还原终点(S4)
 )
 
 
@@ -154,8 +155,8 @@ def _translate(
                         cited_urls.add(note["url"])
                         citations.append(
                             Citation(
-                                url=note["url"],  # 平台跳转链原样保留,核验器可解析
-                                domain=note.get("title") or "",  # 平台以域名作标题
+                                url=note["url"],  # 平台跳转链原样保留,引擎采样后还原终点(S4)
+                                domain=domain_of(note["url"]),  # 链接本身的主机名(跳转服务),不从标题推
                                 title=note.get("title"),
                                 position=len(citations) + 1,
                             )

@@ -282,6 +282,9 @@ class BrandMentionObservation(DerivedObservation):
 class CitationObservation(DerivedObservation):
     cited: bool
     positions: list[int] = []  # 命中引用在引用集中的位次
+    matched_domains: list[str] = []  # 命中官网的注册域名(去重),供主站引用率与按域名拆分(v0.4.26 S4)
+    matched_urls: list[str] = []  # 命中引用用于判定的链接(跳转仪器为终点链接),供独立核验
+    unresolved: int = 0  # 跳转链还原失败、记「看不到」的引用条数(不进分子分母)
 
 
 class CitationEvidence(FrozenModel):
@@ -303,6 +306,28 @@ class CitationEvidence(FrozenModel):
     brands_found: list[str] = []  # 可见正文中确实出现清晰名的品牌
     visible_chars: int | None = None
     error: str | None = None
+
+
+class ResolutionStatus(StrEnum):
+    RESOLVED = "RESOLVED"  # 跟到了终点(≥ 1 跳,终点非 3xx;终点是 404 也是终点,可达性是另一回事)
+    NOT_REDIRECTED = "NOT_REDIRECTED"  # 跳转服务没跳:看不到真正去向
+    TOO_MANY_HOPS = "TOO_MANY_HOPS"
+    FETCH_FAILED = "FETCH_FAILED"  # 网络错误 / 超时
+
+
+class CitationResolution(FrozenModel):
+    """一条跳转链的还原记录(v0.4.26 S4,C2):只追加、按链接复用。这是对「此刻这条链接指向哪」的观测,
+    不含任何品牌判定。"""
+
+    resolution_id: str = Field(default_factory=lambda: str(uuid4()))
+    url: str
+    final_url: str | None = None
+    hops: int
+    status: ResolutionStatus
+    http_status: int | None = None
+    error: str | None = None
+    resolver_version: int
+    resolved_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 
 class RetrievalRankObservation(DerivedObservation):

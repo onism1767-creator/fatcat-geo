@@ -2,6 +2,7 @@
 
 本版全部是规则判定(免费、确定),出报告时现算;结果照旧逐条存档(persist_observations)。
 判不了的项记 None——缺席就是缺席,不补默认值。
+引用判定带「链接还原」上下文(v0.4.26 S4):跳转仪器的引用按终点链接判,还原失败的记看不到。
 """
 
 from __future__ import annotations
@@ -10,7 +11,6 @@ from dataclasses import dataclass
 
 from engine.detectors.brand_mention import BrandMentionDetector
 from engine.detectors.citation import CitationDetector
-from engine.detectors.matching import matches_any_brand_domain
 from engine.detectors.query_trace import QueryTraceDetector
 from engine.detectors.retrieval_rank import RetrievalRankDetector
 from engine.detectors.runner import Detector, ObservationStore, observe_runs
@@ -24,14 +24,17 @@ from engine.models import (
     SentimentObservation,
     SurfaceRun,
 )
+from engine.resolve import ResolutionContext
 
 _MENTION = BrandMentionDetector()
-_CITATION = CitationDetector()
 _PRESENCE = RetrievalRankDetector()
 _SENTIMENT = SentimentDetector()
 _QUERY = QueryTraceDetector()
-# 逐条存档的规则判定器(竞品被引随观测现算、不存档:派生表没有「判的是哪个品牌」这一列)
-RULE_DETECTORS: tuple[Detector, ...] = (_MENTION, _CITATION, _PRESENCE, _SENTIMENT, _QUERY)
+
+
+def rule_detectors(context: ResolutionContext | None = None) -> list[Detector]:
+    """逐条存档的规则判定器(竞品被引随观测现算、不存档:派生表没有「判的是哪个品牌」这一列)。"""
+    return [_MENTION, CitationDetector(context), _PRESENCE, _SENTIMENT, _QUERY]
 
 
 @dataclass(frozen=True)
@@ -45,28 +48,28 @@ class RunObservations:
     sentiment: SentimentObservation | None
     query: QueryTraceObservation | None
     competitor_citations: dict[str, CitationObservation | None]  # 竞品名 → 该竞品官网是否被引
-    brand_cited_urls: list[str]  # 被引来源里属于品牌官网的 URL(供独立核验)
+    brand_cited_urls: list[str]  # 命中品牌官网的引用用于判定的链接(跳转仪器为终点),供独立核验
 
 
-def _brand_cited_urls(run: SurfaceRun, brand: BrandSpec) -> list[str]:
-    if run.answer is None or not run.answer.citations_available:
-        return []
-    return [c.url for c in run.answer.citations if matches_any_brand_domain(c.domain, brand)]
-
-
-def observe(run: SurfaceRun, brand: BrandSpec, competitors: list[BrandSpec]) -> RunObservations:
+def observe(
+    run: SurfaceRun, brand: BrandSpec, competitors: list[BrandSpec], context: ResolutionContext | None = None,
+) -> RunObservations:
+    citation_detector = CitationDetector(context)
+    citation = citation_detector.detect(run, brand)
     return RunObservations(
         run=run,
         mention=_MENTION.detect(run, brand),
-        citation=_CITATION.detect(run, brand),
+        citation=citation,
         presence=_PRESENCE.detect(run, brand),
         sentiment=_SENTIMENT.detect(run, brand),
         query=_QUERY.detect(run, brand),
-        competitor_citations={c.name: _CITATION.detect(run, c) for c in competitors},
-        brand_cited_urls=_brand_cited_urls(run, brand),
+        competitor_citations={c.name: citation_detector.detect(run, c) for c in competitors},
+        brand_cited_urls=list(citation.matched_urls) if citation is not None else [],
     )
 
 
-def persist_observations(storage: ObservationStore, runs: list[SurfaceRun], brand: BrandSpec) -> None:
+def persist_observations(
+    storage: ObservationStore, runs: list[SurfaceRun], brand: BrandSpec, context: ResolutionContext | None = None,
+) -> None:
     """规则判定逐条存档(幂等:同 run × 判定器 × 版本至多一条)。"""
-    observe_runs(storage, runs, list(RULE_DETECTORS), brand)
+    observe_runs(storage, runs, rule_detectors(context), brand)

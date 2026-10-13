@@ -51,13 +51,13 @@ def test_prompt_lines_and_coverage():
     spread = make_metric(6, 12, per_prompt=[rate(3, 3), rate(3, 3), rate(0, 3), rate(0, 3)])
     lines = [zh(m) for m in prompt_msgs(spread)]
     assert len(lines) == 2 and "题1 3/3" in lines[0] and "题3 0/3" in lines[0]
-    assert "题目覆盖率:4 道有有效样本的题里 2 道至少命中一次(50%)" in lines[1]
+    assert "题目覆盖率:4 道题里 2 道至少命中一次(50%)" in lines[1]
 
     with_gap = make_metric(3, 6, per_prompt=[rate(3, 6), None])
     assert "题2 无有效样本" in zh(prompt_msgs(with_gap)[0])
 
     single = make_metric(3, 8)
-    assert len(prompt_msgs(single)) == 1 and "1 道有有效样本的题里 1 道" in zh(prompt_msgs(single)[0])
+    assert len(prompt_msgs(single)) == 1 and "1 道题里 1 道至少命中一次" in zh(prompt_msgs(single)[0])
     caliber = "\n".join(zh_lines(diagnose_citation(single)))
     assert "冻结题目集上的观测率" in caliber and "题数=1" in caliber
 

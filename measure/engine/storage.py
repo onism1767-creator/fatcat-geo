@@ -25,6 +25,7 @@ from psycopg.types.json import Jsonb
 from engine.models import (
     Answer,
     CitationEvidence,
+    CitationResolution,
     DerivedObservation,
     FrozenModel,
     Outcome,
@@ -182,6 +183,35 @@ class Storage:
                 evidence_id=row[0], url=row[1], normalized_url=row[2], fetched_at=row[3],
                 reachable=row[4], http_status=row[5], final_url=row[6],
                 checked_brands=row[7], brands_found=row[8], visible_chars=row[9], error=row[10],
+            )
+            for row in rows
+        }
+
+    def insert_citation_resolution(self, resolution: CitationResolution) -> None:
+        self._conn.execute(
+            "INSERT INTO citation_resolution (resolution_id, url, final_url, hops, status, http_status, error, "
+            "resolver_version, resolved_at) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            (
+                resolution.resolution_id, resolution.url, resolution.final_url, resolution.hops,
+                resolution.status.value, resolution.http_status, resolution.error,
+                resolution.resolver_version, resolution.resolved_at,
+            ),
+        )
+
+    def latest_citation_resolutions(self, urls: list[str]) -> dict[str, CitationResolution]:
+        """每条链接最新一条还原记录(按链接复用;时效与「失败要不要重试」由调用方定)。"""
+        if not urls:
+            return {}
+        rows = self._conn.execute(
+            "SELECT DISTINCT ON (url) resolution_id, url, final_url, hops, status, http_status, error, "
+            "resolver_version, resolved_at FROM citation_resolution WHERE url = ANY(%s) "
+            "ORDER BY url, resolved_at DESC",
+            (urls,),
+        ).fetchall()
+        return {
+            row[1]: CitationResolution(
+                resolution_id=row[0], url=row[1], final_url=row[2], hops=row[3], status=row[4],
+                http_status=row[5], error=row[6], resolver_version=row[7], resolved_at=row[8],
             )
             for row in rows
         }

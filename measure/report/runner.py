@@ -24,7 +24,9 @@ from diagnosis.diagnose import access_finding, diagnose_class
 from diagnosis.recommender import EvidenceEntry
 from diagnosis.verdict import VerdictInput, surface_verdict
 from engine.aggregate import ClassSurfaceMetric, TargetMeasurement, measure_closed_book, measure_target
+from engine.detectors.matching import registrable
 from engine.models import (
+    BrandSpec,
     CitationEvidence,
     Prompt,
     PromptIntent,
@@ -36,6 +38,7 @@ from engine.models import (
 )
 from engine.observe import RunObservations, observe, persist_observations
 from engine.official_domains import official_candidates
+from engine.resolve import ResolutionContext, UrlResolver
 from engine.scheduler import (
     AccountProblem,
     RepeatSampler,
@@ -149,11 +152,13 @@ def _execute(
 
         job.phase = "phase_verify"
         runs_by, offline_runs_by = _load_runs(job, storage)
+        context = _resolve_redirects(storage, adapters, [*runs_by.values(), *offline_runs_by.values()])
         observations = {
-            key: [observe(run, job.brand, job.competitors) for run in runs] for key, runs in runs_by.items()
+            key: [observe(run, job.brand, job.competitors, context) for run in runs] for key, runs in runs_by.items()
         }
         offline_observations = {
-            key: [observe(run, job.brand, job.competitors) for run in runs] for key, runs in offline_runs_by.items()
+            key: [observe(run, job.brand, job.competitors, context) for run in runs]
+            for key, runs in offline_runs_by.items()
         }
         evidence_map = _verify_citations(job, storage, observations)
 
@@ -179,12 +184,13 @@ def _execute(
             ))
         persist_observations(storage, [
             run for key in runs_by for run in runs_by[key] + offline_runs_by[key]
-        ], job.brand)
+        ], job.brand, context)
         job.surface_verdicts = [
             surface_verdict(target.surface, target.model, inputs) for target, inputs in verdict_inputs.items()
         ]
         # 数据里出现、可能也是官网的网址(如各地区官网):只提示,用户确认后才算官网(v0.4.24 D4)
-        job.official_candidates = official_candidates([run for runs in runs_by.values() for run in runs], job.brand)
+        job.official_candidates = official_candidates(
+            [run for runs in runs_by.values() for run in runs], job.brand, context)
         truncated = any(r.stop_reason in _TRUNCATION_REASONS for r in results.values())
         _finish(job, storage, truncated=truncated)
 
@@ -286,6 +292,37 @@ def _load_runs(
     return runs_by, offline_runs_by
 
 
+def _resolve_redirects(
+    storage: Storage, adapters: dict[str, SurfaceAdapter], run_batches: list[list[SurfaceRun]],
+) -> ResolutionContext:
+    """跳转仪器(能力 citation_urls_redirect)的引用链接先还原终点(v0.4.26 S4,C2):按链接去重、库里复用,
+    经 crawler/ 只取响应头。判定一律用终点;还原失败的那条引用记看不到。"""
+    redirect_surfaces = frozenset(
+        surface for surface, adapter in adapters.items() if adapter.meta().capabilities.citation_urls_redirect
+    )
+    urls = sorted({
+        citation.url
+        for runs in run_batches for run in runs
+        if run.surface in redirect_surfaces and run.answer is not None
+        for citation in run.answer.citations
+    })
+    if not urls:
+        return ResolutionContext(redirect_surfaces, {})
+    resolver = UrlResolver(storage)
+    try:
+        resolutions = resolver.resolve(urls)
+    finally:
+        resolver.close()
+    log.info("citations_resolved", urls=len(urls),
+             resolved=sum(r.final_url is not None for r in resolutions.values()))
+    return ResolutionContext.from_resolutions(redirect_surfaces, resolutions)
+
+
+def _primary_domain(brand: BrandSpec) -> str | None:
+    """主站 = 用户在首页填的那个网址(官网名单的第一项);没有域名就没有主站引用率。"""
+    return registrable(brand.domains[0])[1] if brand.domains else None
+
+
 def _verify_citations(
     job: DiagnosisJob, storage: Storage, observations: dict[RunsKey, list[RunObservations]]
 ) -> dict[str, CitationEvidence]:
@@ -330,6 +367,7 @@ def _measure_class(
             stop_reason=results[(target, SearchMode.DEFAULT)].stop_reason,
             competitor_names=competitor_names,
             exposes_retrieval=meta.capabilities.supports_query_trace,
+            primary_domain=_primary_domain(job.brand),
         ))
         closed_key = (target, SearchMode.SEARCH_DISABLED)
         if closed_key in results:

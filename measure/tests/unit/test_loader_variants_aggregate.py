@@ -128,7 +128,8 @@ def test_rate_metric_pools_hits_per_prompt_and_reports_coverage():
     assert (metric.k_hits, metric.rate.k, metric.rate.n) == (2, 2, 6)
     assert metric.rate.share == pytest.approx(2 / 6)
     assert [(r.k, r.n) if r else None for r in metric.per_prompt] == [(2, 3), (0, 3), None]  # 逐题,与题同序
-    assert (metric.prompt_coverage.k, metric.prompt_coverage.n) == (1, 2)  # 有有效样本的 2 道题里 1 道命中过
+    # 题目覆盖率的分母是题目总数:q3 没有有效回答,按没命中算(产品文档 15.2)
+    assert (metric.prompt_coverage.k, metric.prompt_coverage.n) == (1, 3)
     assert metric.accounting.n_total == 7 and metric.accounting.n_valid == 6
     assert metric.stop_reasons == [StopReason.COMPLETED] and metric.intent is PromptIntent.CATEGORY_DISCOVERY
 

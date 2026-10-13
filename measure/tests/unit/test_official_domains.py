@@ -16,6 +16,7 @@ from engine.models import (
     SurfaceRun,
 )
 from engine.official_domains import official_candidates, registrable
+from engine.resolve import ResolutionContext
 from report.forms import brand_from_form
 
 BRAND = BrandSpec(name="始祖鸟", domains=["arcteryx.com"])
@@ -48,6 +49,17 @@ def test_candidates_are_regional_sites_counted_by_appearance_not_lookalikes():
     got = [(c.domain, c.count) for c in official_candidates(runs, BRAND)]
     # 已在名单里的(含子域)不列;投诉站只是子域名里带品牌名,主体不同,不列
     assert got == [("arcteryx.jp", 2), ("arcteryx.com.au", 1)]
+
+
+def test_redirect_surface_candidates_come_from_resolved_destinations_only():
+    """跳转仪器(S4):候选看还原后的终点主机;还原失败的那条看不到,不列;非跳转仪器照原样。"""
+    redirect_run = _run("r3", None, ["redir.test", "redir.test"]).model_copy(update={"surface": "redirect_surface"})
+    context = ResolutionContext(frozenset({"redirect_surface"}), {
+        "https://redir.test/y": "https://www.arcteryx.co.kr/men",  # 两条引用同一链接 → 都算
+    })
+    assert [(c.domain, c.count) for c in official_candidates([redirect_run], BRAND, context)] == [("arcteryx.co.kr", 2)]
+    assert official_candidates([redirect_run], BRAND, ResolutionContext(frozenset({"redirect_surface"}), {})) == []
+    assert official_candidates([redirect_run], BRAND) == []  # 不当作跳转仪器时,redir.test 主体不同,也不列
 
 
 def test_intake_takes_other_official_sites_from_the_user():

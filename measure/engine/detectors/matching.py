@@ -6,7 +6,12 @@
 
 from __future__ import annotations
 
+import tldextract
+
 from engine.models import BrandSpec
+
+# 公共后缀表用 tldextract 内置快照,完全离线(不联网下载、不写缓存);快照版本写进报告的方法说明
+_EXTRACT = tldextract.TLDExtract(cache_dir=None, suffix_list_urls=())
 
 
 def normalize_domain(host: str) -> str:
@@ -22,6 +27,13 @@ def domain_matches(candidate: str, brand_domain: str) -> bool:
 
 def matches_any_brand_domain(candidate: str, brand: BrandSpec) -> bool:
     return any(domain_matches(candidate, domain) for domain in brand.domains)
+
+
+def registrable(host: str) -> tuple[str, str]:
+    """(主体, 注册域名):www.arcteryx.com.tw → (arcteryx, arcteryx.com.tw)。按公共后缀表算,
+    不能「取最后两段」——那样 brand.com.cn 会被算成 com.cn,所有 .com.cn 网站成了同一家(产品文档 15.2)。"""
+    parts = _EXTRACT(host)
+    return parts.domain.lower(), parts.top_domain_under_public_suffix.lower()
 
 
 # 不以空格分词的文字(中文、日文假名、韩文、泰文等):这些字符两侧不查词边界,按子串匹配(产品文档 D18)。

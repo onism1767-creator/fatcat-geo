@@ -49,6 +49,7 @@ surfaces:
       supports_forced_search: false   # 平台无强制检索开关
       supports_search_disabled: true  # 不带工具调用,测参数化知识
       supports_offline: false
+      citation_urls_redirect: true    # 引用是平台跳转链(vertexaisearch…/grounding-api-redirect),引擎采样后还原终点(S4)
 
   # 2026-08-25 落地核对(暂定值修订):supports_offline 改 false——v1 未定义该
   # 能力语义,不虚报;候选集可观测(进 retrieved_sources 存档),走生成端检索链路口径,收敛判据仍是引用。

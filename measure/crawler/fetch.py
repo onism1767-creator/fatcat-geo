@@ -18,14 +18,22 @@ PROTECTION_SUSPECT_STATUSES: Final = (401, 403, 429, 503)
 MAX_PARSED_BYTES: Final = 2_000_000
 
 
-def new_client() -> httpx.Client:
-    """抓网页用的客户端:统一超时、跟随跳转。调用方负责关闭。"""
-    return httpx.Client(timeout=TIMEOUT_S, follow_redirects=True)
+def new_client(*, follow_redirects: bool = True) -> httpx.Client:
+    """抓网页用的客户端:统一超时;默认跟随跳转,要自己数跳(看跳转去向)时传 follow_redirects=False。调用方负责关闭。"""
+    return httpx.Client(timeout=TIMEOUT_S, follow_redirects=follow_redirects)
 
 
 def get_as_browser(client: httpx.Client, url: str) -> httpx.Response:
     """以普通浏览器的身份请求(网络错误照常抛 httpx.HTTPError,由调用方按自己的口径处理)。"""
     return client.get(url, headers={"User-Agent": BROWSER_UA})
+
+
+def fetch_headers(client: httpx.Client, url: str) -> httpx.Response:
+    """以浏览器身份请求、只取响应头不读正文(看状态码与 Location 用)。网络错误照常抛 httpx.HTTPError。"""
+    request = client.build_request("GET", url, headers={"User-Agent": BROWSER_UA})
+    response = client.send(request, stream=True)
+    response.close()
+    return response
 
 
 def is_html(response: httpx.Response) -> bool:

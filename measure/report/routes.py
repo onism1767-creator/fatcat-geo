@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from importlib.metadata import version as _package_version
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -27,6 +28,7 @@ from report.summary import summarize
 from report.web import ctx_of, error_text, lang_of, not_found, redirect
 
 router = APIRouter()
+PSL_SNAPSHOT_VERSION = _package_version("tldextract")  # 注册域名用的公共后缀表快照版本,写进报告方法说明(S4)
 
 
 @router.get("/", response_class=HTMLResponse)
@@ -225,4 +227,5 @@ async def job_report(request: Request, job_id: str):
     if not job.finished:
         return redirect(request, f"/jobs/{job.job_id}")
     return ctx.render(request, "report.html", job=job, runs_per_prompt=RUNS_PER_PROMPT,
-                      summary=summarize(job.class_reports, job.surface_verdicts, ctx.target_name))
+                      summary=summarize(job.class_reports, job.surface_verdicts, ctx.target_name),
+                      psl_version=PSL_SNAPSHOT_VERSION)

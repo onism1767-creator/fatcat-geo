@@ -43,6 +43,7 @@ def diagnose_class_targets(
         citation = diagnose_citation(
             m.citation, m.competitor_citations,
             verification=summarize_verification(m.brand_cited_urls, evidence_map, brand_name),
+            primary=m.primary_citation, by_domain=m.citations_by_domain, unresolved=m.unresolved_citations,
         )
         closed = closed_book.get(m.target)
         blocks.append(diagnose_surface(

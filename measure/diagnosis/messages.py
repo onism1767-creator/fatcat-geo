@@ -78,8 +78,8 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "prompt {idx} no valid samples",
     },
     "common.prompt_coverage": {
-        "zh": "题目覆盖率:{n} 道有有效样本的题里 {k} 道至少命中一次({share:.0%})——防止少数几道题撑起总数",
-        "en": "Prompt coverage: {k} of {n} prompts with valid samples hit at least once ({share:.0%}) — guards against a few prompts carrying the total",
+        "zh": "题目覆盖率:{n} 道题里 {k} 道至少命中一次({share:.0%})——防止少数几道题撑起总数;没拿到有效回答的题按没命中算",
+        "en": "Prompt coverage: {k} of {n} prompts hit at least once ({share:.0%}) — guards against a few prompts carrying the total; prompts without a valid answer count as not hit",
     },
     # ── RETRIEVAL(仪器不暴露检索链路 → 不可观测;公共证据行供生成端链路复用)──────
     "retrieval.headline.not_observable": {
@@ -163,6 +163,22 @@ CATALOG: dict[str, dict[str, str]] = {
     "citation.rate": {
         "zh": f"被引比例:{_RATE}",
         "en": f"Citation rate: {_RATE_EN}",
+    },
+    "citation.primary_rate": {
+        "zh": f"主站引用率:{_RATE}(主站注册域名;上一行是任一官网域名)",
+        "en": f"Primary-site citation rate: {_RATE_EN} (registered domain of the primary site; the line above counts any brand domain)",
+    },
+    "citation.by_domain": {
+        "zh": "按域名拆分(各官网注册域名各算一次,一条回答引用同一域名多次只算一次):{items}",
+        "en": "By domain (each brand registered domain counted once per answer): {items}",
+    },
+    "citation.domain_item": {
+        "zh": "{domain} {k}/{n}",
+        "en": "{domain} {k}/{n}",
+    },
+    "citation.unresolved": {
+        "zh": "{n} 条引用是平台跳转链且还原不出终点,记 NOT_OBSERVABLE,不进分子分母(铁律 7:不拿标题顶替)",
+        "en": "{n} citation(s) are platform redirect links whose destination could not be resolved; recorded as NOT_OBSERVABLE and excluded from numerator and denominator (iron rule 7: titles are not used as a stand-in)",
     },
     "citation.thresholds": {
         "zh": "操作阈值(v1 初始值,未经校准):比例 < {fail:.0%} 为 FAIL,≥ {pass_:.0%} 为 PASS",
@@ -696,6 +712,10 @@ PLAIN: dict[str, dict[str, str]] = {
     "genret.presence": {"zh": "本次 {n} 次搜索里,{k} 次结果中出现了你的官网", "en": "Your site appeared in {k} of {n} searches this time"},
     "genret.query_entry": {"zh": "AI 自己拟的搜索词里,{k}/{n} 次带上了你的品牌名", "en": "The AI's own search queries included your brand name in {k} of {n} runs"},
     "citation.rate": {"zh": "本次 {n} 次回答里,{k} 次引用了你的官网", "en": "Your site was cited in {k} of {n} answers this time"},
+    "citation.primary_rate": {"zh": "其中 {k} 次引用的是你的主站", "en": "{k} of those cited your main site"},
+    "citation.by_domain": {"zh": "分开看各个官网网址:{items}", "en": "By site: {items}"},
+    "citation.domain_item": {"zh": "{domain} {k} 次", "en": "{domain} {k} times"},
+    "citation.unresolved": {"zh": "有 {n} 条引用链接查不到最终去向,本次看不到,没有参与判断", "en": "{n} citation link(s) could not be traced to their destination; not observed this time and not used"},
     "repr.mention_rate": {"zh": "本次 {n} 次回答里,{k} 次提到了你", "en": "You were mentioned in {k} of {n} answers this time"},
     "common.prompt_coverage": {"zh": "{n} 道题里,{k} 道至少有一次提到你", "en": "You came up at least once in {k} of {n} questions"},
     "dependency.pair": {"zh": "用联网搜索时 {on_n} 次回答里 {on_k} 次提到你;不用联网搜索时 {off_n} 次里 {off_k} 次提到你", "en": "With web search you were mentioned in {on_k} of {on_n} answers; without it, in {off_k} of {off_n}"},

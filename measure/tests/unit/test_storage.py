@@ -257,3 +257,26 @@ def test_recompute_event_delete_rejected(storage):
 def test_max_detector_version(storage):
     assert storage.max_detector_version("citation_domain_match") == CitationDetector().version
     assert storage.max_detector_version("不存在的判定器") is None
+
+
+def test_citation_resolution_is_append_only_and_latest_per_url(storage):
+    """S4:跳转链还原记录只追加;同一链接多条取最新(调用方按状态与时效决定复不复用)。"""
+    from engine.models import CitationResolution, ResolutionStatus
+
+    older = CitationResolution(url="https://redir.test/a", hops=0, status=ResolutionStatus.FETCH_FAILED,
+                               error="ConnectError", resolver_version=1,
+                               resolved_at=datetime(2026, 10, 1, tzinfo=UTC))
+    newer = CitationResolution(url="https://redir.test/a", final_url="https://brand.test/p", hops=2,
+                               status=ResolutionStatus.RESOLVED, http_status=200, resolver_version=1,
+                               resolved_at=datetime(2026, 10, 2, tzinfo=UTC))
+    for row in (older, newer):
+        storage.insert_citation_resolution(row)
+    latest = storage.latest_citation_resolutions(["https://redir.test/a", "https://redir.test/never"])
+    assert set(latest) == {"https://redir.test/a"}
+    assert latest["https://redir.test/a"].final_url == "https://brand.test/p"
+    assert latest["https://redir.test/a"].status is ResolutionStatus.RESOLVED
+    assert storage.latest_citation_resolutions([]) == {}
+    with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
+        storage._conn.execute("UPDATE citation_resolution SET final_url = NULL")
+    with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
+        storage._conn.execute("DELETE FROM citation_resolution")

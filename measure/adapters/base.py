@@ -97,6 +97,9 @@ class CapabilityRegistry(FrozenModel):
     supports_forced_search: bool = False
     supports_search_disabled: bool = False
     supports_offline: bool = False
+    # 该仪器给的引用是平台跳转链,链接主机名是跳转服务不是来源:适配器照旧只翻译(domain = 链接主机名),
+    # 引擎采样后跟随跳转还原终点再判(v0.4.26 S4,C2)
+    citation_urls_redirect: bool = False
 
     def require(self, capability: str) -> None:
         if capability not in type(self).model_fields:
