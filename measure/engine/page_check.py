@@ -9,6 +9,8 @@
 优先级由调用方给(被引 > 搜到 > 出现次数);
 只开链接本身、不往站内爬;第三方站尊重 robots.txt Disallow(记 ROBOTS_DISALLOWED;用户自己的站按 D13 照样开);
 7 天内同一网址复用。看不到按原因分开记,不猜。网页内容一律当数据,只做机械解析,不回喂模型。
+S6.2(用户定):原始 HTML 抽不出正文的页,再用无头浏览器(crawler/render.py)渲染一次、串行、同一预算内;
+渲染也失败或仍无正文,照旧记「抽不出正文」并留下渲染尝试的记录。
 """
 
 from __future__ import annotations
@@ -38,6 +40,7 @@ from crawler.fetch import (
     page_title,
     robots_parser,
 )
+from crawler.render import PlaywrightRenderer, RenderedPage, Renderer, playwright_available
 from engine.models import PageCheck, PageFetchStatus
 
 log = structlog.get_logger("engine.page_check")
@@ -100,10 +103,16 @@ class PageChecker:
         reuse_days: int = REUSE_DAYS,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
+        render: bool = True,
+        renderer: Renderer | None = None,
     ) -> None:
+        """render=False 关掉渲染回退(测试、对照脚本);renderer 不给就在 Playwright 可用时用它,不可用就不渲染。"""
         self._store = store
         self._own_client = client is None
         self._client = client or new_client(timeout=FETCH_TIMEOUT)
+        if renderer is None and render and playwright_available():
+            renderer = PlaywrightRenderer()
+        self._renderer: Renderer | None = renderer if render else None
         self._budget_s, self._concurrency, self._host_gap_s = budget_s, concurrency, host_gap_s
         self._reuse_days = reuse_days
         self._clock, self._sleep = clock, sleep
@@ -113,6 +122,8 @@ class PageChecker:
     def close(self) -> None:
         if self._own_client:
             self._client.close()
+        if self._renderer is not None:
+            self._renderer.close()
 
     # ── 一单一次 ──
 
@@ -122,19 +133,23 @@ class PageChecker:
             wanted.setdefault(normalize_url(request.url), request)  # 同一网址只开一次,优先级取最高(最小)
         checks: dict[str, PageCheck] = dict(self._store.recent_page_checks(list(wanted), max_age_days=self._reuse_days))
         pending = {normalized: request for normalized, request in wanted.items() if normalized not in checks}
-        fetched = self._run(pending)
+        deadline = self._clock() + self._budget_s
+        fetched = self._run(pending, deadline)
         for normalized, check in fetched.items():
             self._store.insert_page_check(check)  # 落库在主线程:psycopg 连接非线程安全
             checks[normalized] = check
+        rendered = self._render_pass(wanted, checks, deadline)
+        for normalized, check in rendered.items():
+            self._store.insert_page_check(check)
+            checks[normalized] = check
         log.info("pages_checked", wanted=len(wanted), reused=len(wanted) - len(pending),
-                 fetched=len(fetched), not_attempted=len(pending) - len(fetched))
+                 fetched=len(fetched), rendered=len(rendered), not_attempted=len(pending) - len(fetched))
         return PageIndex(checks=checks, attempted=frozenset(checks))
 
-    def _run(self, pending: dict[str, PageRequest]) -> dict[str, PageCheck]:
+    def _run(self, pending: dict[str, PageRequest], deadline: float) -> dict[str, PageCheck]:
         if not pending:
             return {}
-        schedule = _HostSchedule(pending, clock=self._clock, host_gap_s=self._host_gap_s,
-                                 deadline=self._clock() + self._budget_s)
+        schedule = _HostSchedule(pending, clock=self._clock, host_gap_s=self._host_gap_s, deadline=deadline)
         results: dict[str, PageCheck] = {}
         lock = threading.Lock()
 
@@ -164,6 +179,48 @@ class PageChecker:
         for future in futures:
             future.result()  # 调度本身的编程错误直接上抛,不吞
         return results
+
+    # ── 渲染回退(S6.2) ──
+
+    def _render_pass(
+        self, wanted: dict[str, PageRequest], checks: dict[str, PageCheck], deadline: float,
+    ) -> dict[str, PageCheck]:
+        """原始 HTML 抽不出正文的页,用无头浏览器渲染后再抽一次:串行、按优先级、同站仍隔间隔、到截止时间就停;
+        已经渲染过(记录带 render: 标记)的不再渲染;没有渲染器就不做。"""
+        if self._renderer is None:
+            return {}
+        todo = sorted(
+            ((normalized, wanted[normalized]) for normalized, check in checks.items()
+             if check.status is PageFetchStatus.EMPTY_TEXT and not (check.error or "").startswith("render:")),
+            key=lambda item: item[1].priority,
+        )
+        rendered: dict[str, PageCheck] = {}
+        last_host, last_at = "", 0.0
+        for normalized, request in todo:
+            if self._clock() >= deadline:
+                break
+            host = urlsplit(normalized).netloc
+            if host == last_host:
+                wait = last_at + self._host_gap_s - self._clock()
+                if wait > 0:
+                    self._sleep(wait)
+            page = self._renderer.render(normalized)
+            last_host, last_at = host, self._clock()
+            rendered[normalized] = self._from_render(request, normalized, page)
+        return rendered
+
+    def _from_render(self, request: PageRequest, normalized: str, page: RenderedPage | None) -> PageCheck:
+        if page is None:
+            return self._record(request.url, normalized, PageFetchStatus.EMPTY_TEXT, error="render:failed")
+        title = page_title(page.html)
+        text, source = extract_main_text(page.html, page.final_url), "rendered_main"
+        if not text:
+            text, source = extract_visible_text(page.html) or None, "rendered_visible"
+        common = dict(http_status=page.http_status, final_url=page.final_url, title=title)
+        if not text:
+            return self._record(request.url, normalized, PageFetchStatus.EMPTY_TEXT, error="render:empty", **common)
+        return self._record(request.url, normalized, PageFetchStatus.OK, text=text[:MAX_TEXT_CHARS],
+                            text_source=source, text_chars=len(text), **common)
 
     # ── 单页 ──
 

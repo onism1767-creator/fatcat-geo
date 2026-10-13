@@ -12,6 +12,7 @@ import psycopg
 import pytest
 import respx
 
+from crawler.render import RenderedPage
 from engine.detectors.page_mention import MentionPosition, page_mention
 from engine.models import BrandSpec, PageCheck, PageFetchStatus
 from engine.page_check import PageChecker, PageIndex, PageRequest, normalize_url
@@ -50,6 +51,7 @@ def _html(body: str, status: int = 200) -> httpx.Response:
 
 def _check(urls: list[str], store: MemoryStore | None = None, **kwargs) -> tuple[PageIndex, MemoryStore]:
     store = store or MemoryStore()
+    kwargs.setdefault("render", False)  # 单测不起真浏览器;渲染回退另有假渲染器的测试
     checker = PageChecker(store, sleep=lambda s: None, **kwargs)
     try:
         return checker.check([PageRequest(url=u) for u in urls]), store
@@ -125,7 +127,7 @@ def test_own_site_pages_ignore_robots_while_third_party_respects_it():
         return_value=httpx.Response(200, text="User-agent: *\nDisallow: /\n"))
     page = respx.get("https://brand.test/p").mock(return_value=_html(ARTICLE))
     store = MemoryStore()
-    checker = PageChecker(store, sleep=lambda s: None)
+    checker = PageChecker(store, sleep=lambda s: None, render=False)
     try:
         index = checker.check([PageRequest(url="https://brand.test/p", respect_robots=False),
                                PageRequest(url="https://brand.test/q", respect_robots=True)])
@@ -170,7 +172,7 @@ def test_same_host_is_serialized_with_a_gap_and_priority_orders_the_queue():
             return _html(ARTICLE)
         respx.get(f"https://site-f.com/{name}").mock(side_effect=serve)
     store = MemoryStore()
-    checker = PageChecker(store, concurrency=3, host_gap_s=0.2)
+    checker = PageChecker(store, concurrency=3, host_gap_s=0.2, render=False)
     try:
         checker.check([
             PageRequest(url="https://site-f.com/a", priority=1), PageRequest(url="https://site-f.com/b", priority=0),
@@ -183,6 +185,69 @@ def test_same_host_is_serialized_with_a_gap_and_priority_orders_the_queue():
     for (_, _, previous_end), (_, next_start, _) in zip(spans, spans[1:], strict=False):
         assert next_start >= previous_end + 0.2 - 0.02  # 同站不重叠,且隔够间隔
     assert len(store.rows) == 3
+
+
+class FakeRenderer:
+    def __init__(self, html: str | None) -> None:
+        self.html, self.calls = html, []  # type: tuple[str | None, list[str]]
+
+    def render(self, url: str) -> RenderedPage | None:
+        self.calls.append(url)
+        return None if self.html is None else RenderedPage(html=self.html, final_url=url, http_status=200)
+
+    def close(self) -> None:
+        pass
+
+
+@respx.mock
+def test_empty_pages_are_rendered_once_and_judged_from_the_rendered_text():
+    """S6.2:只有抽不出正文的页才渲染;渲染后抽到正文 → OK(来源标 rendered);
+    原始行与渲染行各留一条;库里有渲染结果就复用。"""
+    respx.get("https://app.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://app.test/shell").mock(return_value=_html(SHELL))
+    respx.get("https://app.test/plain").mock(return_value=_html(ARTICLE))
+    renderer = FakeRenderer(ARTICLE)
+    store = MemoryStore()
+    checker = PageChecker(store, sleep=lambda s: None, renderer=renderer)
+    try:
+        index = checker.check([PageRequest(url="https://app.test/shell"), PageRequest(url="https://app.test/plain")])
+    finally:
+        checker.close()
+    assert renderer.calls == ["https://app.test/shell"]  # 能抽出正文的页不渲染
+    shell = index.lookup("https://app.test/shell")
+    assert shell is not None and shell.status is PageFetchStatus.OK and shell.text_source == "rendered_main"
+    assert page_mention(shell, BRAND) is not None and page_mention(shell, BRAND).found
+    shell_rows = [r for r in store.rows if r.normalized_url == "https://app.test/shell"]
+    assert [r.status for r in shell_rows] == [PageFetchStatus.EMPTY_TEXT, PageFetchStatus.OK]  # 原始 + 渲染,都留档
+    again = PageChecker(store, sleep=lambda s: None, renderer=renderer)
+    try:
+        again.check([PageRequest(url="https://app.test/shell")])
+    finally:
+        again.close()
+    assert renderer.calls == ["https://app.test/shell"]  # 7 天内复用渲染结果,不再渲染
+
+
+@respx.mock
+def test_render_failures_stay_unobservable_with_the_attempt_on_record():
+    """渲染失败 / 渲染后仍无正文 / 没有渲染器 / 预算到顶:都照旧记「抽不出正文」,原因写明,不猜。"""
+    respx.get("https://app.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://app.test/shell").mock(return_value=_html(SHELL))
+    failing, store = FakeRenderer(None), MemoryStore()
+    index, _ = _check(["https://app.test/shell"], store, render=True, renderer=failing)
+    assert index.lookup("https://app.test/shell").status is PageFetchStatus.EMPTY_TEXT
+    assert index.lookup("https://app.test/shell").error == "render:failed" and len(store.rows) == 2
+    assert page_mention(index.lookup("https://app.test/shell"), BRAND) is None
+    still_empty, store2 = FakeRenderer(SHELL), MemoryStore()
+    index2, _ = _check(["https://app.test/shell"], store2, render=True, renderer=still_empty)
+    assert index2.lookup("https://app.test/shell").error == "render:empty" and len(store2.rows) == 2
+    index3, store3 = _check(["https://app.test/shell"])  # render=False:没有渲染器
+    assert index3.lookup("https://app.test/shell").status is PageFetchStatus.EMPTY_TEXT
+    assert index3.lookup("https://app.test/shell").error is None and len(store3.rows) == 1
+    ticks = iter([0.0, 0.0, 0.0, 100.0])  # 原始抓完就过了预算 → 不渲染
+    late, store4 = FakeRenderer(ARTICLE), MemoryStore()
+    index4, _ = _check(["https://app.test/shell"], store4, render=True, renderer=late, budget_s=10.0, concurrency=1,
+                       clock=lambda: next(ticks, 100.0))
+    assert late.calls == [] and index4.lookup("https://app.test/shell").status is PageFetchStatus.EMPTY_TEXT
 
 
 def test_page_check_table_is_append_only_and_latest_per_url(storage):
