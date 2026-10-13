@@ -19,6 +19,7 @@ from engine.scheduler import is_account_error
 from engine.validity import is_valid_answer
 
 PRIMARY_CITATION_LABEL = f"{CITATION_LABEL}:primary"  # 主站引用率的命中口径(v0.4.26 S4)
+CHANNEL_CITATION_LABEL = f"{CITATION_LABEL}:official_channel"  # 官方渠道引用的命中口径(S5,单列)
 
 
 class ClassSurfaceMetric(FrozenModel):
@@ -105,6 +106,7 @@ class TargetMeasurement:
     primary_citation: ClassSurfaceMetric | None  # 主站引用率:主站注册域名;没有主站 → None(v0.4.26 S4)
     citations_by_domain: list[tuple[str, Rate]]  # 按域名拆分:各官网注册域名各算一次,按次数降序
     unresolved_citations: int  # 跳转链还原失败、记「看不到」的引用条数(不进任何分子分母)
+    official_channel_citation: ClassSurfaceMetric | None  # 官方渠道引用:单列、不并入官网;名单里没有官方渠道 → None(S5)
     mention: ClassSurfaceMetric
     sentiment_counts: dict[Sentiment, int]
     competitor_citations: list[tuple[str, Rate]]  # 有观测的竞品才列
@@ -140,14 +142,18 @@ def measure_target(
     competitor_names: list[str],
     exposes_retrieval: bool,
     primary_domain: str | None = None,
+    channels_known: bool = False,
 ) -> TargetMeasurement:
-    """primary_domain:主站的注册域名(没有就不出主站引用率)。"""
+    """primary_domain:主站的注册域名(没有就不出主站引用率);channels_known:官网名单里有官方渠道才出官方渠道引用。"""
     def metric(hit: Callable[[RunObservations], bool | None], label: str) -> ClassSurfaceMetric:
         return rate_metric(target, provider, intent, observations, prompt_ids, hit,
                            metric_label=label, stop_reason=stop_reason)
 
     def primary_cited(obs: RunObservations) -> bool | None:
         return None if obs.citation is None else primary_domain in obs.citation.matched_domains
+
+    def channel_cited(obs: RunObservations) -> bool | None:
+        return None if obs.citation is None else bool(obs.citation.matched_channels)
 
     cited_obs = [o.citation for o in observations if o.citation is not None]
     by_domain: list[tuple[str, Rate]] = []
@@ -183,6 +189,7 @@ def measure_target(
         primary_citation=metric(primary_cited, PRIMARY_CITATION_LABEL) if primary_domain else None,
         citations_by_domain=by_domain,
         unresolved_citations=sum(c.unresolved for c in cited_obs),
+        official_channel_citation=metric(channel_cited, CHANNEL_CITATION_LABEL) if channels_known else None,
         mention=metric(_mentioned, MENTION_LABEL),
         sentiment_counts=dict(Counter(o.sentiment.sentiment for o in observations if o.sentiment is not None)),
         competitor_citations=competitor_citations,

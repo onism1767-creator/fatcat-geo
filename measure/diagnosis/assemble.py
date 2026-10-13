@@ -44,6 +44,7 @@ def diagnose_class_targets(
             m.citation, m.competitor_citations,
             verification=summarize_verification(m.brand_cited_urls, evidence_map, brand_name),
             primary=m.primary_citation, by_domain=m.citations_by_domain, unresolved=m.unresolved_citations,
+            channels=m.official_channel_citation,
         )
         closed = closed_book.get(m.target)
         blocks.append(diagnose_surface(

@@ -73,8 +73,10 @@ def diagnose_citation(
     primary: ClassSurfaceMetric | None = None,
     by_domain: list[tuple[str, Rate]] | None = None,
     unresolved: int = 0,
+    channels: ClassSurfaceMetric | None = None,
 ) -> StageFinding:
-    """红绿灯看官网引用率(任一官网域名);主站引用率、按域名拆分、还原失败的引用条数只作证据行(v0.4.26 S4)。"""
+    """红绿灯看官网引用率(任一官网域名);主站引用率、按域名拆分、官方渠道引用(单列)、还原失败的引用条数
+    只作证据行(v0.4.26 S4 / S5)。"""
     if metric is None or metric.rate is None:
         return StageFinding(
             stage=Stage.CITATION,
@@ -98,6 +100,8 @@ def diagnose_citation(
         evidence.append(msg("citation.by_domain", items=[
             msg("citation.domain_item", domain=domain, k=dr.k, n=dr.n) for domain, dr in by_domain
         ]))
+    if channels is not None and channels.rate is not None:
+        evidence.append(msg("citation.channel_rate", **rate_params(channels.rate)))
     if unresolved:
         evidence.append(msg("citation.unresolved", n=unresolved))
     evidence += [

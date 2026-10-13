@@ -48,11 +48,10 @@ async def create_job(
     locale: str = Form("zh-CN"),
     questions: str = Form(""),
     generate: str = Form(""),
-    other_sites: str = Form(""),
 ):
     ctx = ctx_of(request)
     locale = locale if locale in ("zh-CN", "en-US") else "zh-CN"
-    brand, normalized = brand_from_form(brand_name, aliases, website, other_sites)
+    brand, normalized = brand_from_form(brand_name, aliases, website)
     # 先有任务编号再出题:出题的每次调用当场记进辅助调用账本(哪怕出题失败,花掉的钱也有记录)
     job = DiagnosisJob(brand=brand, website=normalized, category=category, locale=locale,
                        candidates=[], competitors_suggested=[])
@@ -174,20 +173,19 @@ async def resume(request: Request, job_id: str):
 
 
 @router.post("/jobs/{job_id}/official_domains")
-async def confirm_official_domains(request: Request, job_id: str, domains: list[str] = Form([])):
-    """用户确认「可能也是官网」的网址(v0.4.24 D4):只认报告里列出的候选;确认后按新名单
-    重新生成报告——只用已有样本重算,不向 AI 提问。"""
+async def choose_official_domains(
+    request: Request, job_id: str, confirm: list[str] = Form([]), remove: list[str] = Form([]),
+):
+    """用户确认 B 类 / 去掉 A 类(S5,产品文档 D12):只认名单里列出的网址;名单改了就按新名单
+    重新生成报告——只用已有样本重算,不向 AI 提问;没改就回报告页。"""
     ctx = ctx_of(request)
     job = ctx.registry.get(job_id)
     if job is None:
         return not_found()
     if not job.finished:
         return redirect(request, f"/jobs/{job.job_id}")
-    offered = {c.domain for c in job.official_candidates}
-    chosen = [d for d in domains if d in offered]
-    if not chosen:
+    if not job.apply_domain_choice(confirm=confirm, remove=remove):
         return redirect(request, f"/jobs/{job.job_id}/report")
-    job.update_official_domains(job.brand.domains + chosen)
     return _relaunch(request, job, replay=True)
 
 

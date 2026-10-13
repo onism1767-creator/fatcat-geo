@@ -24,8 +24,10 @@ from diagnosis.diagnose import access_finding, diagnose_class
 from diagnosis.recommender import EvidenceEntry
 from diagnosis.verdict import VerdictInput, surface_verdict
 from engine.aggregate import ClassSurfaceMetric, TargetMeasurement, measure_closed_book, measure_target
+from engine.brand_domains import BrandDomainDiscovery, load_platforms
 from engine.detectors.matching import registrable
 from engine.models import (
+    BrandDomainList,
     BrandSpec,
     CitationEvidence,
     Prompt,
@@ -148,6 +150,10 @@ def _execute(
         for prompt in job.prompts:
             storage.insert_prompt(prompt)  # 幂等:续跑不重复
         job.spent_usd = storage.aux_spent_usd(job.job_id)  # 辅助调用(出题)记在账本里,续跑也不丢
+        if job.domain_list is None:  # 官网名单只找一次,随快照冻结;续跑 / 重算沿用同一份(S5)
+            job.phase = "phase_discover"
+            job.adopt_domain_list(_discover_domains(job))
+            storage.upsert_job_snapshot(job.to_snapshot())
         results = _sample(job, dsn, adapter_of, replay=replay)
 
         job.phase = "phase_verify"
@@ -188,9 +194,8 @@ def _execute(
         job.surface_verdicts = [
             surface_verdict(target.surface, target.model, inputs) for target, inputs in verdict_inputs.items()
         ]
-        # 数据里出现、可能也是官网的网址(如各地区官网):只提示,用户确认后才算官网(v0.4.24 D4)
-        job.official_candidates = official_candidates(
-            [run for runs in runs_by.values() for run in runs], job.brand, context)
+        # 采样后:回答里出现、名单外的同名域名再查一次,标 B1 / B2——只提示,用户确认后才算官网(S5)
+        job.adopt_domain_list(_look_alikes(job, [run for runs in runs_by.values() for run in runs], context))
         truncated = any(r.stop_reason in _TRUNCATION_REASONS for r in results.values())
         _finish(job, storage, truncated=truncated)
 
@@ -204,7 +209,6 @@ def _reset_progress(job: DiagnosisJob) -> None:
     job.spent_usd = 0.0
     job.class_reports = []
     job.surface_verdicts = []
-    job.official_candidates = []
     job.started_at = datetime.now(UTC)
     job.last_result_at = None
     job.error_code, job.error_params, job.error = None, {}, None
@@ -318,6 +322,28 @@ def _resolve_redirects(
     return ResolutionContext.from_resolutions(redirect_surfaces, resolutions)
 
 
+def _discover_domains(job: DiagnosisJob) -> BrandDomainList:
+    """采样前读主站首页、sitemap 与候选首页,找主站自己承认的地区站与官方渠道(engine/brand_domains.py)。"""
+    discovery = BrandDomainDiscovery(load_platforms())
+    try:
+        return discovery.discover(job.website)
+    finally:
+        discovery.close()
+
+
+def _look_alikes(job: DiagnosisJob, runs: list[SurfaceRun], context: ResolutionContext) -> BrandDomainList:
+    """采样后:回答里出现、名单外的同名域名 → B1 / B2,只提示。"""
+    assert job.domain_list is not None
+    candidates = official_candidates(runs, job.brand, context)
+    if not candidates:
+        return job.domain_list
+    discovery = BrandDomainDiscovery(load_platforms())
+    try:
+        return discovery.look_alikes(job.domain_list, candidates)
+    finally:
+        discovery.close()
+
+
 def _primary_domain(brand: BrandSpec) -> str | None:
     """主站 = 用户在首页填的那个网址(官网名单的第一项);没有域名就没有主站引用率。"""
     return registrable(brand.domains[0])[1] if brand.domains else None
@@ -368,6 +394,7 @@ def _measure_class(
             competitor_names=competitor_names,
             exposes_retrieval=meta.capabilities.supports_query_trace,
             primary_domain=_primary_domain(job.brand),
+            channels_known=bool(job.brand.official_channels),
         ))
         closed_key = (target, SearchMode.SEARCH_DISABLED)
         if closed_key in results:

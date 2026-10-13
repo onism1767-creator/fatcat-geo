@@ -1,4 +1,4 @@
-"""引用判定器 v3:品牌域名与引用集的域名匹配。
+"""引用判定器 v4:品牌域名与引用集的域名匹配,外加官方渠道的「主机名 + 路径前缀」匹配。
 
 匹配规则见 engine/detectors/matching.py(与检索排名判定器共享);
 规则变更需提版本号并全量重算。
@@ -6,6 +6,8 @@ v2(v0.4.26 S3):空回答(SUCCESS 但正文为空)不可判定——有效回答�
 v3(v0.4.26 S4):引用链接先还原跳转——跳转仪器(能力 citation_urls_redirect)的引用按终点链接判,
 还原失败的那条记「看不到」(不进分子分母,只计数);命中的注册域名与判定用链接一并记录,
 供主站引用率、按域名拆分与独立核验。
+v4(v0.4.26 S5):官方渠道(电商旗舰店、官方账号)按 BrandSpec.official_channels 的「主机名 + 路径前缀」精确匹配,
+记在 matched_channels,单列、不算官网被引(产品文档 15.2:整个 tmall.com 不能都算成官网)。
 """
 
 from __future__ import annotations
@@ -19,7 +21,18 @@ from engine.resolve import ResolutionContext
 from engine.validity import is_valid_answer
 
 DETECTOR_NAME = "citation_domain_match"
-DETECTOR_VERSION = 3
+DETECTOR_VERSION = 4
+
+
+def channel_hit(url: str, prefixes: list[str]) -> str | None:
+    """链接命中哪条官方渠道(主机名 + 路径前缀,按路径段整段匹配):brand.tmall.com/ 命中 brand.tmall.com/item/1,
+    www.instagram.com/brand 命中 /brand 与 /brand/p/1,不命中 /brandx。"""
+    parts = urlsplit(url)
+    key = f"{(parts.hostname or '').lower()}{parts.path or '/'}"
+    for prefix in prefixes:
+        if key == prefix or key.startswith(prefix.rstrip("/") + "/"):
+            return prefix
+    return None
 
 
 class CitationDetector:
@@ -43,6 +56,7 @@ class CitationDetector:
         positions: list[int] = []
         matched_domains: list[str] = []
         matched_urls: list[str] = []
+        matched_channels: list[str] = []
         unresolved = 0
         for citation in run.answer.citations:
             url = self._context.final_url(run.surface, citation.url)
@@ -54,6 +68,10 @@ class CitationDetector:
                 positions.append(citation.position)
                 matched_domains.append(registrable(host)[1])
                 matched_urls.append(url)
+                continue
+            channel = channel_hit(url, brand.official_channels)
+            if channel is not None:
+                matched_channels.append(channel)
         return CitationObservation(
             run_id=run.run_id,
             detector_name=self.name,
@@ -63,5 +81,6 @@ class CitationDetector:
             positions=positions,
             matched_domains=list(dict.fromkeys(matched_domains)),
             matched_urls=matched_urls,
+            matched_channels=list(dict.fromkeys(matched_channels)),
             unresolved=unresolved,
         )

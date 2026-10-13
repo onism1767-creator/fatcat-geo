@@ -176,6 +176,10 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": "{domain} {k}/{n}",
         "en": "{domain} {k}/{n}",
     },
+    "citation.channel_rate": {
+        "zh": f"官方渠道引用:{_RATE}(主机名 + 路径前缀精确匹配,名单来自主站自己的声明;单列,不并入官网引用率)",
+        "en": f"Official-channel citation rate: {_RATE_EN} (exact host + path-prefix match against channels the primary site itself declares; listed apart, not merged into the brand-site rate)",
+    },
     "citation.unresolved": {
         "zh": "{n} 条引用是平台跳转链且还原不出终点,记 NOT_OBSERVABLE,不进分子分母(铁律 7:不拿标题顶替)",
         "en": "{n} citation(s) are platform redirect links whose destination could not be resolved; recorded as NOT_OBSERVABLE and excluded from numerator and denominator (iron rule 7: titles are not used as a stand-in)",
@@ -715,6 +719,7 @@ PLAIN: dict[str, dict[str, str]] = {
     "citation.primary_rate": {"zh": "其中 {k} 次引用的是你的主站", "en": "{k} of those cited your main site"},
     "citation.by_domain": {"zh": "分开看各个官网网址:{items}", "en": "By site: {items}"},
     "citation.domain_item": {"zh": "{domain} {k} 次", "en": "{domain} {k} times"},
+    "citation.channel_rate": {"zh": "另外本次 {n} 次回答里,{k} 次引用了你的官方店铺或账号(单独算,不计入上面)", "en": "Separately, {k} of {n} answers cited your official store or account (counted apart, not included above)"},
     "citation.unresolved": {"zh": "有 {n} 条引用链接查不到最终去向,本次看不到,没有参与判断", "en": "{n} citation link(s) could not be traced to their destination; not observed this time and not used"},
     "repr.mention_rate": {"zh": "本次 {n} 次回答里,{k} 次提到了你", "en": "You were mentioned in {k} of {n} answers this time"},
     "common.prompt_coverage": {"zh": "{n} 道题里,{k} 道至少有一次提到你", "en": "You came up at least once in {k} of {n} questions"},

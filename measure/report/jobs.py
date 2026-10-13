@@ -21,8 +21,10 @@ import structlog
 from diagnosis.access_audit import AccessAuditResult
 from diagnosis.diagnose import ClassDiagnosis
 from diagnosis.verdict import SurfaceVerdict
+from engine.brand_domains import apply_user_choice
 from engine.drafting import PromptCandidate
 from engine.models import (
+    BrandDomainList,
     BrandSpec,
     CompetitorSuggestion,
     FrozenModel,
@@ -30,7 +32,6 @@ from engine.models import (
     PromptIntent,
     Target,
 )
-from engine.official_domains import DomainCandidate
 from engine.scheduler import SamplingPolicy
 
 log = structlog.get_logger("report.jobs")
@@ -66,7 +67,6 @@ class ReportPayload(FrozenModel):
     access_result: AccessAuditResult | None
     class_reports: list[ClassReport]
     surface_verdicts: list[SurfaceVerdict]
-    official_candidates: list[DomainCandidate]  # 数据里出现、可能也是官网的网址(v0.4.24 D4)
     finished_at: datetime | None
 
 
@@ -126,7 +126,7 @@ class DiagnosisJob:
         self.access_result: AccessAuditResult | None = None
         self.class_reports: list[ClassReport] = []
         self.surface_verdicts: list[SurfaceVerdict] = []  # 每家 AI 一句话(v0.4.14),与 class_reports 同生命周期
-        self.official_candidates: list[DomainCandidate] = []  # 可能也是官网的网址,等用户确认(v0.4.24 D4)
+        self.domain_list: BrandDomainList | None = None  # 官网名单(S5):开跑时自动发现一次,随快照冻结,再测沿用
         self.report_meta: ReportMeta | None = None  # 最新一版报告快照的档案信息(v0.4.16)
         self.started_at: datetime | None = None  # 本次执行开始时刻(任务页按实际速度算剩余时间)
         self.last_result_at: datetime | None = None  # 最近一条样本落库的时刻(任务页据此报「卡住了」)
@@ -186,11 +186,23 @@ class DiagnosisJob:
         self.state = JobState.CONFIRMED
         self.phase = "phase_confirmed"
 
-    def update_official_domains(self, domains: list[str]) -> None:
-        """用户确认后更新官网名单(架构书附录 v0.4.24 D4):官网名单是口径的一部分,指纹随之重算;
-        采样数据不变,之后「重新生成报告」按新名单重算(不重新提问)。"""
-        self.brand = self.brand.model_copy(update={"domains": list(dict.fromkeys(domains))})
+    def adopt_domain_list(self, domain_list: BrandDomainList) -> None:
+        """官网名单(S5)是口径的一部分:计入的域名与官方渠道进 BrandSpec 供判定,指纹随之重算。"""
+        self.domain_list = domain_list
+        self.brand = self.brand.model_copy(update={
+            "domains": domain_list.confirmed_domains, "official_channels": domain_list.channel_prefixes,
+        })
         self._refingerprint()
+
+    def apply_domain_choice(self, *, confirm: list[str], remove: list[str]) -> bool:
+        """用户确认 B 类 / 去掉 A 类;名单没变返回 False。改了之后按新名单重新生成报告(不重新提问)。"""
+        if self.domain_list is None:
+            return False
+        updated = apply_user_choice(self.domain_list, confirm=confirm, remove=remove)
+        if updated == self.domain_list:
+            return False
+        self.adopt_domain_list(updated)
+        return True
 
     def _refingerprint(self) -> None:
         snapshot = {
@@ -227,6 +239,7 @@ class DiagnosisJob:
             "budget_usd": self.budget_usd,
             "dependency_enabled": self.dependency_enabled,
             "fingerprint": self.fingerprint,
+            "domain_list": self.domain_list.model_dump(mode="json") if self.domain_list is not None else None,
             "error": {"code": self.error_code, "params": self.error_params, "text": self.error},
         }
 
@@ -237,7 +250,6 @@ class DiagnosisJob:
             access_result=self.access_result,
             class_reports=self.class_reports,
             surface_verdicts=self.surface_verdicts,
-            official_candidates=self.official_candidates,
             finished_at=self.finished_at,
         ).model_dump(mode="json")
 
@@ -247,7 +259,6 @@ class DiagnosisJob:
         self.access_result = report.access_result
         self.class_reports = report.class_reports
         self.surface_verdicts = report.surface_verdicts
-        self.official_candidates = report.official_candidates
         self.finished_at = report.finished_at
 
     @classmethod
@@ -269,6 +280,8 @@ class DiagnosisJob:
         job.budget_usd = snapshot["budget_usd"]
         job.dependency_enabled = snapshot["dependency_enabled"]
         job.fingerprint = snapshot["fingerprint"]
+        if snapshot.get("domain_list"):
+            job.domain_list = BrandDomainList.model_validate(snapshot["domain_list"])
         error = snapshot.get("error") or {}  # 本键 v0.4.21 起才写;更早的快照没有 = 没有出错说明
         job.error_code, job.error_params, job.error = error.get("code"), error.get("params") or {}, error.get("text")
         job.phase = {

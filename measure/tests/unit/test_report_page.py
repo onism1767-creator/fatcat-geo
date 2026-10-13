@@ -478,27 +478,45 @@ def _sync_app(monkeypatch, runs: list):
                       evidence=REGISTRY, job_runner=lambda *, job, replay, **_: runs.append(replay))
 
 
-def test_confirming_official_candidates_updates_list_and_only_recomputes(monkeypatch):
-    """报告里列出「可能也是官网」的网址;用户勾选确认后:官网名单更新、口径指纹重算,
-    按新名单只重算(replay,不向 AI 提问);没列出的网址一律不认(v0.4.24 D4)。"""
-    from engine.official_domains import DomainCandidate
+def test_choosing_official_domains_updates_list_and_only_recomputes(monkeypatch):
+    """报告列出主站承认的官网(附依据)与看起来像但主站没承认的网址;用户去掉 A 类 / 确认 B 类后:
+    官网名单与口径指纹更新,按新名单只重算(replay,不向 AI 提问);没列出的网址一律不认;没改就不重算(S5)。"""
+    from datetime import UTC, datetime
+
+    from engine.models import BrandDomain, BrandDomainList, DomainEvidence, DomainStatus, DomainTier
 
     runs: list = []
     app = _sync_app(monkeypatch, runs)
     job = finished_job()
-    job.official_candidates = [DomainCandidate(domain="aurora-crm.jp", count=5)]
+    job.adopt_domain_list(BrandDomainList(
+        primary="aurora-crm.com", discovered_at=datetime(2026, 10, 13, tzinfo=UTC), public_suffix_list="test",
+        domains=[
+            BrandDomain(domain="aurora-crm.de", tier=DomainTier.A1, status=DomainStatus.CONFIRMED, bidirectional=True,
+                        evidence=[DomainEvidence(kind="hreflang", source="https://aurora-crm.com/", detail="de"),
+                                  DomainEvidence(kind="back_link")]),
+            BrandDomain(domain="aurora-crm.jp", tier=DomainTier.B1, status=DomainStatus.UNCONFIRMED,
+                        evidence=[DomainEvidence(kind="seen", detail="5")], seen_count=5),
+        ],
+    ))
+    assert job.brand.domains == ["aurora-crm.com", "aurora-crm.de"]
     app.state.ctx.registry.add(job)
     client = TestClient(app)
     page = user_view_of(client.get(f"/jobs/{job.job_id}/report").text)
-    assert "aurora-crm.jp" in page and "出现 5 次" in page
+    assert "aurora-crm.de" in page and "双向声明" in page and "aurora-crm.jp" in page and "出现 5 次" in page
     assert not any(token in page for token in USER_VIEW_FORBIDDEN)
     before = job.fingerprint
     resp = client.post(f"/jobs/{job.job_id}/official_domains",
-                       data={"domains": ["aurora-crm.jp", "evil.example"]}, follow_redirects=False)
+                       data={"confirm": ["aurora-crm.jp", "evil.example"], "remove": ["aurora-crm.de"]},
+                       follow_redirects=False)
     assert resp.status_code == 303
-    assert job.brand.domains == ["aurora-crm.com", "aurora-crm.jp"]  # evil.example 不在候选里,不认
-    assert job.fingerprint != before
+    assert job.brand.domains == ["aurora-crm.com", "aurora-crm.jp"]  # 确认的进、去掉的出;evil.example 不在名单里,不认
+    assert job.fingerprint != before and job.domain_list is not None and job.domain_list.user_changed
     assert runs == [True]  # 只重算
+    resp = client.post(f"/jobs/{job.job_id}/official_domains", data={"confirm": ["evil.example"]},
+                       follow_redirects=False)
+    assert resp.status_code == 303 and runs == [True]  # 名单没变,不重算
+    restored = DiagnosisJob.from_snapshot(job.to_snapshot())  # 名单随快照冻结
+    assert restored.domain_list == job.domain_list and restored.brand.domains == job.brand.domains
 
 
 def test_regenerate_only_recomputes_but_resuming_an_interrupted_job_may_sample(monkeypatch):

@@ -30,17 +30,14 @@ def _host(url: str) -> str:
     return (urlsplit(url if "://" in url else f"https://{url}").hostname or "").lower()
 
 
-def brand_from_form(
-    brand_name: str, aliases: str, website: str, other_sites: str = ""
-) -> tuple[BrandSpec, str]:
-    """首页填的品牌 → (品牌, 规范化后的官网地址)。官网名单 = 主官网 + 用户另填的其他官网(如各地区官网),
-    只认用户填的(v0.4.24 D4;S5 改为自动发现后撤掉其他官网输入框)。"""
+def brand_from_form(brand_name: str, aliases: str, website: str) -> tuple[BrandSpec, str]:
+    """首页填的品牌 → (品牌, 规范化后的官网地址)。官网名单只填主站;地区站、官方渠道由工具开跑时
+    自动发现(S5,产品文档 D12),名单随任务快照冻结。"""
     normalized = website if "://" in website else f"https://{website}"
-    domains = [host for host in [_host(website), *map(_host, _comma_list(other_sites))] if host]
     brand = BrandSpec(
         name=brand_name.strip(),
         aliases=_comma_list(aliases),
-        domains=list(dict.fromkeys(domains)),
+        domains=[host for host in [_host(website)] if host],
     )
     return brand, normalized
 

@@ -5,6 +5,7 @@
 """
 
 from datetime import UTC, datetime
+from urllib.parse import urlsplit
 
 import pytest
 from conftest import TEST_DSN
@@ -12,9 +13,11 @@ from conftest import TEST_DSN
 from adapters.base import AdapterAccountError, CapabilityRegistry, SurfaceAdapter, SurfaceMeta
 from diagnosis.findings import Stage, StageStatus
 from diagnosis.recommender import load_evidence_registry
+from engine.detectors.matching import registrable
 from engine.models import (
     Answer,
     AskRequest,
+    BrandDomainList,
     BrandSpec,
     Citation,
     CitationResolution,
@@ -110,11 +113,29 @@ class _StubResolver:
         pass
 
 
+class _StubDiscovery:
+    """不联网的官网名单发现:名单只有主站;采样后的同名域名原样不加。"""
+
+    def __init__(self, platforms, **_) -> None:
+        pass
+
+    def discover(self, primary_url: str) -> BrandDomainList:
+        host = urlsplit(primary_url).hostname or ""
+        return BrandDomainList(primary=registrable(host)[1], discovered_at=datetime.now(UTC), public_suffix_list="test")
+
+    def look_alikes(self, domain_list: BrandDomainList, candidates) -> BrandDomainList:
+        return domain_list
+
+    def close(self) -> None:
+        pass
+
+
 @pytest.fixture()
 def offline(monkeypatch):
     monkeypatch.setattr(runner.access_audit, "audit", lambda website: None)
     monkeypatch.setattr(runner, "CitationVerifier", _NoNetworkVerifier)
     monkeypatch.setattr(runner, "UrlResolver", _StubResolver)
+    monkeypatch.setattr(runner, "BrandDomainDiscovery", _StubDiscovery)
 
 
 def _citation_status(job: DiagnosisJob) -> dict[str, StageStatus]:

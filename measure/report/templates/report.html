@@ -26,17 +26,41 @@
     {% if summary.actions %}{% for a in summary.actions[:3] %}{{ a.recommendation.plain[lang] }}{% if a.recommendation.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}{% if not loop.last %};{% endif %}{% endfor %}{% else %}{{ t["no_actions"] }}{% endif %}</p>
 </div>
 
+{% macro ev(e) %}{{ t["ev_" ~ e.kind].format(detail=e.detail or "", source=e.source or "") }}{% endmacro %}
 <div class="card" id="official">
   <h2 style="margin-top:0">{{ t["official_title"] }}</h2>
-  <p>{{ t["official_current"].format(domains="、".join(job.brand.domains)) }}</p>
-  {% if job.official_candidates %}
-  <p>{{ t["official_candidates_intro"] }}</p>
+  {% set dl = job.domain_list %}
+  {% if dl %}
+  <p>{{ t["official_primary"].format(domain=dl.primary) }}</p>
+  {% set auto = dl.domains|selectattr("status", "equalto", "confirmed")|list %}
+  {% set pending = dl.domains|selectattr("status", "equalto", "unconfirmed")|list %}
+  {% set removed = dl.domains|selectattr("status", "equalto", "removed")|list %}
   <form method="post" action="/jobs/{{ job.job_id }}/official_domains?lang={{ lang }}">
-    {% for c in job.official_candidates %}
-    <label style="font-weight:400"><input type="checkbox" name="domains" value="{{ c.domain }}"> {{ c.domain }}({{ t["official_seen"].format(n=c.count) }})</label>
-    {% endfor %}
-    <button type="submit">{{ t["official_confirm"] }}</button>
+    {% if auto %}
+    <p>{{ t["official_auto_intro"] }}</p>
+    <ul class="ev">{% for d in auto %}
+      <li><b>{{ d.domain }}</b> — {% for e in d.evidence %}{{ ev(e) }}{% if not loop.last %};{% endif %}{% endfor %}
+        <label style="font-weight:400"><input type="checkbox" name="remove" value="{{ d.domain }}"> {{ t["official_remove"] }}</label></li>
+    {% endfor %}</ul>
+    {% else %}<p class="muted">{{ t["official_none_auto"] }}</p>{% endif %}
+    {% if pending %}
+    <p>{{ t["official_unconfirmed_intro"] }}</p>
+    <ul class="ev">{% for d in pending %}
+      <li><b>{{ d.domain }}</b> — {% for e in d.evidence %}{{ ev(e) }}{% if not loop.last %};{% endif %}{% endfor %}
+        <label style="font-weight:400"><input type="checkbox" name="confirm" value="{{ d.domain }}"> {{ t["official_add"] }}</label></li>
+    {% endfor %}</ul>
+    {% endif %}
+    {% if removed %}<p class="muted">{{ t["official_removed_intro"].format(domains="、".join(removed|map(attribute="domain"))) }}</p>{% endif %}
+    {% if dl.official_channels %}
+    <p>{{ t["official_channels_intro"] }}</p>
+    <ul class="ev">{% for c in dl.official_channels %}<li><b>{{ c.match }}</b>({{ c.platform }})— {{ ev(c.evidence) }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if dl.notes %}<ul class="ev">{% for n in dl.notes %}<li class="muted">{{ ev(n) }}</li>{% endfor %}</ul>{% endif %}
+    {% if auto or pending %}<button type="submit">{{ t["official_confirm"] }}</button>{% endif %}
   </form>
+  {% if dl.user_changed %}<p class="muted">{{ t["official_changed"] }}</p>{% endif %}
+  {% else %}
+  <p>{{ t["official_current"].format(domains="、".join(job.brand.domains)) }}</p>
   {% endif %}
 </div>
 

@@ -31,6 +31,7 @@ BRAND = BrandSpec(
     name="极光CRM",
     aliases=["AuroraCRM", "Aurora CRM", "极光 CRM"],
     domains=["aurora-crm.com"],
+    official_channels=["aurora-crm.tmall.com/", "www.instagram.com/auroracrm"],  # v4(S5):官方渠道单列
 )
 
 
@@ -147,6 +148,16 @@ SAMPLES = {
         "r-c7", surface="redirect_surface",
         answer=answer_with("正文。", [Citation(url="https://redir.test/t9", domain="redir.test", position=1)]),
     ),
+    # v4:官方渠道按主机名 + 路径前缀;另一家天猫店与相似账号名不命中;渠道命中不算官网被引(S5,T38)
+    "cited_official_channels_only": make_run(
+        "r-c8",
+        answer=answer_with("正文。", [
+            Citation(url="https://aurora-crm.tmall.com/item/123", domain="aurora-crm.tmall.com", position=1),
+            Citation(url="https://other-shop.tmall.com/", domain="other-shop.tmall.com", position=2),
+            Citation(url="https://www.instagram.com/auroracrm/p/1", domain="www.instagram.com", position=3),
+            Citation(url="https://www.instagram.com/auroracrmfans", domain="www.instagram.com", position=4),
+        ]),
+    ),
     "rank_hit_with_subdomain": make_run(
         "r-r1",
         search_trace=sources_trace(
@@ -259,6 +270,14 @@ CITATION_EXPECTED[3] = {
         matched_urls=["https://www.aurora-crm.com/landing"], unresolved=1,
     ),
     "cited_redirect_all_unresolved": dict(cited=False, positions=[], matched_domains=[], unresolved=1),
+}
+CITATION_EXPECTED[4] = {  # v4(S5):官方渠道单列
+    **CITATION_EXPECTED[3],
+    "cited_official_channels_only": dict(
+        cited=False, positions=[], matched_domains=[],
+        matched_channels=["aurora-crm.tmall.com/", "www.instagram.com/auroracrm"], unresolved=0,
+    ),
+    "cited_exact_domain": dict(cited=True, positions=[2], matched_domains=["aurora-crm.com"], matched_channels=[]),
 }
 
 

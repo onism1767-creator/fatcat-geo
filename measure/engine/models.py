@@ -110,7 +110,8 @@ class BrandSpec(FrozenModel):
 
     name: str
     aliases: list[str] = []  # 别名与常见错写;匹配时与 name 合并使用
-    domains: list[str] = []  # 品牌域名,如 example.com,不带协议
+    domains: list[str] = []  # 计入的官网域名(主站在前),来自官网名单 BrandDomainList(v0.4.26 S5)
+    official_channels: list[str] = []  # 官方渠道匹配键「主机名 + 路径前缀」,如 brand.tmall.com/(单列,不算官网)
 
 
 
@@ -284,6 +285,7 @@ class CitationObservation(DerivedObservation):
     positions: list[int] = []  # 命中引用在引用集中的位次
     matched_domains: list[str] = []  # 命中官网的注册域名(去重),供主站引用率与按域名拆分(v0.4.26 S4)
     matched_urls: list[str] = []  # 命中引用用于判定的链接(跳转仪器为终点链接),供独立核验
+    matched_channels: list[str] = []  # 命中的官方渠道匹配键(S5):单列,不算官网被引
     unresolved: int = 0  # 跳转链还原失败、记「看不到」的引用条数(不进分子分母)
 
 
@@ -328,6 +330,75 @@ class CitationResolution(FrozenModel):
     error: str | None = None
     resolver_version: int
     resolved_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+# ── 官网名单(6.5;v0.4.26 S5,产品文档 15.2 D12)────────────────────────
+
+
+class DomainTier(StrEnum):
+    """一个域名凭什么进名单:A 类主站自己承认、自动计入;B 类只提示。"""
+
+    A1 = "A1"  # 主站 hreflang 声明(HTML link / HTTP Link 头 / sitemap)
+    A2 = "A2"  # 主站 Organization / WebSite 结构化数据的 url / sameAs
+    A3 = "A3"  # 主站首页直接链接且网址名相同
+    B1 = "B1"  # 回答里出现的同名域名,主站没有任何依据指向它
+    B2 = "B2"  # 只有对方单方面声明与主站的关系
+
+
+class DomainStatus(StrEnum):
+    CONFIRMED = "confirmed"  # 计入官网(A 类自动;B 类经用户确认)
+    UNCONFIRMED = "unconfirmed"  # 只提示,不计入
+    REMOVED = "removed"  # 用户去掉的 A 类:不算官网,留痕
+
+
+class DomainEvidence(FrozenModel):
+    """一条依据(机械事实,人话渲染在 L4):kind 定义义,source 是出处页面,detail 是 hreflang 值 / 字段名 / 次数等。"""
+
+    kind: str
+    source: str | None = None
+    detail: str | None = None
+
+
+class BrandDomain(FrozenModel):
+    domain: str  # 注册域名
+    tier: DomainTier
+    status: DomainStatus
+    evidence: list[DomainEvidence] = []
+    bidirectional: bool | None = None  # 对方是否指回主站;None = 没查到(对方首页没打开)
+    seen_count: int = 0  # B 类:在回答与搜索结果里出现的次数
+
+
+class OfficialChannel(FrozenModel):
+    """品牌在第三方平台上的官方页面:按「主机名 + 路径前缀」精确匹配,单列、不并入官网。"""
+
+    match: str  # 如 brand.tmall.com/
+    platform: str
+    kind: str
+    evidence: DomainEvidence
+
+
+class BrandDomainList(FrozenModel):
+    """官网名单:随任务快照冻结,再测默认沿用;用户可去掉 A 类、确认 B 类。"""
+
+    primary: str  # 主站注册域名(用户填的)
+    discovered_at: datetime
+    public_suffix_list: str  # 注册域名用的公共后缀表快照版本
+    domains: list[BrandDomain] = []  # 不含主站本身
+    official_channels: list[OfficialChannel] = []
+    notes: list[DomainEvidence] = []  # 查找过程的说明(主站打不开、超过上限……)
+    candidate_fetches: int = 0  # 已打开过的候选首页数(上限贯穿采样前后)
+
+    @property
+    def confirmed_domains(self) -> list[str]:
+        return [self.primary, *(d.domain for d in self.domains if d.status is DomainStatus.CONFIRMED)]
+
+    @property
+    def channel_prefixes(self) -> list[str]:
+        return [c.match for c in self.official_channels]
+
+    @property
+    def user_changed(self) -> bool:
+        return any(e.kind in ("user_confirmed", "user_removed") for d in self.domains for e in d.evidence)
 
 
 class RetrievalRankObservation(DerivedObservation):

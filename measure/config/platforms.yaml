@@ -1,0 +1,105 @@
+# 电商与社交平台清单(官网名单里「官方渠道」的配置资产;产品文档 15.2 D12,架构书附录 v0.4.26 第 3 节)。
+#
+# 官方渠道 = 品牌在第三方平台上的官方页面(旗舰店、官方账号)。它们挂在平台域名下,不能按注册域名算
+# (否则整个 tmall.com 都成了官网),改按「主机名 + 路径前缀」精确匹配、报告里单列。
+# 只有主站自己声明(结构化数据 sameAs)或首页直接链接、且主机在本清单上的页面才计入——免得把随手链接的网页当官方渠道。
+#
+# 新增平台 = 本文件加一条,engine/ 零代码改动。匹配规则:主机名等于 host,或是它的子域(brand.tmall.com 命中 tmall.com)。
+# 核对日期:2026-10-13(平台域名按各平台当时的主站域名记,需定期核对)。
+#
+# kind:marketplace_store 电商店铺 / social_account 社交账号 / app_store 应用商店页 / developer_platform 开发者平台主页
+
+platforms:
+  - name: 天猫
+    kind: marketplace_store
+    hosts: [tmall.com, tmall.hk]
+  - name: 淘宝
+    kind: marketplace_store
+    hosts: [taobao.com]
+  - name: 京东
+    kind: marketplace_store
+    hosts: [jd.com, jd.hk]
+  - name: 拼多多
+    kind: marketplace_store
+    hosts: [pinduoduo.com, yangkeduo.com]
+  - name: 抖音
+    kind: social_account
+    hosts: [douyin.com]
+  - name: 快手
+    kind: social_account
+    hosts: [kuaishou.com]
+  - name: 小红书
+    kind: social_account
+    hosts: [xiaohongshu.com, xhslink.com]
+  - name: 微博
+    kind: social_account
+    hosts: [weibo.com, weibo.cn]
+  - name: 微信公众号
+    kind: social_account
+    hosts: [mp.weixin.qq.com]
+  - name: 知乎
+    kind: social_account
+    hosts: [zhihu.com]
+  - name: 哔哩哔哩
+    kind: social_account
+    hosts: [bilibili.com, b23.tv]
+  - name: Amazon
+    kind: marketplace_store
+    hosts: [amazon.com, amazon.cn, amazon.co.jp, amazon.co.uk, amazon.de, amazon.fr, amazon.ca, amazon.com.au, amazon.in]
+  - name: AliExpress / Alibaba
+    kind: marketplace_store
+    hosts: [aliexpress.com, alibaba.com, 1688.com]
+  - name: Shopee
+    kind: marketplace_store
+    hosts: [shopee.com, shopee.sg, shopee.tw, shopee.co.id, shopee.com.my, shopee.ph, shopee.vn, shopee.co.th]
+  - name: Lazada
+    kind: marketplace_store
+    hosts: [lazada.com, lazada.sg, lazada.com.my, lazada.co.id, lazada.co.th, lazada.vn, lazada.com.ph]
+  - name: Rakuten
+    kind: marketplace_store
+    hosts: [rakuten.co.jp]
+  - name: eBay
+    kind: marketplace_store
+    hosts: [ebay.com, ebay.co.uk, ebay.de]
+  - name: Etsy
+    kind: marketplace_store
+    hosts: [etsy.com]
+  - name: Walmart
+    kind: marketplace_store
+    hosts: [walmart.com]
+  - name: Instagram
+    kind: social_account
+    hosts: [instagram.com]
+  - name: Facebook
+    kind: social_account
+    hosts: [facebook.com, fb.com]
+  - name: X (Twitter)
+    kind: social_account
+    hosts: [x.com, twitter.com]
+  - name: YouTube
+    kind: social_account
+    hosts: [youtube.com, youtu.be]
+  - name: TikTok
+    kind: social_account
+    hosts: [tiktok.com]
+  - name: LinkedIn
+    kind: social_account
+    hosts: [linkedin.com]
+  - name: Pinterest
+    kind: social_account
+    hosts: [pinterest.com]
+  - name: Threads
+    kind: social_account
+    hosts: [threads.net, threads.com]
+  - name: Reddit
+    kind: social_account
+    hosts: [reddit.com]
+  - name: App Store
+    kind: app_store
+    hosts: [apps.apple.com]
+  - name: Google Play
+    kind: app_store
+    hosts: [play.google.com]
+  - name: GitHub
+    kind: developer_platform
+    hosts: [github.com]
