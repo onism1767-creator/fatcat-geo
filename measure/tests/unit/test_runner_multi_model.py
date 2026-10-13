@@ -32,6 +32,7 @@ from engine.models import (
     SurfaceRun,
     Target,
 )
+from engine.page_check import PageIndex
 from report import runner
 from report.jobs import RUNS_PER_PROMPT, DiagnosisJob, JobState
 
@@ -80,12 +81,14 @@ class TwoModelAdapter(SurfaceAdapter):
         return True
 
 
-class _NoNetworkVerifier:
-    def __init__(self, storage) -> None:
+class _NoNetworkChecker:
+    """不联网的网页核实:什么都没开(全部记「没来得及开」)。"""
+
+    def __init__(self, storage, **_) -> None:
         pass
 
-    def verify(self, urls, brands) -> dict:
-        return {}
+    def check(self, requests) -> PageIndex:
+        return PageIndex()
 
     def close(self) -> None:
         pass
@@ -133,7 +136,7 @@ class _StubDiscovery:
 @pytest.fixture()
 def offline(monkeypatch):
     monkeypatch.setattr(runner.access_audit, "audit", lambda website: None)
-    monkeypatch.setattr(runner, "CitationVerifier", _NoNetworkVerifier)
+    monkeypatch.setattr(runner, "PageChecker", _NoNetworkChecker)
     monkeypatch.setattr(runner, "UrlResolver", _StubResolver)
     monkeypatch.setattr(runner, "BrandDomainDiscovery", _StubDiscovery)
 

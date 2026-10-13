@@ -47,6 +47,7 @@ class EngineBrief(FrozenModel):
     phenomenon: Msg
     strongest_evidence: Msg | None
     limitations: list[Msg]
+    third_party: Msg | None = None  # 第三方线一句(引用步的结论;S6.1),与官网线并列、不合并
 
 
 class PriorityAction(FrozenModel):
@@ -65,6 +66,7 @@ class VerdictLine(FrozenModel):
     display: str
     message: Msg
     missing: list[Msg]
+    third_party: Msg | None = None  # 第三方线一句(S6.1)
 
 
 class ReportSummary(FrozenModel):
@@ -89,6 +91,7 @@ def _engine_brief(sd: SurfaceDiagnosis, display: str) -> EngineBrief:
             finding.evidence_lines[0] if finding is not None and finding.evidence_lines else None
         ),
         limitations=[c for c in sd.cautions if c.code != "caution.none"],
+        third_party=next((f.headline for f in sd.third_party if f.stage is Stage.CITATION), None),
     )
 
 
@@ -120,7 +123,7 @@ def summarize(
             for sd in report.diagnosis.surfaces
         ]
         for sd in report.diagnosis.surfaces:
-            for rec in sd.recommendations:
+            for rec in [*sd.recommendations, *sd.third_party_recommendations]:
                 seen.setdefault(rec.evidence_id, rec)
                 supporters[rec.evidence_id].append((report.intent, name_of(sd.surface, sd.model)))
     actions = sorted(
@@ -135,6 +138,7 @@ def summarize(
                 display=name_of(v.surface, v.model),
                 message=msg(v.code, ai=name_of(v.surface, v.model)),
                 missing=[msg(code) for code in v.missing],
+                third_party=msg(v.third_party_code, ai=name_of(v.surface, v.model)) if v.third_party_code else None,
             )
             for v in verdicts
         ],

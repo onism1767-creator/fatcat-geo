@@ -21,7 +21,7 @@ from engine.aggregate import ClassSurfaceMetric, measure_target  # noqa: E402
 from engine.envfile import load_env_file  # noqa: E402
 from engine.loader import build_adapters  # noqa: E402
 from engine.models import BrandSpec, Prompt, PromptIntent, PromptOrigin, Target  # noqa: E402
-from engine.observe import observe, persist_observations  # noqa: E402
+from engine.observe import ObserveContext, observe, persist_observations  # noqa: E402
 from engine.scheduler import RepeatSampler, SamplingPolicy  # noqa: E402
 from engine.storage import Storage, default_dsn  # noqa: E402
 
@@ -67,8 +67,8 @@ def main() -> int:
 
     result = RepeatSampler(storage).run_plan(adapter, PROMPTS, policy=POLICY, model=target.model)
     runs = [r for p in PROMPTS for r in storage.runs_for_prompt(p.prompt_id, surface=SURFACE, model=target.model)]
-    observations = [observe(run, BRAND, []) for run in runs]
-    persist_observations(storage, runs, BRAND)
+    observations = [observe(run, BRAND, ObserveContext(competitors=[])) for run in runs]
+    persist_observations(storage, runs, BRAND, ObserveContext(competitors=[]))
     measurement = measure_target(
         target, meta.provider, PromptIntent.CATEGORY_DISCOVERY, observations, [p.prompt_id for p in PROMPTS],
         stop_reason=result.stop_reason, competitor_names=[], exposes_retrieval=meta.capabilities.supports_query_trace,

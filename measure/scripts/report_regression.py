@@ -28,7 +28,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 import diagnosis.access_audit as access_audit_mod  # noqa: E402
-import diagnosis.citation_verify as verify_mod  # noqa: E402
+import engine.page_check as page_check_mod  # noqa: E402
 import engine.storage as storage_mod  # noqa: E402
 from diagnosis.access_audit import AccessAuditResult  # noqa: E402
 from diagnosis.recommender import load_evidence_registry  # noqa: E402
@@ -65,13 +65,13 @@ def _seal_network(adapters: dict) -> None:
             raise Blocked(f"{_surface} 被真实提问了:{request.prompt_text[:40]}")
         adapter.ask = blocked
 
-    recent = storage_mod.Storage.recent_citation_evidence
-    storage_mod.Storage.recent_citation_evidence = (  # type: ignore[method-assign]
+    recent = storage_mod.Storage.recent_page_checks
+    storage_mod.Storage.recent_page_checks = (  # type: ignore[method-assign]
         lambda self, urls, max_age_days=7: recent(self, urls, max_age_days=10**5))
 
-    def no_fetch(self, original, *args, **kwargs):
-        raise Blocked(f"核验想抓网页:{original}")
-    verify_mod.CitationVerifier._fetch = no_fetch  # type: ignore[method-assign]
+    def no_fetch(self, normalized, request):
+        raise Blocked(f"核实想抓网页:{normalized}")
+    page_check_mod.PageChecker._fetch_one = no_fetch  # type: ignore[method-assign]
 
 
 def _recompute(job_id: str, access: AccessAuditResult, adapters: dict) -> dict:

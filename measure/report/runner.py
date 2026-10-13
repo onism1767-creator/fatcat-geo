@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import threading
+from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
@@ -19,7 +20,6 @@ from adapters.base import SurfaceAdapter
 from diagnosis import access_audit
 from diagnosis.access_audit import PathProbe, with_path_probes
 from diagnosis.assemble import diagnose_class_targets
-from diagnosis.citation_verify import CitationVerifier
 from diagnosis.diagnose import access_finding, diagnose_class
 from diagnosis.recommender import EvidenceEntry
 from diagnosis.verdict import VerdictInput, surface_verdict
@@ -29,17 +29,18 @@ from engine.detectors.matching import registrable
 from engine.models import (
     BrandDomainList,
     BrandSpec,
-    CitationEvidence,
     Prompt,
     PromptIntent,
     RunErrorType,
     SearchMode,
+    SourceClass,
     StopReason,
     SurfaceRun,
     Target,
 )
-from engine.observe import RunObservations, observe, persist_observations
+from engine.observe import ObserveContext, RunObservations, observe, persist_observations
 from engine.official_domains import official_candidates
+from engine.page_check import PageChecker, PageIndex, PageRequest, normalize_url
 from engine.resolve import ResolutionContext, UrlResolver
 from engine.scheduler import (
     AccountProblem,
@@ -49,6 +50,7 @@ from engine.scheduler import (
     reinterpret_account_errors,
 )
 from engine.storage import Storage, StorageUnavailable
+from engine.validity import is_valid_answer
 from report.archive import attach_latest_report
 from report.jobs import (
     PLAN_CONCURRENCY,
@@ -158,15 +160,16 @@ def _execute(
 
         job.phase = "phase_verify"
         runs_by, offline_runs_by = _load_runs(job, storage)
-        context = _resolve_redirects(storage, adapters, [*runs_by.values(), *offline_runs_by.values()])
+        resolution = _resolve_redirects(storage, adapters, [*runs_by.values(), *offline_runs_by.values()])
+        all_runs = [run for runs in runs_by.values() for run in runs]
+        pages = _check_pages(job, storage, all_runs, resolution)
+        context = ObserveContext(competitors=job.competitors, resolution=resolution, pages=pages)
         observations = {
-            key: [observe(run, job.brand, job.competitors, context) for run in runs] for key, runs in runs_by.items()
+            key: [observe(run, job.brand, context) for run in runs] for key, runs in runs_by.items()
         }
         offline_observations = {
-            key: [observe(run, job.brand, job.competitors, context) for run in runs]
-            for key, runs in offline_runs_by.items()
+            key: [observe(run, job.brand, context) for run in runs] for key, runs in offline_runs_by.items()
         }
-        evidence_map = _verify_citations(job, storage, observations)
 
         job.phase = "phase_scoring"
         access = access_finding(job.access_result)
@@ -179,7 +182,7 @@ def _execute(
                 job, intent, prompts, adapter_of, results, observations, offline_observations)
             blocks, class_verdicts = diagnose_class_targets(
                 intent=intent, access=access, measurements=measurements, closed_book=closed_book,
-                evidence_map=evidence_map, brand_name=job.brand.name, registry=evidence,
+                pages=pages, brand=job.brand, registry=evidence,
             )
             for target, verdict in class_verdicts.items():
                 verdict_inputs.setdefault(target, []).append(verdict)
@@ -195,7 +198,7 @@ def _execute(
             surface_verdict(target.surface, target.model, inputs) for target, inputs in verdict_inputs.items()
         ]
         # 采样后:回答里出现、名单外的同名域名再查一次,标 B1 / B2——只提示,用户确认后才算官网(S5)
-        job.adopt_domain_list(_look_alikes(job, [run for runs in runs_by.values() for run in runs], context))
+        job.adopt_domain_list(_look_alikes(job, all_runs, resolution))
         truncated = any(r.stop_reason in _TRUNCATION_REASONS for r in results.values())
         _finish(job, storage, truncated=truncated)
 
@@ -349,23 +352,52 @@ def _primary_domain(brand: BrandSpec) -> str | None:
     return registrable(brand.domains[0])[1] if brand.domains else None
 
 
-def _verify_citations(
-    job: DiagnosisJob, storage: Storage, observations: dict[RunsKey, list[RunObservations]]
-) -> dict[str, CitationEvidence]:
-    """品牌被引 URL 全局去重后统一独立核验(库缓存);按路径的结果并入 ACCESS 的 GENERIC_FETCH 层
-    (v0.4.13 条目 6)。"""
-    urls = sorted({url for batch in observations.values() for o in batch for url in o.brand_cited_urls})
-    verifier = CitationVerifier(storage)
+def _check_pages(
+    job: DiagnosisJob, storage: Storage, runs: list[SurfaceRun], resolution: ResolutionContext,
+) -> PageIndex:
+    """打开 AI 引用与搜到的网页(S6.1,边界见 engine/page_check.py):官网的被引网页(独立核验,不看 robots)
+    与第三方网页(写没写到你,尊重 robots)一起开;被引的先、搜到的后、同级按出现次数;竞品官网与官方渠道不用开。
+    官网网页的结果同时并入 ACCESS 的 GENERIC_FETCH 层(按路径的探针,v0.4.13 条目 6)。"""
+    from engine.detectors.source_class import url_host_class
+
+    counts: Counter[str] = Counter()
+    priority: dict[str, int] = {}
+    own: set[str] = set()
+    for run in runs:
+        if not is_valid_answer(run):
+            continue
+        assert run.answer is not None
+        sources = run.search_trace.retrieved_sources
+        retrieved = [s.url for s in sources] if isinstance(sources, list) else []
+        for raw_url, level in [(c.url, 0) for c in run.answer.citations] + [(u, 1) for u in retrieved]:
+            final = resolution.final_url(run.surface, raw_url)
+            if final is None:
+                continue  # 还原失败:看不到,没法开
+            known = url_host_class(final, job.brand, job.competitors)
+            if known is not None and known[0] is not SourceClass.OWN_SITE:
+                continue  # 竞品官网、官方渠道:按域名就定了,不用开
+            if known is not None:
+                if level:
+                    continue  # 官网只核验被引的那些
+                own.add(normalize_url(final))
+            counts[final] += 1
+            priority[final] = min(priority.get(final, level), level)
+    requests = [
+        PageRequest(url=url, priority=priority[url] * 1_000_000 + max(0, 1_000_000 - counts[url]),
+                    respect_robots=normalize_url(url) not in own)
+        for url in counts
+    ]
+    checker = PageChecker(storage)
     try:
-        evidence_map = verifier.verify(urls, [job.brand])
+        pages = checker.check(requests)
     finally:
-        verifier.close()
+        checker.close()
     if job.access_result is not None:
         job.access_result = with_path_probes(job.access_result, [
-            PathProbe(url=e.normalized_url, http_status=e.http_status, error=e.error)
-            for e in evidence_map.values()
+            PathProbe(url=normalized, http_status=check.http_status, error=check.error)
+            for normalized, check in pages.checks.items() if normalized in own
         ])
-    return evidence_map
+    return pages
 
 
 def _measure_class(

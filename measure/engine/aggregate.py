@@ -13,7 +13,16 @@ from engine.detectors.brand_mention import DETECTOR_NAME as MENTION_LABEL
 from engine.detectors.citation import DETECTOR_NAME as CITATION_LABEL
 from engine.detectors.retrieval_rank import DETECTOR_NAME as PRESENCE_LABEL
 from engine.metrics import Rate, SampleAccounting, account_runs, rate_of
-from engine.models import UNKNOWN, FrozenModel, PromptIntent, Sentiment, StopReason, Target
+from engine.models import (
+    UNKNOWN,
+    FrozenModel,
+    PromptIntent,
+    Sentiment,
+    SourceAttribution,
+    SourceClass,
+    StopReason,
+    Target,
+)
 from engine.observe import RunObservations
 from engine.scheduler import is_account_error
 from engine.validity import is_valid_answer
@@ -96,6 +105,19 @@ class GenerativeRetrieval:
 
 
 @dataclass(frozen=True)
+class ThirdPartyMeasurement:
+    """第三方线(S6.1):搜到 / 引用「正文写到你的第三方网页」,与官网线分开、不相加。
+    一次回答的状态:至少一条写到你 → 有;没有但至少一条可归类 → 没有;全部看不到 → 不进分母(v0.4.24 第 2 节)。"""
+
+    cited: ClassSurfaceMetric | None  # 引用线;仪器不暴露引用集 → None
+    cited_lead: Rate | None  # 引用了写到你的回答里,有几次是标题或首段就出现(技术栏)
+    retrieved: ClassSurfaceMetric | None  # 搜到线;仪器不暴露搜索结果 → None
+    retrieved_lead: Rate | None
+    unobservable_cited: dict[str, int]  # 看不到的引用网页按原因计数(条)
+    unobservable_retrieved: dict[str, int]
+
+
+@dataclass(frozen=True)
 class TargetMeasurement:
     """一个被测对象在一个题型上的全部指标(开卷腿)。"""
 
@@ -107,6 +129,7 @@ class TargetMeasurement:
     citations_by_domain: list[tuple[str, Rate]]  # 按域名拆分:各官网注册域名各算一次,按次数降序
     unresolved_citations: int  # 跳转链还原失败、记「看不到」的引用条数(不进任何分子分母)
     official_channel_citation: ClassSurfaceMetric | None  # 官方渠道引用:单列、不并入官网;名单里没有官方渠道 → None(S5)
+    third_party: ThirdPartyMeasurement | None  # 第三方线;没有来源归属观测 → None(S6.1)
     mention: ClassSurfaceMetric
     sentiment_counts: dict[Sentiment, int]
     competitor_citations: list[tuple[str, Rate]]  # 有观测的竞品才列
@@ -124,6 +147,59 @@ def _cited(obs: RunObservations) -> bool | None:
 
 def _present(obs: RunObservations) -> bool | None:
     return None if obs.presence is None else obs.presence.present
+
+
+def _tp_flag(entries: list[SourceAttribution]) -> bool | None:
+    """一次回答的第三方线状态:有 / 没有 / 全部看不到(None,不进分母)。"""
+    if any(e.source_class is SourceClass.THIRD_PARTY_MENTIONS for e in entries):
+        return True
+    if entries and all(e.source_class is SourceClass.NOT_OBSERVABLE for e in entries):
+        return None
+    return False
+
+
+def _tp_lead(entries: list[SourceAttribution]) -> bool:
+    return any(e.source_class is SourceClass.THIRD_PARTY_MENTIONS and e.position in ("title", "lead") for e in entries)
+
+
+def _unobservable(entry_lists: list[list[SourceAttribution]]) -> dict[str, int]:
+    counts = Counter(
+        e.reason or "UNKNOWN" for entries in entry_lists for e in entries
+        if e.source_class is SourceClass.NOT_OBSERVABLE
+    )
+    return dict(counts)
+
+
+def _measure_third_party(
+    target: Target, provider: str, intent: PromptIntent, observations: list[RunObservations],
+    prompt_ids: list[str], stop_reason: StopReason,
+) -> ThirdPartyMeasurement:
+    def metric(side: str, label: str) -> ClassSurfaceMetric | None:
+        entry_lists = [getattr(o.attribution, side) for o in observations if o.attribution is not None]
+        if all(entries is None for entries in entry_lists):
+            return None  # 该仪器不暴露这一项
+        return rate_metric(
+            target, provider, intent, observations, prompt_ids,
+            lambda o: (None if o.attribution is None or getattr(o.attribution, side) is None
+                       else _tp_flag(getattr(o.attribution, side))),
+            metric_label=label, stop_reason=stop_reason,
+        )
+
+    def lead(side: str) -> Rate | None:
+        hits = [getattr(o.attribution, side) for o in observations if o.attribution is not None]
+        return rate_of([_tp_lead(entries) for entries in hits if entries is not None and _tp_flag(entries)])
+
+    def unobservable(side: str) -> dict[str, int]:
+        return _unobservable([
+            entries for o in observations if o.attribution is not None
+            if (entries := getattr(o.attribution, side)) is not None
+        ])
+
+    return ThirdPartyMeasurement(
+        cited=metric("cited", "third_party_cited"), cited_lead=lead("cited"),
+        retrieved=metric("retrieved", "third_party_retrieved"), retrieved_lead=lead("retrieved"),
+        unobservable_cited=unobservable("cited"), unobservable_retrieved=unobservable("retrieved"),
+    )
 
 
 def _best_ranks(observations: list[RunObservations]) -> list[int]:
@@ -190,6 +266,10 @@ def measure_target(
         citations_by_domain=by_domain,
         unresolved_citations=sum(c.unresolved for c in cited_obs),
         official_channel_citation=metric(channel_cited, CHANNEL_CITATION_LABEL) if channels_known else None,
+        third_party=(
+            _measure_third_party(target, provider, intent, observations, prompt_ids, stop_reason)
+            if any(o.attribution is not None for o in observations) else None
+        ),
         mention=metric(_mentioned, MENTION_LABEL),
         sentiment_counts=dict(Counter(o.sentiment.sentiment for o in observations if o.sentiment is not None)),
         competitor_citations=competitor_citations,

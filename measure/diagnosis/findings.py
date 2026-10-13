@@ -26,6 +26,13 @@ class Stage(StrEnum):
     REPRESENTATION = "REPRESENTATION"
 
 
+class Line(StrEnum):
+    """哪条线(架构书附录 v0.4.24 D2 / D3):官网线与第三方线各自亮灯、各自定位,永不合并。"""
+
+    OWN = "own"
+    THIRD_PARTY = "third_party"
+
+
 class StageStatus(StrEnum):
     PASS = "PASS"
     WEAK = "WEAK"
@@ -58,6 +65,7 @@ class DiagnosisThresholds(FrozenModel):
 class StageFinding(FrozenModel):
     stage: Stage
     status: StageStatus
+    line: Line = Line.OWN
     headline: Msg
     evidence_lines: list[Msg] = []
     low_confidence: bool = False

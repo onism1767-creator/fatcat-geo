@@ -226,6 +226,72 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": f"与竞品 {{name}} 相差不足 {{gap:.0%}},分不出高低(其被引 {_RATE})",
         "en": f"Within {{gap:.0%}} of competitor {{name}} — not distinguishable (their citation rate: {_RATE_EN})",
     },
+    # ── 第三方线(S6.1,v0.4.24 D2 / D3):搜到 → 引用写到你的第三方网页 ────────
+    "thirdparty.retrieved.headline.fail": {
+        "zh": "第三方线·搜到:正文写到品牌的第三方网页基本不进搜索结果(FAIL)",
+        "en": "Third-party line, retrieval: third-party pages that mention the brand rarely enter the search results (FAIL)",
+    },
+    "thirdparty.retrieved.headline.weak": {
+        "zh": "第三方线·搜到:正文写到品牌的第三方网页不稳定地进入搜索结果(WEAK)",
+        "en": "Third-party line, retrieval: third-party pages that mention the brand enter the search results inconsistently (WEAK)",
+    },
+    "thirdparty.retrieved.headline.pass": {
+        "zh": "第三方线·搜到:正文写到品牌的第三方网页稳定进入搜索结果(PASS)",
+        "en": "Third-party line, retrieval: third-party pages that mention the brand reliably enter the search results (PASS)",
+    },
+    "thirdparty.retrieved.headline.not_observable": {
+        "zh": "第三方线·搜到:该仪器不公开搜索结果或无可核实网页,不可观测",
+        "en": "Third-party line, retrieval: this surface exposes no search results or no checkable pages — not observable",
+    },
+    "thirdparty.cited.headline.fail": {
+        "zh": "第三方线·引用:正文写到品牌的第三方网页基本不被当作来源(FAIL)",
+        "en": "Third-party line, citation: third-party pages that mention the brand are rarely cited (FAIL)",
+    },
+    "thirdparty.cited.headline.weak": {
+        "zh": "第三方线·引用:正文写到品牌的第三方网页不稳定地被当作来源(WEAK)",
+        "en": "Third-party line, citation: third-party pages that mention the brand are cited inconsistently (WEAK)",
+    },
+    "thirdparty.cited.headline.pass": {
+        "zh": "第三方线·引用:正文写到品牌的第三方网页稳定被当作来源(PASS)",
+        "en": "Third-party line, citation: third-party pages that mention the brand are reliably cited (PASS)",
+    },
+    "thirdparty.cited.headline.not_observable": {
+        "zh": "第三方线·引用:该仪器不公开引用集或无可核实网页,不可观测",
+        "en": "Third-party line, citation: this surface exposes no citations or no checkable pages — not observable",
+    },
+    "thirdparty.retrieved.rate": {
+        "zh": f"第三方线·搜到比例:{_RATE}(有效回答里搜索结果含 ≥ 1 个正文写到品牌的第三方网页;全部看不到的回答不进分母)",
+        "en": f"Third-party line, retrieval rate: {_RATE_EN} (valid answers whose search results include ≥ 1 third-party page mentioning the brand; answers where every page is unobservable are excluded)",
+    },
+    "thirdparty.cited.rate": {
+        "zh": f"第三方引用率:{_RATE}(与官网引用率分开计、不相加;全部看不到的回答不进分母)",
+        "en": f"Third-party citation rate: {_RATE_EN} (counted apart from the brand-site rate, never added; answers where every page is unobservable are excluded)",
+    },
+    "thirdparty.lead": {
+        "zh": f"其中标题或首段就出现品牌:{_RATE}(位置口径:标题 → 首段 → 正文,只在有「写到你」的回答里算)",
+        "en": f"Of those, the brand appears in the title or lead paragraph: {_RATE_EN} (position order title → lead → body; counted only among answers with a mentioning page)",
+    },
+    "thirdparty.unobservable": {
+        "zh": "看不到的网页 {n} 条(不进分母,按原因):{items}",
+        "en": "{n} page(s) not observable (excluded from the denominator), by reason: {items}",
+    },
+    "thirdparty.reason_item": {
+        "zh": "{reason} {n}",
+        "en": "{reason} {n}",
+    },
+    "pagereason.ROBOTS_DISALLOWED": {"zh": "站点不允许抓取", "en": "site disallows fetching"},
+    "pagereason.BLOCKED": {"zh": "被拦截", "en": "blocked"},
+    "pagereason.LOGIN_REQUIRED": {"zh": "需要登录", "en": "login required"},
+    "pagereason.EMPTY_TEXT": {"zh": "抽不出正文", "en": "no extractable text"},
+    "pagereason.NOT_HTML": {"zh": "不是网页", "en": "not an HTML page"},
+    "pagereason.FETCH_FAILED": {"zh": "打不开", "en": "could not be opened"},
+    "pagereason.NOT_ATTEMPTED": {"zh": "没来得及开", "en": "not attempted within the time budget"},
+    "pagereason.UNRESOLVED": {"zh": "跳转去向查不到", "en": "redirect destination unresolved"},
+    "pagereason.UNKNOWN": {"zh": "原因未知", "en": "unknown reason"},
+    "caution.thirdparty.divergence": {
+        "zh": "第三方线通道分歧:搜索结果里没见写到品牌的第三方网页,引用集却有——接口暴露的来源列表 ≠ 模型实际检索,检索步不作定位依据",
+        "en": "Third-party line channel divergence: no mentioning third-party page in the visible search results, yet one was cited — the exposed source list ≠ the model's actual retrieval; the retrieval step is not used for localization",
+    },
     # ── REPRESENTATION ───────────────────────────────────────────────
     "repr.headline.not_observable": {
         "zh": "无生成回答观测,表述阶段不可观测",
@@ -673,6 +739,23 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": "官网有没有被用上这一项本次看不到",
         "en": "whether your site was used could not be observed this time",
     },
+    # 第三方线一句(S6.1;措辞待用户逐行拍板,v0.4.24 D10)
+    "verdict.thirdparty.often": {
+        "zh": "写到你的第三方网页经常被它当作来源",
+        "en": "Third-party pages that mention you are often among its sources",
+    },
+    "verdict.thirdparty.sometimes": {
+        "zh": "写到你的第三方网页有时被它当作来源,不稳定",
+        "en": "Third-party pages that mention you are sometimes among its sources, not reliably",
+    },
+    "verdict.thirdparty.rarely": {
+        "zh": "写到你的第三方网页几乎没有被它当作来源",
+        "en": "Third-party pages that mention you are almost never among its sources",
+    },
+    "verdict.missing.thirdparty": {
+        "zh": "写到你的第三方网页有没有被用上这一项本次看不到",
+        "en": "whether third-party pages mentioning you were used could not be observed this time",
+    },
 }
 
 
@@ -694,6 +777,18 @@ PLAIN: dict[str, dict[str, str]] = {
     "citation.headline.pass": {"zh": "AI 稳定引用你的官网", "en": "The AI reliably cites your site"},
     "citation.headline.not_observable": {"zh": "这家 AI 不公开引用来源,这一项本次看不到", "en": "This AI does not expose its sources; this item could not be observed"},
     "repr.headline.not_observable": {"zh": "没有拿到可分析的回答,这一项本次看不到", "en": "No analyzable answers; this item could not be observed"},
+    "thirdparty.retrieved.headline.fail": {"zh": "AI 搜索时基本没有找到写到你的第三方网页", "en": "When it searches, the AI basically never finds third-party pages that mention you"},
+    "thirdparty.retrieved.headline.weak": {"zh": "AI 搜索时有时能找到写到你的第三方网页,不稳定", "en": "When it searches, the AI sometimes finds third-party pages that mention you, not reliably"},
+    "thirdparty.retrieved.headline.pass": {"zh": "AI 搜索时能稳定找到写到你的第三方网页", "en": "When it searches, the AI reliably finds third-party pages that mention you"},
+    "thirdparty.retrieved.headline.not_observable": {"zh": "这家 AI 不公开搜索结果,或者这些网页本次打不开,这一项看不到", "en": "This AI does not expose its search results, or the pages could not be opened this time; this item could not be observed"},
+    "thirdparty.cited.headline.fail": {"zh": "AI 基本没有把写到你的第三方网页当作来源", "en": "The AI basically never uses third-party pages that mention you as sources"},
+    "thirdparty.cited.headline.weak": {"zh": "AI 有时引用写到你的第三方网页,不稳定", "en": "The AI sometimes cites third-party pages that mention you, not reliably"},
+    "thirdparty.cited.headline.pass": {"zh": "AI 稳定引用写到你的第三方网页", "en": "The AI reliably cites third-party pages that mention you"},
+    "thirdparty.cited.headline.not_observable": {"zh": "这家 AI 不公开引用来源,或者这些网页本次打不开,这一项看不到", "en": "This AI does not expose its sources, or the pages could not be opened this time; this item could not be observed"},
+    "thirdparty.retrieved.rate": {"zh": "本次 {n} 次回答里,{k} 次搜到了写到你的第三方网页", "en": "Third-party pages mentioning you appeared in the search results of {k} of {n} answers this time"},
+    "thirdparty.cited.rate": {"zh": "本次 {n} 次回答里,{k} 次引用了写到你的第三方网页(和官网分开算)", "en": "Third-party pages mentioning you were cited in {k} of {n} answers this time (counted apart from your own site)"},
+    "thirdparty.unobservable": {"zh": "有 {n} 个网页本次看不到,没有参与判断:{items}", "en": "{n} page(s) could not be observed this time and were not used: {items}"},
+    "caution.thirdparty.divergence": {"zh": "搜索结果里没看到写到你的第三方网页,回答却引用了:AI 实际执行的搜索和我们能看到的不完全一样,这一项不作为问题依据", "en": "No third-party page mentioning you was visible in the search results, yet one was cited: the AI's actual search differs from what we can see, so this item is not used as evidence of a problem"},
     "repr.headline.probe_none": {"zh": "用户直接问起你时,回答里没有出现你的品牌名(不正常,建议检查测试)", "en": "Your brand name did not appear even when users asked directly (abnormal; check the test)"},
     "repr.headline.probe_fail": {"zh": "用户直接问起你时,AI 对你的评价以负面为主", "en": "When users ask about you directly, the AI's description is mostly negative"},
     "repr.headline.probe_weak": {"zh": "用户直接问起你时,AI 对你的评价里有明显负面内容", "en": "When users ask about you directly, the AI's description contains clearly negative content"},

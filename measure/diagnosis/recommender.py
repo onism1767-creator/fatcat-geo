@@ -38,6 +38,7 @@ def _require_langs(value: dict, field: str) -> None:
 class EvidenceEntry(FrozenModel):
     id: str
     stage: Stage
+    channel: str = "own"  # own = 官网线 / third_party = 第三方线 / answer = 回答文字(架构书附录 v0.4.24 D9)
     hypothesis: dict[str, str]
     plain: dict[str, str]  # 人话版(v0.4.14)
     verify: dict[str, str]  # 做完之后怎么检查效果(v0.4.17)
@@ -95,9 +96,10 @@ def recommend(
     *,
     stage: Stage,
     intent: PromptIntent,
+    channel: str = "own",
 ) -> list[Recommendation]:
-    """给定【已定位的失败阶段】与需求意图,产出建议。
-    调用方只允许传 primary_failure 阶段——这是"上游 FAIL 禁下游药方"的执行点。"""
+    """给定【已定位的失败阶段】、需求意图与线(官网 / 第三方),产出建议。
+    调用方只允许传该线的 primary_failure 阶段——这是"上游 FAIL 禁下游药方"的执行点。"""
     out = [
         Recommendation(
             evidence_id=entry.id,
@@ -113,6 +115,7 @@ def recommend(
         )
         for entry in entries
         if entry.stage is stage
+        and entry.channel == channel
         and entry.evidence_level in _OUTPUT_LEVELS
         and intent in entry.supported_intents
     ]

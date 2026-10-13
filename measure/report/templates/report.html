@@ -18,7 +18,7 @@
   <p style="margin-bottom:2px"><b>{{ t["verdicts_word"] }}:</b></p>
   <ul class="verdicts">
     {% for v in summary.verdicts %}
-    <li><b>{{ v.display }}</b>:{{ v.message|plain(lang) }}{% if v.missing %} <span class="muted">({{ t["missing_pre"] }}{% for m in v.missing %}{{ m|plain(lang) }}{% if not loop.last %};{% endif %}{% endfor %})</span>{% endif %}</li>
+    <li><b>{{ v.display }}</b>:{{ v.message|plain(lang) }}{% if v.third_party %}{{ v.third_party|plain(lang) }}。{% endif %}{% if v.missing %} <span class="muted">({{ t["missing_pre"] }}{% for m in v.missing %}{{ m|plain(lang) }}{% if not loop.last %};{% endif %}{% endfor %})</span>{% endif %}</li>
     {% endfor %}
   </ul>
   {% endif %}
@@ -70,12 +70,17 @@
   <h2 style="margin-top:0">{{ t["sec2_title"] }} · {{ intent_labels[cr.intent] }}</h2>
   <p class="kv muted">{{ t["prompts_in_class"].format(n=cr.prompt_texts|length, runs=runs_per_prompt) }}</p>
   <table>
-    <tr><th>{{ t["col_ai"] }}</th>{% for stage in funnel_stages %}<th>{{ stage_msg(stage)|plain(lang) }}</th>{% endfor %}<th>{{ t["dep_col"] }}</th></tr>
+    <tr><th>{{ t["col_ai"] }}</th>{% for stage in funnel_stages %}<th>{{ stage_msg(stage)|plain(lang) }}</th>{% endfor %}<th>{{ t["col_tp_retrieved"] }}</th><th>{{ t["col_tp_cited"] }}</th><th>{{ t["dep_col"] }}</th></tr>
     {% for sd in d.surfaces %}
     <tr>
       <td><b>{{ target_name(sd.surface, sd.model) }}</b></td>
       {% for finding in sd.findings %}
       <td><span class="chip {{ finding.status.value }}">{{ status_labels[finding.status.value] }}</span></td>
+      {% endfor %}
+      {% for finding in sd.third_party %}
+      <td><span class="chip {{ finding.status.value }}">{{ status_labels[finding.status.value] }}</span></td>
+      {% else %}
+      <td><span class="muted">—</span></td><td><span class="muted">—</span></td>
       {% endfor %}
       <td>{% if sd.retrieval_dependency %}<span class="chip {{ sd.retrieval_dependency.level.value }}">{{ dep_labels[sd.retrieval_dependency.level.value] }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
     </tr>
@@ -93,7 +98,7 @@
     {% for eb in summary.engines[cr.intent.value] %}
     <tr>
       <td><b>{{ eb.display }}</b></td>
-      <td>{{ eb.phenomenon|plain(lang) }}</td>
+      <td>{{ eb.phenomenon|plain(lang) }}{% if eb.third_party %}<br><span class="muted">{{ t["tp_prefix"] }}</span>{{ eb.third_party|plain(lang) }}{% endif %}</td>
       <td>{% if eb.strongest_evidence %}{{ eb.strongest_evidence|plain(lang) }}{% else %}<span class="muted">—</span>{% endif %}</td>
       <td>{% for c in eb.limitations %}{{ c|plain(lang) }}{% if not loop.last %}<br>{% endif %}{% else %}<span class="muted">—</span>{% endfor %}</td>
     </tr>
@@ -173,6 +178,20 @@
     </details>
     {% endif %}
     {% endfor %}
+
+    {% if sd.third_party %}
+    <h4 style="margin:10px 0 2px">■ {{ t["tp_section"] }}{% if sd.third_party_failure %} <span class="muted">{{ t["tp_failure_pre"] }} {{ sd.third_party_failure.value }}</span>{% endif %}</h4>
+    {% for finding in sd.third_party %}
+    <p style="margin:4px 0">[{{ finding.stage.value }}] <span class="chip {{ finding.status.value }}">{{ finding.status.value }}</span> {{ finding.headline|msg(lang) }}</p>
+    {% if finding.evidence_lines %}
+    <details>
+      <summary>{{ t["evidence_summary"] }}</summary>
+      <ul class="ev">{% for line in finding.evidence_lines %}<li>{{ line|msg(lang) }}</li>{% endfor %}</ul>
+    </details>
+    {% endif %}
+    {% endfor %}
+    {% for c in sd.third_party_cautions %}<p class="muted">{{ c|msg(lang) }}</p>{% endfor %}
+    {% endif %}
 
     {% if sd.retrieval_dependency %}
     {% set dep = sd.retrieval_dependency %}

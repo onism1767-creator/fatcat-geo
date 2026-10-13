@@ -191,7 +191,7 @@ def test_user_view_leads_with_plain_language(client_and_job):
     assert "用户直接问起你时的表现本次没测" in html  # 缺项句尾说明
     assert "🔴 较弱" in html and "🟡 不够稳定" in html  # 红绿灯 + 定性词(夹具无 PASS 项)
     assert "有 1 处检测结果支持这条建议" in html  # s1 卡在引用、s2 卡在检索,各自的建议互不重合
-    assert html.count('class="rec"') == 6  # 两家各三条,去重后仍是六条动作
+    assert html.count('class="rec"') == 5  # s1 引用三条 + s2 搜到两条(第三方内容那条 S6 起归第三方线,D9)
     assert "用户问这类产品有哪些好的时(品类发现)" in html  # 题型人话
     assert "AI 搜索时有没有找到你(RETRIEVAL)" in html  # 人话(技术词)双写
     assert "本次 30 次搜索里,0 次结果中出现了你的官网" in html  # 比例用原始计数

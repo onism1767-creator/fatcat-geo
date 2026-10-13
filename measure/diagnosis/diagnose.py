@@ -26,6 +26,7 @@ from diagnosis.access_audit import CheckStatus as AccessCheckStatus
 from diagnosis.findings import Msg, Stage, StageFinding, StageStatus, msg
 from diagnosis.recommender import EvidenceEntry, Recommendation, recommend
 from diagnosis.retrieval_dependency import DependencyFinding
+from diagnosis.third_party_diag import localize_third_party
 from engine.models import FrozenModel, PromptIntent
 
 _FUNNEL = (Stage.RETRIEVAL, Stage.CITATION, Stage.REPRESENTATION)
@@ -43,6 +44,11 @@ class SurfaceDiagnosis(FrozenModel):
     cautions: list[Msg]
     recommendations: list[Recommendation]
     retrieval_dependency: DependencyFinding | None = None  # 第 9 章挂靠,不参与定位
+    # 第三方线(S6.1,v0.4.24 D2 / D3):搜到 → 引用写到你的第三方网页;各自亮灯、各自定位、各自建议,不并入官网线
+    third_party: list[StageFinding] = []
+    third_party_failure: Stage | None = None
+    third_party_cautions: list[Msg] = []
+    third_party_recommendations: list[Recommendation] = []
 
 
 class ClassDiagnosis(FrozenModel):
@@ -104,6 +110,7 @@ def diagnose_surface(
     intent: PromptIntent,
     registry: list[EvidenceEntry],
     retrieval_dependency: DependencyFinding | None = None,
+    third_party: list[StageFinding] | None = None,
 ) -> SurfaceDiagnosis:
     findings = {
         Stage.ACCESS: access,
@@ -136,6 +143,19 @@ def diagnose_surface(
     recommendations = (
         recommend(registry, stage=primary, intent=intent) if primary is not None else []
     )
+    # 第三方线单独定位:同一套「第一个 FAIL,否则第一个 WEAK」,同样有通道分歧防线;建议只从第三方线的条目里取
+    tp_findings = list(third_party or [])
+    tp_cautions: list[Msg] = []
+    tp_skip: frozenset[Stage] = frozenset()
+    tp_by_stage = {f.stage: f for f in tp_findings}
+    if (
+        Stage.RETRIEVAL in tp_by_stage and Stage.CITATION in tp_by_stage
+        and tp_by_stage[Stage.RETRIEVAL].status in (StageStatus.FAIL, StageStatus.WEAK)
+        and tp_by_stage[Stage.CITATION].status is StageStatus.PASS
+    ):
+        tp_skip = frozenset({Stage.RETRIEVAL})
+        tp_cautions.append(msg("caution.thirdparty.divergence"))
+    tp_primary = localize_third_party(tp_findings, skip=tp_skip)
     return SurfaceDiagnosis(
         provider=provider,
         surface=surface,
@@ -145,6 +165,13 @@ def diagnose_surface(
         cautions=cautions,
         recommendations=recommendations,
         retrieval_dependency=retrieval_dependency,
+        third_party=tp_findings,
+        third_party_failure=tp_primary,
+        third_party_cautions=tp_cautions,
+        third_party_recommendations=(
+            recommend(registry, stage=tp_primary, intent=intent, channel="third_party")
+            if tp_primary is not None else []
+        ),
     )
 
 

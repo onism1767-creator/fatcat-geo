@@ -289,25 +289,63 @@ class CitationObservation(DerivedObservation):
     unresolved: int = 0  # 跳转链还原失败、记「看不到」的引用条数(不进分子分母)
 
 
-class CitationEvidence(FrozenModel):
-    """一条被引 URL 的独立核验记录(三档证据「已核验」层的原始观测)。
+class PageFetchStatus(StrEnum):
+    """打开一个网页的结果(v0.4.26 S6.1):只有 OK 抽到了正文;其余都是「看不到」,原因照记。"""
 
-    这是对「核验时刻的网页」的观测,只追加、可按时效复用;
-    「某次运行算不算已核验被引」是判断,由诊断层基于本表 + SurfaceRun 计算。
-    checked_brands 记录本次查找过哪些品牌——没查过的品牌缺席不可解读。
-    """
+    OK = "OK"  # HTML 可达,抽到了正文(text_source 记是正文抽取还是全文回退)
+    EMPTY_TEXT = "EMPTY_TEXT"  # 可达 HTML 但一个字也抽不出(脚本渲染的空壳 / 空页)
+    NOT_HTML = "NOT_HTML"  # 可达但不是网页(PDF、图片……)
+    ROBOTS_DISALLOWED = "ROBOTS_DISALLOWED"  # 站点 robots.txt 不允许抓,没抓(第三方站尊重,D23)
+    BLOCKED = "BLOCKED"  # 403 / 429 / 503:疑似机器人防护拦截本工具客户端
+    LOGIN_REQUIRED = "LOGIN_REQUIRED"  # 401,或终点落在登录页
+    FETCH_FAILED = "FETCH_FAILED"  # 其余非成功状态(404…)、超时、网络错误
 
-    evidence_id: str = Field(default_factory=lambda: str(uuid4()))
+
+class PageCheck(FrozenModel):
+    """一次打开网页的原始记录(6.4 派生层的原始观测,只追加、按网址复用):存的是抓到的文字,
+    「正文里有没有写到你」是判定(engine/detectors/page_mention.py),可随版本重算,不用重抓。"""
+
+    check_id: str = Field(default_factory=lambda: str(uuid4()))
     url: str
     normalized_url: str
     fetched_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
-    reachable: bool
+    status: PageFetchStatus
     http_status: int | None = None
     final_url: str | None = None
-    checked_brands: list[str] = []
-    brands_found: list[str] = []  # 可见正文中确实出现清晰名的品牌
-    visible_chars: int | None = None
+    title: str | None = None
+    text: str | None = None  # 抽出的正文(或回退的全文可见文字),有上限
+    text_source: str | None = None  # main = 正文抽取;visible = 抽不出正文、回退到全文可见文字
+    text_chars: int | None = None
+    truncated: bool = False  # 网页超过体积上限,只读了前面一段
     error: str | None = None
+    fetcher_version: int
+
+
+class SourceClass(StrEnum):
+    """一次回答接触的一个网页归哪一类(架构书附录 v0.4.24 D1;S6.1)。"""
+
+    OWN_SITE = "OWN_SITE"
+    OFFICIAL_CHANNEL = "OFFICIAL_CHANNEL"
+    COMPETITOR_SITE = "COMPETITOR_SITE"
+    THIRD_PARTY_MENTIONS = "THIRD_PARTY_MENTIONS"  # 第三方网页,正文里写到你
+    OTHER = "OTHER"  # 第三方网页,正文可读,没写到你
+    NOT_OBSERVABLE = "NOT_OBSERVABLE"  # 看不到:reason 记原因,不进分母
+
+
+class SourceAttribution(FrozenModel):
+    url: str
+    final_url: str | None = None
+    source_class: SourceClass
+    competitor: str | None = None  # COMPETITOR_SITE:是哪个竞品
+    position: str | None = None  # THIRD_PARTY_MENTIONS:title / lead / body
+    reason: str | None = None  # NOT_OBSERVABLE:PageFetchStatus 值或 UNRESOLVED / NOT_ATTEMPTED
+
+
+class SourceAttributionObservation(DerivedObservation):
+    """一次回答的引用与搜索结果逐条归类。None = 该仪器不暴露这一项(看不到引用集 / 候选集)。"""
+
+    cited: list[SourceAttribution] | None
+    retrieved: list[SourceAttribution] | None
 
 
 class ResolutionStatus(StrEnum):

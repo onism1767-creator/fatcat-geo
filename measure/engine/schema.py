@@ -70,21 +70,24 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
     )
     """,
     """
-    CREATE TABLE IF NOT EXISTS citation_evidence (
-        evidence_id text PRIMARY KEY,
+    CREATE TABLE IF NOT EXISTS page_check (
+        check_id text PRIMARY KEY,
         url text NOT NULL,
         normalized_url text NOT NULL,
         fetched_at timestamptz NOT NULL,
-        reachable boolean NOT NULL,
+        status text NOT NULL,
         http_status integer,
         final_url text,
-        checked_brands jsonb NOT NULL,
-        brands_found jsonb NOT NULL,
-        visible_chars integer,
-        error text
+        title text,
+        text text,
+        text_source text,
+        text_chars integer,
+        truncated boolean NOT NULL,
+        error text,
+        fetcher_version integer NOT NULL
     )
     """,
-    "CREATE INDEX IF NOT EXISTS citation_evidence_url_idx ON citation_evidence (normalized_url, fetched_at DESC)",
+    "CREATE INDEX IF NOT EXISTS page_check_url_idx ON page_check (normalized_url, fetched_at DESC)",
     # 引用链接还原跳转(v0.4.26 S4,C2):原链接 → 终点链接、跳数、状态、还原器版本;只追加,按链接复用
     """
     CREATE TABLE IF NOT EXISTS citation_resolution (
@@ -109,13 +112,13 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
     $$ LANGUAGE plpgsql
     """,
     """
-    CREATE OR REPLACE TRIGGER citation_evidence_append_only
-        BEFORE UPDATE OR DELETE ON citation_evidence
+    CREATE OR REPLACE TRIGGER page_check_append_only
+        BEFORE UPDATE OR DELETE ON page_check
         FOR EACH ROW EXECUTE FUNCTION reject_mutation()
     """,
     """
-    CREATE OR REPLACE TRIGGER citation_evidence_no_truncate
-        BEFORE TRUNCATE ON citation_evidence
+    CREATE OR REPLACE TRIGGER page_check_no_truncate
+        BEFORE TRUNCATE ON page_check
         FOR EACH STATEMENT EXECUTE FUNCTION reject_mutation()
     """,
     """

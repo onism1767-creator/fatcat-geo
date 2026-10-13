@@ -24,11 +24,11 @@ from psycopg.types.json import Jsonb
 
 from engine.models import (
     Answer,
-    CitationEvidence,
     CitationResolution,
     DerivedObservation,
     FrozenModel,
     Outcome,
+    PageCheck,
     Prompt,
     RunError,
     SearchTrace,
@@ -151,38 +151,36 @@ class Storage:
             ),
         )
 
-    def insert_citation_evidence(self, evidence: CitationEvidence) -> None:
+    _PAGE_COLUMNS = ("check_id, url, normalized_url, fetched_at, status, http_status, final_url, title, text, "
+                     "text_source, text_chars, truncated, error, fetcher_version")
+
+    def insert_page_check(self, check: PageCheck) -> None:
         self._conn.execute(
-            "INSERT INTO citation_evidence (evidence_id, url, normalized_url, fetched_at, "
-            "reachable, http_status, final_url, checked_brands, brands_found, visible_chars, error) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            f"INSERT INTO page_check ({self._PAGE_COLUMNS}) "
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
-                evidence.evidence_id, evidence.url, evidence.normalized_url,
-                evidence.fetched_at, evidence.reachable, evidence.http_status,
-                evidence.final_url, Jsonb(evidence.checked_brands),
-                Jsonb(evidence.brands_found), evidence.visible_chars, evidence.error,
+                check.check_id, check.url, check.normalized_url, check.fetched_at, check.status.value,
+                check.http_status, check.final_url, check.title, check.text, check.text_source,
+                check.text_chars, check.truncated, check.error, check.fetcher_version,
             ),
         )
 
-    def recent_citation_evidence(
-        self, normalized_urls: list[str], *, max_age_days: int = 7
-    ) -> dict[str, CitationEvidence]:
-        """每个 URL 取时效窗口内最新一条核验记录(核验缓存,Potato 式按 URL 去重)。"""
+    def recent_page_checks(self, normalized_urls: list[str], *, max_age_days: int = 7) -> dict[str, PageCheck]:
+        """每个网址取时效窗口内最新一条打开记录(S6.1:同一网址 7 天内复用,不重抓)。"""
         if not normalized_urls:
             return {}
         cutoff = datetime.now(UTC) - timedelta(days=max_age_days)
         rows = self._conn.execute(
-            "SELECT DISTINCT ON (normalized_url) evidence_id, url, normalized_url, fetched_at, "
-            "reachable, http_status, final_url, checked_brands, brands_found, visible_chars, error "
-            "FROM citation_evidence WHERE normalized_url = ANY(%s) AND fetched_at > %s "
+            f"SELECT DISTINCT ON (normalized_url) {self._PAGE_COLUMNS} "
+            "FROM page_check WHERE normalized_url = ANY(%s) AND fetched_at > %s "
             "ORDER BY normalized_url, fetched_at DESC",
             (normalized_urls, cutoff),
         ).fetchall()
         return {
-            row[2]: CitationEvidence(
-                evidence_id=row[0], url=row[1], normalized_url=row[2], fetched_at=row[3],
-                reachable=row[4], http_status=row[5], final_url=row[6],
-                checked_brands=row[7], brands_found=row[8], visible_chars=row[9], error=row[10],
+            row[2]: PageCheck(
+                check_id=row[0], url=row[1], normalized_url=row[2], fetched_at=row[3], status=row[4],
+                http_status=row[5], final_url=row[6], title=row[7], text=row[8], text_source=row[9],
+                text_chars=row[10], truncated=row[11], error=row[12], fetcher_version=row[13],
             )
             for row in rows
         }

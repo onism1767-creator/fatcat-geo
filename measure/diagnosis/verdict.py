@@ -51,6 +51,7 @@ class VerdictInput(FrozenModel):
     intent: PromptIntent
     mention: Band | None  # 回答里提到品牌的档位;无有效样本 → None
     site_used: bool | None  # 官网被用上(检索或引用任一 PASS);两项皆不可观测 → None
+    third_party: Band | None = None  # 写到你的第三方网页被引用的档位(S6.1);看不到 → None
 
 
 def verdict_input(
@@ -59,6 +60,7 @@ def verdict_input(
     retrieval: StageFinding,
     citation: StageFinding,
     thresholds: DiagnosisThresholds = DiagnosisThresholds(),
+    third_party_cited: StageFinding | None = None,
 ) -> VerdictInput:
     """一个被测对象在一个题型上的一句话原料:提及档位 = 提及比例三态的直接映射;
     官网被用上 = 检索或引用任一 PASS(两项皆不可观测 → None)。"""
@@ -76,6 +78,7 @@ def verdict_input(
         intent=intent,
         mention=mention_band,
         site_used=any(f.status is StageStatus.PASS for f in site) if site else None,
+        third_party=band_of(third_party_cited.status) if third_party_cited is not None else None,
     )
 
 
@@ -84,6 +87,7 @@ class SurfaceVerdict(FrozenModel):
     model: str  # 型号是口径的一部分(v0.4.19):同一 surface 的每个型号各有一句话
     code: str  # verdict.* 结论码,参数 ai 由报告层代入显示名
     missing: list[str]  # verdict.missing.* 结论码
+    third_party_code: str | None = None  # 第三方线一句(S6.1,措辞待用户逐行拍板);看不到 → None
 
 
 def _lookup(probe: Band | None, organic: Band | None, site: bool | None) -> str:
@@ -114,13 +118,25 @@ def surface_verdict(surface: str, model: str, inputs: list[VerdictInput]) -> Sur
     ])
     site_obs = [i.site_used for i in inputs if i.site_used is not None]
     site: bool | None = any(site_obs) if site_obs else None
+    third_party = combine([i.third_party for i in inputs if i.third_party is not None])
     missing = [
         code
         for code, absent in (
             ("verdict.missing.probe", probe is None),
             ("verdict.missing.organic", organic is None),
             ("verdict.missing.site", site is None),
+            ("verdict.missing.thirdparty", third_party is None),
         )
         if absent
     ]
-    return SurfaceVerdict(surface=surface, model=model, code=_lookup(probe, organic, site), missing=missing)
+    return SurfaceVerdict(
+        surface=surface, model=model, code=_lookup(probe, organic, site), missing=missing,
+        third_party_code=_THIRD_PARTY_CODE[third_party] if third_party is not None else None,
+    )
+
+
+_THIRD_PARTY_CODE: dict[Band, str] = {
+    Band.OFTEN: "verdict.thirdparty.often",
+    Band.SOMETIMES: "verdict.thirdparty.sometimes",
+    Band.RARELY: "verdict.thirdparty.rarely",
+}

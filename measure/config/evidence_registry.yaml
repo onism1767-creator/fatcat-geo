@@ -175,6 +175,7 @@ entries:
 
   - id: EVIDENCE_THIRDPARTY_RETRIEVAL_V1
     stage: RETRIEVAL
+    channel: third_party   # 第三方线「搜不到写你的第三方网页」时出(架构书附录 v0.4.24 D9;S6.1 从官网线挪来)
     hypothesis:
       zh: 进入检索存在感高的第三方内容(测评/榜单/对比文)可为品牌获得检索层在场
       en: Getting covered by third-party content with strong retrieval presence (reviews/rankings/comparisons) can earn retrieval-stage presence
