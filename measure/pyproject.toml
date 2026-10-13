@@ -11,9 +11,9 @@ dependencies = [
     "pydantic>=2.7",
     "python-multipart>=0.0.9",
     "pyyaml>=6",
-    "scipy>=1.12",
     "structlog>=24",
     "tldextract>=5.3",
+    "trafilatura>=2.3",  # 第三方网页正文抽取(S6.1,用户定 2026-10-13;Apache-2.0)
     "uvicorn>=0.30",
 ]
 
