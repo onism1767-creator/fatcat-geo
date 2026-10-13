@@ -19,6 +19,8 @@ import structlog
 
 from adapters.base import SurfaceAdapter
 from crawler.reddit_api import RedditFetcher
+from crawler.render import PlaywrightRenderer, playwright_available
+from crawler.wayback import WaybackClient
 from diagnosis import access_audit
 from diagnosis.access_audit import PathProbe, with_path_probes
 from diagnosis.assemble import diagnose_class_targets
@@ -350,11 +352,13 @@ def _look_alikes(job: DiagnosisJob, runs: list[SurfaceRun], context: ResolutionC
 
 
 def _page_checker(storage: Storage) -> PageChecker:
-    """网页核实器的装配(S6.3):平台公开嵌入接口来自 config/platforms.yaml;配了 key 的平台官方接口来自环境变量(.env)。"""
+    """网页核实器的装配点(S6.2–S6.4):四条退路在这里挑实现,核实器只认协议——渲染 = Playwright(装了才用);
+    平台公开嵌入接口来自 config/platforms.yaml;配了 key 的平台官方接口来自环境变量(.env);公开存档 = 互联网档案馆。"""
     platforms = load_platforms()
     oembed = {host: p.oembed for p in platforms if p.oembed for host in p.hosts}
     fetchers = [f for f in [RedditFetcher.from_env(os.environ)] if f is not None]
-    return PageChecker(storage, platform_fetchers=fetchers, oembed=oembed)
+    return PageChecker(storage, renderer=PlaywrightRenderer() if playwright_available() else None,
+                       platform_fetchers=fetchers, oembed=oembed, archive=WaybackClient())
 
 
 def _primary_domain(brand: BrandSpec) -> str | None:

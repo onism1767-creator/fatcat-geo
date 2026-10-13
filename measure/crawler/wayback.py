@@ -15,7 +15,7 @@ from urllib.parse import quote
 import httpx
 import structlog
 
-from crawler.fetch import MAX_PAGE_BYTES, fetch_page, get_as_browser
+from crawler.fetch import FETCH_TIMEOUT, MAX_PAGE_BYTES, fetch_page, get_as_browser, new_client
 
 log = structlog.get_logger("crawler.wayback")
 
@@ -42,6 +42,7 @@ class ArchiveRateLimited(Exception):
 
 class ArchiveSource(Protocol):
     def fetch(self, url: str) -> ArchivedPage | None: ...
+    def close(self) -> None: ...
 
 
 def _retry_after(headers: httpx.Headers) -> float | None:
@@ -50,8 +51,13 @@ def _retry_after(headers: httpx.Headers) -> float | None:
 
 
 class WaybackClient:
-    def __init__(self, client: httpx.Client) -> None:
-        self._client = client  # 与网页核实共用一个客户端(超时、身份一致);不负责关闭
+    def __init__(self, client: httpx.Client | None = None) -> None:
+        self._own_client = client is None
+        self._client = client or new_client(timeout=FETCH_TIMEOUT)  # 与网页核实同超时、同浏览器身份
+
+    def close(self) -> None:
+        if self._own_client:
+            self._client.close()
 
     def fetch(self, url: str) -> ArchivedPage | None:
         """最近一张可用快照的原文;没有快照 / 接口不通 / 快照取不回 → None(调用方记「存档也没有」);

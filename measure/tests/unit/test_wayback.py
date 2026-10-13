@@ -47,6 +47,12 @@ def test_no_snapshot_or_unfetchable_snapshot_is_none(client):
     assert WaybackClient(client).fetch(PAGE) is None
 
 
+def test_own_client_is_closed_with_the_source():
+    source = WaybackClient()
+    source.close()
+    assert source._client.is_closed  # 自带的客户端随 close 关掉;外面给的客户端不归它管
+
+
 @respx.mock
 def test_rate_limit_is_translated_with_retry_after(client):
     respx.get(AVAIL).mock(return_value=_available())

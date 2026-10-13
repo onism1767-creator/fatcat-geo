@@ -319,10 +319,10 @@ class PageCheck(FrozenModel):
     truncated: bool = False  # 网页超过体积上限,只读了前面一段
     error: str | None = None
     fetcher_version: int
-    # S6.4:这条记录来自互联网档案馆的存档(网页现在打不开时的退路):快照地址、档案馆时间戳、当时实时抓取的状态。
+    # S6.4:这条记录来自公开存档(网页现在打不开时的退路,实现见 crawler/):快照地址、存档时间戳、当时实时抓取的状态。
     # 存档不算实时观测,判定与报告都单独计。
     archive_url: str | None = None
-    archive_timestamp: str | None = None  # YYYYMMDDhhmmss
+    archive_timestamp: str | None = None  # 存档方的时间戳 YYYYMMDDhhmmss
     live_status: PageFetchStatus | None = None  # 实时抓取时的结果(存档行才有),看不到的原因照旧按它计
 
 
@@ -345,7 +345,7 @@ class SourceAttribution(FrozenModel):
     position: str | None = None  # THIRD_PARTY_MENTIONS:title / lead / body
     reason: str | None = None  # NOT_OBSERVABLE:PageFetchStatus 值或 UNRESOLVED / NOT_ATTEMPTED
     text_source: str | None = None  # 文字来源:main / visible / meta / oembed / api:<平台> / rendered_* / archive_*
-    archived_at: str | None = None  # 判的是互联网档案馆的存档时记时间戳(S6.4):不进实时比例,单独计
+    archived_at: str | None = None  # 判的是公开存档时记存档时间戳(S6.4):不进实时比例,单独计
 
 
 class SourceAttributionObservation(DerivedObservation):

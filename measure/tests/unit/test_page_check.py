@@ -51,8 +51,6 @@ def _html(body: str, status: int = 200) -> httpx.Response:
 
 def _check(urls: list[str], store: MemoryStore | None = None, **kwargs) -> tuple[PageIndex, MemoryStore]:
     store = store or MemoryStore()
-    kwargs.setdefault("render", False)  # 单测不起真浏览器;渲染回退另有假渲染器的测试
-    kwargs.setdefault("archive", False)  # 单测不问档案馆;存档回退另有假存档源的测试
     checker = PageChecker(store, sleep=lambda s: None, **kwargs)
     try:
         return checker.check([PageRequest(url=u) for u in urls]), store
@@ -128,7 +126,7 @@ def test_own_site_pages_ignore_robots_while_third_party_respects_it():
         return_value=httpx.Response(200, text="User-agent: *\nDisallow: /\n"))
     page = respx.get("https://brand.test/p").mock(return_value=_html(ARTICLE))
     store = MemoryStore()
-    checker = PageChecker(store, sleep=lambda s: None, render=False, archive=False)
+    checker = PageChecker(store, sleep=lambda s: None)
     try:
         index = checker.check([PageRequest(url="https://brand.test/p", respect_robots=False),
                                PageRequest(url="https://brand.test/q", respect_robots=True)])
@@ -173,7 +171,7 @@ def test_same_host_is_serialized_with_a_gap_and_priority_orders_the_queue():
             return _html(ARTICLE)
         respx.get(f"https://site-f.com/{name}").mock(side_effect=serve)
     store = MemoryStore()
-    checker = PageChecker(store, concurrency=3, host_gap_s=0.2, render=False, archive=False)
+    checker = PageChecker(store, concurrency=3, host_gap_s=0.2)
     try:
         checker.check([
             PageRequest(url="https://site-f.com/a", priority=1), PageRequest(url="https://site-f.com/b", priority=0),
@@ -294,7 +292,7 @@ def test_empty_pages_are_rendered_once_and_judged_from_the_rendered_text():
     respx.get("https://app.test/plain").mock(return_value=_html(ARTICLE))
     renderer = FakeRenderer(ARTICLE)
     store = MemoryStore()
-    checker = PageChecker(store, sleep=lambda s: None, renderer=renderer, archive=False)
+    checker = PageChecker(store, sleep=lambda s: None, renderer=renderer)
     try:
         index = checker.check([PageRequest(url="https://app.test/shell"), PageRequest(url="https://app.test/plain")])
     finally:
@@ -305,7 +303,7 @@ def test_empty_pages_are_rendered_once_and_judged_from_the_rendered_text():
     assert page_mention(shell, BRAND) is not None and page_mention(shell, BRAND).found
     shell_rows = [r for r in store.rows if r.normalized_url == "https://app.test/shell"]
     assert [r.status for r in shell_rows] == [PageFetchStatus.EMPTY_TEXT, PageFetchStatus.OK]  # 原始 + 渲染,都留档
-    again = PageChecker(store, sleep=lambda s: None, renderer=renderer, archive=False)
+    again = PageChecker(store, sleep=lambda s: None, renderer=renderer)
     try:
         again.check([PageRequest(url="https://app.test/shell")])
     finally:
@@ -319,19 +317,19 @@ def test_render_failures_stay_unobservable_with_the_attempt_on_record():
     respx.get("https://app.test/robots.txt").mock(return_value=httpx.Response(404))
     respx.get("https://app.test/shell").mock(return_value=_html(SHELL))
     failing, store = FakeRenderer(None), MemoryStore()
-    index, _ = _check(["https://app.test/shell"], store, render=True, renderer=failing)
+    index, _ = _check(["https://app.test/shell"], store, renderer=failing)
     assert index.lookup("https://app.test/shell").status is PageFetchStatus.EMPTY_TEXT
     assert index.lookup("https://app.test/shell").error == "render:failed" and len(store.rows) == 2
     assert page_mention(index.lookup("https://app.test/shell"), BRAND) is None
     still_empty, store2 = FakeRenderer(SHELL), MemoryStore()
-    index2, _ = _check(["https://app.test/shell"], store2, render=True, renderer=still_empty)
+    index2, _ = _check(["https://app.test/shell"], store2, renderer=still_empty)
     assert index2.lookup("https://app.test/shell").error == "render:empty" and len(store2.rows) == 2
     index3, store3 = _check(["https://app.test/shell"])  # render=False:没有渲染器
     assert index3.lookup("https://app.test/shell").status is PageFetchStatus.EMPTY_TEXT
     assert index3.lookup("https://app.test/shell").error is None and len(store3.rows) == 1
     ticks = iter([0.0, 0.0, 0.0, 100.0])  # 原始抓完就过了预算 → 不渲染
     late, store4 = FakeRenderer(ARTICLE), MemoryStore()
-    index4, _ = _check(["https://app.test/shell"], store4, render=True, renderer=late, budget_s=10.0, concurrency=1,
+    index4, _ = _check(["https://app.test/shell"], store4, renderer=late, budget_s=10.0, concurrency=1,
                        clock=lambda: next(ticks, 100.0))
     assert late.calls == [] and index4.lookup("https://app.test/shell").status is PageFetchStatus.EMPTY_TEXT
 
@@ -350,6 +348,9 @@ class FakeArchive:
         return ArchivedPage(html=html, archive_url=f"https://web.archive.org/web/20250102030405/{url}",
                             timestamp="20250102030405", http_status=200)
 
+    def close(self) -> None:
+        self.closed = True
+
 
 @respx.mock
 def test_pages_that_cannot_be_opened_now_fall_back_to_the_archive_with_the_date_on_record():
@@ -364,7 +365,7 @@ def test_pages_that_cannot_be_opened_now_fall_back_to_the_archive_with_the_date_
     respx.get("https://brand.test/down").mock(side_effect=httpx.ConnectError("down"))
     archive = FakeArchive({"https://news.test/blocked": ARTICLE, "https://brand.test/down": ARTICLE})
     store = MemoryStore()
-    checker = PageChecker(store, sleep=lambda s: None, render=False, archive_source=archive)
+    checker = PageChecker(store, sleep=lambda s: None, archive=archive)
     try:
         index = checker.check([
             PageRequest(url="https://news.test/blocked"), PageRequest(url="https://news.test/gone"),
@@ -384,12 +385,13 @@ def test_pages_that_cannot_be_opened_now_fall_back_to_the_archive_with_the_date_
     assert index.lookup("https://news.test/private/x").status is PageFetchStatus.ROBOTS_DISALLOWED
     assert index.lookup("https://brand.test/down").status is PageFetchStatus.FETCH_FAILED
     assert len(store.rows) == 6  # 4 条实时 + 2 条存档尝试,都留档
-    again = PageChecker(store, sleep=lambda s: None, render=False, archive_source=archive)
+    again = PageChecker(store, sleep=lambda s: None, archive=archive)
     try:
         again.check([PageRequest(url="https://news.test/blocked"), PageRequest(url="https://news.test/gone")])
     finally:
         again.close()
     assert archive.calls == ["https://news.test/blocked", "https://news.test/gone"]  # 7 天内复用,不重查
+    assert archive.closed is True  # 核实器关闭时一并关掉存档源
 
 
 class LimitedArchive(FakeArchive):
@@ -414,7 +416,7 @@ def test_archive_rate_limit_waits_once_within_bounds_then_stops_the_pass():
     respx.get("https://news.test/b").mock(return_value=httpx.Response(403))
     sleeps: list[float] = []
     archive = LimitedArchive({"https://news.test/a": ARTICLE, "https://news.test/b": ARTICLE}, limited_calls=1)
-    checker = PageChecker(MemoryStore(), sleep=sleeps.append, render=False, archive_source=archive)
+    checker = PageChecker(MemoryStore(), sleep=sleeps.append, archive=archive)
     try:
         index = checker.check([PageRequest(url="https://news.test/a", priority=0),
                                PageRequest(url="https://news.test/b", priority=1)])
@@ -424,7 +426,7 @@ def test_archive_rate_limit_waits_once_within_bounds_then_stops_the_pass():
     assert index.lookup("https://news.test/a").text_source == "archive_main"
     assert index.lookup("https://news.test/b").text_source == "archive_main"
     stuck = LimitedArchive({"https://news.test/a": ARTICLE, "https://news.test/b": ARTICLE}, limited_calls=5)
-    again = PageChecker(MemoryStore(), sleep=sleeps.append, render=False, archive_source=stuck)
+    again = PageChecker(MemoryStore(), sleep=sleeps.append, archive=stuck)
     try:
         index = again.check([PageRequest(url="https://news.test/a"), PageRequest(url="https://news.test/b")])
     finally:

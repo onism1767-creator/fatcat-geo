@@ -106,7 +106,7 @@ class GenerativeRetrieval:
 
 @dataclass(frozen=True)
 class ArchiveTally:
-    """只能从互联网档案馆的存档看到的第三方网页(S6.4):不算实时观测,不进比例,单独给数量与存档日期范围。"""
+    """只能从公开存档看到的第三方网页(S6.4):不算实时观测,不进比例,单独给数量与存档日期范围。"""
 
     pages: int
     mentioning: int

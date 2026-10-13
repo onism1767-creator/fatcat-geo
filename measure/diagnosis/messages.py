@@ -293,8 +293,8 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "{n} third-party page(s) yielded only a summary and were judged on it (a mention deep in the body would be missed, never over-counted): {items}",
     },
     "thirdparty.archived": {
-        "zh": "{n} 条现在打不开,只看到互联网档案馆 {oldest}–{newest} 的存档,其中 {k} 条写到你;存档不算实时观测,没进上面的比例",
-        "en": "{n} page(s) could not be opened now; only Internet Archive snapshots from {oldest}–{newest} were seen, {k} of which mention the brand; archives are not live observations and are excluded from the rates above",
+        "zh": "{n} 条现在打不开,只看到 {oldest}–{newest} 的公开存档,其中 {k} 条写到你;存档不算实时观测,没进上面的比例",
+        "en": "{n} page(s) could not be opened now; only public archive snapshots from {oldest}–{newest} were seen, {k} of which mention the brand; archives are not live observations and are excluded from the rates above",
     },
     "textsource.meta": {"zh": "网页自带的标题 + 简介", "en": "the page's own title + description"},
     "textsource.rendered_meta": {"zh": "渲染后的标题 + 简介", "en": "title + description after rendering"},

@@ -14,8 +14,10 @@ S6.2(用户定):原始 HTML 抽不出正文的页,再用无头浏览器(crawler/
 S6.3(用户定,不加必填 key):① 配了官方接口的平台(如 Reddit)先走接口拿标题 + 正文 + 评论;
 ② 抽不出正文的页退一步读网页自带的标题 + 简介(meta);③ 网页打不开或仍无文字、而平台有公开嵌入接口(不要 key)的,
 拿标题(oembed)。文字来源都记在 text_source。
-S6.4(用户定):实时打不开(被拦 / 需登录 / 打不开 / 仍无正文)的第三方页,再去互联网档案馆(crawler/wayback.py)找最近一张快照,
+S6.4(用户定):实时打不开(被拦 / 需登录 / 打不开 / 仍无正文)的第三方页,再查公开存档找最近一张快照,
 串行、同一预算内;存档记录带快照地址与时间戳、不算实时观测,判定与报告单独计。站点 robots 不让抓的不查存档(尊重到底)。
+解耦(S6 收尾):这里只认三个协议(Renderer / PlatformFetcher / ArchiveSource),不给就是不做;
+用哪家实现(无头浏览器、平台接口、哪个存档)由报告层 `report/runner.py::_page_checker` 装配。
 """
 
 from __future__ import annotations
@@ -48,8 +50,8 @@ from crawler.fetch import (
     text_from_html,
 )
 from crawler.platform import PlatformFetcher
-from crawler.render import PlaywrightRenderer, RenderedPage, Renderer, playwright_available
-from crawler.wayback import ArchivedPage, ArchiveRateLimited, ArchiveSource, WaybackClient
+from crawler.render import RenderedPage, Renderer
+from crawler.wayback import ArchivedPage, ArchiveRateLimited, ArchiveSource
 from engine.models import PageCheck, PageFetchStatus
 
 log = structlog.get_logger("engine.page_check")
@@ -88,7 +90,7 @@ class PageRequest:
     url: str
     priority: int = 0  # 小的先开(被引 0 / 搜到 1),同级按出现次数由调用方排
     respect_robots: bool = True  # 用户自己的站 False(D13:robots 只作检查对象)
-    allow_archive: bool = True  # 实时打不开时可否查互联网档案馆(S6.4);用户自己的站 False(核验的是现在)
+    allow_archive: bool = True  # 实时打不开时可否查公开存档(S6.4);用户自己的站 False(核验的是现在)
 
 
 @dataclass(frozen=True)
@@ -117,25 +119,21 @@ class PageChecker:
         reuse_days: int = REUSE_DAYS,
         clock: Callable[[], float] = time.monotonic,
         sleep: Callable[[float], None] = time.sleep,
-        render: bool = True,
         renderer: Renderer | None = None,
         platform_fetchers: Sequence[PlatformFetcher] | None = None,
         oembed: Mapping[str, str] | None = None,
-        archive: bool = True,
-        archive_source: ArchiveSource | None = None,
+        archive: ArchiveSource | None = None,
     ) -> None:
-        """render=False 关掉渲染回退(测试、对照脚本);renderer 不给就在 Playwright 可用时用它,不可用就不渲染。
-        platform_fetchers:配了 key 的平台官方接口(S6.3);oembed:主机 → 公开嵌入接口模板({url} 占位)。
-        archive=False 关掉存档回退;archive_source 不给就用互联网档案馆(S6.4)。"""
+        """退路都由调用方装配,这里只认协议、不挑实现:renderer 无头浏览器(S6.2,不给 = 不渲染);
+        platform_fetchers 配了 key 的平台官方接口(S6.3);oembed 主机 → 公开嵌入接口模板({url} 占位);
+        archive 公开存档(S6.4,不给 = 不查存档)。"""
         self._fetchers = list(platform_fetchers or [])
         self._oembed = dict(oembed or {})
         self._store = store
         self._own_client = client is None
         self._client = client or new_client(timeout=FETCH_TIMEOUT)
-        self._archive: ArchiveSource | None = (archive_source or WaybackClient(self._client)) if archive else None
-        if renderer is None and render and playwright_available():
-            renderer = PlaywrightRenderer()
-        self._renderer: Renderer | None = renderer if render else None
+        self._archive = archive
+        self._renderer = renderer
         self._budget_s, self._concurrency, self._host_gap_s = budget_s, concurrency, host_gap_s
         self._reuse_days = reuse_days
         self._clock, self._sleep = clock, sleep
@@ -147,6 +145,8 @@ class PageChecker:
             self._client.close()
         if self._renderer is not None:
             self._renderer.close()
+        if self._archive is not None:
+            self._archive.close()
         for fetcher in self._fetchers:
             fetcher.close()
 
