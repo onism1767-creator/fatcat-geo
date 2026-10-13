@@ -98,11 +98,11 @@ def test_plain_register_renders_counts_and_falls_back():
     from engine.metrics import rate
 
     line = msg("citation.rate", **rate_params(rate(7, 16)))
-    assert render_msg(line, "zh", "plain") == "本次 16 次回答里,7 次引用了你的官网"
+    assert render_msg(line, "zh", "plain") == "本次 16 次回答里,7 次拿你的官网当参考"
     assert "%" not in render_msg(line, "zh", "plain")
     assert render_msg(line, "zh") == "被引比例:7/16 = 44%"  # 审计视图:计数 + 比例,不出区间
     nested = msg("caution.unobservable", stages=[msg("stage.ACCESS"), msg("stage.RETRIEVAL")])
-    assert "爬虫能不能进入你的网站(ACCESS)" in render_msg(nested, "zh", "plain")
+    assert "官网访问(爬虫能不能进你的网站)" in render_msg(nested, "zh", "plain")  # 正式用词(口语解释)
     assert render_msg(nested, "zh") == "以下阶段不可观测,未参与瓶颈定位:ACCESS、RETRIEVAL"
     assert render_msg(msg("common.caliber", surface="s", model="m", n_prompts=1, n_valid=1, n_total=1,
                           stop_reasons="", n_refused=0, n_empty=0, n_failed=0), "zh", "plain").startswith("口径")

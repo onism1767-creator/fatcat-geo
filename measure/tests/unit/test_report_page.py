@@ -193,7 +193,7 @@ def test_user_view_leads_with_plain_language(client_and_job):
     assert "有 1 处检测结果支持这条建议" in html  # s1 卡在引用、s2 卡在检索,各自的建议互不重合
     assert html.count('class="rec"') == 5  # s1 引用三条 + s2 搜到两条(第三方内容那条 S6 起归第三方线,D9)
     assert "用户问这类产品有哪些好的时(品类发现)" in html  # 题型人话
-    assert "AI 搜索时有没有找到你(RETRIEVAL)" in html  # 人话(技术词)双写
+    assert "官网检索(AI 搜索时有没有找到你的官网)" in html  # 正式用词(口语解释),用户定 2026-10-13
     assert "本次 30 次搜索里,0 次结果中出现了你的官网" in html  # 比例用原始计数
     assert "让 AI 搜索时更容易找到你" in html  # 建议用人话版(注册表 plain)
     assert "建议先试" not in html  # 各 AI 详情不再重复列建议:「建议先做的事」已去重并标支持来源
