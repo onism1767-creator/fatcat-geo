@@ -339,6 +339,7 @@ class SourceAttribution(FrozenModel):
     competitor: str | None = None  # COMPETITOR_SITE:是哪个竞品
     position: str | None = None  # THIRD_PARTY_MENTIONS:title / lead / body
     reason: str | None = None  # NOT_OBSERVABLE:PageFetchStatus 值或 UNRESOLVED / NOT_ATTEMPTED
+    text_source: str | None = None  # 判定用的文字来源:main / visible / meta / oembed / api:<平台> / rendered_*
 
 
 class SourceAttributionObservation(DerivedObservation):

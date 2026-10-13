@@ -187,6 +187,91 @@ def test_same_host_is_serialized_with_a_gap_and_priority_orders_the_queue():
     assert len(store.rows) == 3
 
 
+META_SHELL = (
+    "<html><head><title>Video</title><meta property='og:title' content='AuroraCRM walkthrough'>"
+    "<meta property='og:description' content='A 10 minute tour of AuroraCRM for small teams.'></head>"
+    "<body><div id='player'></div><script>x()</script></body></html>"
+)
+LOADING = (
+    "<html><head><title>App</title><meta name='description' content='Compare CRMs incl. Aurora CRM'></head>"
+    "<body><div>Loading…</div></body></html>"
+)
+
+
+class FakePlatform:
+    name = "fake"
+
+    def __init__(self, text: str | None) -> None:
+        self.text, self.calls = text, []  # type: tuple[str | None, list[str]]
+
+    def matches(self, url: str) -> bool:
+        return "platform.test" in url
+
+    def fetch(self, url: str):
+        from crawler.platform import PlatformPage
+
+        self.calls.append(url)
+        if self.text is None:
+            return None
+        return PlatformPage(title="Thread", text=self.text, final_url=url, http_status=200)
+
+    def close(self) -> None:
+        pass
+
+
+@respx.mock
+def test_meta_summary_is_the_fallback_when_the_page_has_no_body_text():
+    """S6.3:脚本页抽不出正文 → 读网页自带的标题 + 简介(meta);只有「Loading…」这种碎字也先用摘要;光有标题不算。"""
+    respx.get("https://v.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://v.test/watch").mock(return_value=_html(META_SHELL))
+    respx.get("https://v.test/app").mock(return_value=_html(LOADING))
+    respx.get("https://v.test/bare").mock(return_value=_html(SHELL))
+    index, _ = _check(["https://v.test/watch", "https://v.test/app", "https://v.test/bare"])
+    watch = index.lookup("https://v.test/watch")
+    assert watch.status is PageFetchStatus.OK and watch.text_source == "meta"
+    assert watch.text.startswith("AuroraCRM walkthrough")
+    assert page_mention(watch, BRAND).position is MentionPosition.TITLE
+    app = index.lookup("https://v.test/app")
+    assert app.text_source == "meta" and page_mention(app, BRAND).found  # 「Loading…」不够,摘要里有品牌
+    assert index.lookup("https://v.test/bare").status is PageFetchStatus.EMPTY_TEXT  # 只有 <title>:不算摘要
+
+
+@respx.mock
+def test_oembed_gives_a_title_when_the_page_itself_is_blocked_or_disallowed():
+    """S6.3:平台公开嵌入接口不要 key;网页被拦 / robots 不让抓时退一步拿标题(来源标 oembed)。"""
+    respx.get("https://social.test/robots.txt").mock(
+        return_value=httpx.Response(200, text="User-agent: *\nDisallow: /private/\n"))
+    respx.get("https://social.test/p/1").mock(return_value=httpx.Response(403))
+    respx.get("https://social.test/private/2").mock(return_value=_html(ARTICLE))
+    respx.get("https://social.test/p/3").mock(return_value=httpx.Response(403))
+    oembed = respx.get(url__startswith="https://social.test/oembed").mock(
+        side_effect=lambda request: httpx.Response(200, json={"title": "AuroraCRM thread"})
+        if "p%2F1" in str(request.url) or "private%2F2" in str(request.url) else httpx.Response(404))
+    index, store = _check(["https://social.test/p/1", "https://social.test/private/2", "https://social.test/p/3"],
+                          oembed={"social.test": "https://social.test/oembed?url={url}"})
+    one = index.lookup("https://social.test/p/1")
+    assert one.status is PageFetchStatus.OK and one.text_source == "oembed" and one.text == "AuroraCRM thread"
+    assert page_mention(one, BRAND).position is MentionPosition.TITLE
+    assert index.lookup("https://social.test/private/2").text_source == "oembed"  # robots 不让抓网页,嵌入接口是另一扇门
+    assert index.lookup("https://social.test/p/3").status is PageFetchStatus.BLOCKED  # 嵌入接口也没有 → 照旧被拦
+    assert oembed.call_count == 3
+
+
+@respx.mock
+def test_platform_api_comes_first_and_falls_back_to_the_page_when_it_fails():
+    """S6.3:配了官方接口的平台先走接口(标题 + 正文 + 评论,来源 api:<平台>);接口拿不到就退回普通抓取。"""
+    respx.get("https://platform.test/robots.txt").mock(return_value=httpx.Response(404))
+    page = respx.get("https://platform.test/t/1").mock(return_value=_html(ARTICLE))
+    good = FakePlatform("Thread about Aurora CRM and others")
+    index, store = _check(["https://platform.test/t/1"], platform_fetchers=[good])
+    got = index.lookup("https://platform.test/t/1")
+    assert got.status is PageFetchStatus.OK and got.text_source == "api:fake" and got.title == "Thread"
+    assert page_mention(got, BRAND).found and page.call_count == 0 and good.calls == ["https://platform.test/t/1"]
+    broken = FakePlatform(None)
+    index2, _ = _check(["https://platform.test/t/1"], platform_fetchers=[broken])
+    assert index2.lookup("https://platform.test/t/1").text_source == "main" and page.call_count == 1  # 退回抓网页
+
+
 class FakeRenderer:
     def __init__(self, html: str | None) -> None:
         self.html, self.calls = html, []  # type: tuple[str | None, list[str]]

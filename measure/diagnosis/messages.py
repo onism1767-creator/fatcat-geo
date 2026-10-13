@@ -288,6 +288,13 @@ CATALOG: dict[str, dict[str, str]] = {
     "pagereason.NOT_ATTEMPTED": {"zh": "没来得及开", "en": "not attempted within the time budget"},
     "pagereason.UNRESOLVED": {"zh": "跳转去向查不到", "en": "redirect destination unresolved"},
     "pagereason.UNKNOWN": {"zh": "原因未知", "en": "unknown reason"},
+    "thirdparty.summary_only": {
+        "zh": "{n} 条第三方网页只拿到摘要、按摘要判(正文深处提到会漏,不会多算):{items}",
+        "en": "{n} third-party page(s) yielded only a summary and were judged on it (a mention deep in the body would be missed, never over-counted): {items}",
+    },
+    "textsource.meta": {"zh": "网页自带的标题 + 简介", "en": "the page's own title + description"},
+    "textsource.rendered_meta": {"zh": "渲染后的标题 + 简介", "en": "title + description after rendering"},
+    "textsource.oembed": {"zh": "平台嵌入接口给的标题(配置该平台的接口后可核对正文)", "en": "title from the platform's embed endpoint (configure that platform's API to check the full text)"},
     "caution.thirdparty.divergence": {
         "zh": "第三方线通道分歧:搜索结果里没见写到品牌的第三方网页,引用集却有——接口暴露的来源列表 ≠ 模型实际检索,检索步不作定位依据",
         "en": "Third-party line channel divergence: no mentioning third-party page in the visible search results, yet one was cited — the exposed source list ≠ the model's actual retrieval; the retrieval step is not used for localization",

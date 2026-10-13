@@ -89,9 +89,11 @@ class SourceClassifier:
                                      reason=check.status.value)
         mention = page_mention(check, brand)
         if mention is None or not mention.found:
-            return SourceAttribution(url=url, final_url=final, source_class=SourceClass.OTHER)
+            return SourceAttribution(url=url, final_url=final, source_class=SourceClass.OTHER,
+                                     text_source=check.text_source)
         return SourceAttribution(url=url, final_url=final, source_class=SourceClass.THIRD_PARTY_MENTIONS,
-                                 position=mention.position.value if mention.position else None)
+                                 position=mention.position.value if mention.position else None,
+                                 text_source=check.text_source)
 
     def detect(self, run: SurfaceRun, brand: BrandSpec) -> SourceAttributionObservation | None:
         if not is_valid_answer(run):

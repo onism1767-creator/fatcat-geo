@@ -115,6 +115,7 @@ class ThirdPartyMeasurement:
     retrieved_lead: Rate | None
     unobservable_cited: dict[str, int]  # 看不到的引用网页按原因计数(条)
     unobservable_retrieved: dict[str, int]
+    summary_only: dict[str, int]  # 只拿到网页摘要 / 嵌入接口标题、按摘要判的第三方网页,按文字来源计数(引用 + 搜到;S6.3)
 
 
 @dataclass(frozen=True)
@@ -162,6 +163,17 @@ def _tp_lead(entries: list[SourceAttribution]) -> bool:
     return any(e.source_class is SourceClass.THIRD_PARTY_MENTIONS and e.position in ("title", "lead") for e in entries)
 
 
+SUMMARY_SOURCES = frozenset({"meta", "oembed", "rendered_meta"})  # 只有标题 + 简介,正文深处提到会漏(不会多算)
+
+
+def _summary_only(entry_lists: list[list[SourceAttribution]]) -> dict[str, int]:
+    counts = Counter(
+        e.text_source for entries in entry_lists for e in entries
+        if e.source_class in (SourceClass.THIRD_PARTY_MENTIONS, SourceClass.OTHER) and e.text_source in SUMMARY_SOURCES
+    )
+    return {str(k): v for k, v in counts.items()}
+
+
 def _unobservable(entry_lists: list[list[SourceAttribution]]) -> dict[str, int]:
     counts = Counter(
         e.reason or "UNKNOWN" for entries in entry_lists for e in entries
@@ -195,10 +207,15 @@ def _measure_third_party(
             if (entries := getattr(o.attribution, side)) is not None
         ])
 
+    def entries_of(side: str) -> list[list[SourceAttribution]]:
+        return [entries for o in observations if o.attribution is not None
+                if (entries := getattr(o.attribution, side)) is not None]
+
     return ThirdPartyMeasurement(
         cited=metric("cited", "third_party_cited"), cited_lead=lead("cited"),
         retrieved=metric("retrieved", "third_party_retrieved"), retrieved_lead=lead("retrieved"),
         unobservable_cited=unobservable("cited"), unobservable_retrieved=unobservable("retrieved"),
+        summary_only=_summary_only(entries_of("cited") + entries_of("retrieved")),
     )
 
 

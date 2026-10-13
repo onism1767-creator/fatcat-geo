@@ -61,6 +61,7 @@ class Platform(FrozenModel):
     name: str
     kind: str
     hosts: list[str]
+    oembed: str | None = None  # 公开嵌入接口模板,{url} 替换成被引链接(S6.3)
 
 
 def load_platforms(path: Path = DEFAULT_PLATFORMS_PATH) -> list[Platform]:

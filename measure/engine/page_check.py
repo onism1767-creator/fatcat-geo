@@ -11,19 +11,22 @@
 7 天内同一网址复用。看不到按原因分开记,不猜。网页内容一律当数据,只做机械解析,不回喂模型。
 S6.2(用户定):原始 HTML 抽不出正文的页,再用无头浏览器(crawler/render.py)渲染一次、串行、同一预算内;
 渲染也失败或仍无正文,照旧记「抽不出正文」并留下渲染尝试的记录。
+S6.3(用户定,不加必填 key):① 配了官方接口的平台(如 Reddit)先走接口拿标题 + 正文 + 评论;
+② 抽不出正文的页退一步读网页自带的标题 + 简介(meta);③ 网页打不开或仍无文字、而平台有公开嵌入接口(不要 key)的,
+拿标题(oembed)。文字来源都记在 text_source。
 """
 
 from __future__ import annotations
 
 import threading
 import time
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Final, Protocol
 from urllib import robotparser
-from urllib.parse import urlsplit, urlunsplit
+from urllib.parse import quote, urlsplit, urlunsplit
 
 import httpx
 import structlog
@@ -32,14 +35,15 @@ from crawler.fetch import (
     FETCH_TIMEOUT,
     MAX_PAGE_BYTES,
     PROTECTION_SUSPECT_STATUSES,
-    extract_main_text,
-    extract_visible_text,
+    fetch_json,
     fetch_page,
     is_html,
     new_client,
     page_title,
     robots_parser,
+    text_from_html,
 )
+from crawler.platform import PlatformFetcher
 from crawler.render import PlaywrightRenderer, RenderedPage, Renderer, playwright_available
 from engine.models import PageCheck, PageFetchStatus
 
@@ -52,6 +56,7 @@ BUDGET_S: Final = 15 * 60
 REUSE_DAYS: Final = 7
 MAX_TEXT_CHARS: Final = 100_000
 _LOGIN_PATH_HINTS: Final = ("/login", "/signin", "/sign-in", "/sign_in", "/accounts/login", "/auth/")
+nl_marker: Final = chr(10)  # 摘要文字里「标题 + 空行 + 简介」的分隔
 _POLL_S: Final = 0.05  # 没有可开的网址时的轮询间隔(所有网站都在等间隔)
 
 
@@ -105,8 +110,13 @@ class PageChecker:
         sleep: Callable[[float], None] = time.sleep,
         render: bool = True,
         renderer: Renderer | None = None,
+        platform_fetchers: Sequence[PlatformFetcher] | None = None,
+        oembed: Mapping[str, str] | None = None,
     ) -> None:
-        """render=False 关掉渲染回退(测试、对照脚本);renderer 不给就在 Playwright 可用时用它,不可用就不渲染。"""
+        """render=False 关掉渲染回退(测试、对照脚本);renderer 不给就在 Playwright 可用时用它,不可用就不渲染。
+        platform_fetchers:配了 key 的平台官方接口(S6.3);oembed:主机 → 公开嵌入接口模板({url} 占位)。"""
+        self._fetchers = list(platform_fetchers or [])
+        self._oembed = dict(oembed or {})
         self._store = store
         self._own_client = client is None
         self._client = client or new_client(timeout=FETCH_TIMEOUT)
@@ -124,6 +134,8 @@ class PageChecker:
             self._client.close()
         if self._renderer is not None:
             self._renderer.close()
+        for fetcher in self._fetchers:
+            fetcher.close()
 
     # ── 一单一次 ──
 
@@ -213,18 +225,58 @@ class PageChecker:
         if page is None:
             return self._record(request.url, normalized, PageFetchStatus.EMPTY_TEXT, error="render:failed")
         title = page_title(page.html)
-        text, source = extract_main_text(page.html, page.final_url), "rendered_main"
-        if not text:
-            text, source = extract_visible_text(page.html) or None, "rendered_visible"
         common = dict(http_status=page.http_status, final_url=page.final_url, title=title)
-        if not text:
+        extracted = text_from_html(page.html, page.final_url)
+        if extracted is None:
             return self._record(request.url, normalized, PageFetchStatus.EMPTY_TEXT, error="render:empty", **common)
+        text, source = extracted
+        if source == "meta":
+            common["title"] = text.split(nl_marker, 1)[0]  # 摘要退路:标题取网页自带的 og/twitter 标题
         return self._record(request.url, normalized, PageFetchStatus.OK, text=text[:MAX_TEXT_CHARS],
-                            text_source=source, text_chars=len(text), **common)
+                            text_source=f"rendered_{source}", text_chars=len(text), **common)
 
     # ── 单页 ──
 
     def _fetch_one(self, normalized: str, request: PageRequest) -> PageCheck:
+        """接口 → 网页 → 嵌入接口:平台官方接口拿到就用(最完整);否则按边界抓网页;网页拿不到文字再试嵌入接口拿标题。"""
+        via_api = self._via_platform_api(request.url, normalized)
+        if via_api is not None:
+            return via_api
+        check = self._fetch_html(normalized, request)
+        if check.status is PageFetchStatus.OK:
+            return check
+        via_oembed = self._via_oembed(request.url, normalized)
+        return via_oembed if via_oembed is not None else check
+
+    def _via_platform_api(self, url: str, normalized: str) -> PageCheck | None:
+        for fetcher in self._fetchers:
+            if not fetcher.matches(normalized):
+                continue
+            page = fetcher.fetch(normalized)
+            if page is None or not page.text.strip():
+                return None  # 接口没拿到:退回普通抓取
+            return self._record(url, normalized, PageFetchStatus.OK, http_status=page.http_status,
+                                final_url=page.final_url, title=page.title, text=page.text[:MAX_TEXT_CHARS],
+                                text_source=f"api:{fetcher.name}", text_chars=len(page.text))
+        return None
+
+    def _via_oembed(self, url: str, normalized: str) -> PageCheck | None:
+        host = (urlsplit(normalized).hostname or "").lower()
+        template = next((t for h, t in self._oembed.items() if host == h or host.endswith("." + h)), None)
+        if template is None:
+            return None
+        try:
+            data = fetch_json(self._client, template.replace("{url}", quote(normalized, safe="")))
+        except httpx.HTTPError as exc:
+            log.warning("oembed_failed", url=normalized, error=type(exc).__name__)
+            return None
+        title = data.get("title") if isinstance(data, dict) else None
+        if not isinstance(title, str) or not title.strip():
+            return None
+        return self._record(url, normalized, PageFetchStatus.OK, final_url=normalized, title=title.strip(),
+                            text=title.strip(), text_source="oembed", text_chars=len(title.strip()))
+
+    def _fetch_html(self, normalized: str, request: PageRequest) -> PageCheck:
         parts = urlsplit(normalized)
         origin = f"{parts.scheme}://{parts.netloc}"
         if request.respect_robots and not self._robots_allows(origin, normalized):
@@ -245,11 +297,12 @@ class PageChecker:
         if not is_html(response):
             return self._record(request.url, normalized, PageFetchStatus.NOT_HTML, **common)
         title = page_title(body)
-        text, source = extract_main_text(body, final_url), "main"
-        if not text:
-            text, source = extract_visible_text(body) or None, "visible"
-        if not text:
+        extracted = text_from_html(body, final_url)
+        if extracted is None:
             return self._record(request.url, normalized, PageFetchStatus.EMPTY_TEXT, title=title, **common)
+        text, source = extracted
+        if source == "meta":
+            title = text.split(nl_marker, 1)[0]  # 摘要退路:标题取网页自带的 og/twitter 标题,不是 <title>
         return self._record(request.url, normalized, PageFetchStatus.OK, title=title, text=text[:MAX_TEXT_CHARS],
                             text_source=source, text_chars=len(text), **common)
 

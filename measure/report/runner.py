@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
@@ -17,6 +18,7 @@ from datetime import UTC, datetime
 import structlog
 
 from adapters.base import SurfaceAdapter
+from crawler.reddit_api import RedditFetcher
 from diagnosis import access_audit
 from diagnosis.access_audit import PathProbe, with_path_probes
 from diagnosis.assemble import diagnose_class_targets
@@ -347,6 +349,14 @@ def _look_alikes(job: DiagnosisJob, runs: list[SurfaceRun], context: ResolutionC
         discovery.close()
 
 
+def _page_checker(storage: Storage) -> PageChecker:
+    """网页核实器的装配(S6.3):平台公开嵌入接口来自 config/platforms.yaml;配了 key 的平台官方接口来自环境变量(.env)。"""
+    platforms = load_platforms()
+    oembed = {host: p.oembed for p in platforms if p.oembed for host in p.hosts}
+    fetchers = [f for f in [RedditFetcher.from_env(os.environ)] if f is not None]
+    return PageChecker(storage, platform_fetchers=fetchers, oembed=oembed)
+
+
 def _primary_domain(brand: BrandSpec) -> str | None:
     """主站 = 用户在首页填的那个网址(官网名单的第一项);没有域名就没有主站引用率。"""
     return registrable(brand.domains[0])[1] if brand.domains else None
@@ -387,7 +397,7 @@ def _check_pages(
                     respect_robots=normalize_url(url) not in own)
         for url in counts
     ]
-    checker = PageChecker(storage)
+    checker = _page_checker(storage)
     try:
         pages = checker.check(requests)
     finally:

@@ -32,7 +32,8 @@ def third_party_findings(tp: ThirdPartyMeasurement | None) -> list[StageFinding]
                 diagnose_third_party(Stage.CITATION, None, None, {})]
     return [
         diagnose_third_party(Stage.RETRIEVAL, tp.retrieved, tp.retrieved_lead, tp.unobservable_retrieved),
-        diagnose_third_party(Stage.CITATION, tp.cited, tp.cited_lead, tp.unobservable_cited),
+        diagnose_third_party(Stage.CITATION, tp.cited, tp.cited_lead, tp.unobservable_cited,
+                             summary_only=tp.summary_only),
     ]
 
 

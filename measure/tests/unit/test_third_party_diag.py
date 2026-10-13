@@ -29,6 +29,11 @@ def test_third_party_step_lights_and_lists_unobservable_reasons():
     assert "其中标题或首段就出现品牌:1/2" in lines[1]
     assert "看不到的网页 6 条" in lines[2] and "站点不允许抓取 2、被拦截 3、没来得及开 1" in lines[2]
     assert _zh(finding.evidence_lines[0], "plain") == "本次 12 次回答里,2 次拿别人提到你的文章当参考(和官网分开算)"
+    summarized = diagnose_third_party(Stage.CITATION, make_metric(2, 12), None, {},
+                                      summary_only={"meta": 3, "oembed": 1})
+    summary_line = _zh(summarized.evidence_lines[1])
+    assert "4 条第三方网页只拿到摘要" in summary_line
+    assert "网页自带的标题 + 简介 3、平台嵌入接口给的标题(配置该平台的接口后可核对正文) 1" in summary_line
     unobservable = diagnose_third_party(Stage.RETRIEVAL, None, None, {"NOT_ATTEMPTED": 4})
     assert unobservable.status is StageStatus.NOT_OBSERVABLE and len(unobservable.evidence_lines) == 1
 

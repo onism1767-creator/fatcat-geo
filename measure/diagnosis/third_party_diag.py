@@ -36,6 +36,7 @@ def diagnose_third_party(
     lead: Rate | None,
     unobservable: Mapping[str, int],
     thresholds: DiagnosisThresholds = DiagnosisThresholds(),
+    summary_only: Mapping[str, int] | None = None,
 ) -> StageFinding:
     """第三方线的一步(stage = RETRIEVAL 搜到 / CITATION 引用)。无有效样本或该仪器不暴露这一步 → 看不到。"""
     step = _STEP[stage]
@@ -55,6 +56,11 @@ def diagnose_third_party(
         evidence.append(msg("thirdparty.lead", **rate_params(lead)))  # 技术栏:标题或首段就出现
     if unobservable:
         evidence.append(_unobservable_line(unobservable))
+    if summary_only:
+        evidence.append(msg("thirdparty.summary_only", n=sum(summary_only.values()), items=[
+            msg("thirdparty.reason_item", reason=msg(f"textsource.{source}"), n=count)
+            for source, count in sorted(summary_only.items())
+        ]))
     evidence.append(caliber_msg(metric))
     evidence.extend(prompt_msgs(metric))
     evidence.append(msg("citation.thresholds" if stage is Stage.CITATION else "retrieval.thresholds",

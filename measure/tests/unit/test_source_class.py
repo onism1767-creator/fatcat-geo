@@ -31,9 +31,10 @@ RIVAL = BrandSpec(name="Beta", domains=["beta.example"])
 FILLER = "a long enough paragraph of review text " * 5
 
 
-def _page(url: str, status=PageFetchStatus.OK, *, title: str | None = None, text: str | None = None) -> PageCheck:
+def _page(url: str, status=PageFetchStatus.OK, *, title: str | None = None, text: str | None = None,
+          text_source: str | None = None) -> PageCheck:
     return PageCheck(url=url, normalized_url=url, status=status, title=title, text=text, fetcher_version=1,
-                     text_source="main" if text else None)
+                     text_source=text_source or ("main" if text else None))
 
 
 PAGES = PageIndex(checks={
@@ -42,7 +43,10 @@ PAGES = PageIndex(checks={
     "https://blog.test/crm": _page("https://blog.test/crm", title="CRM tips", text=f"{FILLER}\n极光CRM is one option"),
     "https://other.test/x": _page("https://other.test/x", title="Nothing", text=FILLER),
     "https://wall.test/y": _page("https://wall.test/y", status=PageFetchStatus.BLOCKED),
-}, attempted=frozenset({"https://review.test/aurora", "https://blog.test/crm", "https://other.test/x", "https://wall.test/y"}))
+    "https://video.test/v": _page("https://video.test/v", title="AuroraCRM demo", text="AuroraCRM demo\n\nA tour.",
+                                  text_source="meta"),
+}, attempted=frozenset({"https://review.test/aurora", "https://blog.test/crm", "https://other.test/x",
+                        "https://wall.test/y", "https://video.test/v"}))
 
 
 def _run(run_id: str, cited: list[str], retrieved: list[str] | None = None, *, prompt_id: str = "p1",
@@ -98,14 +102,16 @@ def test_third_party_line_aggregates_apart_from_the_own_site_line():
         _run("b", ["https://www.aurora-crm.com/a", "https://other.test/x"], []),        # 引用:没有;搜到:没有(空候选集)
         _run("c", ["https://wall.test/y", "https://never.test/z"], None),  # 引用全看不到 → 不进分母;搜到不可观测
         _run("d", ["https://blog.test/crm"], ["https://review.test/aurora"]),           # 引用:有(正文);搜到:有
+        _run("e", ["https://video.test/v"], ["https://video.test/v"]),                   # 只拿到摘要:算,但另计
     ]
     observations = [observe(run, BRAND, context) for run in runs]
     m = measure_target(Target(surface="s1", model="m"), "p", PromptIntent.CATEGORY_DISCOVERY, observations, ["p1"],
                        stop_reason=StopReason.COMPLETED, competitor_names=["Beta"], exposes_retrieval=True)
     tp = m.third_party
     assert tp is not None and tp.cited is not None and tp.cited.rate is not None
-    assert (tp.cited.rate.k, tp.cited.rate.n) == (2, 3)  # c 全部看不到,不进分母
-    assert (tp.cited_lead.k, tp.cited_lead.n) == (1, 2)  # a 标题就出现;d 只在正文
-    assert (tp.retrieved.rate.k, tp.retrieved.rate.n) == (1, 3)  # c 候选集不可观测,不进
+    assert (tp.cited.rate.k, tp.cited.rate.n) == (3, 4)  # c 全部看不到,不进分母;e 按摘要判也算
+    assert (tp.cited_lead.k, tp.cited_lead.n) == (2, 3)  # a、e 标题就出现;d 只在正文
+    assert (tp.retrieved.rate.k, tp.retrieved.rate.n) == (2, 4)  # c 候选集不可观测,不进
     assert tp.unobservable_cited == {"BLOCKED": 1, "NOT_ATTEMPTED": 1} and tp.unobservable_retrieved == {}
-    assert (m.citation.rate.k, m.citation.rate.n) == (1, 4)  # 官网线照旧
+    assert tp.summary_only == {"meta": 2}  # e 的引用 + 搜到各一条只拿到摘要,另计不并入
+    assert (m.citation.rate.k, m.citation.rate.n) == (1, 5)  # 官网线照旧

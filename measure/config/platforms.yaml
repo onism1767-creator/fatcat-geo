@@ -8,6 +8,7 @@
 # 核对日期:2026-10-13(平台域名按各平台当时的主站域名记,需定期核对)。
 #
 # kind:marketplace_store 电商店铺 / social_account 社交账号 / app_store 应用商店页 / developer_platform 开发者平台主页
+# oembed:平台公开的嵌入接口(不要 key,返回标题;S6.3):网页本身打不开或抽不出正文时退一步拿标题。{url} 替换成被引链接。
 
 platforms:
   - name: 天猫
@@ -79,6 +80,7 @@ platforms:
   - name: YouTube
     kind: social_account
     hosts: [youtube.com, youtu.be]
+    oembed: "https://www.youtube.com/oembed?url={url}&format=json"
   - name: TikTok
     kind: social_account
     hosts: [tiktok.com]
@@ -93,7 +95,8 @@ platforms:
     hosts: [threads.net, threads.com]
   - name: Reddit
     kind: social_account
-    hosts: [reddit.com]
+    hosts: [reddit.com, redd.it]
+    oembed: "https://www.reddit.com/oembed?url={url}"
   - name: App Store
     kind: app_store
     hosts: [apps.apple.com]

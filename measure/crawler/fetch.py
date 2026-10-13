@@ -74,6 +74,63 @@ def page_title(html: str) -> str | None:
     return title or None
 
 
+_META_KEYS = r"og:title|og:description|twitter:title|twitter:description|description"
+_META = re.compile(
+    r"""<meta\s+[^>]*?(?:property|name)\s*=\s*["'](?P<key>""" + _META_KEYS + r""")["'][^>]*?"""
+    r"""content\s*=\s*["'](?P<value>[^"']*)["']"""
+    r"""|<meta\s+[^>]*?content\s*=\s*["'](?P<value2>[^"']*)["'][^>]*?"""
+    r"""(?:property|name)\s*=\s*["'](?P<key2>""" + _META_KEYS + r""")["']""",
+    re.IGNORECASE | re.DOTALL,
+)
+MIN_VISIBLE_CHARS: Final = 200  # 可见文字至少这么多才算「页面有正文」(产品文档 C02 同一阈值)
+
+
+def extract_meta_summary(html: str) -> str | None:
+    """网页自带的摘要:标题 + 简介(og:/twitter:/description 元信息)。没有简介就不算(光有标题太弱)。
+    这是网页自己公开写给搜索引擎和分享卡片看的,脚本页的原始 HTML 里通常也有。"""
+    found: dict[str, str] = {}
+    for match in _META.finditer(html[:MAX_PARSED_BYTES]):
+        key = (match.group("key") or match.group("key2") or "").lower()
+        value = html_lib.unescape(match.group("value") or match.group("value2") or "").strip()
+        if value and key not in found:
+            found[key] = value
+    description = found.get("og:description") or found.get("description") or found.get("twitter:description")
+    if not description:
+        return None
+    title = found.get("og:title") or found.get("twitter:title") or page_title(html)
+    return f"{title}\n\n{description}" if title else description
+
+
+def text_from_html(html: str, url: str | None = None) -> tuple[str, str] | None:
+    """一个页面拿什么文字去判、来源标什么:
+    足量正文(main)→ 足量可见文字(visible)→ 网页摘要(meta)→ 少量正文 / 可见文字 → 没有。"""
+    main = extract_main_text(html, url)
+    if main and len(main) >= MIN_VISIBLE_CHARS:
+        return main, "main"
+    visible = extract_visible_text(html)
+    if len(visible) >= MIN_VISIBLE_CHARS:
+        return visible, "visible"
+    summary = extract_meta_summary(html)
+    if summary:
+        return summary, "meta"  # 正文太短(「Loading…」之类碎字)而网页自带摘要:摘要更可信
+    if main:
+        return main, "main"
+    if visible:
+        return visible, "visible"
+    return None
+
+
+def fetch_json(client: httpx.Client, url: str) -> object | None:
+    """以浏览器身份 GET 一个 JSON 接口(如平台的公开嵌入接口);非 200 或不是 JSON → None。网络错误照常抛。"""
+    response = get_as_browser(client, url)
+    if response.status_code != 200:
+        return None
+    try:
+        return response.json()
+    except ValueError:
+        return None
+
+
 def extract_main_text(html: str, url: str | None = None) -> str | None:
     """正文(去掉导航、页脚、侧栏、评论):trafilatura;抽不出返回 None,由调用方决定要不要回退到全文。"""
     text = trafilatura.extract(
