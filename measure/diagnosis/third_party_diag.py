@@ -22,7 +22,7 @@ from diagnosis.findings import (
     rate_params,
     rate_status,
 )
-from engine.aggregate import ClassSurfaceMetric
+from engine.aggregate import ArchiveTally, ClassSurfaceMetric
 from engine.metrics import Rate
 
 _STEP = {Stage.RETRIEVAL: "retrieved", Stage.CITATION: "cited"}
@@ -37,6 +37,7 @@ def diagnose_third_party(
     unobservable: Mapping[str, int],
     thresholds: DiagnosisThresholds = DiagnosisThresholds(),
     summary_only: Mapping[str, int] | None = None,
+    archived: ArchiveTally | None = None,
 ) -> StageFinding:
     """第三方线的一步(stage = RETRIEVAL 搜到 / CITATION 引用)。无有效样本或该仪器不暴露这一步 → 看不到。"""
     step = _STEP[stage]
@@ -61,6 +62,9 @@ def diagnose_third_party(
             msg("thirdparty.reason_item", reason=msg(f"textsource.{source}"), n=count)
             for source, count in sorted(summary_only.items())
         ]))
+    if archived is not None:
+        evidence.append(msg("thirdparty.archived", n=archived.pages, k=archived.mentioning,
+                            oldest=archived.oldest or "?", newest=archived.newest or "?"))
     evidence.append(caliber_msg(metric))
     evidence.extend(prompt_msgs(metric))
     evidence.append(msg("citation.thresholds" if stage is Stage.CITATION else "retrieval.thresholds",

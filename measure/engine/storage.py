@@ -152,16 +152,19 @@ class Storage:
         )
 
     _PAGE_COLUMNS = ("check_id, url, normalized_url, fetched_at, status, http_status, final_url, title, text, "
-                     "text_source, text_chars, truncated, error, fetcher_version")
+                     "text_source, text_chars, truncated, error, fetcher_version, archive_url, archive_timestamp, "
+                     "live_status")
 
     def insert_page_check(self, check: PageCheck) -> None:
         self._conn.execute(
             f"INSERT INTO page_check ({self._PAGE_COLUMNS}) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 check.check_id, check.url, check.normalized_url, check.fetched_at, check.status.value,
                 check.http_status, check.final_url, check.title, check.text, check.text_source,
                 check.text_chars, check.truncated, check.error, check.fetcher_version,
+                check.archive_url, check.archive_timestamp,
+                check.live_status.value if check.live_status is not None else None,
             ),
         )
 
@@ -181,6 +184,7 @@ class Storage:
                 check_id=row[0], url=row[1], normalized_url=row[2], fetched_at=row[3], status=row[4],
                 http_status=row[5], final_url=row[6], title=row[7], text=row[8], text_source=row[9],
                 text_chars=row[10], truncated=row[11], error=row[12], fetcher_version=row[13],
+                archive_url=row[14], archive_timestamp=row[15], live_status=row[16],
             )
             for row in rows
         }

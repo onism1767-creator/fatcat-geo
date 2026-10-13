@@ -52,6 +52,7 @@ def _html(body: str, status: int = 200) -> httpx.Response:
 def _check(urls: list[str], store: MemoryStore | None = None, **kwargs) -> tuple[PageIndex, MemoryStore]:
     store = store or MemoryStore()
     kwargs.setdefault("render", False)  # 单测不起真浏览器;渲染回退另有假渲染器的测试
+    kwargs.setdefault("archive", False)  # 单测不问档案馆;存档回退另有假存档源的测试
     checker = PageChecker(store, sleep=lambda s: None, **kwargs)
     try:
         return checker.check([PageRequest(url=u) for u in urls]), store
@@ -127,7 +128,7 @@ def test_own_site_pages_ignore_robots_while_third_party_respects_it():
         return_value=httpx.Response(200, text="User-agent: *\nDisallow: /\n"))
     page = respx.get("https://brand.test/p").mock(return_value=_html(ARTICLE))
     store = MemoryStore()
-    checker = PageChecker(store, sleep=lambda s: None, render=False)
+    checker = PageChecker(store, sleep=lambda s: None, render=False, archive=False)
     try:
         index = checker.check([PageRequest(url="https://brand.test/p", respect_robots=False),
                                PageRequest(url="https://brand.test/q", respect_robots=True)])
@@ -172,7 +173,7 @@ def test_same_host_is_serialized_with_a_gap_and_priority_orders_the_queue():
             return _html(ARTICLE)
         respx.get(f"https://site-f.com/{name}").mock(side_effect=serve)
     store = MemoryStore()
-    checker = PageChecker(store, concurrency=3, host_gap_s=0.2, render=False)
+    checker = PageChecker(store, concurrency=3, host_gap_s=0.2, render=False, archive=False)
     try:
         checker.check([
             PageRequest(url="https://site-f.com/a", priority=1), PageRequest(url="https://site-f.com/b", priority=0),
@@ -293,7 +294,7 @@ def test_empty_pages_are_rendered_once_and_judged_from_the_rendered_text():
     respx.get("https://app.test/plain").mock(return_value=_html(ARTICLE))
     renderer = FakeRenderer(ARTICLE)
     store = MemoryStore()
-    checker = PageChecker(store, sleep=lambda s: None, renderer=renderer)
+    checker = PageChecker(store, sleep=lambda s: None, renderer=renderer, archive=False)
     try:
         index = checker.check([PageRequest(url="https://app.test/shell"), PageRequest(url="https://app.test/plain")])
     finally:
@@ -304,7 +305,7 @@ def test_empty_pages_are_rendered_once_and_judged_from_the_rendered_text():
     assert page_mention(shell, BRAND) is not None and page_mention(shell, BRAND).found
     shell_rows = [r for r in store.rows if r.normalized_url == "https://app.test/shell"]
     assert [r.status for r in shell_rows] == [PageFetchStatus.EMPTY_TEXT, PageFetchStatus.OK]  # 原始 + 渲染,都留档
-    again = PageChecker(store, sleep=lambda s: None, renderer=renderer)
+    again = PageChecker(store, sleep=lambda s: None, renderer=renderer, archive=False)
     try:
         again.check([PageRequest(url="https://app.test/shell")])
     finally:
@@ -335,17 +336,120 @@ def test_render_failures_stay_unobservable_with_the_attempt_on_record():
     assert late.calls == [] and index4.lookup("https://app.test/shell").status is PageFetchStatus.EMPTY_TEXT
 
 
+class FakeArchive:
+    def __init__(self, pages: dict[str, str | None]) -> None:
+        self.pages, self.calls = pages, []  # type: tuple[dict[str, str | None], list[str]]
+
+    def fetch(self, url: str):
+        from crawler.wayback import ArchivedPage
+
+        self.calls.append(url)
+        html = self.pages.get(url)
+        if html is None:
+            return None
+        return ArchivedPage(html=html, archive_url=f"https://web.archive.org/web/20250102030405/{url}",
+                            timestamp="20250102030405", http_status=200)
+
+
+@respx.mock
+def test_pages_that_cannot_be_opened_now_fall_back_to_the_archive_with_the_date_on_record():
+    """S6.4:被拦 / 打不开的第三方页查档案馆快照;存档行带快照地址、时间戳、实时状态;robots 不让抓的不查;
+    用户自己的站不查;没有快照的记「存档也没有」且不再重查;存档不是实时观测(判定照常,口径另算,见聚合测试)。"""
+    respx.get("https://news.test/robots.txt").mock(
+        return_value=httpx.Response(200, text="User-agent: *\nDisallow: /private/\n"))
+    respx.get("https://news.test/blocked").mock(return_value=httpx.Response(403))
+    respx.get("https://news.test/gone").mock(return_value=httpx.Response(404))
+    respx.get("https://news.test/private/x").mock(return_value=_html(ARTICLE))
+    respx.get("https://brand.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://brand.test/down").mock(side_effect=httpx.ConnectError("down"))
+    archive = FakeArchive({"https://news.test/blocked": ARTICLE, "https://brand.test/down": ARTICLE})
+    store = MemoryStore()
+    checker = PageChecker(store, sleep=lambda s: None, render=False, archive_source=archive)
+    try:
+        index = checker.check([
+            PageRequest(url="https://news.test/blocked"), PageRequest(url="https://news.test/gone"),
+            PageRequest(url="https://news.test/private/x"),
+            PageRequest(url="https://brand.test/down", respect_robots=False, allow_archive=False),
+        ])
+    finally:
+        checker.close()
+    assert archive.calls == ["https://news.test/blocked", "https://news.test/gone"]  # robots 不让的、自己的站都不查
+    blocked = index.lookup("https://news.test/blocked")
+    assert blocked.status is PageFetchStatus.OK and blocked.text_source == "archive_main"
+    assert blocked.archive_timestamp == "20250102030405" and blocked.live_status is PageFetchStatus.BLOCKED
+    assert blocked.archive_url.startswith("https://web.archive.org/web/20250102030405/")
+    assert page_mention(blocked, BRAND).found
+    gone = index.lookup("https://news.test/gone")
+    assert gone.status is PageFetchStatus.FETCH_FAILED and gone.error == "archive:none"  # 存档也没有,查过了
+    assert index.lookup("https://news.test/private/x").status is PageFetchStatus.ROBOTS_DISALLOWED
+    assert index.lookup("https://brand.test/down").status is PageFetchStatus.FETCH_FAILED
+    assert len(store.rows) == 6  # 4 条实时 + 2 条存档尝试,都留档
+    again = PageChecker(store, sleep=lambda s: None, render=False, archive_source=archive)
+    try:
+        again.check([PageRequest(url="https://news.test/blocked"), PageRequest(url="https://news.test/gone")])
+    finally:
+        again.close()
+    assert archive.calls == ["https://news.test/blocked", "https://news.test/gone"]  # 7 天内复用,不重查
+
+
+class LimitedArchive(FakeArchive):
+    def __init__(self, pages: dict[str, str | None], limited_calls: int) -> None:
+        super().__init__(pages)
+        self.limited_calls = limited_calls  # 前几次调用都回「限流」
+
+    def fetch(self, url: str):
+        from crawler.wayback import ArchiveRateLimited
+
+        if self.limited_calls > 0:
+            self.limited_calls -= 1
+            raise ArchiveRateLimited(retry_after_s=5.0)
+        return super().fetch(url)
+
+
+@respx.mock
+def test_archive_rate_limit_waits_once_within_bounds_then_stops_the_pass():
+    """S6.4:档案馆限流按 Retry-After 等一次(有上限),再限流整轮停;没查到的页不带「已查」标记,下次再查。"""
+    respx.get("https://news.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://news.test/a").mock(return_value=httpx.Response(403))
+    respx.get("https://news.test/b").mock(return_value=httpx.Response(403))
+    sleeps: list[float] = []
+    archive = LimitedArchive({"https://news.test/a": ARTICLE, "https://news.test/b": ARTICLE}, limited_calls=1)
+    checker = PageChecker(MemoryStore(), sleep=sleeps.append, render=False, archive_source=archive)
+    try:
+        index = checker.check([PageRequest(url="https://news.test/a", priority=0),
+                               PageRequest(url="https://news.test/b", priority=1)])
+    finally:
+        checker.close()
+    assert 5.0 in sleeps  # 按 Retry-After 等了一次
+    assert index.lookup("https://news.test/a").text_source == "archive_main"
+    assert index.lookup("https://news.test/b").text_source == "archive_main"
+    stuck = LimitedArchive({"https://news.test/a": ARTICLE, "https://news.test/b": ARTICLE}, limited_calls=5)
+    again = PageChecker(MemoryStore(), sleep=sleeps.append, render=False, archive_source=stuck)
+    try:
+        index = again.check([PageRequest(url="https://news.test/a"), PageRequest(url="https://news.test/b")])
+    finally:
+        again.close()
+    a = index.lookup("https://news.test/a")
+    assert a.status is PageFetchStatus.BLOCKED and a.archive_timestamp is None and a.error != "archive:none"
+    assert index.lookup("https://news.test/b").archive_timestamp is None
+    assert stuck.limited_calls == 3  # 等一次、再试一次就停,不逐页硬撞
+
+
 def test_page_check_table_is_append_only_and_latest_per_url(storage):
     older = PageCheck(url="https://x.test/a", normalized_url="https://x.test/a", status=PageFetchStatus.FETCH_FAILED,
                       error="ConnectError", fetcher_version=1, fetched_at=datetime(2026, 10, 12, tzinfo=UTC))
     newer = PageCheck(url="https://x.test/a", normalized_url="https://x.test/a", status=PageFetchStatus.OK,
-                      http_status=200, title="T", text="AuroraCRM is here", text_source="main", text_chars=17,
-                      fetcher_version=1, fetched_at=datetime(2026, 10, 13, tzinfo=UTC))
+                      http_status=200, title="T", text="AuroraCRM is here", text_source="archive_main", text_chars=17,
+                      fetcher_version=1, fetched_at=datetime(2026, 10, 13, tzinfo=UTC),
+                      archive_url="https://web.archive.org/web/20250102030405/https://x.test/a",
+                      archive_timestamp="20250102030405", live_status=PageFetchStatus.BLOCKED)
     storage.insert_page_check(older)
     storage.insert_page_check(newer)
     latest = storage.recent_page_checks(["https://x.test/a", "https://x.test/never"])
     assert set(latest) == {"https://x.test/a"} and latest["https://x.test/a"].status is PageFetchStatus.OK
     assert latest["https://x.test/a"].text == "AuroraCRM is here" and latest["https://x.test/a"].truncated is False
+    assert latest["https://x.test/a"].archive_timestamp == "20250102030405"
+    assert latest["https://x.test/a"].live_status is PageFetchStatus.BLOCKED  # 存档三列往返
     assert storage.recent_page_checks([]) == {}
     with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
         storage._conn.execute("UPDATE page_check SET text = NULL")

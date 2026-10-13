@@ -292,6 +292,10 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": "{n} 条第三方网页只拿到摘要、按摘要判(正文深处提到会漏,不会多算):{items}",
         "en": "{n} third-party page(s) yielded only a summary and were judged on it (a mention deep in the body would be missed, never over-counted): {items}",
     },
+    "thirdparty.archived": {
+        "zh": "{n} 条现在打不开,只看到互联网档案馆 {oldest}–{newest} 的存档,其中 {k} 条写到你;存档不算实时观测,没进上面的比例",
+        "en": "{n} page(s) could not be opened now; only Internet Archive snapshots from {oldest}–{newest} were seen, {k} of which mention the brand; archives are not live observations and are excluded from the rates above",
+    },
     "textsource.meta": {"zh": "网页自带的标题 + 简介", "en": "the page's own title + description"},
     "textsource.rendered_meta": {"zh": "渲染后的标题 + 简介", "en": "title + description after rendering"},
     "textsource.oembed": {"zh": "平台嵌入接口给的标题(配置该平台的接口后可核对正文)", "en": "title from the platform's embed endpoint (configure that platform's API to check the full text)"},
@@ -796,6 +800,7 @@ PLAIN: dict[str, dict[str, str]] = {
     "thirdparty.retrieved.rate": {"zh": "本次 {n} 次回答里,{k} 次搜到了别人提到你的文章", "en": "In {k} of {n} answers this time, its search turned up other people's pages about you"},
     "thirdparty.cited.rate": {"zh": "本次 {n} 次回答里,{k} 次拿别人提到你的文章当参考(和官网分开算)", "en": "In {k} of {n} answers this time, it used other people's pages about you as references (counted apart from your own site)"},
     "thirdparty.unobservable": {"zh": "有 {n} 篇文章这次看不到,没有参与判断:{items}", "en": "{n} page(s) could not be checked this time and were not used: {items}"},
+    "thirdparty.archived": {"zh": "另有 {n} 篇文章现在打不开,只看到 {oldest} 到 {newest} 的存档,其中 {k} 篇提到你(没算进上面的数)", "en": "{n} more page(s) cannot be opened now; only archived copies from {oldest} to {newest} were seen, {k} of which mention you (not counted above)"},
     "caution.thirdparty.divergence": {"zh": "搜索结果里没看到别人提到你的文章,回答却参考了:AI 实际的搜索和我们看到的不完全一样,这一项不作为问题依据", "en": "No page about you by others showed up in the visible search results, yet one was used as a reference: the AI's actual search differs from what we can see, so this item is not used as evidence of a problem"},
     "repr.headline.probe_none": {"zh": "用户直接问起你时,回答里没有出现你的品牌名(不正常,建议检查测试)", "en": "Your brand name did not appear even when users asked directly (abnormal; check the test)"},
     "repr.headline.probe_fail": {"zh": "用户直接问起你时,AI 对你的评价以负面为主", "en": "When users ask about you directly, the AI's description is mostly negative"},

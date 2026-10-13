@@ -105,6 +105,16 @@ class GenerativeRetrieval:
 
 
 @dataclass(frozen=True)
+class ArchiveTally:
+    """只能从互联网档案馆的存档看到的第三方网页(S6.4):不算实时观测,不进比例,单独给数量与存档日期范围。"""
+
+    pages: int
+    mentioning: int
+    oldest: str | None  # YYYY-MM-DD
+    newest: str | None
+
+
+@dataclass(frozen=True)
 class ThirdPartyMeasurement:
     """第三方线(S6.1):搜到 / 引用「正文写到你的第三方网页」,与官网线分开、不相加。
     一次回答的状态:至少一条写到你 → 有;没有但至少一条可归类 → 没有;全部看不到 → 不进分母(v0.4.24 第 2 节)。"""
@@ -116,6 +126,7 @@ class ThirdPartyMeasurement:
     unobservable_cited: dict[str, int]  # 看不到的引用网页按原因计数(条)
     unobservable_retrieved: dict[str, int]
     summary_only: dict[str, int]  # 只拿到网页摘要 / 嵌入接口标题、按摘要判的第三方网页,按文字来源计数(引用 + 搜到;S6.3)
+    archived: ArchiveTally | None  # 只能从存档看到的(引用 + 搜到;S6.4);没有 → None
 
 
 @dataclass(frozen=True)
@@ -150,17 +161,36 @@ def _present(obs: RunObservations) -> bool | None:
     return None if obs.presence is None else obs.presence.present
 
 
+def _live(e: SourceAttribution) -> bool:
+    """实时看到的才进比例;存档行(S6.4)在实时口径里算看不到。"""
+    return e.archived_at is None
+
+
 def _tp_flag(entries: list[SourceAttribution]) -> bool | None:
-    """一次回答的第三方线状态:有 / 没有 / 全部看不到(None,不进分母)。"""
-    if any(e.source_class is SourceClass.THIRD_PARTY_MENTIONS for e in entries):
+    """一次回答的第三方线状态:有 / 没有 / 全部看不到(None,不进分母)。存档行按看不到算。"""
+    if any(e.source_class is SourceClass.THIRD_PARTY_MENTIONS and _live(e) for e in entries):
         return True
-    if entries and all(e.source_class is SourceClass.NOT_OBSERVABLE for e in entries):
+    if entries and all(e.source_class is SourceClass.NOT_OBSERVABLE or not _live(e) for e in entries):
         return None
     return False
 
 
 def _tp_lead(entries: list[SourceAttribution]) -> bool:
-    return any(e.source_class is SourceClass.THIRD_PARTY_MENTIONS and e.position in ("title", "lead") for e in entries)
+    return any(e.source_class is SourceClass.THIRD_PARTY_MENTIONS and _live(e) and e.position in ("title", "lead")
+               for e in entries)
+
+
+def _archive_tally(entry_lists: list[list[SourceAttribution]]) -> ArchiveTally | None:
+    archived = [e for entries in entry_lists for e in entries if e.archived_at is not None]
+    if not archived:
+        return None
+    stamps = sorted(e.archived_at for e in archived if e.archived_at)
+    fmt = lambda ts: f"{ts[:4]}-{ts[4:6]}-{ts[6:8]}" if len(ts) >= 8 else ts  # noqa: E731
+    return ArchiveTally(
+        pages=len(archived),
+        mentioning=sum(e.source_class is SourceClass.THIRD_PARTY_MENTIONS for e in archived),
+        oldest=fmt(stamps[0]) if stamps else None, newest=fmt(stamps[-1]) if stamps else None,
+    )
 
 
 SUMMARY_SOURCES = frozenset({"meta", "oembed", "rendered_meta"})  # 只有标题 + 简介,正文深处提到会漏(不会多算)
@@ -169,7 +199,8 @@ SUMMARY_SOURCES = frozenset({"meta", "oembed", "rendered_meta"})  # 只有标题
 def _summary_only(entry_lists: list[list[SourceAttribution]]) -> dict[str, int]:
     counts = Counter(
         e.text_source for entries in entry_lists for e in entries
-        if e.source_class in (SourceClass.THIRD_PARTY_MENTIONS, SourceClass.OTHER) and e.text_source in SUMMARY_SOURCES
+        if e.source_class in (SourceClass.THIRD_PARTY_MENTIONS, SourceClass.OTHER) and _live(e)
+        and e.text_source in SUMMARY_SOURCES
     )
     return {str(k): v for k, v in counts.items()}
 
@@ -177,7 +208,7 @@ def _summary_only(entry_lists: list[list[SourceAttribution]]) -> dict[str, int]:
 def _unobservable(entry_lists: list[list[SourceAttribution]]) -> dict[str, int]:
     counts = Counter(
         e.reason or "UNKNOWN" for entries in entry_lists for e in entries
-        if e.source_class is SourceClass.NOT_OBSERVABLE
+        if e.source_class is SourceClass.NOT_OBSERVABLE or not _live(e)  # 存档行按实时抓取的原因计看不到
     )
     return dict(counts)
 
@@ -216,6 +247,7 @@ def _measure_third_party(
         retrieved=metric("retrieved", "third_party_retrieved"), retrieved_lead=lead("retrieved"),
         unobservable_cited=unobservable("cited"), unobservable_retrieved=unobservable("retrieved"),
         summary_only=_summary_only(entries_of("cited") + entries_of("retrieved")),
+        archived=_archive_tally(entries_of("cited") + entries_of("retrieved")),
     )
 
 

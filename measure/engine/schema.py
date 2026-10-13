@@ -84,7 +84,10 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         text_chars integer,
         truncated boolean NOT NULL,
         error text,
-        fetcher_version integer NOT NULL
+        fetcher_version integer NOT NULL,
+        archive_url text,
+        archive_timestamp text,
+        live_status text
     )
     """,
     "CREATE INDEX IF NOT EXISTS page_check_url_idx ON page_check (normalized_url, fetched_at DESC)",

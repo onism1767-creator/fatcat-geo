@@ -34,6 +34,15 @@ def test_third_party_step_lights_and_lists_unobservable_reasons():
     summary_line = _zh(summarized.evidence_lines[1])
     assert "4 条第三方网页只拿到摘要" in summary_line
     assert "网页自带的标题 + 简介 3、平台嵌入接口给的标题(配置该平台的接口后可核对正文) 1" in summary_line
+    from engine.aggregate import ArchiveTally
+
+    tally = ArchiveTally(pages=3, mentioning=2, oldest="2025-01-02", newest="2025-06-30")
+    with_archive = diagnose_third_party(Stage.CITATION, make_metric(2, 12), None, {}, archived=tally)
+    archive_line = _zh(with_archive.evidence_lines[1])
+    assert "3 条现在打不开" in archive_line and "2025-01-02–2025-06-30" in archive_line
+    assert "其中 2 条写到你" in archive_line and "没进上面的比例" in archive_line
+    assert _zh(with_archive.evidence_lines[1], "plain") == (
+        "另有 3 篇文章现在打不开,只看到 2025-01-02 到 2025-06-30 的存档,其中 2 篇提到你(没算进上面的数)")
     unobservable = diagnose_third_party(Stage.RETRIEVAL, None, None, {"NOT_ATTEMPTED": 4})
     assert unobservable.status is StageStatus.NOT_OBSERVABLE and len(unobservable.evidence_lines) == 1
 

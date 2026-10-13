@@ -394,7 +394,7 @@ def _check_pages(
             priority[final] = min(priority.get(final, level), level)
     requests = [
         PageRequest(url=url, priority=priority[url] * 1_000_000 + max(0, 1_000_000 - counts[url]),
-                    respect_robots=normalize_url(url) not in own)
+                    respect_robots=normalize_url(url) not in own, allow_archive=normalize_url(url) not in own)
         for url in counts
     ]
     checker = _page_checker(storage)

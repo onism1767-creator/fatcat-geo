@@ -88,12 +88,15 @@ class SourceClassifier:
             return SourceAttribution(url=url, final_url=final, source_class=SourceClass.NOT_OBSERVABLE,
                                      reason=check.status.value)
         mention = page_mention(check, brand)
+        # 存档行(S6.4):判定照常,但记时间戳与实时状态——聚合时不进实时比例、按实时原因计看不到、另给存档一行
+        archived_at = check.archive_timestamp
+        reason = check.live_status.value if archived_at and check.live_status is not None else None
         if mention is None or not mention.found:
             return SourceAttribution(url=url, final_url=final, source_class=SourceClass.OTHER,
-                                     text_source=check.text_source)
+                                     text_source=check.text_source, archived_at=archived_at, reason=reason)
         return SourceAttribution(url=url, final_url=final, source_class=SourceClass.THIRD_PARTY_MENTIONS,
                                  position=mention.position.value if mention.position else None,
-                                 text_source=check.text_source)
+                                 text_source=check.text_source, archived_at=archived_at, reason=reason)
 
     def detect(self, run: SurfaceRun, brand: BrandSpec) -> SourceAttributionObservation | None:
         if not is_valid_answer(run):

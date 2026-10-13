@@ -72,6 +72,8 @@ def _seal_network(adapters: dict) -> None:
     def no_fetch(self, normalized, request):
         raise Blocked(f"核实想抓网页:{normalized}")
     page_check_mod.PageChecker._fetch_one = no_fetch  # type: ignore[method-assign]
+    page_check_mod.PageChecker._render_pass = lambda self, *a, **k: {}  # type: ignore[method-assign]
+    page_check_mod.PageChecker._archive_pass = lambda self, *a, **k: {}  # type: ignore[method-assign]
 
 
 def _recompute(job_id: str, access: AccessAuditResult, adapters: dict) -> dict:

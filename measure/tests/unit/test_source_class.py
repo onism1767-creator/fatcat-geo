@@ -32,9 +32,12 @@ FILLER = "a long enough paragraph of review text " * 5
 
 
 def _page(url: str, status=PageFetchStatus.OK, *, title: str | None = None, text: str | None = None,
-          text_source: str | None = None) -> PageCheck:
+          text_source: str | None = None, archived: str | None = None,
+          live_status: PageFetchStatus | None = None) -> PageCheck:
     return PageCheck(url=url, normalized_url=url, status=status, title=title, text=text, fetcher_version=1,
-                     text_source=text_source or ("main" if text else None))
+                     text_source=text_source or ("main" if text else None), archive_timestamp=archived,
+                     live_status=live_status,
+                     archive_url=f"https://web.archive.org/web/{archived}/{url}" if archived else None)
 
 
 PAGES = PageIndex(checks={
@@ -45,8 +48,11 @@ PAGES = PageIndex(checks={
     "https://wall.test/y": _page("https://wall.test/y", status=PageFetchStatus.BLOCKED),
     "https://video.test/v": _page("https://video.test/v", title="AuroraCRM demo", text="AuroraCRM demo\n\nA tour.",
                                   text_source="meta"),
+    "https://old.test/a": _page("https://old.test/a", title="AuroraCRM in 2025", text=f"AuroraCRM {FILLER}",
+                                text_source="archive_main", archived="20250102030405",
+                                live_status=PageFetchStatus.BLOCKED),
 }, attempted=frozenset({"https://review.test/aurora", "https://blog.test/crm", "https://other.test/x",
-                        "https://wall.test/y", "https://video.test/v"}))
+                        "https://wall.test/y", "https://video.test/v", "https://old.test/a"}))
 
 
 def _run(run_id: str, cited: list[str], retrieved: list[str] | None = None, *, prompt_id: str = "p1",
@@ -103,15 +109,19 @@ def test_third_party_line_aggregates_apart_from_the_own_site_line():
         _run("c", ["https://wall.test/y", "https://never.test/z"], None),  # 引用全看不到 → 不进分母;搜到不可观测
         _run("d", ["https://blog.test/crm"], ["https://review.test/aurora"]),           # 引用:有(正文);搜到:有
         _run("e", ["https://video.test/v"], ["https://video.test/v"]),                   # 只拿到摘要:算,但另计
+        _run("f", ["https://old.test/a"], None),                                         # 只有存档:不进实时比例
     ]
     observations = [observe(run, BRAND, context) for run in runs]
     m = measure_target(Target(surface="s1", model="m"), "p", PromptIntent.CATEGORY_DISCOVERY, observations, ["p1"],
                        stop_reason=StopReason.COMPLETED, competitor_names=["Beta"], exposes_retrieval=True)
     tp = m.third_party
     assert tp is not None and tp.cited is not None and tp.cited.rate is not None
-    assert (tp.cited.rate.k, tp.cited.rate.n) == (3, 4)  # c 全部看不到,不进分母;e 按摘要判也算
+    assert (tp.cited.rate.k, tp.cited.rate.n) == (3, 4)  # c 全部看不到、f 只有存档:都不进分母;e 按摘要判也算
     assert (tp.cited_lead.k, tp.cited_lead.n) == (2, 3)  # a、e 标题就出现;d 只在正文
-    assert (tp.retrieved.rate.k, tp.retrieved.rate.n) == (2, 4)  # c 候选集不可观测,不进
-    assert tp.unobservable_cited == {"BLOCKED": 1, "NOT_ATTEMPTED": 1} and tp.unobservable_retrieved == {}
+    assert (tp.retrieved.rate.k, tp.retrieved.rate.n) == (2, 4)  # c、f 候选集不可观测,不进
+    assert tp.unobservable_cited == {"BLOCKED": 2, "NOT_ATTEMPTED": 1}  # f 的存档行按实时原因(被拦)计看不到
+    assert tp.unobservable_retrieved == {}
     assert tp.summary_only == {"meta": 2}  # e 的引用 + 搜到各一条只拿到摘要,另计不并入
-    assert (m.citation.rate.k, m.citation.rate.n) == (1, 5)  # 官网线照旧
+    assert tp.archived is not None and (tp.archived.pages, tp.archived.mentioning) == (1, 1)
+    assert (tp.archived.oldest, tp.archived.newest) == ("2025-01-02", "2025-01-02")
+    assert (m.citation.rate.k, m.citation.rate.n) == (1, 6)  # 官网线照旧

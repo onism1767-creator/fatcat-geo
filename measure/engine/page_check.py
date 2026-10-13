@@ -14,6 +14,8 @@ S6.2(用户定):原始 HTML 抽不出正文的页,再用无头浏览器(crawler/
 S6.3(用户定,不加必填 key):① 配了官方接口的平台(如 Reddit)先走接口拿标题 + 正文 + 评论;
 ② 抽不出正文的页退一步读网页自带的标题 + 简介(meta);③ 网页打不开或仍无文字、而平台有公开嵌入接口(不要 key)的,
 拿标题(oembed)。文字来源都记在 text_source。
+S6.4(用户定):实时打不开(被拦 / 需登录 / 打不开 / 仍无正文)的第三方页,再去互联网档案馆(crawler/wayback.py)找最近一张快照,
+串行、同一预算内;存档记录带快照地址与时间戳、不算实时观测,判定与报告单独计。站点 robots 不让抓的不查存档(尊重到底)。
 """
 
 from __future__ import annotations
@@ -23,10 +25,12 @@ import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass, field
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Final, Protocol
 from urllib import robotparser
 from urllib.parse import quote, urlsplit, urlunsplit
+from uuid import uuid4
 
 import httpx
 import structlog
@@ -45,9 +49,13 @@ from crawler.fetch import (
 )
 from crawler.platform import PlatformFetcher
 from crawler.render import PlaywrightRenderer, RenderedPage, Renderer, playwright_available
+from crawler.wayback import ArchivedPage, ArchiveRateLimited, ArchiveSource, WaybackClient
 from engine.models import PageCheck, PageFetchStatus
 
 log = structlog.get_logger("engine.page_check")
+
+ARCHIVE_BACKOFF_S: Final = 10.0  # 档案馆限流又没给 Retry-After 时等多久
+ARCHIVE_MAX_WAIT_S: Final = 60.0  # 单次等待上限(有界等待)
 
 FETCHER_VERSION: Final = 1
 CONCURRENCY: Final = 8
@@ -80,6 +88,7 @@ class PageRequest:
     url: str
     priority: int = 0  # 小的先开(被引 0 / 搜到 1),同级按出现次数由调用方排
     respect_robots: bool = True  # 用户自己的站 False(D13:robots 只作检查对象)
+    allow_archive: bool = True  # 实时打不开时可否查互联网档案馆(S6.4);用户自己的站 False(核验的是现在)
 
 
 @dataclass(frozen=True)
@@ -112,14 +121,18 @@ class PageChecker:
         renderer: Renderer | None = None,
         platform_fetchers: Sequence[PlatformFetcher] | None = None,
         oembed: Mapping[str, str] | None = None,
+        archive: bool = True,
+        archive_source: ArchiveSource | None = None,
     ) -> None:
         """render=False 关掉渲染回退(测试、对照脚本);renderer 不给就在 Playwright 可用时用它,不可用就不渲染。
-        platform_fetchers:配了 key 的平台官方接口(S6.3);oembed:主机 → 公开嵌入接口模板({url} 占位)。"""
+        platform_fetchers:配了 key 的平台官方接口(S6.3);oembed:主机 → 公开嵌入接口模板({url} 占位)。
+        archive=False 关掉存档回退;archive_source 不给就用互联网档案馆(S6.4)。"""
         self._fetchers = list(platform_fetchers or [])
         self._oembed = dict(oembed or {})
         self._store = store
         self._own_client = client is None
         self._client = client or new_client(timeout=FETCH_TIMEOUT)
+        self._archive: ArchiveSource | None = (archive_source or WaybackClient(self._client)) if archive else None
         if renderer is None and render and playwright_available():
             renderer = PlaywrightRenderer()
         self._renderer: Renderer | None = renderer if render else None
@@ -154,8 +167,13 @@ class PageChecker:
         for normalized, check in rendered.items():
             self._store.insert_page_check(check)
             checks[normalized] = check
+        archived = self._archive_pass(wanted, checks, deadline)
+        for normalized, check in archived.items():
+            self._store.insert_page_check(check)
+            checks[normalized] = check
         log.info("pages_checked", wanted=len(wanted), reused=len(wanted) - len(pending),
-                 fetched=len(fetched), rendered=len(rendered), not_attempted=len(pending) - len(fetched))
+                 fetched=len(fetched), rendered=len(rendered), archived=len(archived),
+                 not_attempted=len(pending) - len(fetched))
         return PageIndex(checks=checks, attempted=frozenset(checks))
 
     def _run(self, pending: dict[str, PageRequest], deadline: float) -> dict[str, PageCheck]:
@@ -234,6 +252,73 @@ class PageChecker:
             common["title"] = text.split(nl_marker, 1)[0]  # 摘要退路:标题取网页自带的 og/twitter 标题
         return self._record(request.url, normalized, PageFetchStatus.OK, text=text[:MAX_TEXT_CHARS],
                             text_source=f"rendered_{source}", text_chars=len(text), **common)
+
+    # ── 存档回退(S6.4) ──
+
+    _ARCHIVE_WHEN = frozenset({PageFetchStatus.BLOCKED, PageFetchStatus.LOGIN_REQUIRED,
+                               PageFetchStatus.FETCH_FAILED, PageFetchStatus.EMPTY_TEXT})
+
+    def _archive_pass(
+        self, wanted: dict[str, PageRequest], checks: dict[str, PageCheck], deadline: float,
+    ) -> dict[str, PageCheck]:
+        """实时打不开的第三方页去档案馆找快照:串行、按优先级、到截止时间就停;robots 不让抓的不查;
+        已查过存档(记录带 archive: 标记或本身就是存档行)的不再查;没有存档源就不做。"""
+        if self._archive is None:
+            return {}
+        todo = sorted(
+            ((normalized, wanted[normalized]) for normalized, check in checks.items()
+             if check.status in self._ARCHIVE_WHEN and wanted[normalized].allow_archive
+             and check.archive_timestamp is None and not (check.error or "").startswith("archive:")),
+            key=lambda item: item[1].priority,
+        )
+        archived: dict[str, PageCheck] = {}
+        last_at = float("-inf")
+        for normalized, request in todo:
+            if self._clock() >= deadline:
+                break
+            wait = last_at + self._host_gap_s - self._clock()  # 档案馆也是一个站:同样隔间隔
+            if wait > 0:
+                self._sleep(wait)
+            try:
+                page = self._archive_fetch(normalized, deadline)
+            except ArchiveRateLimited:  # 等过一次仍限流:这轮到此为止;没查到的实时行不带「已查」标记,下次再查
+                log.warning("archive_rate_limited_stop", archived=len(archived), left=len(todo) - len(archived))
+                break
+            last_at = self._clock()
+            archived[normalized] = self._from_archive(request, normalized, checks[normalized], page)
+        return archived
+
+    def _archive_fetch(self, url: str, deadline: float) -> ArchivedPage | None:
+        """档案馆限流(429)时按 Retry-After 等一次(有上限、不超过截止时间)再试一次;再限流就往上抛。"""
+        assert self._archive is not None
+        try:
+            return self._archive.fetch(url)
+        except ArchiveRateLimited as exc:
+            hinted = exc.retry_after_s if exc.retry_after_s is not None else ARCHIVE_BACKOFF_S
+            wait = min(hinted, ARCHIVE_MAX_WAIT_S, deadline - self._clock())
+            if wait <= 0:
+                raise
+            log.info("archive_rate_limited_wait", wait_s=round(wait, 1))
+            self._sleep(wait)
+            return self._archive.fetch(url)
+
+    def _from_archive(
+        self, request: PageRequest, normalized: str, live: PageCheck, page: ArchivedPage | None,
+    ) -> PageCheck:
+        if page is None:  # 存档也没有:原样保留实时结果,只标一下查过
+            return live.model_copy(update={"check_id": str(uuid4()), "fetched_at": datetime.now(UTC),
+                                           "error": "archive:none"})
+        extracted = text_from_html(page.html, normalized)
+        common = dict(http_status=page.http_status, final_url=normalized, title=page_title(page.html),
+                      archive_url=page.archive_url, archive_timestamp=page.timestamp, live_status=live.status,
+                      truncated=page.truncated)
+        if extracted is None:
+            return self._record(request.url, normalized, live.status, error="archive:empty", **common)
+        text, source = extracted
+        if source == "meta":
+            common["title"] = text.split(nl_marker, 1)[0]
+        return self._record(request.url, normalized, PageFetchStatus.OK, text=text[:MAX_TEXT_CHARS],
+                            text_source=f"archive_{source}", text_chars=len(text), **common)
 
     # ── 单页 ──
 
