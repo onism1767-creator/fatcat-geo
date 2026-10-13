@@ -355,6 +355,18 @@ class SourceAttributionObservation(DerivedObservation):
     retrieved: list[SourceAttribution] | None
 
 
+class AnswerQuote(FrozenModel):
+    """AI 原话(S7,用户定:只进证据区、不挑不改):一道题的一次回答里第一次提到你的那一句。
+    mentioned None = 这次没有有效回答(拒答 / 失败 / 空白);False = 有效回答但没提到你(不放原话,用户定 Q1)。"""
+
+    prompt_id: str
+    prompt_no: int  # 题目在本题型里的序号(1 起,与报告里的题目清单同序)
+    run_index: int  # 第几次回答(采样顺序)
+    run_id: str
+    mentioned: bool | None
+    sentence: str | None = None
+
+
 class ResolutionStatus(StrEnum):
     RESOLVED = "RESOLVED"  # 跟到了终点(≥ 1 跳,终点非 3xx;终点是 404 也是终点,可达性是另一回事)
     NOT_REDIRECTED = "NOT_REDIRECTED"  # 跳转服务没跳:看不到真正去向

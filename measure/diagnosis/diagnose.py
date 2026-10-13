@@ -23,7 +23,7 @@ from __future__ import annotations
 
 from diagnosis.access_audit import AccessAuditResult
 from diagnosis.access_audit import CheckStatus as AccessCheckStatus
-from diagnosis.findings import Msg, Stage, StageFinding, StageStatus, msg
+from diagnosis.findings import MentionCompare, Msg, Stage, StageFinding, StageStatus, msg
 from diagnosis.recommender import EvidenceEntry, Recommendation, recommend
 from diagnosis.retrieval_dependency import DependencyFinding
 from diagnosis.third_party_diag import localize_third_party
@@ -49,6 +49,7 @@ class SurfaceDiagnosis(FrozenModel):
     third_party_failure: Stage | None = None
     third_party_cautions: list[Msg] = []
     third_party_recommendations: list[Recommendation] = []
+    mention_compare: MentionCompare | None = None  # 竞品提及对比(S7):主视图一块;没有竞品 → None
 
 
 class ClassDiagnosis(FrozenModel):
@@ -111,6 +112,7 @@ def diagnose_surface(
     registry: list[EvidenceEntry],
     retrieval_dependency: DependencyFinding | None = None,
     third_party: list[StageFinding] | None = None,
+    mention_compare: MentionCompare | None = None,
 ) -> SurfaceDiagnosis:
     findings = {
         Stage.ACCESS: access,
@@ -172,6 +174,7 @@ def diagnose_surface(
             recommend(registry, stage=tp_primary, intent=intent, channel="third_party")
             if tp_primary is not None else []
         ),
+        mention_compare=mention_compare,
     )
 
 

@@ -14,18 +14,49 @@ from collections.abc import Mapping
 
 from diagnosis.findings import (
     DiagnosisThresholds,
+    MentionCompare,
+    MentionShare,
     Msg,
     Stage,
     StageFinding,
     StageStatus,
     accounting_params,
+    compare_rates,
     msg,
     prompt_msgs,
     rate_params,
     rate_status,
 )
 from engine.aggregate import ClassSurfaceMetric
+from engine.metrics import Rate
 from engine.models import PromptIntent, Sentiment
+
+_RELATION = {1: "less", -1: "more", 0: "close"}  # compare_rates(你, 竞品):你高 → 竞品比你少
+
+
+def compare_mentions(
+    brand_name: str,
+    mention_metric: ClassSurfaceMetric | None,
+    competitors: list[tuple[str, Rate]],
+    gap: float = DiagnosisThresholds().rate_gap,
+) -> MentionCompare | None:
+    """竞品提及对比(S7):没有竞品、或你的提及比例看不到 → None(主视图不出这一块)。"""
+    if mention_metric is None or mention_metric.rate is None or not competitors:
+        return None
+    r = mention_metric.rate
+    return MentionCompare(
+        brand=MentionShare(name=brand_name, rate=r),
+        competitors=[MentionShare(name=name, rate=c, relation=_RELATION[compare_rates(r, c, gap)])
+                     for name, c in competitors],
+        gap=gap,
+    )
+
+
+def _compare_lines(r: Rate, competitors: list[tuple[str, Rate]], gap: float) -> list[Msg]:
+    """证据行:回答里提到各竞品的次数,与提到你的比(差 ≥ gap 才说多 / 少;S7)。"""
+    return [msg(f"mention.compare.{_RELATION[compare_rates(r, c, gap)]}", name=name, pts=round(gap * 100),
+                **rate_params(c))
+            for name, c in competitors]
 
 
 def _sentiment_summary(counts: Mapping[Sentiment, int]) -> tuple[int, float, Msg]:
@@ -60,6 +91,7 @@ def diagnose_representation(
     mention_metric: ClassSurfaceMetric | None,
     sentiment_counts: Mapping[Sentiment, int],
     thresholds: DiagnosisThresholds = DiagnosisThresholds(),
+    competitors: list[tuple[str, Rate]] | None = None,
 ) -> StageFinding:
     if mention_metric is None or mention_metric.rate is None:
         return StageFinding(
@@ -71,6 +103,7 @@ def diagnose_representation(
     accounting = mention_metric.accounting
     n_sentiment, negative_share, sentiment_line = _sentiment_summary(sentiment_counts)
     caliber = _caliber(mention_metric, intent)
+    compare = _compare_lines(r, competitors or [], thresholds.rate_gap)  # 和竞品比谁被提得多(S7)
 
     if intent is PromptIntent.BRAND_FACT:
         # 点名焦点品牌的题:提及率无判定价值,状态由情感决定
@@ -81,6 +114,7 @@ def diagnose_representation(
                 headline=msg("repr.headline.probe_none"),
                 evidence_lines=[
                     msg("repr.mention_rate", **rate_params(r)),
+                    *compare,
                     caliber,
                     *prompt_msgs(mention_metric),
                     msg("repr.claims_note"),
@@ -98,6 +132,7 @@ def diagnose_representation(
             headline=msg(headline),
             evidence_lines=[
                 sentiment_line,
+                *compare,
                 msg("repr.thresholds.probe",
                     weak=thresholds.negative_share_weak, fail=thresholds.negative_share_fail),
                 caliber,
@@ -134,6 +169,7 @@ def diagnose_representation(
         headline=msg(headline),
         evidence_lines=[
             msg("repr.mention_rate", **rate_params(r)),
+            *compare,
             *sentiment_part,
             msg("repr.thresholds.neutral",
                 fail=thresholds.mention_fail_below, pass_=thresholds.mention_pass_from,

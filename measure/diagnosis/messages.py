@@ -340,6 +340,19 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": f"提及比例:{_RATE}",
         "en": f"Mention rate: {_RATE_EN}",
     },
+    # ── 和竞品比谁被提得多(S7,用户定措辞 A):差 ≥ pts 个百分点才说多 / 少 ──
+    "mention.compare.more": {
+        "zh": f"回答里提到竞品 {{name}}:{_RATE},比提到你多 {{pts}} 个百分点以上",
+        "en": f"Competitor {{name}} mentioned in {_RATE_EN} of answers — at least {{pts}} points more often than you",
+    },
+    "mention.compare.less": {
+        "zh": f"回答里提到竞品 {{name}}:{_RATE},比提到你少 {{pts}} 个百分点以上",
+        "en": f"Competitor {{name}} mentioned in {_RATE_EN} of answers — at least {{pts}} points less often than you",
+    },
+    "mention.compare.close": {
+        "zh": f"回答里提到竞品 {{name}}:{_RATE},与提到你的次数相差不足 {{pts}} 个百分点,分不出多少",
+        "en": f"Competitor {{name}} mentioned in {_RATE_EN} of answers — within {{pts}} points of you, not distinguishable",
+    },
     "repr.sentiment_dist": {
         "zh": "提及句情感分布:正面 {positive}、中性 {neutral}、负面 {negative}、混合 {mixed}(负面占比 {share:.0%})",
         "en": "Sentiment of mention sentences: positive {positive}, neutral {neutral}, negative {negative}, mixed {mixed} (negative share {share:.0%})",
@@ -830,6 +843,9 @@ PLAIN: dict[str, dict[str, str]] = {
     "citation.channel_rate": {"zh": "另外本次 {n} 次回答里,{k} 次参考了你的官方店铺或账号(单独算,不计入上面)", "en": "Separately, {k} of {n} answers cited your official store or account (counted apart, not included above)"},
     "citation.unresolved": {"zh": "有 {n} 条引用链接查不到最终去向,本次看不到,没有参与判断", "en": "{n} citation link(s) could not be traced to their destination; not observed this time and not used"},
     "repr.mention_rate": {"zh": "本次 {n} 次回答里,{k} 次提到了你", "en": "You were mentioned in {k} of {n} answers this time"},
+    "mention.compare.more": {"zh": "{n} 次回答里提到 {name} {k} 次({share:.0%}),比你多", "en": "{name} came up in {k} of {n} answers ({share:.0%}) — more than you"},
+    "mention.compare.less": {"zh": "{n} 次回答里提到 {name} {k} 次({share:.0%}),比你少", "en": "{name} came up in {k} of {n} answers ({share:.0%}) — less than you"},
+    "mention.compare.close": {"zh": "{n} 次回答里提到 {name} {k} 次({share:.0%}),和你差不多", "en": "{name} came up in {k} of {n} answers ({share:.0%}) — about the same as you"},
     "common.prompt_coverage": {"zh": "{n} 道题里,{k} 道至少有一次提到你", "en": "You came up at least once in {k} of {n} questions"},
     "dependency.pair": {"zh": "用联网搜索时 {on_n} 次回答里 {on_k} 次提到你;不用联网搜索时 {off_n} 次里 {off_k} 次提到你", "en": "With web search you were mentioned in {on_k} of {on_n} answers; without it, in {off_k} of {off_n}"},
 }

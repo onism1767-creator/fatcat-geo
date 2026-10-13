@@ -10,17 +10,14 @@
 
 from __future__ import annotations
 
-import re
 from datetime import UTC, datetime
 
-from engine.detectors.matching import find_first_alias
+from engine.detectors.matching import find_first_alias, mention_sentence
 from engine.models import BrandSpec, Sentiment, SentimentObservation, SurfaceRun
 from engine.validity import is_valid_answer
 
 DETECTOR_NAME = "sentiment_lexicon"
 DETECTOR_VERSION = 2
-
-_SENTENCE_SPLIT = re.compile(r"[。!?;\n]|[.!?;](?=\s|$)")
 
 _NEGATIVE_TERMS = (
     "不推荐", "不建议", "避免", "缺点", "劣势", "昂贵", "价格高", "难用", "复杂",
@@ -32,16 +29,6 @@ _POSITIVE_TERMS = (
     "性价比", "成熟", "完善", "受欢迎",
     "recommended", "best", "excellent", "leading", "popular", "mature", "top pick",
 )
-
-
-def _mention_sentence(text: str, position: int) -> str:
-    """含指定字符偏移的那一句。"""
-    start = 0
-    for match in _SENTENCE_SPLIT.finditer(text):
-        if match.start() >= position:
-            return text[start:match.start()]
-        start = match.end()
-    return text[start:]
 
 
 def _classify(sentence: str) -> Sentiment:
@@ -73,7 +60,7 @@ class SentimentDetector:
         found = find_first_alias(run.answer.answer_text, brand)
         if found is None:
             return None  # 未提及 → 情感不可判定,不产出观测
-        sentence = _mention_sentence(run.answer.answer_text, found[0])
+        sentence = mention_sentence(run.answer.answer_text, found[0])  # 取句原语在 matching.py 共用(S7),规则未变
         return SentimentObservation(
             run_id=run.run_id,
             detector_name=self.name,

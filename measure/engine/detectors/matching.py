@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+import re
+
 import tldextract
 
 from engine.models import BrandSpec
@@ -27,6 +29,19 @@ def domain_matches(candidate: str, brand_domain: str) -> bool:
 
 def matches_any_brand_domain(candidate: str, brand: BrandSpec) -> bool:
     return any(domain_matches(candidate, domain) for domain in brand.domains)
+
+
+_SENTENCE_SPLIT = re.compile(r"[。!?;\n]|[.!?;](?=\s|$)")
+
+
+def mention_sentence(text: str, position: int) -> str:
+    """含指定字符偏移的那一句(S7:情感判定与「AI 原话」共用;从情感判定器搬来,规则未变)。"""
+    start = 0
+    for match in _SENTENCE_SPLIT.finditer(text):
+        if match.start() >= position:
+            return text[start:match.start()]
+        start = match.end()
+    return text[start:]
 
 
 def registrable(host: str) -> tuple[str, str]:

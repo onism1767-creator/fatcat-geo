@@ -8,13 +8,16 @@ from __future__ import annotations
 from collections import Counter
 from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Final
 
 from engine.detectors.brand_mention import DETECTOR_NAME as MENTION_LABEL
 from engine.detectors.citation import DETECTOR_NAME as CITATION_LABEL
+from engine.detectors.matching import mention_sentence
 from engine.detectors.retrieval_rank import DETECTOR_NAME as PRESENCE_LABEL
 from engine.metrics import Rate, SampleAccounting, account_runs, rate_of
 from engine.models import (
     UNKNOWN,
+    AnswerQuote,
     FrozenModel,
     PromptIntent,
     Sentiment,
@@ -145,12 +148,34 @@ class TargetMeasurement:
     mention: ClassSurfaceMetric
     sentiment_counts: dict[Sentiment, int]
     competitor_citations: list[tuple[str, Rate]]  # 有观测的竞品才列
+    competitor_mentions: list[tuple[str, Rate]]  # 回答里提到各竞品的次数(S7):有观测的竞品才列
+    quotes: list[AnswerQuote]  # AI 原话(S7):每道题按采样顺序前 QUOTES_PER_PROMPT 次回答,只进证据区
     generative_retrieval: GenerativeRetrieval | None  # 本仪器不暴露检索链路 → None
     brand_cited_urls: list[str]  # 本对象全部运行里被引的品牌官网 URL(未去重)
 
 
+QUOTES_PER_PROMPT: Final = 3  # AI 原话每道题取几次回答(用户定:按提问顺序前 3 条,不挑)
+
+
 def _mentioned(obs: RunObservations) -> bool | None:
     return None if obs.mention is None else obs.mention.mentioned
+
+
+def _quotes(observations: list[RunObservations], prompt_ids: list[str]) -> list[AnswerQuote]:
+    """每道题按采样顺序取前 QUOTES_PER_PROMPT 次回答,不挑:提到你 → 第一次提到的那一句;
+    没提到 → 只记没提到;无效回答 → None。"""
+    quotes: list[AnswerQuote] = []
+    for no, prompt_id in enumerate(prompt_ids, start=1):
+        runs = sorted((o for o in observations if o.run.prompt_id == prompt_id), key=lambda o: o.run.run_index)
+        for o in runs[:QUOTES_PER_PROMPT]:
+            mentioned = None if o.mention is None else o.mention.mentioned
+            sentence = None
+            mention = o.mention
+            if mentioned and mention is not None and mention.first_position is not None and o.run.answer is not None:
+                sentence = mention_sentence(o.run.answer.answer_text, mention.first_position).strip()
+            quotes.append(AnswerQuote(prompt_id=prompt_id, prompt_no=no, run_index=o.run.run_index,
+                                      run_id=o.run.run_id, mentioned=mentioned, sentence=sentence))
+    return quotes
 
 
 def _cited(obs: RunObservations) -> bool | None:
@@ -306,6 +331,11 @@ def measure_target(
         flags = [c.cited for o in observations if (c := o.competitor_citations[name]) is not None]
         if flags:
             competitor_citations.append((name, Rate(k=sum(flags), n=len(flags))))
+    competitor_mentions: list[tuple[str, Rate]] = []
+    for name in competitor_names:
+        hits = [m.mentioned for o in observations if (m := o.competitor_mentions.get(name)) is not None]
+        if hits:
+            competitor_mentions.append((name, Rate(k=sum(hits), n=len(hits))))
     return TargetMeasurement(
         target=target,
         provider=provider,
@@ -322,6 +352,8 @@ def measure_target(
         mention=metric(_mentioned, MENTION_LABEL),
         sentiment_counts=dict(Counter(o.sentiment.sentiment for o in observations if o.sentiment is not None)),
         competitor_citations=competitor_citations,
+        competitor_mentions=competitor_mentions,
+        quotes=_quotes(observations, prompt_ids),
         generative_retrieval=generative,
         brand_cited_urls=[url for o in observations for url in o.brand_cited_urls],
     )

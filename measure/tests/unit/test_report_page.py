@@ -17,7 +17,7 @@ from diagnosis.diagnose import access_finding, diagnose_class, diagnose_surface
 from diagnosis.findings import Stage
 from diagnosis.generative_retrieval import diagnose_generative_retrieval
 from diagnosis.recommender import load_evidence_registry
-from diagnosis.representation_diag import diagnose_representation
+from diagnosis.representation_diag import compare_mentions, diagnose_representation
 from diagnosis.retrieval_dependency import diagnose_retrieval_dependency
 from diagnosis.retrieval_diag import retrieval_not_observable
 from diagnosis.verdict import SurfaceVerdict
@@ -25,6 +25,7 @@ from engine.aggregate import ClassSurfaceMetric
 from engine.drafting import PromptCandidate
 from engine.metrics import account_outcomes, rate
 from engine.models import (
+    AnswerQuote,
     BrandSpec,
     Outcome,
     Prompt,
@@ -35,7 +36,7 @@ from engine.models import (
     Target,
 )
 from report.app import create_app
-from report.jobs import ClassReport, DiagnosisJob, JobState
+from report.jobs import ClassReport, DiagnosisJob, JobState, SurfaceQuotes
 
 REGISTRY = load_evidence_registry()
 
@@ -93,6 +94,9 @@ def finished_job() -> DiagnosisJob:
         retrieval_dependency=diagnose_retrieval_dependency(
             make_metric(20, 30), make_metric(2, 30)
         ),
+        # S7:和竞品比谁被提得多——甲 20/30 比你(12/30)多 ≥ 20 个百分点;乙 10/30 和你差不多
+        mention_compare=compare_mentions("极光CRM", make_metric(12, 30),
+                                         [("竞品甲", rate(20, 30)), ("竞品乙", rate(10, 30))]),
     )
     generative_block = diagnose_surface(
         provider="test_provider", surface="s2", model="m2",
@@ -112,8 +116,14 @@ def finished_job() -> DiagnosisJob:
     job.state = JobState.DONE
     job.phase = "完成"
     job.finished_at = datetime(2026, 8, 24, tzinfo=UTC)
+    quotes = [SurfaceQuotes(surface="s1", model="m1", quotes=[  # S7:AI 原话只进证据区;外来文字含标签,须转义
+        AnswerQuote(prompt_id="p", prompt_no=1, run_index=1, run_id="r1", mentioned=True,
+                    sentence="极光CRM 适合中小团队 <script>alert(1)</script>"),
+        AnswerQuote(prompt_id="p", prompt_no=1, run_index=2, run_id="r2", mentioned=False),
+        AnswerQuote(prompt_id="p", prompt_no=1, run_index=3, run_id="r3", mentioned=None),
+    ])]
     job.class_reports = [ClassReport(intent=PromptIntent.CATEGORY_DISCOVERY, prompt_texts=[prompt.text],
-                                     diagnosis=diagnosis)]
+                                     diagnosis=diagnosis, quotes=quotes)]
     job.surface_verdicts = [  # 每家 AI 一句话(v0.4.14):s2 缺「直接问起」场景,句尾说明
         SurfaceVerdict(surface="s1", model="m1", code="verdict.only_when_named", missing=[]),
         SurfaceVerdict(surface="s2", model="m2", code="verdict.known_sometimes_site_rare",
@@ -295,6 +305,25 @@ def test_preselect_candidates_checks_everything_by_default():
                PromptCandidate(origin=PromptOrigin.USER, intent=PromptIntent.BRAND_FACT, text="c")]
     assert preselect_candidates(drafted) == [0, 1]
     assert preselect_candidates([]) == []
+
+
+def test_report_shows_competitor_mentions_with_percentages_and_rings_and_quotes_only_in_the_fold(client_and_job):
+    """S7(用户定):竞品提及对比放主视图,计数 + 百分比 + 每名一环,差 ≥ 20 个百分点才说多 / 少;
+    AI 原话只进折叠的证据区、正文只给一句指引;原话里的标签要转义。"""
+    client, job, _ = client_and_job
+    html = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
+    view = user_view_of(html)
+    assert "竞品提及对比(AI 回答里提到谁更多)" in view and "差 20 个百分点以上才说多或少" in view
+    assert "12/30" in view and "40%" in view  # 你
+    assert "竞品甲" in view and "20/30" in view and "67%" in view and "比你多" in view
+    assert "竞品乙" in view and "10/30" in view and "33%" in view and "和你差不多" in view
+    assert html.count('class="ring"') == 3  # 你 + 两个竞品,各一个环,不是一张饼
+    assert "AI 的原话在页尾" in view
+    assert "极光CRM 适合中小团队" in html and "极光CRM 适合中小团队" not in view  # 原话只在折叠区
+    assert "<script>alert(1)</script>" not in html and "&lt;script&gt;alert(1)&lt;/script&gt;" in html
+    assert "第 2 次:" in html and "这次没提到你" in html and "这次没有有效回答" in html
+    en = client.get(f"/jobs/{job.job_id}/report?lang=en").text
+    assert "Competitor mentions (who the AI brings up more often)" in en and "more than you" in en
 
 
 def test_summarize_orders_by_evidence_level_then_support():

@@ -71,6 +71,24 @@ class StageFinding(FrozenModel):
     low_confidence: bool = False
 
 
+class MentionShare(FrozenModel):
+    """一个名字在本次有效回答里被提到的次数(S7 竞品提及对比)。
+    relation 是相对于你:more / less / close;你自己这一行 None。"""
+
+    name: str
+    rate: Rate
+    relation: str | None = None
+
+
+class MentionCompare(FrozenModel):
+    """竞品提及对比(S7,用户定:措辞 A、放主视图 P1、带百分比和每名一环):提到你 k/N、提到各竞品几次;
+    差距 ≥ gap(比例)才说多 / 少,否则差不多。一次回答可同时提到几家,各家各算各的比例,不是一张饼。"""
+
+    brand: MentionShare
+    competitors: list[MentionShare]
+    gap: float
+
+
 def rate_params(r: Rate) -> dict[str, Any]:
     return {"k": r.k, "n": r.n, "share": r.share}  # 用户视图用原始计数「N 次里 k 次」
 
@@ -134,9 +152,11 @@ def rate_status(
 
 
 def compare_rates(a: Rate, b: Rate, gap: float) -> int:
-    """两个比例的差别:a 比 b 高 ≥ gap → 1;低 ≥ gap → −1;差距不足 gap → 0(分不出)。"""
-    if a.share - b.share >= gap:
+    """两个比例的差别:a 比 b 高 ≥ gap → 1;低 ≥ gap → −1;差距不足 gap → 0(分不出)。
+    差值先四舍五入到小数点后 9 位:3/5 − 2/5 在浮点里是 0.19999…,不能因此把「正好差 20 个百分点」判成分不出(S7)。"""
+    diff = round(a.share - b.share, 9)
+    if diff >= gap:
         return 1
-    if b.share - a.share >= gap:
+    if -diff >= gap:
         return -1
     return 0

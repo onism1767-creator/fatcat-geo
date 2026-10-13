@@ -14,7 +14,7 @@ from collections import defaultdict
 from collections.abc import Callable
 
 from diagnosis.diagnose import SurfaceDiagnosis
-from diagnosis.findings import Msg, Stage, StageFinding, msg
+from diagnosis.findings import MentionCompare, Msg, Stage, StageFinding, msg
 from diagnosis.recommender import Recommendation
 from diagnosis.verdict import SurfaceVerdict
 from engine.models import FrozenModel, PromptIntent
@@ -49,6 +49,7 @@ class EngineBrief(FrozenModel):
     limitations: list[Msg]
     third_party: Msg | None = None  # 第三方线一句(引用步的结论;S6.1),与官网线并列、不合并
     third_party_evidence: Msg | None = None  # 第三方线的数字(「N 次里 k 次」),与官网的数字并排、不相加(用户定)
+    mention_compare: MentionCompare | None = None  # 竞品提及对比(S7):主视图每个题型下一块
 
 
 class PriorityAction(FrozenModel):
@@ -96,6 +97,7 @@ def _engine_brief(sd: SurfaceDiagnosis, display: str) -> EngineBrief:
         third_party_evidence=next(
             (f.evidence_lines[0] for f in sd.third_party if f.stage is Stage.CITATION and f.evidence_lines), None,
         ),
+        mention_compare=sd.mention_compare,
     )
 
 

@@ -8,7 +8,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from engine.detectors.brand_mention import BrandMentionDetector
 from engine.detectors.citation import CitationDetector
@@ -46,7 +46,7 @@ class ObserveContext:
 
 
 def rule_detectors(context: ObserveContext) -> list[Detector]:
-    """逐条存档的规则判定器(竞品被引随观测现算、不存档:派生表没有「判的是哪个品牌」这一列)。"""
+    """逐条存档的规则判定器(竞品被引 / 被提到随观测现算、不存档:派生表没有「判的是哪个品牌」这一列)。"""
     return [
         _MENTION, CitationDetector(context.resolution), _PRESENCE, _SENTIMENT, _QUERY,
         SourceClassifier(context.competitors, context.resolution, context.pages),
@@ -66,6 +66,8 @@ class RunObservations:
     competitor_citations: dict[str, CitationObservation | None]  # 竞品名 → 该竞品官网是否被引
     brand_cited_urls: list[str]  # 命中品牌官网的引用用于判定的链接(跳转仪器为终点),供独立核验
     attribution: SourceAttributionObservation | None = None  # 来源归属(第三方线的原料,S6.1)
+    # 竞品名 → 回答里提到它吗(S7;与竞品被引一样随观测现算、不存档)
+    competitor_mentions: dict[str, BrandMentionObservation | None] = field(default_factory=dict)
 
 
 def observe(run: SurfaceRun, brand: BrandSpec, context: ObserveContext) -> RunObservations:
@@ -82,6 +84,7 @@ def observe(run: SurfaceRun, brand: BrandSpec, context: ObserveContext) -> RunOb
         competitor_citations={c.name: citation_detector.detect(run, c) for c in context.competitors},
         brand_cited_urls=list(citation.matched_urls) if citation is not None else [],
         attribution=classifier.detect(run, brand),
+        competitor_mentions={c.name: _MENTION.detect(run, c) for c in context.competitors},
     )
 
 

@@ -24,6 +24,7 @@ from diagnosis.verdict import SurfaceVerdict
 from engine.brand_domains import apply_user_choice
 from engine.drafting import PromptCandidate
 from engine.models import (
+    AnswerQuote,
     BrandDomainList,
     BrandSpec,
     CompetitorSuggestion,
@@ -53,12 +54,21 @@ class JobState(StrEnum):
     INTERRUPTED = "INTERRUPTED"  # 进程中断(重启后自快照恢复),可续跑(v0.4.9)
 
 
+class SurfaceQuotes(FrozenModel):
+    """一个 AI 型号在本题型的 AI 原话(S7,用户定:只进证据区):每道题按提问顺序前 3 次回答,不挑不改。"""
+
+    surface: str
+    model: str
+    quotes: list[AnswerQuote]
+
+
 class ClassReport(FrozenModel):
     """一个题型的报告块(v0.4.26 S2:报告按题型分块)。"""
 
     intent: PromptIntent
     prompt_texts: list[str]  # 本题型的题目原文(与采样同序)
     diagnosis: ClassDiagnosis
+    quotes: list[SurfaceQuotes]  # AI 原话(S7)
 
 
 class ReportPayload(FrozenModel):

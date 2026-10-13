@@ -62,6 +62,7 @@ from report.jobs import (
     ClassReport,
     DiagnosisJob,
     JobState,
+    SurfaceQuotes,
     current_code_version,
 )
 
@@ -194,6 +195,8 @@ def _execute(
                 intent=intent,
                 prompt_texts=[p.text for p in prompts],
                 diagnosis=diagnose_class(intent, access=access, surfaces=blocks),
+                quotes=[SurfaceQuotes(surface=m.target.surface, model=m.target.model, quotes=m.quotes)
+                        for m in measurements],
             ))
         persist_observations(storage, [
             run for key in runs_by for run in runs_by[key] + offline_runs_by[key]
