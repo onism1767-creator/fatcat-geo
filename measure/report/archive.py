@@ -64,6 +64,7 @@ def attach_latest_report(job: DiagnosisJob, storage: Storage) -> None:
                     code_version=row["code_version"], errors=exc.error_count())
         job.class_reports = []
         job.surface_verdicts = []
+        job.sampling = None
         return
     job.report_meta = ReportMeta(
         created_at=row["created_at"], versions=row["versions"], code_version=row["code_version"],

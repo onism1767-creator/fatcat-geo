@@ -30,6 +30,7 @@ from diagnosis.verdict import VerdictInput, surface_verdict
 from engine.aggregate import ClassSurfaceMetric, TargetMeasurement, measure_closed_book, measure_target
 from engine.brand_domains import BrandDomainDiscovery, load_platforms
 from engine.detectors.matching import registrable
+from engine.method import METHOD_VERSION
 from engine.models import (
     BrandDomainList,
     BrandSpec,
@@ -62,6 +63,7 @@ from report.jobs import (
     ClassReport,
     DiagnosisJob,
     JobState,
+    SamplingNote,
     SurfaceQuotes,
     current_code_version,
 )
@@ -207,7 +209,26 @@ def _execute(
         # 采样后:回答里出现、名单外的同名域名再查一次,标 B1 / B2——只提示,用户确认后才算官网(S5)
         job.adopt_domain_list(_look_alikes(job, all_runs, resolution))
         truncated = any(r.stop_reason in _TRUNCATION_REASONS for r in results.values())
-        _finish(job, storage, truncated=truncated)
+        _finish(job, storage, truncated=truncated, sampling=_sampling_note(job, runs_by, offline_runs_by))
+
+
+def _sampling_note(
+    job: DiagnosisJob, runs_by: dict[RunsKey, list[SurfaceRun]], offline_runs_by: dict[RunsKey, list[SurfaceRun]],
+) -> SamplingNote:
+    """报告顶部的采样说明(S8.2):本单实际问了多少、有效多少、测了哪些接口与型号、官网名单情况、方法版本。
+    结束时刻由 _finish 落定后再填。"""
+    runs = [run for batch in runs_by.values() for run in batch]
+    dl = job.domain_list
+    return SamplingNote(
+        n_prompts=len(job.prompts), n_targets=len(job.targets), runs_per_prompt=POLICY.runs_per_prompt,
+        n_runs=len(runs), n_valid=sum(is_valid_answer(run) for run in runs),
+        n_offline_runs=sum(len(batch) for batch in offline_runs_by.values()),
+        started_at=job.started_at, finished_at=None, targets=list(job.targets),
+        domains_confirmed=len(dl.confirmed_domains) if dl is not None else 0,
+        domains_unconfirmed=len(dl.unconfirmed_domains) if dl is not None else 0,
+        domains_at=dl.discovered_at if dl is not None else None,
+        method_version=METHOD_VERSION,
+    )
 
 
 def _reset_progress(job: DiagnosisJob) -> None:
@@ -453,10 +474,11 @@ def _measure_class(
     return measurements, closed_book
 
 
-def _finish(job: DiagnosisJob, storage: Storage, *, truncated: bool) -> None:
+def _finish(job: DiagnosisJob, storage: Storage, *, truncated: bool, sampling: SamplingNote) -> None:
     job.state = JobState.PARTIAL if truncated else JobState.DONE
     job.phase = "phase_partial" if truncated else "phase_done"
     job.finished_at = datetime.now(UTC)
+    job.sampling = sampling.model_copy(update={"finished_at": job.finished_at})
     storage.upsert_job_snapshot(job.to_snapshot())
     storage.insert_report_snapshot(  # v0.4.16:报告档案只追加,「重新生成报告」即追加新版本
         job_id=job.job_id, fingerprint=job.fingerprint, code_version=current_code_version(),

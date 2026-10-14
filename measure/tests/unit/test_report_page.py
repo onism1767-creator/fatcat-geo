@@ -36,7 +36,7 @@ from engine.models import (
     Target,
 )
 from report.app import create_app
-from report.jobs import ClassReport, DiagnosisJob, JobState, SurfaceQuotes
+from report.jobs import ClassReport, DiagnosisJob, JobState, SamplingNote, SurfaceQuotes
 
 REGISTRY = load_evidence_registry()
 
@@ -118,6 +118,13 @@ def finished_job() -> DiagnosisJob:
     job.state = JobState.DONE
     job.phase = "完成"
     job.finished_at = datetime(2026, 8, 24, tzinfo=UTC)
+    job.sampling = SamplingNote(  # S8.2:采样说明(实际发生的数字)
+        n_prompts=1, n_targets=2, runs_per_prompt=3, n_runs=6, n_valid=5, n_offline_runs=3,
+        started_at=datetime(2026, 8, 24, 1, 0, tzinfo=UTC), finished_at=datetime(2026, 8, 24, 1, 30, tzinfo=UTC),
+        targets=[Target(surface="s1", model="m1"), Target(surface="s2", model="m2")],
+        domains_confirmed=1, domains_unconfirmed=2, domains_at=datetime(2026, 8, 24, tzinfo=UTC),
+        method_version="0.4.26",
+    )
     quotes = [SurfaceQuotes(surface="s1", model="m1", quotes=[  # S7:AI 原话只进证据区;外来文字含标签,须转义
         AnswerQuote(prompt_id="p", prompt_no=1, run_index=1, run_id="r1", mentioned=True,
                     sentence="极光CRM 适合中小团队 <script>alert(1)</script>"),
@@ -342,6 +349,24 @@ def test_report_names_ai_as_api_and_model_and_shows_sentiment_tally_with_pie(cli
     en = client.get(f"/jobs/{job.job_id}/report?lang=en").text
     assert "Of the 18 sentences that mention you: positive 1(6%), neutral 9(50%), negative 8(44%)" in en
     assert "AI names are written as" in en
+
+
+def test_report_opens_with_a_sampling_note(client_and_job):
+    """S8.2(架构书 v0.4.26 §10):报告最前面一块「这次是怎么测的」——题数 · 型号数 · 每题几次 → 提问数与有效数、
+    对照次数、测试时间、实际调用的接口与型号、官网名单情况、方法版本与程序版本。"""
+    client, job, _ = client_and_job
+    html = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
+    view = user_view_of(html)
+    assert "这次是怎么测的" in view
+    assert "题目 1 道 · 型号 2 个 · 每题问 3 次 → 共提问 6 次,其中有效回答 5 次" in view
+    assert "另有不用联网搜索的对照 3 次,单独算" in view
+    assert "测试时间:2026-08-24 01:00 至 2026-08-24 01:30(UTC)" in view
+    assert "实际调用的接口和型号:S1 · m1;s2 · m2" in view  # s2 没加载的仪器如实用内部名
+    assert "官网名单:已确认 1 个、待你确认 2 个(名单日期 2026-08-24)" in view
+    assert "方法版本 0.4.26" in view
+    assert html.index("这次是怎么测的") < html.index("这次检测告诉了我们什么")  # 在最前面
+    en = client.get(f"/jobs/{job.job_id}/report?lang=en").text
+    assert "How this was measured" in en and "1 questions · 2 models · each asked 3 times" in en
 
 
 def test_summarize_orders_by_evidence_level_then_support():
@@ -622,6 +647,7 @@ def test_report_payload_round_trip_rehydrates_messages():
     restored.load_report(payload)
     assert restored.class_reports == job.class_reports
     assert restored.surface_verdicts == job.surface_verdicts
+    assert restored.sampling == job.sampling  # 采样说明随快照往返(S8.2)
     original = job.class_reports[0].diagnosis.surfaces[0]
     revived = restored.class_reports[0].diagnosis.surfaces[0]
     assert [render_msg(c, "zh") for c in revived.cautions] == [render_msg(c, "zh") for c in original.cautions]

@@ -71,6 +71,25 @@ class ClassReport(FrozenModel):
     quotes: list[SurfaceQuotes]  # AI 原话(S7)
 
 
+class SamplingNote(FrozenModel):
+    """报告顶部的采样说明(S8.2,架构书 v0.4.26 §10):这份报告是怎么测出来的,一眼看全。
+    数字都是本单实际发生的(不是计划):提问次数含失败与拒答,有效回答 = 成功且正文非空(engine/validity.py 一处定)。"""
+
+    n_prompts: int
+    n_targets: int  # 被测对象数(接口 × 型号)
+    runs_per_prompt: int
+    n_runs: int  # 开卷提问次数(含失败 / 拒答)
+    n_valid: int  # 有效回答数
+    n_offline_runs: int  # 闭卷对照次数(检索依赖,0 = 没开),单独算
+    started_at: datetime | None
+    finished_at: datetime | None
+    targets: list[Target]  # 实际调用的接口与型号(显示名由报告层命名器给)
+    domains_confirmed: int  # 官网名单:已确认几个(含主站)
+    domains_unconfirmed: int  # 待用户确认几个
+    domains_at: datetime | None  # 名单日期
+    method_version: str  # engine/method.py::METHOD_VERSION,生成时冻结
+
+
 class ReportPayload(FrozenModel):
     """报告快照的内容(v0.4.16 起落库)。给它加必填字段 = 旧快照读不动(预期行为:记警告、让用户重新生成,不加兼容层)。"""
 
@@ -78,6 +97,7 @@ class ReportPayload(FrozenModel):
     class_reports: list[ClassReport]
     surface_verdicts: list[SurfaceVerdict]
     finished_at: datetime | None
+    sampling: SamplingNote  # 采样说明(S8.2)
 
 
 class ReportMeta(FrozenModel):
@@ -138,6 +158,7 @@ class DiagnosisJob:
         self.surface_verdicts: list[SurfaceVerdict] = []  # 每家 AI 一句话(v0.4.14),与 class_reports 同生命周期
         self.domain_list: BrandDomainList | None = None  # 官网名单(S5):开跑时自动发现一次,随快照冻结,再测沿用
         self.report_meta: ReportMeta | None = None  # 最新一版报告快照的档案信息(v0.4.16)
+        self.sampling: SamplingNote | None = None  # 采样说明(S8.2):出报告时算,随报告快照存
         self.started_at: datetime | None = None  # 本次执行开始时刻(任务页按实际速度算剩余时间)
         self.last_result_at: datetime | None = None  # 最近一条样本落库的时刻(任务页据此报「卡住了」)
         # 出错说明(v0.4.21):有代码的错误按「代码 + 参数」存、随界面语言渲染;没代码的(意外异常)存原文
@@ -256,11 +277,13 @@ class DiagnosisJob:
     def report_payload(self) -> dict:
         """报告快照(v0.4.16):派生层的结构化档案,只追加落库;结论以码 + 参数存,
         措辞随当前目录渲染,判定冻结在生成那一刻。"""
+        assert self.sampling is not None, "出报告前必须先算采样说明"
         return ReportPayload(
             access_result=self.access_result,
             class_reports=self.class_reports,
             surface_verdicts=self.surface_verdicts,
             finished_at=self.finished_at,
+            sampling=self.sampling,
         ).model_dump(mode="json")
 
     def load_report(self, payload: dict) -> None:
@@ -270,6 +293,7 @@ class DiagnosisJob:
         self.class_reports = report.class_reports
         self.surface_verdicts = report.surface_verdicts
         self.finished_at = report.finished_at
+        self.sampling = report.sampling
 
     @classmethod
     def from_snapshot(cls, snapshot: dict) -> DiagnosisJob:

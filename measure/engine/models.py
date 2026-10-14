@@ -450,6 +450,10 @@ class BrandDomainList(FrozenModel):
         return [self.primary, *(d.domain for d in self.domains if d.status is DomainStatus.CONFIRMED)]
 
     @property
+    def unconfirmed_domains(self) -> list[str]:
+        return [d.domain for d in self.domains if d.status is DomainStatus.UNCONFIRMED]
+
+    @property
     def channel_prefixes(self) -> list[str]:
         return [c.match for c in self.official_channels]
 

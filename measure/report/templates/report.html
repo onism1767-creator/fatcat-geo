@@ -4,6 +4,21 @@
 <h1>{{ job.brand.name }} {{ t["report_title"] }}</h1>
 <p class="muted">{{ t["scope_note"] }} {{ t["api_note"] }}</p>
 
+{#- 采样说明(S8.2,架构书 v0.4.26 §10):这份报告是怎么测出来的——实际发生的数字,不是计划 -#}
+{% set sn = job.sampling %}
+{% if sn %}
+<div class="card" id="sampling">
+  <h2 style="margin-top:0">{{ t["sampling_title"] }}</h2>
+  <ul class="ev">
+    <li>{{ t["sampling_counts"].format(prompts=sn.n_prompts, targets=sn.n_targets, reps=sn.runs_per_prompt, runs=sn.n_runs, valid=sn.n_valid) }}{% if sn.n_offline_runs %} {{ t["sampling_offline"].format(n=sn.n_offline_runs) }}{% endif %}</li>
+    <li>{{ t["sampling_time"].format(start=sn.started_at.strftime("%Y-%m-%d %H:%M") if sn.started_at else "—", end=sn.finished_at.strftime("%Y-%m-%d %H:%M") if sn.finished_at else "—") }}</li>
+    <li>{{ t["sampling_targets_pre"] }}{% for x in sn.targets %}{{ target_name(x.surface, x.model) }}{% if not loop.last %};{% endif %}{% endfor %}</li>
+    <li>{{ t["sampling_domains"].format(confirmed=sn.domains_confirmed, unconfirmed=sn.domains_unconfirmed, date=sn.domains_at.strftime("%Y-%m-%d") if sn.domains_at else "—") }} <a href="#official">{{ t["sampling_domains_link"] }}</a></li>
+    <li>{{ t["sampling_version"].format(method=sn.method_version, code=job.report_meta.code_version if job.report_meta and job.report_meta.code_version else "—") }}</li>
+  </ul>
+</div>
+{% endif %}
+
 {% set access = job.access_result %}
 {% set info_tag = "(提示)" if lang == "zh" else " (info)" %}
 

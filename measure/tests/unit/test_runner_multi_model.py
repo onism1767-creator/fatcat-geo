@@ -175,6 +175,13 @@ def test_two_models_of_one_surface_are_sampled_and_diagnosed_apart(storage, offl
     assert _citation_status(job) == {CITES: StageStatus.PASS, SILENT: StageStatus.FAIL}
     assert {(v.surface, v.model) for v in job.surface_verdicts} == {("two_model", CITES), ("two_model", SILENT)}
     assert job.spent_usd == pytest.approx(3 * 0.01 + 3 * 0.001)
+    from engine.method import METHOD_VERSION
+
+    note = job.sampling  # 采样说明(S8.2):实际问了多少、有效多少、测了谁、方法版本
+    assert note is not None and (note.n_prompts, note.n_targets, note.runs_per_prompt, note.n_runs) == (1, 2, 3, 6)
+    assert note.n_valid == 6 and note.n_offline_runs == 0 and note.method_version == METHOD_VERSION
+    assert note.started_at is not None and note.finished_at is not None and note.finished_at == job.finished_at
+    assert {(x.surface, x.model) for x in note.targets} == {("two_model", CITES), ("two_model", SILENT)}
 
     # 续跑(重新生成报告):样本按「题 × 仪器 × 型号 × 模式 × 第几次」复用——零新调用,且两个型号的
     # 样本不互相充当槽位(串了的话两边都会变成 3/6,结论双双变黄)
