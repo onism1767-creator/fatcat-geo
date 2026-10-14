@@ -24,6 +24,7 @@ from report.forms import (
 )
 from report.i18n import MESSAGES
 from report.jobs import RUNS_PER_PROMPT, STALL_MINUTES, DiagnosisJob, JobState
+from report.response_view import build_response_view, run_belongs_to
 from report.summary import summarize
 from report.web import ctx_of, error_text, lang_of, not_found, redirect
 
@@ -227,3 +228,33 @@ async def job_report(request: Request, job_id: str):
     return ctx.render(request, "report.html", job=job, runs_per_prompt=RUNS_PER_PROMPT,
                       summary=summarize(job.class_reports, job.surface_verdicts, ctx.target_name),
                       psl_version=PSL_SNAPSHOT_VERSION)
+
+
+@router.get("/jobs/{job_id}/responses/{run_id}", response_class=HTMLResponse)
+async def response_page(request: Request, job_id: str, run_id: str):
+    """单条回答页(S8.3):只读库里的原始记录与已存的判定行,不属于本单的回答 404。"""
+    ctx = ctx_of(request)
+    job = ctx.registry.get(job_id)
+    if job is None:
+        return not_found()
+    with Storage(ctx.dsn) as store:
+        run = store.run_by_id(run_id)
+        if run is None or not run_belongs_to(job, run):
+            return not_found()
+        observations = store.observations_for_run(run_id)
+    return ctx.render(request, "response.html", job=job, view=build_response_view(job, run, observations))
+
+
+@router.get("/jobs/{job_id}/responses/{run_id}/download")
+async def response_download(request: Request, job_id: str, run_id: str):
+    """原始记录下载(S8.3):整条 SurfaceRun 的 JSON,含平台原始返回。"""
+    ctx = ctx_of(request)
+    job = ctx.registry.get(job_id)
+    if job is None:
+        return not_found()
+    with Storage(ctx.dsn) as store:
+        run = store.run_by_id(run_id)
+    if run is None or not run_belongs_to(job, run):
+        return not_found()
+    return JSONResponse(run.model_dump(mode="json"),
+                        headers={"Content-Disposition": f'attachment; filename="response-{run_id}.json"'})

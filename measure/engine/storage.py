@@ -348,6 +348,11 @@ class Storage:
         ).fetchall()
         return [_row_to_run(row) for row in rows]
 
+    def run_by_id(self, run_id: str) -> SurfaceRun | None:
+        """单条回答页用(S8.3):没有这条就 None,归属校验由调用方做。"""
+        row = self._conn.execute(f"SELECT {_RUN_COLUMNS} FROM surface_run WHERE run_id = %s", (run_id,)).fetchone()
+        return _row_to_run(row) if row is not None else None
+
     def observations_for_run(self, run_id: str) -> list[dict[str, Any]]:
         rows = self._conn.execute(
             "SELECT observation_type, detector_name, detector_version, payload "

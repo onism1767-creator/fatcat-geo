@@ -331,6 +331,7 @@ def test_report_shows_competitor_mentions_with_percentages_and_rings_and_quotes_
     assert "极光CRM 适合中小团队" in html and "极光CRM 适合中小团队" not in view  # 原话只在折叠区
     assert "<script>alert(1)</script>" not in html and "&lt;script&gt;alert(1)&lt;/script&gt;" in html
     assert "第 2 次:" in html and "这次没提到你" in html and "这次没有有效回答" in html
+    assert f'href="/jobs/{job.job_id}/responses/r1?lang=zh"' in html  # 每条原话链到单条回答页(S8.3)
     en = client.get(f"/jobs/{job.job_id}/report?lang=en").text
     assert "Competitor mentions (who the AI brings up more often)" in en and "more than you" in en
 

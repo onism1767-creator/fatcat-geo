@@ -11,9 +11,9 @@
   <h2 style="margin-top:0">{{ t["sampling_title"] }}</h2>
   <ul class="ev">
     <li>{{ t["sampling_counts"].format(prompts=sn.n_prompts, targets=sn.n_targets, reps=sn.runs_per_prompt, runs=sn.n_runs, valid=sn.n_valid) }}{% if sn.n_offline_runs %} {{ t["sampling_offline"].format(n=sn.n_offline_runs) }}{% endif %}</li>
-    <li>{{ t["sampling_time"].format(start=sn.started_at.strftime("%Y-%m-%d %H:%M") if sn.started_at else "—", end=sn.finished_at.strftime("%Y-%m-%d %H:%M") if sn.finished_at else "—") }}</li>
+    <li>{{ t["sampling_time"].format(start=sn.started_at|utc_time if sn.started_at else "—", end=sn.finished_at|utc_time if sn.finished_at else "—") }}</li>
     <li>{{ t["sampling_targets_pre"] }}{% for x in sn.targets %}{{ target_name(x.surface, x.model) }}{% if not loop.last %};{% endif %}{% endfor %}</li>
-    <li>{{ t["sampling_domains"].format(confirmed=sn.domains_confirmed, unconfirmed=sn.domains_unconfirmed, date=sn.domains_at.strftime("%Y-%m-%d") if sn.domains_at else "—") }} <a href="#official">{{ t["sampling_domains_link"] }}</a></li>
+    <li>{{ t["sampling_domains"].format(confirmed=sn.domains_confirmed, unconfirmed=sn.domains_unconfirmed, date=sn.domains_at|utc_time("%Y-%m-%d") if sn.domains_at else "—") }} <a href="#official">{{ t["sampling_domains_link"] }}</a></li>
     <li>{{ t["sampling_version"].format(method=sn.method_version, code=job.report_meta.code_version if job.report_meta and job.report_meta.code_version else "—") }}</li>
   </ul>
 </div>
@@ -244,7 +244,7 @@
       <summary>{{ t["quotes_summary"] }}</summary>
       <ol class="ev">{% for pt in cr.prompt_texts %}{% set qs = sq.quotes|selectattr("prompt_no", "equalto", loop.index)|list %}
         <li>{{ pt }}<ul class="ev">{% for q in qs %}
-          <li><span class="muted">{{ t["quote_attempt"].format(i=q.run_index) }}</span>{% if q.mentioned %}「{{ q.sentence }}」{% elif q.mentioned is none %}<span class="muted">{{ t["quote_invalid"] }}</span>{% else %}<span class="muted">{{ t["quote_none"] }}</span>{% endif %}</li>{% endfor %}
+          <li><a class="muted" href="/jobs/{{ job.job_id }}/responses/{{ q.run_id }}?lang={{ lang }}">{{ t["quote_attempt"].format(i=q.run_index) }}</a>{% if q.mentioned %}「{{ q.sentence }}」{% elif q.mentioned is none %}<span class="muted">{{ t["quote_invalid"] }}</span>{% else %}<span class="muted">{{ t["quote_none"] }}</span>{% endif %}</li>{% endfor %}
         </ul></li>{% endfor %}</ol>
     </details>
     {% endif %}
