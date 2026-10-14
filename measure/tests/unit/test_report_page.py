@@ -388,7 +388,7 @@ def test_report_shows_upstream_caution_and_competitor_gap(client_and_job):
 def test_index_renders_form(client_and_job):
     client, _, _ = client_and_job
     html = client.get("/").text
-    assert "品牌名" in html and "希望 AI 在回答哪些问题时提到你" in html
+    assert "品牌名" in html and "最可能会提问哪些和你相关的问题" in html  # 出题框问法(用户定 2026-10-14)
 
 
 def test_manual_flow_to_confirm_and_launch(client_and_job):
