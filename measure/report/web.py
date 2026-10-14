@@ -13,7 +13,6 @@ from fastapi.templating import Jinja2Templates
 
 from adapters.base import SurfaceAdapter
 from diagnosis.access_audit import AccessLayer
-from diagnosis.findings import Stage
 from diagnosis.messages import msg, render_msg
 from engine.storage import CallStat
 from report.i18n import (
@@ -28,6 +27,7 @@ from report.i18n import (
 )
 from report.jobs import JobRegistry
 from report.launcher import JobLauncher
+from report.narrative import api_line_text, count_models, verdict_text, wrap_up_text
 
 TargetNamer = Callable[[str, str], str]
 
@@ -57,10 +57,13 @@ def _templates(target_name: TargetNamer) -> Jinja2Templates:
     # 用户视图(v0.4.14):人话渲染器 + 阶段人话标签;技术目录只在「检测依据与方法」
     env.filters["plain"] = lambda message, lang: render_msg(message, lang, "plain")
     env.filters["utc_time"] = utc_time  # 时刻按 UTC 显示(S8.3)
-    env.globals["funnel_stages"] = [Stage.RETRIEVAL, Stage.CITATION, Stage.REPRESENTATION]
-    env.globals["stage_msg"] = lambda stage: msg(f"stage.{stage.value}")
     env.globals["access_headline"] = lambda overall: msg(f"access.headline.{overall.value.lower()}")
     env.globals["target_name"] = target_name
+    # S8.7:人话段落(各 AI 一句话 / 型号数数 / 末尾汇总 / 每个型号一句结论)在 report/narrative.py 拼
+    env.globals["api_line_text"] = api_line_text
+    env.globals["count_models"] = count_models
+    env.globals["wrap_up_text"] = wrap_up_text
+    env.globals["verdict_text"] = verdict_text
     return templates
 
 
@@ -78,6 +81,11 @@ class WebContext:
     def __post_init__(self) -> None:
         self._templates = _templates(self.target_name)
         self.display_names = {name: a.meta().display_name for name, a in self.adapters.items()}
+        self.api_names = {name: a.meta().api_name for name, a in self.adapters.items()}
+
+    def api_name(self, surface: str) -> str:
+        """接口名(报告里「各 AI 一句话」的主语;没加载的旧仪器如实用内部名)。"""
+        return self.api_names.get(surface, surface)
 
     def render(self, request: Request, name: str, **context) -> HTMLResponse:
         lang = lang_of(request)

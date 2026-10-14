@@ -122,6 +122,7 @@ def diagnose_representation(
                 stage=Stage.REPRESENTATION,
                 status=StageStatus.NOT_OBSERVABLE,
                 headline=msg("repr.headline.probe_none"),
+                rate=r,
                 evidence_lines=[
                     msg("repr.mention_rate", **rate_params(r)),
                     *compare,
@@ -140,6 +141,7 @@ def diagnose_representation(
             stage=Stage.REPRESENTATION,
             status=status,
             headline=msg(headline),
+            rate=r,
             evidence_lines=[
                 sentiment_line,
                 *compare,
@@ -177,6 +179,7 @@ def diagnose_representation(
         stage=Stage.REPRESENTATION,
         status=status,
         headline=msg(headline),
+        rate=r,
         evidence_lines=[
             msg("repr.mention_rate", **rate_params(r)),
             *compare,

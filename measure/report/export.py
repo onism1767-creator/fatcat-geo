@@ -24,7 +24,8 @@ from engine.method import METHOD_VERSION
 from engine.models import SurfaceRun
 from engine.storage import Storage
 from report.i18n import INTENT_LABELS, MESSAGES, STATUS_LABELS
-from report.jobs import DiagnosisJob
+from report.jobs import RUNS_PER_PROMPT, DiagnosisJob
+from report.narrative import api_line_text, wrap_up_text
 from report.response_view import latest_observation
 from report.summary import ReportSummary, TargetNamer
 
@@ -166,10 +167,8 @@ def _summary_md(job: DiagnosisJob, lang: str, name_of: TargetNamer, summary: Rep
     else:
         lines += [f"- {t['sampling_version'].format(method=METHOD_VERSION, code='—')}", ""]
     lines += [f"## {t['verdicts_word']}", ""]
-    for v in summary.verdicts:
-        extra = plain(v.third_party) + "。" if v.third_party else ""
-        missing = f"({t['missing_pre']}{'、'.join(plain(m) for m in v.missing)})" if v.missing else ""
-        lines.append(f"- {v.display}:{plain(v.message)}{extra}{missing}")
+    for line in summary.api_lines:
+        lines.append(f"- {api_line_text(line, lang)}")
     lines.append("")
     for cr in job.class_reports:
         lines += [f"## {INTENT_LABELS[lang][cr.intent]}", ""]
@@ -196,6 +195,9 @@ def _summary_md(job: DiagnosisJob, lang: str, name_of: TargetNamer, summary: Rep
                 joined = t["sentiment_sep"].join(f"{label} {n}({round(100 * n / st.total)}%)" for label, n in items)
                 lines.append(f"  - {t['sentiment_title']}:" + t["sentiment_line"].format(n=st.total, items=joined))
         lines.append("")
+    if summary.wrap_up is not None:
+        first_action = summary.actions[0].recommendation.plain[lang] if summary.actions else None
+        lines += [f"## {t['wrapup_title']}", "", wrap_up_text(summary.wrap_up, lang, RUNS_PER_PROMPT, first_action), ""]
     if summary.actions:
         lines += [f"## {t['first_word']}", ""]
         for a in summary.actions:

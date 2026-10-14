@@ -136,4 +136,5 @@ def diagnose_citation(
         headline=msg(_HEADLINES[status]),
         evidence_lines=evidence,
         low_confidence=accounting.low_confidence,
+        rate=r,
     )

@@ -206,8 +206,19 @@ def test_user_view_leads_with_plain_language(client_and_job):
     client, job, _ = client_and_job
     html = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
     assert "这次检测告诉了我们什么" in html and html.index("这次检测告诉了我们什么") < html.index('id="methods"')
-    assert "用户主动问起时 S1 · m1 能介绍你,但用户不提你时 S1 · m1 几乎不会想到你" in html  # 显示名「接口 · 型号」代入
+    # 每个型号一句结论,S8.7 起在证据区
+    assert "用户主动问起时 S1 · m1 能介绍你,但用户不提你时 S1 · m1 几乎不会想到你" in html
     assert "用户直接问起你时的表现本次没测" in html  # 缺项句尾说明
+    view = user_view_of(html)
+    # 各 AI 一句话(写法 1,用户定 2026-10-14):每个型号的百分比,不用灯、不用 emoji
+    assert "S1:用户不提你时,m1 在 40% 的回答里提到你(30 次里 12 次);用户直接问起时,本次没测直接问起的题。" in view
+    assert "第二步 · 官网检索(AI 搜索时有没有找到你的官网)" in view  # 四步各一张卡
+    assert "1 个型号里:1 个看不到" in view  # 型号数数,用词不用灯
+    assert "第四步 · 回答提及" in view and "1 个型号里:1 个不够稳定" in view
+    assert "总的来说" in view and "没有任何新判断,也不打分" in view
+    assert "这次测了 2 家 AI 的 2 个型号、1 道题、每题 3 次" in view
+    assert "你的官网在本次所有回答里一次都没被当参考" in view  # 最高的一格也是 0 次:直说,不写「最高 0 次」
+    assert "第一步 · 官网访问(爬虫能不能进你的网站)" in view  # 夹具没测官网抓取,只有标题与说明
     assert "🔴 较弱" in html and "🟡 不够稳定" in html  # 红绿灯 + 定性词(夹具无 PASS 项)
     assert "有 1 处检测结果支持这条建议" in html  # s1 卡在引用、s2 卡在检索,各自的建议互不重合
     assert html.count('class="rec"') == 5  # s1 引用三条 + s2 搜到两条(第三方内容那条 S6 起归第三方线,D9)
@@ -397,15 +408,23 @@ def test_summarize_orders_by_evidence_level_then_support():
     from report.summary import summarize
 
     job = finished_job()
-    summary = summarize(job.class_reports, job.surface_verdicts, lambda surface, model: surface.upper())
+    summary = summarize(job.class_reports, lambda surface, model: surface.upper(), lambda surface: surface.upper())
     levels = [a.recommendation.evidence_level for a in summary.actions]
     assert levels == sorted(levels)
     assert all(a.support_count == 1 for a in summary.actions)  # s1 卡在引用、s2 卡在检索:各家各自的建议
-    (brief_s1, brief_s2) = summary.engines[job.prompts[0].intent.value]
-    assert (brief_s1.primary, brief_s2.primary) == (Stage.CITATION, Stage.RETRIEVAL)
-    assert brief_s1.display == "S1" and brief_s1.strongest_evidence is not None  # 本测试自带大写的命名器
-    assert [v.display for v in summary.verdicts] == ["S1", "S2"]
-    assert summarize([], [], lambda surface, model: surface).verdicts == []
+    assert [s.stage for s in summary.steps] == [Stage.RETRIEVAL, Stage.CITATION, Stage.REPRESENTATION]
+    blocks = summary.steps[2].intents[0].apis  # 第四步 · 品类发现:每家 AI 一块,型号数数
+    assert [b.api for b in blocks] == ["S1", "S2"] and blocks[0].status_counts == {"WEAK": 1}  # 12/30 = 40% 黄
+    assert blocks[0].models[0].model == "m1" and blocks[0].models[0].third is None  # 第四步没有第三方列
+    assert summary.steps[0].intents[0].apis[0].status_counts == {"NOT_OBSERVABLE": 1}  # s1 检索看不到
+    [line_s1, line_s2] = summary.api_lines
+    assert line_s1.api == "S1" and line_s1.unprompted == [("m1", rate(12, 30))] and line_s1.prompted == []
+    w = summary.wrap_up
+    assert w is not None and (w.n_apis, w.n_models, w.n_prompts, w.prompted_ok) == (2, 2, 1, None)
+    assert w.unprompted == {"often": 1, "sometimes": 1, "rarely": 0}  # s2 67% 经常、s1 40% 偶尔
+    assert w.best_unprompted is not None and w.best_unprompted[0] == "S2 · m2"
+    empty = summarize([], lambda surface, model: surface, lambda surface: surface)
+    assert empty.api_lines == [] and empty.wrap_up is None and empty.steps[0].intents == []
 
 
 def test_retired_model_keeps_product_name_in_old_reports():

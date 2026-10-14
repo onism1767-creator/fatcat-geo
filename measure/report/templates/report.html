@@ -30,12 +30,11 @@
   <p><b>{{ t["access_word"] }}:</b>
     {% if access %}<span class="chip {{ access.overall.value }}">{{ access_labels[access.overall.value] }}</span>{% endif %}
     {% if summary.access %}{{ summary.access.headline|plain(lang) }}{% else %}{{ t["access_missing"] }}{% endif %}</p>
-  {% if summary.verdicts %}
+  {#- 各 AI 一句话(S8.7,用户定写法 1):每个型号的百分比,不用灯、不用 emoji;每个型号的结论句移到证据区 -#}
+  {% if summary.api_lines %}
   <p style="margin-bottom:2px"><b>{{ t["verdicts_word"] }}:</b></p>
   <ul class="verdicts">
-    {% for v in summary.verdicts %}
-    <li><b>{{ v.display }}</b>:{{ v.message|plain(lang) }}{% if v.third_party %}{{ v.third_party|plain(lang) }}。{% endif %}{% if v.missing %} <span class="muted">({{ t["missing_pre"] }}{% for m in v.missing %}{{ m|plain(lang) }}{% if not loop.last %};{% endif %}{% endfor %})</span>{% endif %}</li>
-    {% endfor %}
+    {% for line in summary.api_lines %}<li>{{ api_line_text(line, lang) }}</li>{% endfor %}
   </ul>
   {% endif %}
   <p><b>{{ t["first_word"] }}:</b>
@@ -85,72 +84,77 @@
   {% endif %}
 </div>
 
-{% for cr in job.class_reports %}
-{% set d = cr.diagnosis %}
-<div class="card">
-  <h2 style="margin-top:0">{{ t["sec2_title"] }} · {{ intent_labels[cr.intent] }}</h2>
-  <p class="kv muted">{{ t["prompts_in_class"].format(n=cr.prompt_texts|length, runs=runs_per_prompt) }}</p>
-  <table>
-    <tr><th>{{ t["col_ai"] }}</th>{% for stage in funnel_stages %}<th>{{ stage_msg(stage)|plain(lang) }}</th>{% endfor %}<th>{{ t["col_tp_retrieved"] }}</th><th>{{ t["col_tp_cited"] }}</th><th>{{ t["dep_col"] }}</th></tr>
-    {% for sd in d.surfaces %}
-    <tr>
-      <td><b>{{ target_name(sd.surface, sd.model) }}</b></td>
-      {% for finding in sd.findings %}
-      <td><span class="chip {{ finding.status.value }}">{{ status_labels[finding.status.value] }}</span></td>
-      {% endfor %}
-      {% for finding in sd.third_party %}
-      <td><span class="chip {{ finding.status.value }}">{{ status_labels[finding.status.value] }}</span></td>
-      {% else %}
-      <td><span class="muted">—</span></td><td><span class="muted">—</span></td>
-      {% endfor %}
-      <td>{% if sd.retrieval_dependency %}<span class="chip {{ sd.retrieval_dependency.level.value }}">{{ dep_labels[sd.retrieval_dependency.level.value] }}</span>{% else %}<span class="muted">—</span>{% endif %}</td>
-    </tr>
+{#- ══ 四步(S8.7,用户定 2026-09-29 / 10-14):每步一张卡 → 题型全展开 → 每家 AI 一行型号数数 → 每个型号一行 ══ -#}
+{% macro step_table(it, own_col, third_col) %}
+  <table class="step"><tr><th style="width:30%">{{ t["col_ai_model"] }}</th><th>{{ own_col }}</th>{% if third_col %}<th>{{ third_col }}</th>{% endif %}</tr>
+  {% for block in it.apis %}
+    <tr class="api"><td>{{ block.api }}</td><td colspan="{{ 2 if third_col else 1 }}">{{ count_models(block.status_counts, block.models|length, lang) }}</td></tr>
+    {% for m in block.models %}
+    <tr><td class="model">· {{ m.model }}</td>
+      <td><span class="chip {{ m.own.status.value }}">{{ status_labels[m.own.status.value] }}</span> {{ m.own.text|plain(lang) }}</td>
+      {% if third_col %}<td>{% if m.third %}<span class="chip {{ m.third.status.value }}">{{ status_labels[m.third.status.value] }}</span> {{ m.third.text|plain(lang) }}{% else %}<span class="muted">—</span>{% endif %}</td>{% endif %}</tr>
     {% endfor %}
+  {% endfor %}
   </table>
-  <p class="muted" style="margin:6px 0 0">{{ t["matrix_note"] }}</p>
+{% endmacro %}
+
+<div class="card">
+  <h2 style="margin-top:0">{{ t["step1_title"] }}</h2>
+  <p>{% if access %}<span class="chip {{ access.overall.value }}">{{ access_labels[access.overall.value] }}</span> {% endif %}{% if summary.access %}{{ summary.access.headline|plain(lang) }}{% else %}{{ t["access_missing"] }}{% endif %} <span class="muted">{{ t["step1_note"] }}</span></p>
+  {% if access %}{% set problems = access.checks|selectattr("gating")|selectattr("status.value", "equalto", "FAIL")|list %}
+  <p><b>{{ t["problems_word"] }}:</b>{% if not problems %} {{ t["problems_none"] }}{% endif %}</p>
+  {% if problems %}<ul class="ev">{% for c in problems %}<li>{{ c.detail|plain(lang) }}</li>{% endfor %}</ul>{% endif %}
+  {% endif %}
+</div>
+
+{% for step in summary.steps %}
+<div class="card">
+  {% if step.stage.value == "RETRIEVAL" %}
+  <h2 style="margin-top:0">{{ t["step2_title"] }}</h2><p class="muted">{{ t["step2_intro"] }}</p>
+  {% elif step.stage.value == "CITATION" %}
+  <h2 style="margin-top:0">{{ t["step3_title"] }}</h2><p class="muted">{{ t["step3_intro"] }}</p>
+  {% else %}
+  <h2 style="margin-top:0">{{ t["step4_title"] }}</h2><p class="muted">{{ t["step4_intro"] }}</p>
+  {% endif %}
+  {% for it in step.intents %}
+  <h3 style="margin:14px 0 4px">{{ intent_labels[it.intent] }} <span class="muted" style="font-weight:400">· {{ t["prompts_in_class"].format(n=it.n_prompts, runs=runs_per_prompt) }}</span></h3>
+  {% if step.stage.value == "RETRIEVAL" %}{{ step_table(it, t["col_own_retrieval"], t["col_tp_retrieved"]) }}
+  {% elif step.stage.value == "CITATION" %}{{ step_table(it, t["col_own_citation"], t["col_tp_cited"]) }}
+  {% else %}{{ step_table(it, t["col_mention"], none) }}
+    {#- 竞品提及对比(S7,用户定 A / P1):计数 + 百分比 + 每名一环;差 ≥ gap 才说多 / 少 -#}
+    {% if it.compares %}
+    <h4 style="margin:12px 0 4px">{{ t["compare_title"] }}</h4>
+    <p class="muted">{{ t["compare_note"].format(pts=(it.compares[0][1].gap * 100)|round|int) }}</p>
+    <table class="brief compare">
+      {% for display, mc in it.compares %}
+      <tr><td style="width:30%"><b>{{ display }}</b><br><span class="muted">{{ t["compare_n"].format(n=mc.brand.rate.n) }}</span></td>
+        <td>{{ ring(mc.brand.rate, t["compare_you"], none) }}{% for c in mc.competitors %}{{ ring(c.rate, c.name, c.relation) }}{% endfor %}</td></tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+    {#- AI 怎么评价你(S8.1,用户定):按句计数 + 百分比 + 饼图;一句都没有的型号不列 -#}
+    {% if it.sentiments %}
+    <h4 style="margin:12px 0 4px">{{ t["sentiment_title"] }}</h4>
+    <table class="brief compare">
+      {% for display, st in it.sentiments %}
+      <tr><td style="width:30%"><b>{{ display }}</b></td>
+        <td><span class="ring pie-row">{{ pie(st) }}<span class="ring-label">{{ t["sentiment_line"].format(n=st.positive + st.neutral + st.negative + st.mixed, items=sentiment_items(st)) }}</span></span></td></tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+    {% if it.has_quotes %}<p class="muted">{{ t["quotes_hint"] }}</p>{% endif %}
+  {% endif %}
+  {% endfor %}
 </div>
 {% endfor %}
 
-{% for cr in job.class_reports %}
-<div class="card">
-  <h2 style="margin-top:0">{{ t["sec3_title"] }} · {{ intent_labels[cr.intent] }}</h2>
-  <table class="brief">
-    <tr><th>{{ t["col_ai"] }}</th><th>{{ t["col_seen"] }}</th><th>{{ t["col_basis"] }}</th><th>{{ t["col_notes"] }}</th></tr>
-    {% for eb in summary.engines[cr.intent.value] %}
-    <tr>
-      <td><b>{{ eb.display }}</b></td>
-      <td>{{ eb.phenomenon|plain(lang) }}{% if eb.third_party %}<br><span class="muted">{{ t["tp_prefix"] }}</span>{{ eb.third_party|plain(lang) }}{% endif %}</td>
-      <td>{% if eb.strongest_evidence %}{{ eb.strongest_evidence|plain(lang) }}{% else %}<span class="muted">—</span>{% endif %}{% if eb.third_party_evidence %}<br>{{ eb.third_party_evidence|plain(lang) }}{% endif %}</td>
-      <td>{% for c in eb.limitations %}{{ c|plain(lang) }}{% if not loop.last %}<br>{% endif %}{% else %}<span class="muted">—</span>{% endfor %}</td>
-    </tr>
-    {% endfor %}
-  </table>
-  {#- 竞品提及对比(S7,用户定 A / P1):计数 + 百分比 + 每名一环;差 ≥ gap 才说多 / 少 -#}
-  {% set compares = summary.engines[cr.intent.value]|selectattr("mention_compare")|list %}
-  {% if compares %}
-  <h3 style="margin:14px 0 4px">{{ t["compare_title"] }}</h3>
-  <p class="muted">{{ t["compare_note"].format(pts=(compares[0].mention_compare.gap * 100)|round|int) }}</p>
-  <table class="brief compare">
-    {% for eb in compares %}{% set mc = eb.mention_compare %}
-    <tr><td style="width:22%"><b>{{ eb.display }}</b><br><span class="muted">{{ t["compare_n"].format(n=mc.brand.rate.n) }}</span></td>
-      <td>{{ ring(mc.brand.rate, t["compare_you"], none) }}{% for c in mc.competitors %}{{ ring(c.rate, c.name, c.relation) }}{% endfor %}</td></tr>
-    {% endfor %}
-  </table>
-  {% endif %}
-  {#- AI 怎么评价你(S8.1,用户定):按句计数 + 百分比 + 饼图;一句都没有的 AI 不列 -#}
-  {% set tallies = summary.engines[cr.intent.value]|selectattr("sentiment")|list %}
-  {% if tallies %}
-  <h3 style="margin:14px 0 4px">{{ t["sentiment_title"] }}</h3>
-  <table class="brief compare">
-    {% for eb in tallies %}{% set st = eb.sentiment %}
-    <tr><td style="width:22%"><b>{{ eb.display }}</b></td>
-      <td><span class="ring pie-row">{{ pie(st) }}<span class="ring-label">{{ t["sentiment_line"].format(n=st.positive + st.neutral + st.negative + st.mixed, items=sentiment_items(st)) }}</span></span></td></tr>
-    {% endfor %}
-  </table>
-  {% endif %}
-  {% if cr.quotes %}<p class="muted">{{ t["quotes_hint"] }}</p>{% endif %}
+{#- 末尾一段汇总(用户定):把上面的数字串起来说一遍,没有新判断、不打分 -#}
+{% if summary.wrap_up %}
+<div class="card exec">
+  <h2 style="margin-top:0">{{ t["wrapup_title"] }}</h2>
+  <p>{{ wrap_up_text(summary.wrap_up, lang, runs_per_prompt, summary.actions[0].recommendation.plain[lang] if summary.actions else none) }}</p>
 </div>
-{% endfor %}
+{% endif %}
 
 <div class="card">
   <h2 style="margin-top:0">{{ t["sec4_title"] }}</h2>
@@ -211,6 +215,8 @@
     {% for sd in d.surfaces %}
     <h3 style="border-top:1px solid #e4e9f0; padding-top:10px">◆ {{ sd.surface }}
       <span class="muted" style="font-weight:400">model={{ sd.model }} · provider={{ sd.provider }}</span></h3>
+    {% set sv = job.surface_verdicts|selectattr("surface", "equalto", sd.surface)|selectattr("model", "equalto", sd.model)|first %}
+    {% if sv %}<p class="kv">{{ verdict_text(sv, target_name(sd.surface, sd.model), lang) }}</p>{% endif %}
 
     {% for finding in sd.findings %}
     <h4 style="margin:10px 0 2px">■ {{ finding.stage.value }}

@@ -73,7 +73,7 @@ def diagnose_third_party(
     return StageFinding(
         stage=stage, line=Line.THIRD_PARTY, status=status,
         headline=msg(f"thirdparty.{step}.headline.{status.value.lower()}"),
-        evidence_lines=evidence, low_confidence=metric.accounting.low_confidence,
+        evidence_lines=evidence, low_confidence=metric.accounting.low_confidence, rate=r,
     )
 
 

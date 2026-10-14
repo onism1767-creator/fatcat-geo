@@ -69,6 +69,7 @@ class StageFinding(FrozenModel):
     headline: Msg
     evidence_lines: list[Msg] = []
     low_confidence: bool = False
+    rate: Rate | None = None  # 这一步的主指标 k/n(S8.7:主视图的格子直接用;看不到 → None)
 
 
 class SentimentTally(FrozenModel):

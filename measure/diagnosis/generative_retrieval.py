@@ -99,4 +99,5 @@ def diagnose_generative_retrieval(
         headline=msg(_HEADLINES[status]),
         evidence_lines=evidence,
         low_confidence=accounting.low_confidence,
+        rate=r,
     )

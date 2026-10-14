@@ -229,7 +229,7 @@ async def job_report(request: Request, job_id: str):
     if not job.finished:
         return redirect(request, f"/jobs/{job.job_id}")
     return ctx.render(request, "report.html", job=job, runs_per_prompt=RUNS_PER_PROMPT,
-                      summary=summarize(job.class_reports, job.surface_verdicts, ctx.target_name),
+                      summary=summarize(job.class_reports, ctx.target_name, ctx.api_name),
                       psl_version=PSL_SNAPSHOT_VERSION)
 
 
@@ -272,7 +272,7 @@ async def job_download(request: Request, job_id: str):
         return not_found()
     if not job.finished:
         return redirect(request, f"/jobs/{job.job_id}")
-    summary = summarize(job.class_reports, job.surface_verdicts, ctx.target_name)
+    summary = summarize(job.class_reports, ctx.target_name, ctx.api_name)
     with Storage(ctx.dsn) as store:
         data = build_bundle(job, store, lang_of(request), ctx.target_name, summary)
     return Response(content=data, media_type="application/zip",
