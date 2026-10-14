@@ -56,7 +56,9 @@ def test_ui_language_toggle():
     app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=lambda **kw: None)
     client = TestClient(app)
-    zh = client.get("/").text
+    default = client.get("/").text
+    assert "Brand name" in default and "品牌名" not in default  # 默认英文(产品文档 D16;S8.6)
+    zh = client.get("/?lang=zh").text
     assert "品牌名" in zh
     en = client.get("/?lang=en").text
     assert "Brand name" in en and "品牌名" not in en

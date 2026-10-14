@@ -162,14 +162,14 @@ def client_and_job():
 
 def test_report_contains_no_score_patterns(client_and_job):
     client, job, _ = client_and_job
-    html = client.get(f"/jobs/{job.job_id}/report").text
+    html = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
     assert not re.search(r"总分|得分|score\s*[::]", html, re.IGNORECASE)
     assert not re.search(r"\d+\s*/\s*100", html)
 
 
 def test_report_metrics_carry_caliber(client_and_job):
     client, job, _ = client_and_job
-    html = client.get(f"/jobs/{job.job_id}/report").text
+    html = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
     assert "N_valid" in html and "stop_reasons" in html
     assert "题数=1" in html and "/30 = " in html  # 计数 + 比例,不出区间(v0.4.26 S2)
     assert "操作阈值(v1 初始值,未经校准)" in html  # 阈值口径自报,且标明未校准
@@ -179,7 +179,7 @@ def test_report_metrics_carry_caliber(client_and_job):
 
 def test_report_recommendations_carry_evidence_ids(client_and_job):
     client, job, _ = client_and_job
-    html = client.get(f"/jobs/{job.job_id}/report").text
+    html = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
     assert "EVIDENCE_STRUCT_V1" in html  # RETRIEVAL FAIL → 结构信号建议(B 级)
     assert "建议实验验证" in html  # C 级以下强制标注
     assert "证据等级" in html
@@ -204,7 +204,7 @@ def test_user_view_leads_with_plain_language(client_and_job):
     """v0.4.14:用户视图在前,全是人话——官网抓取一句、每家 AI 一句话(用显示名)、
     红绿灯状态、去重后的建议(标支持数);技术记录折叠在最后。"""
     client, job, _ = client_and_job
-    html = client.get(f"/jobs/{job.job_id}/report").text
+    html = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
     assert "这次检测告诉了我们什么" in html and html.index("这次检测告诉了我们什么") < html.index('id="methods"')
     assert "用户主动问起时 S1 · m1 能介绍你,但用户不提你时 S1 · m1 几乎不会想到你" in html  # 显示名「接口 · 型号」代入
     assert "用户直接问起你时的表现本次没测" in html  # 缺项句尾说明
@@ -220,9 +220,32 @@ def test_user_view_leads_with_plain_language(client_and_job):
     assert "做完之后怎么检查效果" in html and "这一格有没有从 🔴 变 🟡 或 🟢" in html  # v0.4.17 两列
 
 
+USER_VIEW_FORBIDDEN_EN = (  # 英文主视图同样不得出现引擎内部语言(D16:人话规则两种语言都守;S8.6)
+    "NOT_OBSERVABLE", "N_valid", "stop_reasons", "Jeffreys", "EVIDENCE_", "surface=", "bootstrap",
+    "confidence interval",
+)
+
+
+def test_default_language_is_english_and_its_user_view_has_no_jargon(client_and_job):
+    """界面默认英文(产品文档 D16,用户定;S8.6):不带 lang 就是英文;英文主视图与首页 / 任务页同样不出引擎内部语言。"""
+    client, job, _ = client_and_job
+    html = client.get(f"/jobs/{job.job_id}/report").text  # 不带 lang = 默认英文
+    assert "AI Visibility Report" in html and 'lang="en"' in html and "AI 可见度报告" not in html
+    user_view = user_view_of(html)
+    for token in USER_VIEW_FORBIDDEN_EN:
+        assert token not in user_view, token
+    assert not re.search(r"\b(PASS|WEAK|FAIL)\b", user_view)
+    for page in (client.get("/").text, client.get(f"/jobs/{job.job_id}").text):
+        text = visible_text(page)
+        for token in ("surface", "RUNNING", "DONE", "CONFIRMED", "INTERRUPTED", "fingerprint"):
+            assert token not in text, token
+    assert "品牌名" not in client.get("/").text and "Brand name" in client.get("/").text
+    assert 'lang="zh"' in client.get(f"/jobs/{job.job_id}/report?lang=zh").text
+
+
 def test_user_view_has_no_engine_jargon(client_and_job):
     client, job, _ = client_and_job
-    html = client.get(f"/jobs/{job.job_id}/report").text
+    html = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
     user_view = user_view_of(html)
     for token in USER_VIEW_FORBIDDEN:
         assert token not in user_view, token
@@ -246,12 +269,12 @@ def visible_text(html: str) -> str:
 def test_interactive_pages_use_plain_language(client_and_job):
     """用户明令(2026-09-09):所有面向用户的页面只用简单中文,技术词只进折叠区。"""
     client, job, _ = client_and_job
-    resp = client.post("/jobs", data={
+    resp = client.post("/jobs?lang=zh", data={
         "brand_name": "极光CRM", "aliases": "", "website": "aurora-crm.com", "category": "CRM",
         "questions": "问题一?", "generate": "",
     }, follow_redirects=False)
-    pages = [client.get("/").text, client.get(resp.headers["location"]).text,
-             client.get(f"/jobs/{job.job_id}").text]
+    pages = [client.get("/?lang=zh").text, client.get(resp.headers["location"]).text,
+             client.get(f"/jobs/{job.job_id}?lang=zh").text]
     for html in pages:
         text = visible_text(html)
         for token in UI_FORBIDDEN:
@@ -264,16 +287,16 @@ def test_confirm_validation_errors_are_plain_codes_not_free_text(client_and_job)
     """确认页校验不过:跳回确认页,按错误码用人话说明(文案在 i18n,不带技术词);
     地址栏里的错误码只认 err_ 开头的已知码,别的一律不显示(不回显任意文字)。"""
     client, _, _ = client_and_job
-    resp = client.post("/jobs", data={"brand_name": "极光CRM", "aliases": "", "website": "aurora-crm.com",
+    resp = client.post("/jobs?lang=zh", data={"brand_name": "极光CRM", "aliases": "", "website": "aurora-crm.com",
                                       "category": "CRM", "questions": "问题一?", "generate": ""},
                        follow_redirects=False)
     confirm_url = resp.headers["location"]
     job_path = confirm_url.split("?")[0].rsplit("/", 1)[0]
-    back = client.post(f"{job_path}/confirm", data={"targets_selected": ["s1::m1"]}, follow_redirects=False)
+    back = client.post(f"{job_path}/confirm?lang=zh", data={"targets_selected": ["s1::m1"]}, follow_redirects=False)
     assert "error=err_prompts_count" in back.headers["location"]
     page = visible_text(client.get(back.headers["location"]).text)
     assert "要测的题请选 1 到 40 道" in page and not any(token in page for token in UI_FORBIDDEN)
-    forged = visible_text(client.get(f"{job_path}/confirm?error=job_stalled").text)
+    forged = visible_text(client.get(f"{job_path}/confirm?lang=zh&error=job_stalled").text)
     assert "卡住" not in forged
 
 
@@ -286,10 +309,10 @@ def test_job_page_shows_remaining_time_from_actual_pace(client_and_job):
     job.phase = "phase_sampling"
     job.started_at = datetime.now(UTC) - timedelta(minutes=10)
     job.total_runs, job.completed_runs = 16, 4
-    html = client.get(f"/jobs/{job.job_id}").text
+    html = client.get(f"/jobs/{job.job_id}?lang=zh").text
     assert "预计还需约 30." in html  # 10 分钟完成 4/16 → 还需 30 分钟
     job.completed_runs = 0
-    assert "第一批结果还没回来" in client.get(f"/jobs/{job.job_id}").text
+    assert "第一批结果还没回来" in client.get(f"/jobs/{job.job_id}?lang=zh").text
     job.state, job.phase = JobState.DONE, "phase_done"
 
 
@@ -403,7 +426,7 @@ def test_retired_model_keeps_product_name_in_old_reports():
 
 def test_report_shows_upstream_caution_and_competitor_gap(client_and_job):
     client, job, _ = client_and_job
-    html = client.get(f"/jobs/{job.job_id}/report").text
+    html = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
     assert "不建议】进行全页" in html
     assert "落后竞品 竞品甲 20% 个百分点以上" in html
 
@@ -413,13 +436,13 @@ def test_report_shows_upstream_caution_and_competitor_gap(client_and_job):
 
 def test_index_renders_form(client_and_job):
     client, _, _ = client_and_job
-    html = client.get("/").text
+    html = client.get("/?lang=zh").text
     assert "品牌名" in html and "最可能会提问哪些和你相关的问题" in html  # 出题框问法(用户定 2026-10-14)
 
 
 def test_manual_flow_to_confirm_and_launch(client_and_job):
     client, _, calls = client_and_job
-    resp = client.post("/jobs", data={
+    resp = client.post("/jobs?lang=zh", data={
         "brand_name": "极光CRM", "aliases": "AuroraCRM",
         "website": "aurora-crm.com", "category": "CRM",
         "questions": "问题一?\n问题二?", "generate": "",
@@ -441,7 +464,7 @@ def test_manual_flow_to_confirm_and_launch(client_and_job):
 
 def test_confirm_rejects_empty_selection(client_and_job):
     client, _, _ = client_and_job
-    resp = client.post("/jobs", data={
+    resp = client.post("/jobs?lang=zh", data={
         "brand_name": "X", "website": "x.com", "category": "C",
         "questions": "q1?", "generate": "",
     }, follow_redirects=False)
@@ -453,12 +476,12 @@ def test_confirm_rejects_empty_selection(client_and_job):
 
 def test_unfinished_report_redirects_to_status(client_and_job):
     client, _, _ = client_and_job
-    resp = client.post("/jobs", data={
+    resp = client.post("/jobs?lang=zh", data={
         "brand_name": "X", "website": "x.com", "category": "C",
         "questions": "q1?", "generate": "",
     }, follow_redirects=False)
     job_id = resp.headers["location"].split("/")[2].split("?")[0]
-    resp = client.get(f"/jobs/{job_id}/report", follow_redirects=False)
+    resp = client.get(f"/jobs/{job_id}/report?lang=zh", follow_redirects=False)
     assert resp.status_code == 303
 
 
@@ -474,12 +497,12 @@ def test_confirm_estimate_prefers_measured_history():
         app = create_app(call_stats=lambda: stats, adapters={"s1": DummyAdapter()},
                          dsn="postgresql://unused", evidence=REGISTRY, job_runner=lambda **kw: None)
         client = TestClient(app)
-        resp = client.post("/jobs", data={"brand_name": "极光CRM", "aliases": "", "website": "aurora-crm.com",
+        resp = client.post("/jobs?lang=zh", data={"brand_name": "极光CRM", "aliases": "", "website": "aurora-crm.com",
                                           "category": "CRM", "questions": "问题一?", "generate": ""},
                            follow_redirects=False)
         page = client.get(resp.headers["location"]).text
         job_id = resp.headers["location"].split("/")[2]
-        estimate = client.post(f"/jobs/{job_id}/estimate", data={
+        estimate = client.post(f"/jobs/{job_id}/estimate?lang=zh", data={
             "prompts_selected": ["0"], "targets_selected": ["s1::m1"]}).json()
         return page, estimate
 
@@ -531,7 +554,7 @@ def test_job_snapshot_round_trip():
 def test_resume_endpoint_relaunches_interrupted_job(client_and_job):
     client, job, calls = client_and_job
     job.state = JobState.INTERRUPTED
-    resp = client.post(f"/jobs/{job.job_id}/resume", follow_redirects=False)
+    resp = client.post(f"/jobs/{job.job_id}/resume?lang=zh", follow_redirects=False)
     assert resp.status_code == 303
     assert calls == [job.job_id]  # 执行器被再次触发(可重入,只补缺口)
 
@@ -574,18 +597,18 @@ def test_choosing_official_domains_updates_list_and_only_recomputes(monkeypatch)
     assert job.brand.domains == ["aurora-crm.com", "aurora-crm.de"]
     app.state.ctx.registry.add(job)
     client = TestClient(app)
-    page = user_view_of(client.get(f"/jobs/{job.job_id}/report").text)
+    page = user_view_of(client.get(f"/jobs/{job.job_id}/report?lang=zh").text)
     assert "aurora-crm.de" in page and "双向声明" in page and "aurora-crm.jp" in page and "出现 5 次" in page
     assert not any(token in page for token in USER_VIEW_FORBIDDEN)
     before = job.fingerprint
-    resp = client.post(f"/jobs/{job.job_id}/official_domains",
+    resp = client.post(f"/jobs/{job.job_id}/official_domains?lang=zh",
                        data={"confirm": ["aurora-crm.jp", "evil.example"], "remove": ["aurora-crm.de"]},
                        follow_redirects=False)
     assert resp.status_code == 303
     assert job.brand.domains == ["aurora-crm.com", "aurora-crm.jp"]  # 确认的进、去掉的出;evil.example 不在名单里,不认
     assert job.fingerprint != before and job.domain_list is not None and job.domain_list.user_changed
     assert runs == [True]  # 只重算
-    resp = client.post(f"/jobs/{job.job_id}/official_domains", data={"confirm": ["evil.example"]},
+    resp = client.post(f"/jobs/{job.job_id}/official_domains?lang=zh", data={"confirm": ["evil.example"]},
                        follow_redirects=False)
     assert resp.status_code == 303 and runs == [True]  # 名单没变,不重算
     restored = DiagnosisJob.from_snapshot(job.to_snapshot())  # 名单随快照冻结
@@ -624,14 +647,14 @@ def test_resume_clicked_twice_launches_one_runner(monkeypatch):
     app.state.ctx.registry.add(job)
     client = TestClient(app)
     for _ in range(2):
-        assert client.post(f"/jobs/{job.job_id}/resume", follow_redirects=False).status_code == 303
+        assert client.post(f"/jobs/{job.job_id}/resume?lang=zh", follow_redirects=False).status_code == 303
     assert calls == [job.job_id]
 
 
 def test_resume_endpoint_regenerates_completed_job(client_and_job):
     """v0.4.16:已完成任务也可「重新生成报告」——追加一版快照,旧版本留档。"""
     client, job, calls = client_and_job
-    resp = client.post(f"/jobs/{job.job_id}/resume", follow_redirects=False)
+    resp = client.post(f"/jobs/{job.job_id}/resume?lang=zh", follow_redirects=False)
     assert resp.status_code == 303
     assert calls == [job.job_id]
 

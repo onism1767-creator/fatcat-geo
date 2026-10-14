@@ -533,4 +533,5 @@ MESSAGES: dict[str, dict[str, str]] = {
 
 
 def resolve_lang(value: str | None) -> str:
-    return value if value in LANGS else "zh"
+    """界面语言:默认英文(产品文档 D16,用户定;S8.6 落地),中文用 ?lang=zh;与测量语境 locale 无关。"""
+    return value if value in LANGS else "en"
