@@ -7,12 +7,13 @@ from datetime import UTC, datetime
 from importlib.metadata import version as _package_version
 
 from fastapi import APIRouter, Form, Request
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from engine.drafting import PromptCandidate, draft_prompt_candidates
 from engine.models import Target
 from engine.storage import Storage
 from report.estimate import estimate_job, unit_prices
+from report.export import build_bundle, content_disposition
 from report.forms import (
     brand_from_form,
     confirm_choice,
@@ -258,3 +259,19 @@ async def response_download(request: Request, job_id: str, run_id: str):
         return not_found()
     return JSONResponse(run.model_dump(mode="json"),
                         headers={"Content-Disposition": f'attachment; filename="response-{run_id}.json"'})
+
+
+@router.get("/jobs/{job_id}/download")
+async def job_download(request: Request, job_id: str):
+    """下载结果文件(S8.4):从库里打包 zip;没完成的任务回任务页。"""
+    ctx = ctx_of(request)
+    job = ctx.registry.get(job_id)
+    if job is None:
+        return not_found()
+    if not job.finished:
+        return redirect(request, f"/jobs/{job.job_id}")
+    summary = summarize(job.class_reports, job.surface_verdicts, ctx.target_name)
+    with Storage(ctx.dsn) as store:
+        data = build_bundle(job, store, lang_of(request), ctx.target_name, summary)
+    return Response(content=data, media_type="application/zip",
+                    headers={"Content-Disposition": content_disposition(job)})

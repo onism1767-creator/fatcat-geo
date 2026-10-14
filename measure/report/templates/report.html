@@ -3,6 +3,7 @@
 {% block content %}
 <h1>{{ job.brand.name }} {{ t["report_title"] }}</h1>
 <p class="muted">{{ t["scope_note"] }} {{ t["api_note"] }}</p>
+<p><a class="button" href="/jobs/{{ job.job_id }}/download?lang={{ lang }}">{{ t["download_bundle"] }}</a></p>
 
 {#- 采样说明(S8.2,架构书 v0.4.26 §10):这份报告是怎么测出来的——实际发生的数字,不是计划 -#}
 {% set sn = job.sampling %}

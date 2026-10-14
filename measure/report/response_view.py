@@ -43,7 +43,8 @@ def run_belongs_to(job: DiagnosisJob, run: SurfaceRun) -> bool:
             and Target(surface=run.surface, model=run.model) in job.targets)
 
 
-def _latest(observations: list[dict[str, Any]], detector_name: str) -> dict[str, Any] | None:
+def latest_observation(observations: list[dict[str, Any]], detector_name: str) -> dict[str, Any] | None:
+    """库里这条回答某个判定器的最新一版观测行(没有 → None);单条回答页与结果文件打包共用。"""
     rows = [o for o in observations if o["detector_name"] == detector_name]
     return max(rows, key=lambda o: o["detector_version"]) if rows else None
 
@@ -77,10 +78,10 @@ def _citation_rows(run: SurfaceRun, attribution: dict[str, Any] | None) -> list[
 
 def build_response_view(job: DiagnosisJob, run: SurfaceRun, observations: list[dict[str, Any]]) -> ResponseView:
     prompt_text = next((p.text for p in job.prompts if p.prompt_id == run.prompt_id), "")
-    mention = _latest(observations, brand_mention.DETECTOR_NAME)
-    cite = _latest(observations, citation.DETECTOR_NAME)
-    tone = _latest(observations, sentiment.DETECTOR_NAME)
-    attribution = _latest(observations, source_class.DETECTOR_NAME)
+    mention = latest_observation(observations, brand_mention.DETECTOR_NAME)
+    cite = latest_observation(observations, citation.DETECTOR_NAME)
+    tone = latest_observation(observations, sentiment.DETECTOR_NAME)
+    attribution = latest_observation(observations, source_class.DETECTOR_NAME)
     mentioned = mention["mentioned"] if mention is not None else None
     excerpt = None
     if mentioned and run.answer is not None and mention is not None and mention.get("first_position") is not None:
