@@ -17,7 +17,7 @@ from diagnosis.diagnose import access_finding, diagnose_class, diagnose_surface
 from diagnosis.findings import Stage
 from diagnosis.generative_retrieval import diagnose_generative_retrieval
 from diagnosis.recommender import load_evidence_registry
-from diagnosis.representation_diag import compare_mentions, diagnose_representation
+from diagnosis.representation_diag import compare_mentions, diagnose_representation, sentiment_tally
 from diagnosis.retrieval_dependency import diagnose_retrieval_dependency
 from diagnosis.retrieval_diag import retrieval_not_observable
 from diagnosis.verdict import SurfaceVerdict
@@ -43,7 +43,7 @@ REGISTRY = load_evidence_registry()
 
 class DummyAdapter(SurfaceAdapter):
     def meta(self) -> SurfaceMeta:
-        return SurfaceMeta(display_name="S1", provider="test_provider", surface="s1", models=["m1"],
+        return SurfaceMeta(display_name="S1", api_name="S1", provider="test_provider", surface="s1", models=["m1"],
                            default_model="m1",
                            capabilities=CapabilityRegistry(supports_citations=True),
                            est_cost_per_call_usd={"m1": 0.005})
@@ -97,6 +97,8 @@ def finished_job() -> DiagnosisJob:
         # S7:和竞品比谁被提得多——甲 20/30 比你(12/30)多 ≥ 20 个百分点;乙 10/30 和你差不多
         mention_compare=compare_mentions("极光CRM", make_metric(12, 30),
                                          [("竞品甲", rate(20, 30)), ("竞品乙", rate(10, 30))]),
+        # S8.1:提到你的 18 句话里正面 1、中性 9、负面 8(混合 0 不写)
+        sentiment=sentiment_tally({Sentiment.POSITIVE: 1, Sentiment.NEUTRAL: 9, Sentiment.NEGATIVE: 8}),
     )
     generative_block = diagnose_surface(
         provider="test_provider", surface="s2", model="m2",
@@ -197,14 +199,14 @@ def test_user_view_leads_with_plain_language(client_and_job):
     client, job, _ = client_and_job
     html = client.get(f"/jobs/{job.job_id}/report").text
     assert "这次检测告诉了我们什么" in html and html.index("这次检测告诉了我们什么") < html.index('id="methods"')
-    assert "用户主动问起时 S1 能介绍你,但用户不提你时 S1 几乎不会想到你" in html  # 显示名代入
+    assert "用户主动问起时 S1 · m1 能介绍你,但用户不提你时 S1 · m1 几乎不会想到你" in html  # 显示名「接口 · 型号」代入
     assert "用户直接问起你时的表现本次没测" in html  # 缺项句尾说明
     assert "🔴 较弱" in html and "🟡 不够稳定" in html  # 红绿灯 + 定性词(夹具无 PASS 项)
     assert "有 1 处检测结果支持这条建议" in html  # s1 卡在引用、s2 卡在检索,各自的建议互不重合
     assert html.count('class="rec"') == 5  # s1 引用三条 + s2 搜到两条(第三方内容那条 S6 起归第三方线,D9)
     assert "用户问这类产品有哪些好的时(品类发现)" in html  # 题型人话
     assert "官网检索(AI 搜索时有没有找到你的官网)" in html  # 正式用词(口语解释),用户定 2026-10-13
-    assert "本次 30 次搜索里,0 次结果中出现了你的官网" in html  # 比例用原始计数
+    assert "本次 30 次搜索里,0 次(0%)结果中出现了你的官网" in html  # 计数在前、百分比跟在后面(用户定 S8)
     assert "让 AI 搜索时更容易找到你" in html  # 建议用人话版(注册表 plain)
     assert "建议先试" not in html  # 各 AI 详情不再重复列建议:「建议先做的事」已去重并标支持来源
     assert "研究主张原句" in html and "提高语义覆盖" in html  # 原句仍在「为什么这么建议」里
@@ -326,6 +328,22 @@ def test_report_shows_competitor_mentions_with_percentages_and_rings_and_quotes_
     assert "Competitor mentions (who the AI brings up more often)" in en and "more than you" in en
 
 
+def test_report_names_ai_as_api_and_model_and_shows_sentiment_tally_with_pie(client_and_job):
+    """S8.1(用户定 2026-10-14):AI 名字「接口 · 型号」+ 顶部一句「接口回答 ≠ 产品界面」;
+    「AI 怎么评价你」= 提到你的 N 句话里正面 / 中性 / 负面各几句(百分比)+ 一张饼(四类互斥);计数句后面跟百分比。"""
+    client, job, _ = client_and_job
+    html = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
+    view = user_view_of(html)
+    assert "AI 的名字写成「接口 · 型号」" in view and "S1 · m1" in view
+    assert "回答提及(AI 怎么评价你)" in view
+    assert "提到你的 18 句话里:正面 1(6%)、中性 9(50%)、负面 8(44%)" in view  # 混合 0 不写
+    assert html.count('class="pie"') == 1  # 只有 s1 有提到你的句子;s2 没有就不画
+    assert "本次 30 次回答里,0 次(0%)拿你的官网当参考" in view  # 主视图「依据」:计数在前、百分比跟在后面
+    en = client.get(f"/jobs/{job.job_id}/report?lang=en").text
+    assert "Of the 18 sentences that mention you: positive 1(6%), neutral 9(50%), negative 8(44%)" in en
+    assert "AI names are written as" in en
+
+
 def test_summarize_orders_by_evidence_level_then_support():
     from report.summary import summarize
 
@@ -336,7 +354,7 @@ def test_summarize_orders_by_evidence_level_then_support():
     assert all(a.support_count == 1 for a in summary.actions)  # s1 卡在引用、s2 卡在检索:各家各自的建议
     (brief_s1, brief_s2) = summary.engines[job.prompts[0].intent.value]
     assert (brief_s1.primary, brief_s2.primary) == (Stage.CITATION, Stage.RETRIEVAL)
-    assert brief_s1.display == "S1" and brief_s1.strongest_evidence is not None
+    assert brief_s1.display == "S1" and brief_s1.strongest_evidence is not None  # 本测试自带大写的命名器
     assert [v.display for v in summary.verdicts] == ["S1", "S2"]
     assert summarize([], [], lambda surface, model: surface).verdicts == []
 
@@ -447,9 +465,9 @@ def test_confirm_estimate_prefers_measured_history():
     assert "预估按过去实测的平均费用和耗时算:S1" in page
     assert est["calls"] == 3  # 1 道题 × 3 次
     assert est["cost_usd"] == pytest.approx(3 * 0.02) and est["minutes"] == pytest.approx(3 * 15 / 60 / 3)
-    assert est["breakdown"] == [{"display": "S1", "cost_usd": pytest.approx(3 * 0.02)}]
+    assert est["breakdown"] == [{"display": "S1 · m1", "cost_usd": pytest.approx(3 * 0.02)}]
     page, est = run([stat(3)])  # 历史不足:声明单价 + 兜底时长
-    assert "S1 还没有足够的历史记录" in page
+    assert "S1 · m1 还没有足够的历史记录" in page  # 确认页也用「接口 · 型号」
     assert est["cost_usd"] == pytest.approx(3 * 0.005) and est["minutes"] == pytest.approx(3 * 20 / 60 / 3)
 
 

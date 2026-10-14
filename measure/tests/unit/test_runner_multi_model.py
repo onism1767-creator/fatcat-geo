@@ -48,7 +48,7 @@ class TwoModelAdapter(SurfaceAdapter):
         self.broke_model = broke_model
 
     def meta(self) -> SurfaceMeta:
-        return SurfaceMeta(display_name="假 AI", provider="test_provider", surface="two_model",
+        return SurfaceMeta(display_name="假 AI", api_name="假 AI", provider="test_provider", surface="two_model",
                            models=[CITES, SILENT], default_model=CITES,
                            capabilities=CapabilityRegistry(supports_citations=True),
                            est_cost_per_call_usd={CITES: 0.01, SILENT: 0.001})
@@ -226,7 +226,8 @@ class RedirectAdapter(SurfaceAdapter):
     """给跳转链当引用的假仪器(能力 citation_urls_redirect):两条引用,一条能还原到官网、一条还原不出去向。"""
 
     def meta(self) -> SurfaceMeta:
-        return SurfaceMeta(display_name="假跳转 AI", provider="test_provider", surface="redirect_ai",
+        return SurfaceMeta(display_name="假跳转 AI", api_name="假跳转 AI", provider="test_provider",
+                           surface="redirect_ai",
                            models=["r1"], default_model="r1",
                            capabilities=CapabilityRegistry(supports_citations=True, citation_urls_redirect=True),
                            est_cost_per_call_usd={"r1": 0.01})

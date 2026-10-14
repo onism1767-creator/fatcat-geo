@@ -15,7 +15,7 @@ from diagnosis.diagnose import SurfaceDiagnosis, diagnose_surface
 from diagnosis.findings import Stage, StageFinding
 from diagnosis.generative_retrieval import diagnose_generative_retrieval
 from diagnosis.recommender import EvidenceEntry
-from diagnosis.representation_diag import compare_mentions, diagnose_representation
+from diagnosis.representation_diag import compare_mentions, diagnose_representation, sentiment_tally
 from diagnosis.retrieval_dependency import diagnose_retrieval_dependency
 from diagnosis.retrieval_diag import retrieval_not_observable
 from diagnosis.third_party_diag import diagnose_third_party
@@ -77,6 +77,7 @@ def diagnose_class_targets(
             retrieval_dependency=diagnose_retrieval_dependency(m.mention, closed) if closed is not None else None,
             third_party=third_party,
             mention_compare=compare_mentions(brand.name, m.mention, m.competitor_mentions),
+            sentiment=sentiment_tally(m.sentiment_counts),
         ))
         verdict_inputs[m.target] = verdict_input(
             intent, m.mention, retrieval, citation, third_party_cited=third_party[1])

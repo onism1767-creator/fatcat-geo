@@ -12,7 +12,7 @@ from report.jobs import DiagnosisJob, JobState
 
 class DummyAdapter(SurfaceAdapter):
     def meta(self) -> SurfaceMeta:
-        return SurfaceMeta(display_name="S1", provider="test_provider", surface="s1", models=["m1"],
+        return SurfaceMeta(display_name="S1", api_name="S1", provider="test_provider", surface="s1", models=["m1"],
                            default_model="m1", capabilities=CapabilityRegistry(supports_citations=True),
                            est_cost_per_call_usd={"m1": 0.005})
 

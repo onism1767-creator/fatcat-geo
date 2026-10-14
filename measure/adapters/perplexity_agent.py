@@ -77,6 +77,7 @@ class PerplexityAgentAdapter(SurfaceAdapter):
             provider="perplexity",
             surface="perplexity_agent",
             display_name="Perplexity",
+            api_name="Perplexity API",
             # 以官方模型页为准(2026-09-21 核对;sonar-deep-research 是另一种产品形态——
             # 单次分钟级、按检索次数另计费,不入清单)
             models=["sonar", "sonar-pro", "sonar-reasoning-pro"],

@@ -92,14 +92,14 @@ def test_catalog_bilingual_completeness():
 
 
 def test_plain_register_renders_counts_and_falls_back():
-    """用户视图人话版:比例用「N 次里 k 次」的原始计数,不出单点概率;无人话版的码回落技术版。"""
+    """用户视图人话版:比例写「N 次里 k 次(p%)」——计数在前、百分比跟后(用户定 S8);无人话版的码回落技术版。"""
     from diagnosis.findings import rate_params
     from diagnosis.messages import msg, render_msg
     from engine.metrics import rate
 
     line = msg("citation.rate", **rate_params(rate(7, 16)))
-    assert render_msg(line, "zh", "plain") == "本次 16 次回答里,7 次拿你的官网当参考"
-    assert "%" not in render_msg(line, "zh", "plain")
+    # 计数在前、百分比跟在后面(用户定 S8)
+    assert render_msg(line, "zh", "plain") == "本次 16 次回答里,7 次(44%)拿你的官网当参考"
     assert render_msg(line, "zh") == "被引比例:7/16 = 44%"  # 审计视图:计数 + 比例,不出区间
     nested = msg("caution.unobservable", stages=[msg("stage.ACCESS"), msg("stage.RETRIEVAL")])
     assert "官网访问(爬虫能不能进你的网站)" in render_msg(nested, "zh", "plain")  # 正式用词(口语解释)

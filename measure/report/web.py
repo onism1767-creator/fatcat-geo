@@ -32,17 +32,12 @@ TargetNamer = Callable[[str, str], str]
 
 
 def target_namer(adapters: dict[str, SurfaceAdapter]) -> TargetNamer:
-    display_names = {name: adapter.meta().display_name for name, adapter in adapters.items()}
-    models_of = {name: adapter.meta().models for name, adapter in adapters.items()}
+    api_names = {name: adapter.meta().api_name for name, adapter in adapters.items()}
 
     def target_name(surface: str, model: str) -> str:
-        """被测对象(仪器 × 型号,v0.4.19)的显示名:只有一个型号的仪器直接用产品名,否则「产品名 · 型号」。
-        型号已移出清单(历史报告里还有)照样「产品名 · 型号」;连仪器都没加载才如实用内部名,不猜。"""
-        if surface not in display_names:
-            return f"{surface} · {model}"
-        if models_of[surface] == [model]:
-            return display_names[surface]
-        return f"{display_names[surface]} · {model}"
+        """被测对象(仪器 × 型号)的显示名:「接口 · 型号」(产品文档 P4,用户定;S8.1)——接口名由适配器 meta 声明,
+        型号永远写出来(型号是口径的一部分);连仪器都没加载(历史报告里的旧仪器)才如实用内部名,不猜。"""
+        return f"{api_names.get(surface, surface)} · {model}"
 
     return target_name
 

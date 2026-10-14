@@ -28,7 +28,7 @@ def test_third_party_step_lights_and_lists_unobservable_reasons():
     assert lines[0].startswith("第三方引用率:2/12 = 17%")
     assert "其中标题或首段就出现品牌:1/2" in lines[1]
     assert "看不到的网页 6 条" in lines[2] and "站点不允许抓取 2、被拦截 3、没来得及开 1" in lines[2]
-    assert _zh(finding.evidence_lines[0], "plain") == "本次 12 次回答里,2 次拿别人提到你的文章当参考(和官网分开算)"
+    assert _zh(finding.evidence_lines[0], "plain") == "本次 12 次回答里,2 次(17%)拿别人提到你的文章当参考(和官网分开算)"
     summarized = diagnose_third_party(Stage.CITATION, make_metric(2, 12), None, {},
                                       summary_only={"meta": 3, "oembed": 1})
     summary_line = _zh(summarized.evidence_lines[1])

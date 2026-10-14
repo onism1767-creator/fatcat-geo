@@ -121,7 +121,9 @@ class CapabilityRegistry(FrozenModel):
 class SurfaceMeta(FrozenModel):
     provider: str
     surface: str
-    display_name: str  # 用户报告里的产品名(v0.4.14);厂商名只许出现在适配器与配置
+    display_name: str  # 确认页等处的产品名(v0.4.14);厂商名只许出现在适配器与配置
+    # 报告里的名字写「接口 · 型号」(产品文档 P4,用户定;S8.1):接口名由适配器声明,如 "Anthropic Messages API"
+    api_name: str
     models: list[str]
     default_model: str
     capabilities: CapabilityRegistry

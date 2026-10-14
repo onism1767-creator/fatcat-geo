@@ -71,6 +71,20 @@ class StageFinding(FrozenModel):
     low_confidence: bool = False
 
 
+class SentimentTally(FrozenModel):
+    """提到你的句子按好坏计数(S8.1,用户定:「提到你的 18 句话里:正面 1、中性 9、负面 8」+ 百分比饼图)。
+    四类互斥、一句只算一类,所以可以画成一张饼;一句都没有 → 调用方给 None,不画。"""
+
+    positive: int
+    neutral: int
+    negative: int
+    mixed: int
+
+    @property
+    def total(self) -> int:
+        return self.positive + self.neutral + self.negative + self.mixed
+
+
 class MentionShare(FrozenModel):
     """一个名字在本次有效回答里被提到的次数(S7 竞品提及对比)。
     relation 是相对于你:more / less / close;你自己这一行 None。"""

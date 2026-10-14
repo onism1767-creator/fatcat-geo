@@ -98,7 +98,7 @@ def diagnose_citation(
         evidence.append(msg("citation.primary_rate", **rate_params(primary.rate)))
     if by_domain:
         evidence.append(msg("citation.by_domain", items=[
-            msg("citation.domain_item", domain=domain, k=dr.k, n=dr.n) for domain, dr in by_domain
+            msg("citation.domain_item", domain=domain, **rate_params(dr)) for domain, dr in by_domain
         ]))
     if channels is not None and channels.rate is not None:
         evidence.append(msg("citation.channel_rate", **rate_params(channels.rate)))

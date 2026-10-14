@@ -17,6 +17,7 @@ from diagnosis.findings import (
     MentionCompare,
     MentionShare,
     Msg,
+    SentimentTally,
     Stage,
     StageFinding,
     StageStatus,
@@ -50,6 +51,15 @@ def compare_mentions(
                      for name, c in competitors],
         gap=gap,
     )
+
+
+def sentiment_tally(counts: Mapping[Sentiment, int]) -> SentimentTally | None:
+    """主视图「AI 怎么评价你」的原料(S8.1):按句计数;一句没有 → None(不画图、不出这一行)。"""
+    tally = SentimentTally(
+        positive=counts.get(Sentiment.POSITIVE, 0), neutral=counts.get(Sentiment.NEUTRAL, 0),
+        negative=counts.get(Sentiment.NEGATIVE, 0), mixed=counts.get(Sentiment.MIXED, 0),
+    )
+    return tally if tally.total else None
 
 
 def _compare_lines(r: Rate, competitors: list[tuple[str, Rate]], gap: float) -> list[Msg]:

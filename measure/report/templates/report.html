@@ -2,7 +2,7 @@
 {% block title %}{{ job.brand.name }} {{ t["report_title"] }}{% endblock %}
 {% block content %}
 <h1>{{ job.brand.name }} {{ t["report_title"] }}</h1>
-<p class="muted">{{ t["scope_note"] }}</p>
+<p class="muted">{{ t["scope_note"] }} {{ t["api_note"] }}</p>
 
 {% set access = job.access_result %}
 {% set info_tag = "(提示)" if lang == "zh" else " (info)" %}
@@ -27,6 +27,9 @@
 </div>
 
 {% macro ev(e) %}{{ t["ev_" ~ e.kind].format(detail=e.detail or "", source=e.source or "") }}{% endmacro %}
+{#- 饼图(S8.1,用户定):提到你的句子按正面 / 中性 / 负面 / 混合——四类互斥,可以画成一张饼;一句没有的不画 -#}
+{% macro pie(st) %}{% set total = st.positive + st.neutral + st.negative + st.mixed %}{% set ns = namespace(offset=25) %}<svg class="pie" viewBox="0 0 36 36" width="56" height="56" aria-hidden="true">{% for value, color in [(st.positive, "var(--pass)"), (st.neutral, "var(--na)"), (st.negative, "var(--fail)"), (st.mixed, "var(--weak)")] %}{% if value %}{% set pct = 100 * value / total %}<circle cx="18" cy="18" r="15.9155" fill="none" stroke="{{ color }}" stroke-width="7" stroke-dasharray="{{ pct }} {{ 100 - pct }}" stroke-dashoffset="{{ ns.offset }}"/>{% set ns.offset = ns.offset - pct %}{% endif %}{% endfor %}</svg>{% endmacro %}
+{% macro sentiment_items(st) %}{% set total = st.positive + st.neutral + st.negative + st.mixed %}{% set parts = [] %}{% for key, value in [("positive", st.positive), ("neutral", st.neutral), ("negative", st.negative), ("mixed", st.mixed)] %}{% if value or key != "mixed" %}{% set _ = parts.append(t["sentiment_" ~ key] ~ " " ~ value ~ "(" ~ ((100 * value / total)|round|int) ~ "%)") %}{% endif %}{% endfor %}{{ parts|join(t["sentiment_sep"]) }}{% endmacro %}
 {#- 圆环(S7,用户定):每个名字各一个环——一次回答可同时提到几家,不能画成一张饼;数字永远在,环只是看一眼 -#}
 {% macro ring(r, label, relation) %}{% set pct = (100 * r.k / r.n)|round|int %}<span class="ring" title="{{ r.k }}/{{ r.n }}"><svg viewBox="0 0 36 36" width="56" height="56" aria-hidden="true"><circle cx="18" cy="18" r="15.9155" fill="none" stroke="#e4e9f0" stroke-width="3.5"/><circle cx="18" cy="18" r="15.9155" fill="none" stroke="{{ '#2f6fb3' if relation is none else '#8da2bb' }}" stroke-width="3.5" stroke-dasharray="{{ pct }} {{ 100 - pct }}" stroke-dashoffset="25"/><text x="18" y="20.5" text-anchor="middle" font-size="8" fill="#223">{{ r.k }}/{{ r.n }}</text></svg><span class="ring-label"><b>{{ label }}</b><br>{{ pct }}%{% if relation %} · {{ t["compare_" ~ relation] }}{% endif %}</span></span>{% endmacro %}
 <div class="card" id="official">
@@ -115,6 +118,17 @@
     {% for eb in compares %}{% set mc = eb.mention_compare %}
     <tr><td style="width:22%"><b>{{ eb.display }}</b><br><span class="muted">{{ t["compare_n"].format(n=mc.brand.rate.n) }}</span></td>
       <td>{{ ring(mc.brand.rate, t["compare_you"], none) }}{% for c in mc.competitors %}{{ ring(c.rate, c.name, c.relation) }}{% endfor %}</td></tr>
+    {% endfor %}
+  </table>
+  {% endif %}
+  {#- AI 怎么评价你(S8.1,用户定):按句计数 + 百分比 + 饼图;一句都没有的 AI 不列 -#}
+  {% set tallies = summary.engines[cr.intent.value]|selectattr("sentiment")|list %}
+  {% if tallies %}
+  <h3 style="margin:14px 0 4px">{{ t["sentiment_title"] }}</h3>
+  <table class="brief compare">
+    {% for eb in tallies %}{% set st = eb.sentiment %}
+    <tr><td style="width:22%"><b>{{ eb.display }}</b></td>
+      <td><span class="ring pie-row">{{ pie(st) }}<span class="ring-label">{{ t["sentiment_line"].format(n=st.positive + st.neutral + st.negative + st.mixed, items=sentiment_items(st)) }}</span></span></td></tr>
     {% endfor %}
   </table>
   {% endif %}

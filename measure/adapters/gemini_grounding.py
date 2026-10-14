@@ -210,6 +210,7 @@ class GeminiGroundingAdapter(SurfaceAdapter):
             provider="gemini",
             surface="gemini_grounding",
             display_name="Gemini",
+            api_name="Gemini API",
             models=list(_TOKEN_PRICES_PER_MTOK),  # 以官方模型页为准,与价目表同步核对
             default_model=_DEFAULT_MODEL,
             capabilities=_CAPABILITIES,
