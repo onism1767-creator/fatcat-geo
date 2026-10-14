@@ -8,8 +8,11 @@
   <p><b>{{ state }}</b>{% if phase != state %} · {{ phase }}{% endif %}
      <span class="muted">{{ job.prompts|length }} {{ t["prompts_word"] }} × {{ runs_per_prompt }} {{ t["runs_word"] }} × {{ job.targets|length }} {{ t["surfaces_word"] }}
      · {{ t["fingerprint_word"] }} {{ job.fingerprint or "—" }}</span></p>
-  <div class="bar"><div style="width: {{ job.progress_pct }}%"></div></div>
-  <p class="kv">{{ t["progress_word"] }} {{ job.progress_pct }}%({{ t["runs_done_word"] }} {{ job.completed_runs }}/{{ job.total_runs }})
+  {#- 总进度(用户定 2026-10-14):按阶段分段的一条,下面才是各阶段自己的 -#}
+  <p class="kv" style="margin-bottom:2px"><b>{{ t["overall_word"] }} {{ job.overall_pct }}%</b> <span class="muted">{{ t["overall_note"] }}</span></p>
+  <div class="bar total"><div style="width: {{ job.overall_pct }}%"></div></div>
+  <div class="bar" style="margin-top:10px"><div style="width: {{ job.sampling_pct }}%"></div></div>
+  <p class="kv">{{ t["progress_word"] }} {{ job.sampling_pct }}%({{ t["runs_done_word"] }} {{ job.completed_runs }}/{{ job.total_runs }})
      · {{ t["spent_word"] }} ${{ "%.4f"|format(job.spent_usd) }}{% if job.budget_usd %} / {{ t["budget_word"] }} ${{ job.budget_usd }}{% endif %}</p>
   {#- 提问阶段的剩余时间按实际速度算;提问完了之后是核对网页(S8.5):有自己的进度条,时间按预算给上限 -#}
   {% set sampling_done = job.total_runs and job.completed_runs >= job.total_runs and not job.finished %}

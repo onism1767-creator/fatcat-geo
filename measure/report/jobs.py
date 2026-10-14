@@ -177,12 +177,24 @@ class DiagnosisJob:
         return self.state in (JobState.DONE, JobState.PARTIAL)
 
     @property
-    def progress_pct(self) -> int:
+    def sampling_pct(self) -> int:
+        """提问阶段的真实进度:已问 ÷ 总次数(总数 = 计划数,只进不退)。"""
+        if not self.total_runs:
+            return 100 if self.finished else 0
+        return min(100, int(100 * self.completed_runs / self.total_runs))
+
+    @property
+    def overall_pct(self) -> int:
+        """总进度(用户 2026-10-14 要求):按阶段分段——官网检查 / 找官网名单 / 提问 / 核对网页 / 整理,
+        提问段按已问次数走(占大头),核对段按已开网页数走;各段权重是经验值,不是时间估计,页面上注明。"""
         if self.finished:
             return 100
-        if not self.total_runs:
-            return 0
-        return min(99, int(100 * self.completed_runs / self.total_runs))
+        sampling = self.completed_runs / self.total_runs if self.total_runs else 0.0  # 用精确比例,别先取整
+        spans = {"phase_draft": 0, "phase_confirmed": 1, "phase_access": 3, "phase_discover": 6,
+                 "phase_sampling": 8 + int(72 * sampling),
+                 "phase_verify": 80 + int(16 * (self.verify_done / self.verify_total if self.verify_total else 0)),
+                 "phase_scoring": 97}
+        return spans.get(self.phase, 8 + int(72 * sampling))  # 出错 / 中断:停在当时的位置
 
     def elapsed_minutes(self, now: datetime) -> float | None:
         """运行中已用了多少分钟;没在跑 → None。"""

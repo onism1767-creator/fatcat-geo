@@ -39,6 +39,7 @@ def test_verify_phase_shows_its_own_progress_and_a_bounded_wait():
     job.last_result_at = now - timedelta(minutes=1)  # 核对网页在报进度:不算卡住
     page = _page(job)
     assert "核对网页" in page and "已开 4/10 个" in page and "最多再等 13.0 分钟" in page  # 15 − 2
+    assert "总进度 86%" in page and "提问 100%(已问 3/3)" in page  # 核对段 80 + 16 × 0.4;提问段自己 100%
     assert "预计还需约" not in page  # 不再显示按提问速度算的「还需 0 分钟」
     assert "正在核对 AI 引用的网页" in page  # 阶段名照旧
     assert 'style="width: 40%"' in page  # 核对进度条
@@ -49,6 +50,23 @@ def test_verify_phase_shows_its_own_progress_and_a_bounded_wait():
     assert "网页核对完成,正在整理结果" in _page(job)
     en = _page(job, "en")
     assert "Checking pages" in en and "4/10 opened" in en
+
+
+def test_overall_progress_walks_through_the_stages():
+    """总进度(用户定 2026-10-14):按阶段分段,提问段按已问次数、核对段按已开网页数,完成 100。"""
+    now = datetime.now(UTC)
+    job = _running_job(now)
+    job.phase, job.completed_runs = "phase_access", 0
+    assert job.overall_pct == 3 and job.sampling_pct == 0
+    job.phase, job.completed_runs = "phase_sampling", 1
+    assert job.overall_pct == 8 + 24 and "总进度 32%" in _page(job)
+    job.phase, job.completed_runs = "phase_verify", 3
+    job.verify_total, job.verify_done = 10, 5
+    assert job.overall_pct == 88
+    job.phase = "phase_scoring"
+    assert job.overall_pct == 97
+    job.state, job.phase = JobState.DONE, "phase_done"
+    assert job.overall_pct == 100 and job.sampling_pct == 100
 
 
 def test_between_sampling_and_verification_the_page_says_so():
