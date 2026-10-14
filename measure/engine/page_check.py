@@ -123,10 +123,12 @@ class PageChecker:
         platform_fetchers: Sequence[PlatformFetcher] | None = None,
         oembed: Mapping[str, str] | None = None,
         archive: ArchiveSource | None = None,
+        progress: Callable[[int, int, str], None] | None = None,
     ) -> None:
         """退路都由调用方装配,这里只认协议、不挑实现:renderer 无头浏览器(S6.2,不给 = 不渲染);
         platform_fetchers 配了 key 的平台官方接口(S6.3);oembed 主机 → 公开嵌入接口模板({url} 占位);
-        archive 公开存档(S6.4,不给 = 不查存档)。"""
+        archive 公开存档(S6.4,不给 = 不查存档)。
+        progress(已开, 共, 阶段 fetch / render / archive / done):任务页进度用(S8.5),可能从工作线程里调,只做记录。"""
         self._fetchers = list(platform_fetchers or [])
         self._oembed = dict(oembed or {})
         self._store = store
@@ -134,11 +136,20 @@ class PageChecker:
         self._client = client or new_client(timeout=FETCH_TIMEOUT)
         self._archive = archive
         self._renderer = renderer
+        self._progress = progress
         self._budget_s, self._concurrency, self._host_gap_s = budget_s, concurrency, host_gap_s
         self._reuse_days = reuse_days
         self._clock, self._sleep = clock, sleep
         self._robots: dict[str, robotparser.RobotFileParser | None] = {}
         self._robots_lock = threading.Lock()
+
+    def _report(self, done: int, total: int, stage: str) -> None:
+        if self._progress is None:
+            return
+        try:
+            self._progress(done, total, stage)
+        except Exception as exc:  # 进度回调出错不能影响核实本身
+            log.warning("page_progress_callback_failed", error=type(exc).__name__)
 
     def close(self) -> None:
         if self._own_client:
@@ -159,7 +170,8 @@ class PageChecker:
         checks: dict[str, PageCheck] = dict(self._store.recent_page_checks(list(wanted), max_age_days=self._reuse_days))
         pending = {normalized: request for normalized, request in wanted.items() if normalized not in checks}
         deadline = self._clock() + self._budget_s
-        fetched = self._run(pending, deadline)
+        self._report(len(checks), len(wanted), "fetch")
+        fetched = self._run(pending, deadline, done=len(checks), total=len(wanted))
         for normalized, check in fetched.items():
             self._store.insert_page_check(check)  # 落库在主线程:psycopg 连接非线程安全
             checks[normalized] = check
@@ -171,12 +183,15 @@ class PageChecker:
         for normalized, check in archived.items():
             self._store.insert_page_check(check)
             checks[normalized] = check
+        self._report(len(wanted), len(wanted), "done")
         log.info("pages_checked", wanted=len(wanted), reused=len(wanted) - len(pending),
                  fetched=len(fetched), rendered=len(rendered), archived=len(archived),
                  not_attempted=len(pending) - len(fetched))
         return PageIndex(checks=checks, attempted=frozenset(checks))
 
-    def _run(self, pending: dict[str, PageRequest], deadline: float) -> dict[str, PageCheck]:
+    def _run(
+        self, pending: dict[str, PageRequest], deadline: float, *, done: int = 0, total: int = 0,
+    ) -> dict[str, PageCheck]:
         if not pending:
             return {}
         schedule = _HostSchedule(pending, clock=self._clock, host_gap_s=self._host_gap_s, deadline=deadline)
@@ -202,6 +217,8 @@ class PageChecker:
                     schedule.release(normalized)
                 with lock:
                     results[normalized] = check
+                    finished = done + len(results)
+                self._report(finished, total, "fetch")
 
         workers = min(self._concurrency, len(pending))
         with ThreadPoolExecutor(max_workers=workers) as pool:
@@ -224,6 +241,8 @@ class PageChecker:
              if check.status is PageFetchStatus.EMPTY_TEXT and not (check.error or "").startswith("render:")),
             key=lambda item: item[1].priority,
         )
+        if todo:
+            self._report(len(checks), len(wanted), "render")
         rendered: dict[str, PageCheck] = {}
         last_host, last_at = "", 0.0
         for normalized, request in todo:
@@ -271,6 +290,8 @@ class PageChecker:
              and check.archive_timestamp is None and not (check.error or "").startswith("archive:")),
             key=lambda item: item[1].priority,
         )
+        if todo:
+            self._report(len(checks), len(wanted), "archive")
         archived: dict[str, PageCheck] = {}
         last_at = float("-inf")
         for normalized, request in todo:

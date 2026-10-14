@@ -182,6 +182,7 @@ def test_two_models_of_one_surface_are_sampled_and_diagnosed_apart(storage, offl
     assert note.n_valid == 6 and note.n_offline_runs == 0 and note.method_version == METHOD_VERSION
     assert note.started_at is not None and note.finished_at is not None and note.finished_at == job.finished_at
     assert {(x.surface, x.model) for x in note.targets} == {("two_model", CITES), ("two_model", SILENT)}
+    assert job.verify_started_at is not None and job.verify_total >= 1  # 核对网页阶段有开始时刻与总数(S8.5)
 
     # 续跑(重新生成报告):样本按「题 × 仪器 × 型号 × 模式 × 第几次」复用——零新调用,且两个型号的
     # 样本不互相充当槽位(串了的话两边都会变成 3/6,结论双双变黄)

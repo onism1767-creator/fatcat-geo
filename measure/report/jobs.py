@@ -161,6 +161,11 @@ class DiagnosisJob:
         self.sampling: SamplingNote | None = None  # 采样说明(S8.2):出报告时算,随报告快照存
         self.started_at: datetime | None = None  # 本次执行开始时刻(任务页按实际速度算剩余时间)
         self.last_result_at: datetime | None = None  # 最近一条样本落库的时刻(任务页据此报「卡住了」)
+        # 核对网页阶段的进度(S8.5):提问完之后还要开网页(最多 15 分钟),任务页单独显示;不进快照(重启后重跑)
+        self.verify_total = 0
+        self.verify_done = 0
+        self.verify_stage: str | None = None  # fetch / render / archive / done
+        self.verify_started_at: datetime | None = None
         # 出错说明(v0.4.21):有代码的错误按「代码 + 参数」存、随界面语言渲染;没代码的(意外异常)存原文
         self.error_code: str | None = None
         self.error_params: dict[str, str] = {}
@@ -191,6 +196,12 @@ class DiagnosisJob:
         if elapsed is None or not self.completed_runs or not self.total_runs:
             return None
         return elapsed / self.completed_runs * (self.total_runs - self.completed_runs)
+
+    def verify_remaining_minutes(self, now: datetime, budget_s: float) -> float | None:
+        """核对网页最多还要等多久(S8.5):预算 − 已用,有界;还没开始 → None。到时没开完的记「没来得及开」。"""
+        if self.verify_started_at is None:
+            return None
+        return max(0.0, (budget_s - (now - self.verify_started_at).total_seconds()) / 60)
 
     def quiet_minutes(self, now: datetime) -> float | None:
         """运行中距最近一条新样本(还没有就从开始算)过了多少分钟(v0.4.22);没在跑 → None。"""

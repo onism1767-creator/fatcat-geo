@@ -11,6 +11,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from engine.drafting import PromptCandidate, draft_prompt_candidates
 from engine.models import Target
+from engine.page_check import BUDGET_S as VERIFY_BUDGET_S
 from engine.storage import Storage
 from report.estimate import estimate_job, unit_prices
 from report.export import build_bundle, content_disposition
@@ -215,6 +216,7 @@ async def job_status(request: Request, job_id: str):
     stalled = t["job_stalled"].format(minutes=round(quiet)) if quiet is not None and quiet >= STALL_MINUTES else None
     return ctx.render(request, "job.html", job=job, runs_per_prompt=RUNS_PER_PROMPT,
                       elapsed_minutes=job.elapsed_minutes(now), eta_minutes=job.eta_minutes(now),
+                      verify_remaining_minutes=job.verify_remaining_minutes(now, VERIFY_BUDGET_S),
                       error_text=failure, quiet_minutes=quiet, stalled_text=stalled)
 
 

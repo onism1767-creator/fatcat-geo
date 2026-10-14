@@ -12,6 +12,7 @@ from __future__ import annotations
 import os
 import threading
 from collections import Counter
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from datetime import UTC, datetime
 
@@ -242,6 +243,8 @@ def _reset_progress(job: DiagnosisJob) -> None:
     job.surface_verdicts = []
     job.started_at = datetime.now(UTC)
     job.last_result_at = None
+    job.verify_total = job.verify_done = 0
+    job.verify_stage = job.verify_started_at = None
     job.error_code, job.error_params, job.error = None, {}, None
 
 
@@ -375,14 +378,14 @@ def _look_alikes(job: DiagnosisJob, runs: list[SurfaceRun], context: ResolutionC
         discovery.close()
 
 
-def _page_checker(storage: Storage) -> PageChecker:
+def _page_checker(storage: Storage, progress: Callable[[int, int, str], None] | None = None) -> PageChecker:
     """网页核实器的装配点(S6.2–S6.4):四条退路在这里挑实现,核实器只认协议——渲染 = Playwright(装了才用);
     平台公开嵌入接口来自 config/platforms.yaml;配了 key 的平台官方接口来自环境变量(.env);公开存档 = 互联网档案馆。"""
     platforms = load_platforms()
     oembed = {host: p.oembed for p in platforms if p.oembed for host in p.hosts}
     fetchers = [f for f in [RedditFetcher.from_env(os.environ)] if f is not None]
     return PageChecker(storage, renderer=PlaywrightRenderer() if playwright_available() else None,
-                       platform_fetchers=fetchers, oembed=oembed, archive=WaybackClient())
+                       platform_fetchers=fetchers, oembed=oembed, archive=WaybackClient(), progress=progress)
 
 
 def _primary_domain(brand: BrandSpec) -> str | None:
@@ -425,7 +428,15 @@ def _check_pages(
                     respect_robots=normalize_url(url) not in own, allow_archive=normalize_url(url) not in own)
         for url in counts
     ]
-    checker = _page_checker(storage)
+    job.verify_started_at = datetime.now(UTC)
+    job.verify_total, job.verify_done, job.verify_stage = len(requests), 0, "fetch"
+
+    def progress(done: int, total: int, stage: str) -> None:
+        """核实器的进度(可能来自工作线程):只改几个数给任务页看(S8.5);核对网页也是活动,别被当成「卡住了」。"""
+        job.verify_done, job.verify_total, job.verify_stage = done, total, stage
+        job.last_result_at = datetime.now(UTC)
+
+    checker = _page_checker(storage, progress=progress)
     try:
         pages = checker.check(requests)
     finally:

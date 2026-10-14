@@ -437,6 +437,27 @@ def test_archive_rate_limit_waits_once_within_bounds_then_stops_the_pass():
     assert stuck.limited_calls == 3  # 等一次、再试一次就停,不逐页硬撞
 
 
+@respx.mock
+def test_progress_is_reported_per_page_and_at_the_end():
+    """S8.5:核实器把「已开 / 共 / 阶段」报给调用方(任务页用);回调出错不影响核实。"""
+    respx.get("https://a.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://b.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://a.test/1").mock(return_value=_html(ARTICLE))
+    respx.get("https://b.test/2").mock(return_value=_html(ARTICLE))
+    events: list[tuple[int, int, str]] = []
+    index, _ = _check(["https://a.test/1", "https://b.test/2"], progress=lambda d, t, s: events.append((d, t, s)))
+    assert index.lookup("https://a.test/1").status is PageFetchStatus.OK
+    assert events[0] == (0, 2, "fetch") and events[-1] == (2, 2, "done")
+    fetch_counts = [d for d, _, s in events if s == "fetch"]
+    assert fetch_counts == sorted(fetch_counts) and fetch_counts[-1] == 2  # 只增不减,最后到齐
+
+    def boom(done: int, total: int, stage: str) -> None:
+        raise RuntimeError("callback bug")
+
+    index2, _ = _check(["https://a.test/1"], progress=boom)
+    assert index2.lookup("https://a.test/1").status is PageFetchStatus.OK  # 回调炸了,核实照常
+
+
 def test_page_check_table_is_append_only_and_latest_per_url(storage):
     older = PageCheck(url="https://x.test/a", normalized_url="https://x.test/a", status=PageFetchStatus.FETCH_FAILED,
                       error="ConnectError", fetcher_version=1, fetched_at=datetime(2026, 10, 12, tzinfo=UTC))
