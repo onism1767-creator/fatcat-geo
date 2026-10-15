@@ -458,6 +458,22 @@ def test_progress_is_reported_per_page_and_at_the_end():
     assert index2.lookup("https://a.test/1").status is PageFetchStatus.OK  # 回调炸了,核实照常
 
 
+@respx.mock
+def test_progress_reports_done_even_when_the_check_blows_up():
+    """审核发现(2026-10-14):核实中途抛错就不报「结束」,任务页会停在半截倒计时;现在 finally 里报实际开了几个。"""
+
+    class BrokenStore(MemoryStore):
+        def insert_page_check(self, check: PageCheck) -> None:
+            raise RuntimeError("db down")
+
+    respx.get("https://a.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://a.test/1").mock(return_value=_html(ARTICLE))
+    events: list[tuple[int, int, str]] = []
+    with pytest.raises(RuntimeError, match="db down"):
+        _check(["https://a.test/1"], store=BrokenStore(), progress=lambda d, t, s: events.append((d, t, s)))
+    assert events[-1] == (0, 1, "done")  # 一个都没落成,如实报 0/1,但阶段是「结束」
+
+
 def test_page_check_table_is_append_only_and_latest_per_url(storage):
     older = PageCheck(url="https://x.test/a", normalized_url="https://x.test/a", status=PageFetchStatus.FETCH_FAILED,
                       error="ConnectError", fetcher_version=1, fetched_at=datetime(2026, 10, 12, tzinfo=UTC))

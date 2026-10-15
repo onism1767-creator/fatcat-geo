@@ -364,6 +364,22 @@ class Storage:
             for r in rows
         ]
 
+    def observations_for_runs(self, run_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
+        """多条回答的判定行一次取齐(结果文件打包用,S8.4):按 run_id 分组,组内按算出时间序;没有行的 run_id 不在结果里。"""
+        if not run_ids:
+            return {}
+        rows = self._conn.execute(
+            "SELECT run_id, observation_type, detector_name, detector_version, payload "
+            "FROM derived_observation WHERE run_id = ANY(%s) ORDER BY computed_at",
+            (run_ids,),
+        ).fetchall()
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for r in rows:
+            grouped.setdefault(r[0], []).append(
+                {"observation_type": r[1], "detector_name": r[2], "detector_version": r[3], **r[4]}
+            )
+        return grouped
+
     def max_detector_version(self, detector_name: str) -> int | None:
         row = self._conn.execute(
             "SELECT max(detector_version) FROM derived_observation WHERE detector_name = %s",

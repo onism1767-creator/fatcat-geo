@@ -60,7 +60,7 @@ def _tier(domain_list: BrandDomainList | None, domain: str) -> str:
     return "unknown"
 
 
-def _citation_rows(run: SurfaceRun, attribution: dict[str, Any] | None) -> list[CitationRow]:
+def citation_rows(run: SurfaceRun, attribution: dict[str, Any] | None) -> list[CitationRow]:
     if attribution is not None and attribution.get("cited") is not None:
         return [
             CitationRow(
@@ -94,7 +94,7 @@ def build_response_view(job: DiagnosisJob, run: SurfaceRun, observations: list[d
         excerpt=excerpt,
         tone=tone["sentiment"] if tone is not None else None,
         own_sites=[(d, _tier(job.domain_list, d)) for d in (cite.get("matched_domains", []) if cite else [])],
-        citations=_citation_rows(run, attribution),
+        citations=citation_rows(run, attribution),
         unresolved=int(cite.get("unresolved", 0)) if cite else 0,
         detectors=sorted({(o["detector_name"], int(o["detector_version"])) for o in observations}),
     )

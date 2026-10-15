@@ -50,8 +50,16 @@
       "content": [
         {
           "type": "output_text",
-          "text": "对于中小团队,常被推荐的 CRM 包括 HubSpot[web:2] 与 Zoho CRM[1],两者都提供免费档位[9]。",
-          "annotations": [],
+          "text": "对于中小团队,常被推荐的 CRM 包括 HubSpot 与 Zoho CRM[1],两者都提供免费档位[9]。",
+          "annotations": [
+            {
+              "type": "url_citation",
+              "start_index": 20,
+              "end_index": 27,
+              "url": "https://blog.example.org/crm-selection-guide",
+              "title": "中小团队 CRM 选型指南"
+            }
+          ],
           "logprobs": []
         }
       ]

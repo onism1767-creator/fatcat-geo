@@ -228,7 +228,8 @@ async def job_report(request: Request, job_id: str):
         return not_found()
     if not job.finished:
         return redirect(request, f"/jobs/{job.job_id}")
-    return ctx.render(request, "report.html", job=job, runs_per_prompt=RUNS_PER_PROMPT,
+    # 报告写实际发生的每题次数(采样说明),不读当前策略:策略以后随档位变,旧报告不能跟着变
+    return ctx.render(request, "report.html", job=job, runs_per_prompt=job.sampling_note().runs_per_prompt,
                       summary=summarize(job.class_reports, ctx.target_name, ctx.api_name),
                       psl_version=PSL_SNAPSHOT_VERSION)
 

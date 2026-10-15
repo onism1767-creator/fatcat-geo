@@ -1,7 +1,7 @@
 """Perplexity Agent API 适配器契约测试(12.1;S9.0 迁移自 Sonar chat/completions)。
 
 防的是:平台改返回格式 → 翻译静默出错 → 污染入库数据。
-golden payload 覆盖:正常带引用标记 / 搜了但正文没标记 / 没搜 / status=failed / 限流错误。
+golden payload 覆盖:正常带引用(annotations + 正文标记两条通道)/ 搜了但平台没给对应 / 没搜 / status=failed / 限流错误。
 断言逐字段进行;全部 respx 模拟,零真实网络。
 """
 
@@ -52,7 +52,7 @@ def test_agent_success_with_citations_translates_field_by_field():
     assert run.outcome is Outcome.SUCCESS and run.error is None
     assert run.answer.answer_text.startswith("对于中小团队")
     assert run.answer.citations_available is True
-    # 正文标记 [web:2] 先出现、[1] 后出现:引用按首次出现顺序;标记指到不存在的 id(9)忽略
+    # 两条通道合并:annotations 指到结果 2(正文前段)、正文标记 [1] 在后段 → 按正文位置排序;标记指到不存在的 id(9)忽略
     assert [c.domain for c in run.answer.citations] == ["blog.example.org", "www.example-review.com"]
     assert [c.position for c in run.answer.citations] == [1, 2]
     assert run.answer.citations[1].title == "Best CRM for Small Teams (2026)"
@@ -75,15 +75,34 @@ def test_agent_success_with_citations_translates_field_by_field():
 
 
 @respx.mock
-def test_agent_searched_but_cited_nothing_is_a_negative_observation():
+def test_agent_searched_but_platform_linked_no_sources_is_not_observable():
+    """搜了、annotations 空、正文没标记(2026-10-14 实测 sonar 的常态):平台没给回答与来源的对应,
+    记「看不到」(citations_available=False),不得记成「引用 0 条」(铁律 7)。"""
     body = golden("perplexity_agent", "success_empty_citations.json")
     respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json=body))
     run = PerplexityAgentAdapter(api_key="test-key").ask(make_request())
 
-    assert run.outcome is Outcome.SUCCESS  # 搜了、正文没引:真实负观测,不是失败(6.3)
-    assert run.answer.citations_available is True and run.answer.citations == []
+    assert run.outcome is Outcome.SUCCESS  # 回答有效,不是失败(6.3)
+    assert run.answer.citations_available is False and run.answer.citations == []
     assert run.search_trace.search_triggered is True
     assert len(run.search_trace.retrieved_sources) == 2  # 候选照记
+
+
+@respx.mock
+def test_agent_markers_and_annotations_merge_by_text_position_and_dedupe_by_url():
+    body = golden("perplexity_agent", "success_with_citations.json")
+    part = body["output"][1]["content"][0]
+    part["text"] = "甲[web:2] 乙[2] 丙[1] 丁[1]"  # 同一来源两种写法、重复标记只记一次
+    part["annotations"] = [{"type": "url_citation", "start_index": 0, "end_index": 1,
+                            "url": "https://forum.example.net/t/crm-for-small-teams", "title": "CRM 讨论串"}]
+    respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json=body))
+    run = PerplexityAgentAdapter(api_key="test-key").ask(make_request())
+
+    assert run.answer.citations_available is True
+    assert [c.domain for c in run.answer.citations] == ["forum.example.net", "blog.example.org",
+                                                        "www.example-review.com"]
+    assert [c.position for c in run.answer.citations] == [1, 2, 3]
+    assert run.answer.citations[0].title == "CRM 讨论串"  # annotations 自带标题
 
 
 @respx.mock
@@ -93,6 +112,7 @@ def test_agent_no_search_is_recorded_as_not_triggered():
     run = PerplexityAgentAdapter(api_key="test-key").ask(make_request())
 
     assert run.outcome is Outcome.SUCCESS and run.answer.citations == []
+    assert run.answer.citations_available is True  # 没搜就没有来源可引:「没引」是真实观测
     assert run.search_trace.search_triggered is False and run.search_trace.retrieved_sources == []
     assert run.search_trace.generated_queries == []
 

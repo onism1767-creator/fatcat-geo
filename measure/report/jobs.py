@@ -297,16 +297,22 @@ class DiagnosisJob:
             "error": {"code": self.error_code, "params": self.error_params, "text": self.error},
         }
 
+    def sampling_note(self) -> SamplingNote:
+        """出完报告才有的采样说明(S8.2):报告页、结果文件、报告快照都从这里取实际发生的数字;
+        还没算就来取是程序顺序错了,直接报错,不给默认值。"""
+        if self.sampling is None:
+            raise RuntimeError("出报告前必须先算采样说明(sampling 为空)")
+        return self.sampling
+
     def report_payload(self) -> dict:
         """报告快照(v0.4.16):派生层的结构化档案,只追加落库;结论以码 + 参数存,
         措辞随当前目录渲染,判定冻结在生成那一刻。"""
-        assert self.sampling is not None, "出报告前必须先算采样说明"
         return ReportPayload(
             access_result=self.access_result,
             class_reports=self.class_reports,
             surface_verdicts=self.surface_verdicts,
             finished_at=self.finished_at,
-            sampling=self.sampling,
+            sampling=self.sampling_note(),
         ).model_dump(mode="json")
 
     def load_report(self, payload: dict) -> None:

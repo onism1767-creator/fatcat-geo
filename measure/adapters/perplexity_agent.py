@@ -6,11 +6,13 @@
 - 请求:`model` 用平台的「厂商/型号」写法(本仓库只测 Perplexity 自家的 perplexity/sonar),`input` 原样放题目,
   带一个 `web_search` 工具;回答长度上限 MAX_OUTPUT_TOKENS 是本 surface 的固定口径。
 - 返回是一串 `output` 项:`search_results`(检索词 queries + 结果 results,每条有 id)、`message`(正文)。
-  Answer.citations = 正文里 `[n]` / `[web:n]` 标记指到的结果(按首次出现顺序给 position)
-  ——这是平台自己的引用标记,机械解析,不判定;
+  Answer.citations 走两条机械通道合并:正文段落的 `annotations`(官方 schema 的 url_citation:start_index / url / title)
+  与正文里 `[n]` / `[web:n]` 标记指到的结果;按在正文里出现的位置排序、按 url 去重——都是平台自己给的对应,不判定。
+  搜了、但两条通道都是空的 → citations_available=False:平台没把回答和来源对上,「看不到」;
+  不得记成「引用 0 条」(2026-10-14 实测 perplexity/sonar 三次都是 annotations=[] 且正文无标记,见错误日志)。
+  没搜 → 没有来源可引,citations=[] 且 citations_available=True(真实的「没引」)。
   SearchTrace.retrieved_sources = 全部检索结果(按 id 顺序,rank = 顺序)、generated_queries = 检索词:
-  两者 Agent API 都暴露,
-  所以本 surface 自 S9.0 起 supports_query_trace=True(旧接口时期标「看不到」是因为平台不给)。
+  两者 Agent API 都暴露,所以本 surface 自 S9.0 起 supports_query_trace=True(旧接口时期标「看不到」是因为平台不给)。
 - 没有机器可读的拒答信号(旧接口的 finish_reason=content_filter 在 Agent API 里没有对应):
   不从正文猜「算不算拒答」(属 L2)。
   status=failed → AdapterPermanentError;status=incomplete(截断)→ 回答仍有效,SUCCESS。
@@ -73,15 +75,14 @@ def _output_items(data: Any) -> list[dict[str, Any]]:
     return [item for item in data["output"] if isinstance(item, dict)]
 
 
-def _answer_text(items: list[dict[str, Any]]) -> str:
-    parts: list[str] = []
-    for item in items:
-        if item.get("type") != "message":
-            continue
-        for part in item.get("content") or []:
-            if isinstance(part, dict) and part.get("type") == "output_text" and isinstance(part.get("text"), str):
-                parts.append(part["text"])
-    return "".join(parts)
+def _text_parts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """message 项里的正文段落(output_text),按顺序;正文 = 各段 text 拼接。"""
+    return [
+        part
+        for item in items if item.get("type") == "message"
+        for part in item.get("content") or []
+        if isinstance(part, dict) and part.get("type") == "output_text" and isinstance(part.get("text"), str)
+    ]
 
 
 def _search_results(items: list[dict[str, Any]]) -> tuple[list[str], list[dict[str, Any]]] | None:
@@ -94,18 +95,29 @@ def _search_results(items: list[dict[str, Any]]) -> tuple[list[str], list[dict[s
     return queries, results
 
 
-def _citations(text: str, results: list[dict[str, Any]]) -> list[Citation]:
-    """正文标记指到的结果,按首次出现顺序;标记指向不存在的 id 忽略(不猜)。"""
+def _citations(parts: list[dict[str, Any]], results: list[dict[str, Any]]) -> list[Citation]:
+    """两条机械通道合并:段落 annotations(url_citation)与正文 [n] / [web:n] 标记指到的结果;
+    按在正文里出现的位置排序、按 url 去重;标记指向不存在的 id 忽略(不猜)。"""
     by_id = {str(r.get("id")): r for r in results}
+    found: list[tuple[int, str, str | None]] = []  # (正文位置, url, 标题)
+    offset = 0
+    for part in parts:
+        text: str = part["text"]
+        for note in part.get("annotations") or []:
+            if isinstance(note, dict) and note.get("type") == "url_citation" and isinstance(note.get("url"), str):
+                found.append((offset + int(note.get("start_index") or 0), note["url"], note.get("title")))
+        for match in _MARKER.finditer(text):
+            r = by_id.get(match.group(1))
+            if r is not None:
+                found.append((offset + match.start(), r["url"], r.get("title")))
+        offset += len(text)
     citations: list[Citation] = []
     seen: set[str] = set()
-    for marker in _MARKER.findall(text):
-        if marker in seen or marker not in by_id:
+    for _, url, title in sorted(found, key=lambda f: f[0]):
+        if url in seen:
             continue
-        seen.add(marker)
-        r = by_id[marker]
-        citations.append(Citation(url=r["url"], domain=domain_of(r["url"]), title=r.get("title"),
-                                  position=len(citations) + 1))
+        seen.add(url)
+        citations.append(Citation(url=url, domain=domain_of(url), title=title, position=len(citations) + 1))
     return citations
 
 
@@ -167,12 +179,14 @@ class PerplexityAgentAdapter(SurfaceAdapter):
         if status not in _SUCCESS_STATUSES:
             error = data.get("error") if isinstance(data.get("error"), dict) else {}
             raise AdapterPermanentError(f"平台返回 status={status!r}: {error.get('message') or '无说明'}")
-        text = _answer_text(items)
+        parts = _text_parts(items)
+        text = "".join(part["text"] for part in parts)
         searched = _search_results(items)
         if searched is None:
             trace = SearchTrace(search_triggered=False, generated_queries=[], retrieved_sources=[],
                                 opened_sources=NOT_OBSERVABLE)
             citations: list[Citation] = []
+            citations_available = True  # 没搜就没有来源可引:「没引」是真实观测
         else:
             queries, results = searched
             trace = SearchTrace(
@@ -182,7 +196,8 @@ class PerplexityAgentAdapter(SurfaceAdapter):
                                    for i, r in enumerate(results)],
                 opened_sources=NOT_OBSERVABLE,
             )
-            citations = _citations(text, results)
+            citations = _citations(parts, results)
+            citations_available = bool(citations)  # 搜了却一条都没对上:平台没给回答与来源的对应,看不到(不记 0 条)
         return SurfaceRun(
             run_id=request.run_id,
             prompt_id=request.prompt_id,
@@ -195,7 +210,8 @@ class PerplexityAgentAdapter(SurfaceAdapter):
             region=request.region,
             outcome=Outcome.SUCCESS,
             search_trace=trace,
-            answer=Answer(answer_text=text, citations_available=True, citations=citations) if text else None,
+            answer=(Answer(answer_text=text, citations_available=citations_available, citations=citations)
+                    if text else None),
             raw_payload=data,
             timestamp=started_at,
             latency_ms=latency_ms,

@@ -77,3 +77,15 @@ def test_between_sampling_and_verification_the_page_says_so():
     assert job.verify_remaining_minutes(now, 900) is None
     job.verify_started_at = now - timedelta(minutes=20)  # 超过预算:剩余 0,不为负
     assert job.verify_remaining_minutes(now, 900) == 0.0
+
+
+def test_a_failed_job_does_not_keep_counting_down_the_page_check():
+    """审核发现(2026-10-14):核对中途失败的任务,任务页还挂着「最多再等 N 分钟」倒计时;改成只有在跑才显示。"""
+    now = datetime.now(UTC)
+    job = _running_job(now)
+    job.verify_started_at = now - timedelta(minutes=2)
+    job.verify_total, job.verify_done, job.verify_stage = 10, 4, "fetch"
+    job.state, job.phase = JobState.FAILED, "phase_failed"
+    page = _page(job)
+    assert "最多再等" not in page and "已开 4/10 个" not in page
+    assert "预计还需约" not in page and "下一步核对" not in page

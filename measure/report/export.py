@@ -3,7 +3,8 @@
 五个文件:prompts.csv(题目)· responses.jsonl(全部回答,一行一条,带出报告时存下的判定)· citations.csv(每条引用一行,带归类)·
 brand-domains.json(官网名单)· summary.md(人话汇总,按当前界面语言)。
 只读:原始记录与已存的判定行从库里取(每个判定器取最高版本),不现算、不猜;汇总用报告层既有的汇总结果。
-CSV 带 BOM(表格软件认 UTF-8);responses.jsonl 不含平台原始返回(单条回答页逐条可下)。
+CSV 带 BOM(表格软件认 UTF-8);单元格以 = + - @ 或制表符开头时前面补一个单引号(表格软件会把它当公式算,CSV 注入);
+citations.csv 的 final_url 与原链接相同时留空。responses.jsonl 不含平台原始返回(单条回答页逐条可下)。
 """
 
 from __future__ import annotations
@@ -14,22 +15,22 @@ import json
 import zipfile
 from datetime import UTC
 from typing import Any
-from urllib.parse import quote
+from urllib.parse import quote, urlsplit
 
 from diagnosis.messages import msg, render_msg
 from engine.detectors import brand_mention, citation, sentiment
 from engine.detectors import source_class as source_class_detector
 from engine.detectors.matching import mention_sentence
-from engine.method import METHOD_VERSION
 from engine.models import SurfaceRun
 from engine.storage import Storage
 from report.i18n import INTENT_LABELS, MESSAGES, STATUS_LABELS
-from report.jobs import RUNS_PER_PROMPT, DiagnosisJob
+from report.jobs import DiagnosisJob
 from report.narrative import api_line_text, wrap_up_text
-from report.response_view import latest_observation
+from report.response_view import citation_rows, latest_observation
 from report.summary import ReportSummary, TargetNamer
 
 FILES = ("prompts.csv", "responses.jsonl", "citations.csv", "brand-domains.json", "summary.md")
+_FORMULA_LEADERS = ("=", "+", "-", "@", "\t", "\r")  # 表格软件会把这样开头的单元格当公式
 
 
 def bundle_filename(job: DiagnosisJob) -> str:
@@ -38,7 +39,7 @@ def bundle_filename(job: DiagnosisJob) -> str:
 
 def content_disposition(job: DiagnosisJob) -> str:
     """ASCII 文件名兜底 + 带品牌名的 UTF-8 文件名(RFC 5987)。"""
-    pretty = quote(f"geo-{job.brand.name}-{job.job_id}.zip")
+    pretty = quote(f"geo-{job.brand.name}-{job.job_id}.zip", safe="")  # 品牌名里的 / 也要转义
     return f"attachment; filename=\"{bundle_filename(job)}\"; filename*=UTF-8''{pretty}"
 
 
@@ -70,22 +71,34 @@ def _csv(header: list[str], rows: list[list[Any]]) -> bytes:
     out = io.StringIO()
     writer = csv.writer(out, lineterminator="\n")
     writer.writerow(header)
-    writer.writerows(rows)
+    writer.writerows([[_cell(value) for value in row] for row in rows])
     return out.getvalue().encode("utf-8-sig")
+
+
+def _cell(value: Any) -> Any:
+    """外来文字(题目、回答、链接、标题)以公式字符开头时补一个单引号,表格软件打开就不会执行它。"""
+    if isinstance(value, str) and value[:1] in _FORMULA_LEADERS:
+        return "'" + value
+    return value
 
 
 def _responses_and_citations(
     job: DiagnosisJob, storage: Storage, name_of: TargetNamer,
 ) -> tuple[list[dict[str, Any]], list[list[Any]]]:
+    runs = [
+        (no, run)
+        for no, prompt in enumerate(job.prompts, start=1)
+        for target in job.targets
+        for run in storage.runs_for_prompt(prompt.prompt_id, surface=target.surface, model=target.model)
+    ]
+    observations = storage.observations_for_runs([run.run_id for _, run in runs])  # 判定行一次取齐,不逐条查库
     responses: list[dict[str, Any]] = []
     rows: list[list[Any]] = []
-    for no, prompt in enumerate(job.prompts, start=1):
-        for target in job.targets:
-            for run in storage.runs_for_prompt(prompt.prompt_id, surface=target.surface, model=target.model):
-                observations = storage.observations_for_run(run.run_id)
-                ai = name_of(run.surface, run.model)
-                responses.append(_response_record(run, no, ai, observations))
-                rows.extend(_citation_rows(run, no, ai, observations))
+    for no, run in runs:
+        ai = name_of(run.surface, run.model)
+        recorded = observations.get(run.run_id, [])
+        responses.append(_response_record(run, no, ai, recorded))
+        rows.extend(_citation_rows(run, no, ai, recorded))
     return responses, rows
 
 
@@ -127,45 +140,33 @@ def _response_record(run: SurfaceRun, prompt_no: int, ai: str, observations: lis
 
 def _citation_rows(run: SurfaceRun, prompt_no: int, ai: str, observations: list[dict[str, Any]]) -> list[list[Any]]:
     attribution = latest_observation(observations, source_class_detector.DETECTOR_NAME)
-    if attribution is not None and attribution.get("cited") is not None:
-        return [
-            [run.run_id, prompt_no, run.run_index, ai, e.get("position") or i, e["url"], _domain(e["url"]),
-             e.get("final_url") or "", e["source_class"], e.get("competitor") or "", e.get("reason") or ""]
-            for i, e in enumerate(attribution["cited"], start=1)
-        ]
-    if run.answer is None:
-        return []
-    return [[run.run_id, prompt_no, run.run_index, ai, c.position, c.url, c.domain, "", "", "", ""]
-            for c in run.answer.citations]
-
-
-def _domain(url: str) -> str:
-    return url.split("/")[2] if url.count("/") >= 2 else ""
+    return [
+        [run.run_id, prompt_no, run.run_index, ai, c.position, c.url, urlsplit(c.url).netloc, c.final_url or "",
+         c.kind, c.competitor or "", c.reason or ""]
+        for c in citation_rows(run, attribution)  # 与单条回答页同一套取法
+    ]
 
 
 def _summary_md(job: DiagnosisJob, lang: str, name_of: TargetNamer, summary: ReportSummary) -> str:
     t = MESSAGES[lang]
     plain = lambda m: render_msg(m, lang, "plain")  # noqa: E731
     lines = [f"# {job.brand.name} {t['report_title']}", "", t["scope_note"], t["api_note"], ""]
-    sn = job.sampling
-    if sn is not None:
-        lines += [f"## {t['sampling_title']}", ""]
-        counts = t["sampling_counts"].format(prompts=sn.n_prompts, targets=sn.n_targets, reps=sn.runs_per_prompt,
-                                            runs=sn.n_runs, valid=sn.n_valid)
-        offline = " " + t["sampling_offline"].format(n=sn.n_offline_runs) if sn.n_offline_runs else ""
-        lines.append("- " + counts + offline)
-        fmt = "%Y-%m-%d %H:%M"
-        lines.append("- " + t["sampling_time"].format(
-            start=sn.started_at.astimezone(UTC).strftime(fmt) if sn.started_at else "—",
-            end=sn.finished_at.astimezone(UTC).strftime(fmt) if sn.finished_at else "—"))
-        lines.append("- " + t["sampling_targets_pre"] + ";".join(name_of(x.surface, x.model) for x in sn.targets))
-        lines.append("- " + t["sampling_domains"].format(
-            confirmed=sn.domains_confirmed, unconfirmed=sn.domains_unconfirmed,
-            date=sn.domains_at.astimezone(UTC).strftime("%Y-%m-%d") if sn.domains_at else "—"))
-        code = job.report_meta.code_version if job.report_meta and job.report_meta.code_version else "—"
-        lines += ["- " + t["sampling_version"].format(method=sn.method_version, code=code), ""]
-    else:
-        lines += [f"- {t['sampling_version'].format(method=METHOD_VERSION, code='—')}", ""]
+    sn = job.sampling_note()
+    lines += [f"## {t['sampling_title']}", ""]
+    counts = t["sampling_counts"].format(prompts=sn.n_prompts, targets=sn.n_targets, reps=sn.runs_per_prompt,
+                                        runs=sn.n_runs, valid=sn.n_valid)
+    offline = " " + t["sampling_offline"].format(n=sn.n_offline_runs) if sn.n_offline_runs else ""
+    lines.append("- " + counts + offline)
+    fmt = "%Y-%m-%d %H:%M"
+    lines.append("- " + t["sampling_time"].format(
+        start=sn.started_at.astimezone(UTC).strftime(fmt) if sn.started_at else "—",
+        end=sn.finished_at.astimezone(UTC).strftime(fmt) if sn.finished_at else "—"))
+    lines.append("- " + t["sampling_targets_pre"] + ";".join(name_of(x.surface, x.model) for x in sn.targets))
+    lines.append("- " + t["sampling_domains"].format(
+        confirmed=sn.domains_confirmed, unconfirmed=sn.domains_unconfirmed,
+        date=sn.domains_at.astimezone(UTC).strftime("%Y-%m-%d") if sn.domains_at else "—"))
+    code = job.report_meta.code_version if job.report_meta and job.report_meta.code_version else "—"
+    lines += ["- " + t["sampling_version"].format(method=sn.method_version, code=code), ""]
     lines += [f"## {t['verdicts_word']}", ""]
     for line in summary.api_lines:
         lines.append(f"- {api_line_text(line, lang)}")
@@ -197,7 +198,8 @@ def _summary_md(job: DiagnosisJob, lang: str, name_of: TargetNamer, summary: Rep
         lines.append("")
     if summary.wrap_up is not None:
         first_action = summary.actions[0].recommendation.plain[lang] if summary.actions else None
-        lines += [f"## {t['wrapup_title']}", "", wrap_up_text(summary.wrap_up, lang, RUNS_PER_PROMPT, first_action), ""]
+        wrap = wrap_up_text(summary.wrap_up, lang, sn.runs_per_prompt, first_action)
+        lines += [f"## {t['wrapup_title']}", "", wrap, ""]
     if summary.actions:
         lines += [f"## {t['first_word']}", ""]
         for a in summary.actions:

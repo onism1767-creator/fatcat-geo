@@ -83,3 +83,22 @@ def test_bundle_is_only_for_finished_jobs(storage):
     resp = client.get(f"/jobs/{draft.job_id}/download", follow_redirects=False)
     assert resp.status_code == 303 and resp.headers["location"].startswith(f"/jobs/{draft.job_id}")  # 回任务页
     assert client.get("/jobs/unknown/download").status_code == 404
+
+
+def test_csv_cells_that_look_like_formulas_are_neutralised():
+    """审核发现(2026-10-14):题目 / 回答 / 链接是外来文字,以 = + - @ 开头会被表格软件当公式执行(CSV 注入)。"""
+    from report.export import _csv
+
+    rows = [["=HYPERLINK(\"x\")", "+1", "-1", "@a", "\tb", "ok", 5, ""]]
+    text = _csv(["a", "b", "c", "d", "e", "f", "g", "h"], rows).decode("utf-8-sig")
+    parsed = list(csv.reader(io.StringIO(text)))
+    assert parsed[1] == ["'=HYPERLINK(\"x\")", "'+1", "'-1", "'@a", "'\tb", "ok", "5", ""]
+
+
+def test_download_filename_escapes_the_brand_name():
+    from report.export import content_disposition
+
+    job = finished_job()
+    job.brand = BrandSpec(name="A/B CRM", domains=["ab.test"])
+    header = content_disposition(job)
+    assert header.startswith(f'attachment; filename="geo-{job.job_id}.zip"; filename*=UTF-8\'\'geo-A%2FB%20CRM-')

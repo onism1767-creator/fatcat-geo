@@ -171,19 +171,21 @@ class PageChecker:
         pending = {normalized: request for normalized, request in wanted.items() if normalized not in checks}
         deadline = self._clock() + self._budget_s
         self._report(len(checks), len(wanted), "fetch")
-        fetched = self._run(pending, deadline, done=len(checks), total=len(wanted))
-        for normalized, check in fetched.items():
-            self._store.insert_page_check(check)  # 落库在主线程:psycopg 连接非线程安全
-            checks[normalized] = check
-        rendered = self._render_pass(wanted, checks, deadline)
-        for normalized, check in rendered.items():
-            self._store.insert_page_check(check)
-            checks[normalized] = check
-        archived = self._archive_pass(wanted, checks, deadline)
-        for normalized, check in archived.items():
-            self._store.insert_page_check(check)
-            checks[normalized] = check
-        self._report(len(wanted), len(wanted), "done")
+        try:
+            fetched = self._run(pending, deadline, done=len(checks), total=len(wanted))
+            for normalized, check in fetched.items():
+                self._store.insert_page_check(check)  # 落库在主线程:psycopg 连接非线程安全
+                checks[normalized] = check
+            rendered = self._render_pass(wanted, checks, deadline)
+            for normalized, check in rendered.items():
+                self._store.insert_page_check(check)
+                checks[normalized] = check
+            archived = self._archive_pass(wanted, checks, deadline)
+            for normalized, check in archived.items():
+                self._store.insert_page_check(check)
+                checks[normalized] = check
+        finally:
+            self._report(len(checks), len(wanted), "done")  # 中途抛错也报「结束」+ 实际开了几个:任务页不停在半截倒计时
         log.info("pages_checked", wanted=len(wanted), reused=len(wanted) - len(pending),
                  fetched=len(fetched), rendered=len(rendered), archived=len(archived),
                  not_attempted=len(pending) - len(fetched))
@@ -217,8 +219,7 @@ class PageChecker:
                     schedule.release(normalized)
                 with lock:
                     results[normalized] = check
-                    finished = done + len(results)
-                self._report(finished, total, "fetch")
+                    self._report(done + len(results), total, "fetch")  # 锁内报:多线程下进度只增不减
 
         workers = min(self._concurrency, len(pending))
         with ThreadPoolExecutor(max_workers=workers) as pool:

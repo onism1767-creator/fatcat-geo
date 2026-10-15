@@ -79,9 +79,11 @@ def main() -> int:
                 queries = "看不见" if trace.generated_queries == NOT_OBSERVABLE else len(trace.generated_queries)
                 sources = "看不见" if trace.retrieved_sources == NOT_OBSERVABLE else len(trace.retrieved_sources)
                 answer = run.answer
+                cited = ("看不见" if answer is not None and not answer.citations_available
+                         else (len(answer.citations) if answer else 0))
                 total_cost += run.cost_usd
                 print(f"{name:<20} {model:<24} {run.outcome.value:<10} {queries!s:>5} {sources!s:>5} "
-                      f"{(len(answer.citations) if answer else 0):>5} "
+                      f"{cited!s:>5} "
                       f"{(len(answer.answer_text) if answer else 0):>7} ${run.cost_usd:>7.4f} "
                       f"{run.latency_ms / 1000:>6.1f}s  {_stop_signals(run.raw_payload, {})}")
     finally:

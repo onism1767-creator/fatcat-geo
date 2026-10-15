@@ -19,7 +19,8 @@
   {% if elapsed_minutes is not none and not sampling_done %}
   <p class="kv">{% if eta_minutes is not none %}{{ t["eta_line"].format(elapsed=elapsed_minutes|round(1), eta=eta_minutes|round(1)) }}{% else %}{{ t["eta_waiting"].format(elapsed=elapsed_minutes|round(1)) }}{% endif %}</p>
   {% endif %}
-  {% if job.verify_started_at and not job.finished %}
+  {#- 只在跑的时候显示:失败 / 中断了不能还挂着「最多再等 N 分钟」 -#}
+  {% if job.verify_started_at and job.state.value == "RUNNING" %}
   <p class="kv"><b>{{ t["verify_word"] }}</b> · {{ t["verify_line"].format(done=job.verify_done, total=job.verify_total, minutes=(verify_remaining_minutes or 0)|round(1)) }}{% if job.verify_stage == "render" %} · {{ t["verify_stage_render"] }}{% elif job.verify_stage == "archive" %} · {{ t["verify_stage_archive"] }}{% elif job.verify_stage == "done" %} · {{ t["verify_stage_done"] }}{% endif %}</p>
   <div class="bar"><div style="width: {{ (100 * job.verify_done / job.verify_total)|round|int if job.verify_total else 0 }}%"></div></div>
   {% elif sampling_done and elapsed_minutes is not none %}
