@@ -63,17 +63,24 @@ BASE_URL = "https://generativelanguage.googleapis.com"
 TOOL_TYPE = "google_search"  # GA 版接地工具;改动前必须重做真实对照
 _SUCCESS_STATUSES = ("completed", "incomplete")  # incomplete=截断,回答仍有效
 
-# 官方价目(2026-09-08 核对,促销价;2027-01-01 起翻倍须同步):
+# 官方价目(2026-10-14 核对 ai.google.dev 型号页与价目页;促销价有到期日,到期须同步):
 # 模型 → (输入, 输出含思考) USD / MTok
-# 只列官方当前一代;过时型号不入选(定义见架构书附录 v0.4.20,2026-09-29 移除上一代两个)
+# 当前一代 = 4 Argon(优惠价至 2026-11-30,之后 $4 / $20)、3.1 Pro(preview)、
+# 3.8 Flash(优惠价至 2026-12-31,之后 $1.5 / $7.5);3.6-flash 2026-10-14 移出
+# (官方已把 3.5 / 3.7 流量转到 3.6 / 3.8,3.8 才是现行 Flash)。新型号入清单前须真实冒烟(本批待冒烟)。
 _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "gemini-3.8-flash": (0.75, 3.75),
-    # ↓ 2026-09-21 补入(官方当前阵容;经 scripts/smoke_models.py 真实冒烟:请求形状被接受、观测窗在、回答未被截断)
-    "gemini-3.6-flash": (0.75, 3.75),
     "gemini-3.1-pro-preview": (2.0, 12.0),
+    "gemini-4-argon": (2.0, 10.0),
 }
-_SEARCH_USD_PER_QUERY = 14.0 / 1000.0  # 接地检索 $14 / 千条唯一查询
+_SEARCH_USD_PER_QUERY = 14.0 / 1000.0  # 接地检索 $14 / 千次查询(每月 5,000 次免费额度不计入预估)
 _DEFAULT_MODEL = "gemini-3.8-flash"
+# 型号标记(配置资产,用户定 2026-10-14):Gemini 应用默认官方未写(2025-12 起 3 Flash 为默认;
+# 3.8 Flash 是现行 Flash)→ 填 3.8,待核对;
+# 最强 = Gemini 4 Argon(官方「旗舰推理模型」,2026-10-13 起向 Pro / Ultra 用户推)
+_CONSUMER_DEFAULT_MODEL = "gemini-3.8-flash"
+_STRONGEST_MODEL = "gemini-4-argon"
+_MODELS_CHECKED = "2026-10-14 官方型号页 + 价目页 + 应用更新日志;消费端默认按现行 Flash 填 3.8,待核对"
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
@@ -213,6 +220,9 @@ class GeminiGroundingAdapter(SurfaceAdapter):
             api_name="Gemini API",
             models=list(_TOKEN_PRICES_PER_MTOK),  # 以官方模型页为准,与价目表同步核对
             default_model=_DEFAULT_MODEL,
+            consumer_default_model=_CONSUMER_DEFAULT_MODEL,
+            strongest_model=_STRONGEST_MODEL,
+            models_checked=_MODELS_CHECKED,
             capabilities=_CAPABILITIES,
             unit_prices={  # 默认模型口径;实际计费按所选模型价目折算
                 "input_usd_per_mtok": _TOKEN_PRICES_PER_MTOK[_DEFAULT_MODEL][0],

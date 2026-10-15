@@ -45,6 +45,7 @@ class DummyAdapter(SurfaceAdapter):
     def meta(self) -> SurfaceMeta:
         return SurfaceMeta(display_name="S1", api_name="S1", provider="test_provider", surface="s1", models=["m1"],
                            default_model="m1",
+                           consumer_default_model="m1", strongest_model="m1", models_checked="test",
                            capabilities=CapabilityRegistry(supports_citations=True),
                            est_cost_per_call_usd={"m1": 0.005})
 

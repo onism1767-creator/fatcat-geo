@@ -1,8 +1,8 @@
-"""Perplexity 生成+引用适配器契约测试(12.1)。
+"""Perplexity Agent API 适配器契约测试(12.1;S9.0 迁移自 Sonar chat/completions)。
 
 防的是:平台改返回格式 → 翻译静默出错 → 污染入库数据。
-golden payload 覆盖四类样本:正常带引用 / 正常引用空 / 显式拒答 / 限流错误。
-断言逐字段进行,含 outcome 与 NOT_OBSERVABLE 标记;全部 respx 模拟,零真实网络。
+golden payload 覆盖:正常带引用标记 / 搜了但正文没标记 / 没搜 / status=failed / 限流错误。
+断言逐字段进行;全部 respx 模拟,零真实网络。
 """
 
 import json
@@ -18,10 +18,10 @@ from adapters.base import (
     CapabilityNotSupportedError,
 )
 from adapters.perplexity_agent import PerplexityAgentAdapter
-from engine.models import NOT_OBSERVABLE, UNKNOWN, AskRequest, Outcome, RunErrorType, SearchMode
+from engine.models import NOT_OBSERVABLE, AskRequest, Outcome, SearchMode
 
 GOLDEN = Path(__file__).parent / "golden"
-CHAT_URL = "https://api.perplexity.ai/chat/completions"
+AGENT_URL = "https://api.perplexity.ai/v1/agent"
 
 
 def golden(surface: str, name: str) -> dict:
@@ -43,62 +43,72 @@ def make_request(**overrides) -> AskRequest:
 @respx.mock
 def test_agent_success_with_citations_translates_field_by_field():
     body = golden("perplexity_agent", "success_with_citations.json")
-    route = respx.post(CHAT_URL).mock(return_value=httpx.Response(200, json=body))
+    route = respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json=body))
     run = PerplexityAgentAdapter(api_key="test-key").ask(make_request())
 
     assert (run.run_id, run.prompt_id, run.run_index) == ("run-1", "need-1", 1)
-    assert (run.provider, run.surface, run.model) == ("perplexity", "perplexity_agent", "sonar")
+    assert (run.provider, run.surface, run.model) == ("perplexity", "perplexity_agent", "perplexity/sonar")
     assert run.search_mode is SearchMode.DEFAULT and run.locale == "zh-CN" and run.region is None
     assert run.outcome is Outcome.SUCCESS and run.error is None
     assert run.answer.answer_text.startswith("对于中小团队")
     assert run.answer.citations_available is True
-    assert [c.domain for c in run.answer.citations] == ["www.example-review.com", "blog.example.org"]
+    # 正文标记 [web:2] 先出现、[1] 后出现:引用按首次出现顺序;标记指到不存在的 id(9)忽略
+    assert [c.domain for c in run.answer.citations] == ["blog.example.org", "www.example-review.com"]
     assert [c.position for c in run.answer.citations] == [1, 2]
-    assert run.answer.citations[0].title == "Best CRM for Small Teams (2026)"
-    # 检索候选在本通道不可观测,禁止用引用集反推
-    assert run.search_trace.retrieved_sources == NOT_OBSERVABLE
-    assert run.search_trace.generated_queries == NOT_OBSERVABLE
-    assert run.search_trace.opened_sources == NOT_OBSERVABLE
+    assert run.answer.citations[1].title == "Best CRM for Small Teams (2026)"
+    # 检索候选与检索词在 Agent API 可观测(S9.0 起 supports_query_trace=True)
     assert run.search_trace.search_triggered is True
+    assert run.search_trace.generated_queries == ["best CRM for small teams 2026"]
+    assert [(s.domain, s.rank) for s in run.search_trace.retrieved_sources] == [
+        ("www.example-review.com", 1), ("blog.example.org", 2), ("forum.example.net", 3),
+    ]
+    assert run.search_trace.opened_sources == NOT_OBSERVABLE
     assert run.raw_payload == body
-    assert run.cost_usd == pytest.approx(0.0051)
+    assert run.cost_usd == pytest.approx(0.03037)
     assert run.latency_ms >= 0
 
     sent = json.loads(route.calls[0].request.content)
-    assert sent["model"] == "sonar"  # 未指定 model 时用 meta 默认
-    assert sent["messages"] == [{"role": "user", "content": "中小团队用什么 CRM 好?"}]
+    assert sent["model"] == "perplexity/sonar"  # 未指定 model 时用 meta 默认
+    assert sent["input"] == "中小团队用什么 CRM 好?"
+    assert sent["tools"] == [{"type": "web_search"}] and sent["max_output_tokens"] == 4096
     assert route.calls[0].request.headers["authorization"] == "Bearer test-key"
 
 
 @respx.mock
-def test_agent_empty_citation_set_is_success_negative_observation():
+def test_agent_searched_but_cited_nothing_is_a_negative_observation():
     body = golden("perplexity_agent", "success_empty_citations.json")
-    respx.post(CHAT_URL).mock(return_value=httpx.Response(200, json=body))
+    respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json=body))
     run = PerplexityAgentAdapter(api_key="test-key").ask(make_request())
 
-    assert run.outcome is Outcome.SUCCESS  # 空引用集是真实负观测,不是失败(6.3)
-    assert run.answer.citations_available is True
-    assert run.answer.citations == []
-    assert run.search_trace.search_triggered == UNKNOWN  # 搜了没结果 vs 没搜,不可区分
+    assert run.outcome is Outcome.SUCCESS  # 搜了、正文没引:真实负观测,不是失败(6.3)
+    assert run.answer.citations_available is True and run.answer.citations == []
+    assert run.search_trace.search_triggered is True
+    assert len(run.search_trace.retrieved_sources) == 2  # 候选照记
 
 
 @respx.mock
-def test_agent_content_filter_translates_to_refused():
-    body = golden("perplexity_agent", "refused_content_filter.json")
-    respx.post(CHAT_URL).mock(return_value=httpx.Response(200, json=body))
+def test_agent_no_search_is_recorded_as_not_triggered():
+    body = golden("perplexity_agent", "success_no_search.json")
+    respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json=body))
     run = PerplexityAgentAdapter(api_key="test-key").ask(make_request())
 
-    assert run.outcome is Outcome.REFUSED
-    assert run.error.error_type is RunErrorType.REFUSAL
-    assert "content_filter" in run.error.message
-    assert run.answer is None  # content 为空
-    assert run.raw_payload == body  # 拒答同样全量存档
+    assert run.outcome is Outcome.SUCCESS and run.answer.citations == []
+    assert run.search_trace.search_triggered is False and run.search_trace.retrieved_sources == []
+    assert run.search_trace.generated_queries == []
+
+
+@respx.mock
+def test_agent_failed_status_raises_permanent_with_platform_message():
+    body = golden("perplexity_agent", "failed_status.json")
+    respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json=body))
+    with pytest.raises(AdapterPermanentError, match="status='failed'"):
+        PerplexityAgentAdapter(api_key="test-key").ask(make_request())
 
 
 @respx.mock
 def test_agent_rate_limit_raises_transient_and_does_not_retry():
     body = golden("perplexity_agent", "error_rate_limited.json")
-    route = respx.post(CHAT_URL).mock(return_value=httpx.Response(429, json=body))
+    route = respx.post(AGENT_URL).mock(return_value=httpx.Response(429, json=body))
     with pytest.raises(AdapterTransientError) as exc_info:
         PerplexityAgentAdapter(api_key="test-key").ask(make_request())
     assert exc_info.value.http_status == 429
@@ -107,14 +117,14 @@ def test_agent_rate_limit_raises_transient_and_does_not_retry():
 
 @respx.mock
 def test_agent_timeout_raises_transient():
-    respx.post(CHAT_URL).mock(side_effect=httpx.ConnectTimeout("timed out"))
+    respx.post(AGENT_URL).mock(side_effect=httpx.ConnectTimeout("timed out"))
     with pytest.raises(AdapterTransientError):
         PerplexityAgentAdapter(api_key="test-key").ask(make_request())
 
 
 @respx.mock
 def test_agent_auth_failure_raises_permanent():
-    respx.post(CHAT_URL).mock(return_value=httpx.Response(401, json={"error": "bad key"}))
+    respx.post(AGENT_URL).mock(return_value=httpx.Response(401, json={"error": "bad key"}))
     with pytest.raises(AdapterPermanentError) as exc_info:
         PerplexityAgentAdapter(api_key="bad-key").ask(make_request())
     assert exc_info.value.http_status == 401
@@ -122,7 +132,7 @@ def test_agent_auth_failure_raises_permanent():
 
 @respx.mock
 def test_agent_malformed_body_raises_permanent():
-    respx.post(CHAT_URL).mock(return_value=httpx.Response(200, json={"unexpected": "shape"}))
+    respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json={"unexpected": "shape"}))
     with pytest.raises(AdapterPermanentError, match="响应结构"):
         PerplexityAgentAdapter(api_key="test-key").ask(make_request())
 
@@ -137,12 +147,17 @@ def test_agent_undeclared_capabilities_raise_explicitly():
         adapter.ask(make_request(region="US"))
 
 
+def test_unknown_model_is_rejected_before_any_call():
+    with pytest.raises(AdapterPermanentError, match="不在本适配器清单"):
+        PerplexityAgentAdapter(api_key="test-key", client=httpx.Client()).ask(make_request(model="perplexity/nope"))
+
+
 @respx.mock
 def test_agent_healthcheck():
-    body = golden("perplexity_agent", "success_empty_citations.json")
-    respx.post(CHAT_URL).mock(return_value=httpx.Response(200, json=body))
+    body = golden("perplexity_agent", "success_no_search.json")
+    respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json=body))
     assert PerplexityAgentAdapter(api_key="test-key").healthcheck() is True
-    respx.post(CHAT_URL).mock(return_value=httpx.Response(401, json={"error": "bad key"}))
+    respx.post(AGENT_URL).mock(return_value=httpx.Response(401, json={"error": "bad key"}))
     assert PerplexityAgentAdapter(api_key="bad-key").healthcheck() is False
 
 

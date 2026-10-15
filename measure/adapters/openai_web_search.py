@@ -68,16 +68,25 @@ SEARCH_CONTEXT_SIZE = "medium"  # 显式钉死的检索上下文档位,属本 su
 MAX_OUTPUT_TOKENS = 4096  # 回答长度保险丝(成本上界的一部分)
 INCLUDE = ["web_search_call.action.sources"]  # 候选来源观测窗常开
 
-# 官方价目(2026-09-08 核对,与模型清单同步维护):模型 → (输入, 输出) USD / MTok
+# 官方价目(2026-10-14 核对 developers.openai.com 价目页与型号页,与模型清单同步维护):模型 → (输入, 输出) USD / MTok
+# 当前一代 = GPT-6 系(astra / 6.1-sol / 6-sol / 6-luna);gpt-5.6-luna 保留,
+# 因为它仍是 ChatGPT 免费版的默认型号(帮助中心 2026-10)。
+# 上一代 gpt-5.6-terra / gpt-5.6-sol 2026-10-14 移出。新型号入清单前须经 scripts/smoke_models.py 真实冒烟(本批待冒烟)。
 _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
-    "gpt-5.6-terra": (2.0, 12.0),
     "gpt-5.6-luna": (0.2, 1.2),
-    "gpt-5.6-sol": (4.0, 20.0),
-    # ↓ 2026-09-21 补入(官方当前阵容;经 scripts/smoke_models.py 真实冒烟:请求形状被接受、观测窗在、回答未被截断)
+    "gpt-6-luna": (0.10, 0.50),
+    "gpt-6-sol": (2.0, 10.0),
+    "gpt-6.1-sol": (2.0, 10.0),
     "gpt-6-astra": (10.0, 50.0),
 }
 _SEARCH_USD_PER_CALL = 10.0 / 1000.0  # web search $10 / 千次(仅 search 动作计费)
-_DEFAULT_MODEL = "gpt-5.6-terra"
+_DEFAULT_MODEL = "gpt-5.6-luna"
+# 型号标记(配置资产,用户定 2026-10-14「消费端默认按免费版」):ChatGPT 免费版 / Go 默认 GPT-5.6 Luna(官方帮助中心);
+# 付费版默认是 GPT-6(Sol 跑 Instant / Medium / High),不取。最强 = GPT-6 Astra(官方「最强」)。
+_CONSUMER_DEFAULT_MODEL = "gpt-5.6-luna"
+_STRONGEST_MODEL = "gpt-6-astra"
+_MODELS_CHECKED = ("2026-10-14 官方型号页 + 价目页 + 帮助中心「GPT-6 and other models in ChatGPT」;"
+                   "消费端默认按免费版(用户定)")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
@@ -249,6 +258,9 @@ class OpenAIWebSearchAdapter(SurfaceAdapter):
             api_name="OpenAI Responses API",
             models=list(_TOKEN_PRICES_PER_MTOK),  # 以官方模型页为准,与价目表同步核对
             default_model=_DEFAULT_MODEL,
+            consumer_default_model=_CONSUMER_DEFAULT_MODEL,
+            strongest_model=_STRONGEST_MODEL,
+            models_checked=_MODELS_CHECKED,
             capabilities=_CAPABILITIES,
             unit_prices={  # 默认模型口径;实际计费按所选模型价目折算
                 "input_usd_per_mtok": _TOKEN_PRICES_PER_MTOK[_DEFAULT_MODEL][0],

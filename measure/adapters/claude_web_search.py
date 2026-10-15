@@ -76,17 +76,22 @@ MAX_TOKENS = 4096  # 回答长度上限(平台必填):成本上界的一部分,�
 
 _MAX_CONTINUATIONS = 3  # pause_turn 续传上限:有界完成单次采样,超限按瞬时错误上抛
 
-# 官方价目(2026-06 核对,与模型清单同步维护):模型 → (输入, 输出) USD / MTok
-# 只列官方当前一代;过时型号不入选(定义见架构书附录 v0.4.20,2026-09-29 移除上一代两个)
+# 官方价目(2026-10-14 核对 platform.claude.com 型号页与价目,与模型清单同步维护):模型 → (输入, 输出) USD / MTok
+# 只列官方当前一代(Fable 5.1 / Opus 5.5 / Sonnet 5.5 / Haiku 5.5);上一代(sonnet-5、opus-5、haiku-4-5)2026-10-14 移出。
+# 新型号入清单前须经 scripts/smoke_models.py 真实冒烟(本批 S9.0 换代后待冒烟)。
 _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
-    "claude-haiku-4-5": (1.0, 5.0),
-    # ↓ 2026-09-21 补入(官方当前阵容;经 scripts/smoke_models.py 真实冒烟:请求形状被接受、观测窗在、回答未被截断)
-    "claude-sonnet-5": (2.0, 10.0),
-    "claude-opus-5": (5.0, 25.0),
+    "claude-haiku-5-5": (0.10, 0.50),  # 10 万输入 token 以内的档;本 surface 单次远低于此
+    "claude-sonnet-5-5": (2.0, 10.0),
+    "claude-opus-5-5": (4.0, 20.0),
     "claude-fable-5-1": (10.0, 50.0),
 }
 _SEARCH_USD_PER_USE = 10.0 / 1000.0  # web search $10 / 千次
-_DEFAULT_MODEL = "claude-sonnet-5"
+_DEFAULT_MODEL = "claude-sonnet-5-5"
+# 型号标记(配置资产,用户定 2026-10-14):应用默认是 Sonnet 系(第三方资料:2026-06-30 起 Sonnet 5 为默认;
+# 5.5 上线后是否切换官方未写)→ 待核对
+_CONSUMER_DEFAULT_MODEL = "claude-sonnet-5-5"
+_STRONGEST_MODEL = "claude-fable-5-1"  # 官方:Mythos 级,高于 Opus
+_MODELS_CHECKED = "2026-10-14 官方型号页 + 价目页;消费端默认按应用默认 Sonnet 系填 5.5,待核对"
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
@@ -257,6 +262,9 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
             api_name="Anthropic Messages API",
             models=list(_TOKEN_PRICES_PER_MTOK),  # 以官方模型页为准,与价目表同步核对
             default_model=_DEFAULT_MODEL,
+            consumer_default_model=_CONSUMER_DEFAULT_MODEL,
+            strongest_model=_STRONGEST_MODEL,
+            models_checked=_MODELS_CHECKED,
             capabilities=_CAPABILITIES,
             unit_prices={  # 默认模型口径;实际计费按所选模型价目折算
                 "input_usd_per_mtok": _TOKEN_PRICES_PER_MTOK[_DEFAULT_MODEL][0],

@@ -7,13 +7,15 @@
 # enabled: 适配器落地并通过契约测试后才置 true。
 
 surfaces:
+  # 2026-10-14 迁到 Agent API(旧 Sonar chat/completions 2026-09-27 停止支持):output 里的 search_results 项暴露
+  # 检索词与候选结果,supports_query_trace 改 true;引用 = 正文 [n] / [web:n] 标记指到的结果(平台自己的标记,机械解析)。
   - name: perplexity_agent
     provider: perplexity
     adapter: adapters.perplexity_agent.PerplexityAgentAdapter
     api_key_env: PERPLEXITY_API_KEY
     enabled: true
     capabilities:
-      supports_query_trace: false
+      supports_query_trace: true
       supports_citations: true        # 生成+引用通道
       supports_region: false
       supports_forced_search: false

@@ -57,6 +57,7 @@ class ScriptedAdapter(SurfaceAdapter):
         return SurfaceMeta(
             display_name="Scripted", api_name="Scripted", provider="test_provider", surface="test_surface",
             models=["m1"], default_model="m1",
+            consumer_default_model="m1", strongest_model="m1", models_checked="test",
             capabilities=CapabilityRegistry(supports_citations=True),
             est_cost_per_call_usd={"m1": 0.005},
         )

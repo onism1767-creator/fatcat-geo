@@ -1,52 +1,83 @@
 {
-  "id": "chatcmpl-a1b2c3d4",
-  "object": "chat.completion",
-  "created": 1755400000,
-  "model": "sonar",
-  "choices": [
+  "id": "resp_367113ed-7a1b-4b2e-bad7-93e53a6cbeca",
+  "object": "response",
+  "created_at": 1760400000,
+  "completed_at": 1760400006,
+  "model": "perplexity/sonar",
+  "status": "completed",
+  "error": null,
+  "output": [
     {
-      "index": 0,
-      "finish_reason": "stop",
-      "message": {
-        "role": "assistant",
-        "content": "对于中小团队,常被推荐的 CRM 包括 HubSpot[1] 与 Zoho CRM[2],两者都提供免费档位。"
-      }
-    }
-  ],
-  "citations": [
-    "https://www.example-review.com/best-crm-small-teams",
-    "https://blog.example.org/crm-selection-guide"
-  ],
-  "search_results": [
-    {
-      "title": "Best CRM for Small Teams (2026)",
-      "url": "https://www.example-review.com/best-crm-small-teams",
-      "date": "2026-05-11",
-      "last_updated": "2026-07-30",
-      "snippet": "We compared 12 CRMs on price, onboarding time and integrations…",
-      "source": "web",
-      "place_metadata": null
+      "type": "search_results",
+      "queries": [
+        "best CRM for small teams 2026"
+      ],
+      "results": [
+        {
+          "id": 1,
+          "title": "Best CRM for Small Teams (2026)",
+          "url": "https://www.example-review.com/best-crm-small-teams",
+          "date": "2026-05-11",
+          "last_updated": "2026-07-30",
+          "snippet": "We compared 12 CRMs on price, onboarding time and integrations…",
+          "source": "web"
+        },
+        {
+          "id": 2,
+          "title": "中小团队 CRM 选型指南",
+          "url": "https://blog.example.org/crm-selection-guide",
+          "date": "2026-03-02",
+          "last_updated": null,
+          "snippet": "从线索管理到自动化,本文给出五个评估维度…",
+          "source": "web"
+        },
+        {
+          "id": 3,
+          "title": "CRM 讨论帖",
+          "url": "https://forum.example.net/t/crm-for-small-teams",
+          "date": null,
+          "last_updated": null,
+          "snippet": "大家都在用什么 CRM?",
+          "source": "web"
+        }
+      ]
     },
     {
-      "title": "中小团队 CRM 选型指南",
-      "url": "https://blog.example.org/crm-selection-guide",
-      "date": "2026-03-02",
-      "last_updated": null,
-      "snippet": "从线索管理到自动化,本文给出五个评估维度…",
-      "source": "web",
-      "place_metadata": null
+      "type": "message",
+      "id": "msg_1",
+      "role": "assistant",
+      "status": "completed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "对于中小团队,常被推荐的 CRM 包括 HubSpot[web:2] 与 Zoho CRM[1],两者都提供免费档位[9]。",
+          "annotations": [],
+          "logprobs": []
+        }
+      ]
     }
   ],
+  "tools": [
+    {
+      "type": "web_search"
+    }
+  ],
+  "max_output_tokens": 4096,
   "usage": {
-    "prompt_tokens": 21,
-    "completion_tokens": 64,
-    "total_tokens": 85,
-    "search_context_size": "low",
+    "input_tokens": 4718,
+    "output_tokens": 450,
+    "total_tokens": 5168,
     "cost": {
-      "input_tokens_cost": 0.0,
-      "output_tokens_cost": 0.0001,
-      "request_cost": 0.005,
-      "total_cost": 0.0051
+      "currency": "USD",
+      "input_cost": 0.00118,
+      "output_cost": 0.001125,
+      "tool_calls_cost": 0.0025,
+      "total_cost": 0.03037
+    },
+    "tool_calls_details": {
+      "search_web": {
+        "invocation": 1
+      }
     }
   }
 }

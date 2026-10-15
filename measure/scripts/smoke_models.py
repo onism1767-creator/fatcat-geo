@@ -9,7 +9,7 @@ v0.4.19 起每家 AI 的全部型号一起测;型号进适配器清单前,必须
 
 用法:
     .venv\\Scripts\\python scripts\\smoke_models.py                      # 清单里的全部型号
-    .venv\\Scripts\\python scripts\\smoke_models.py --only claude-opus-5 gpt-6-astra
+    .venv\\Scripts\\python scripts\\smoke_models.py --only claude-opus-5-5 gpt-6-astra
 """
 
 from __future__ import annotations

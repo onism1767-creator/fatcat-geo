@@ -73,7 +73,7 @@ def test_success_with_citations_translates_field_by_field():
     run = OpenAIWebSearchAdapter(api_key="test-key").ask(make_request())
 
     assert (run.run_id, run.prompt_id, run.run_index) == ("run-1", "need-1", 1)
-    assert (run.provider, run.surface, run.model) == ("openai", "openai_web_search", "gpt-5.6-terra")
+    assert (run.provider, run.surface, run.model) == ("openai", "openai_web_search", "gpt-5.6-luna")
     assert run.search_mode is SearchMode.DEFAULT and run.locale == "zh-CN" and run.region is None
     assert run.outcome is Outcome.SUCCESS and run.error is None
 
@@ -100,11 +100,12 @@ def test_success_with_citations_translates_field_by_field():
     assert run.raw_payload == body
     # 成本 = token 费(检索内容已计入 input_tokens)+ search 动作数 × $0.01
     # (open_page 不计费,官方口径)
-    assert run.cost_usd == pytest.approx(9412 / 1e6 * 2.0 + 486 / 1e6 * 12.0 + 1 * 0.01)
+    # 默认型号 gpt-5.6-luna 的价目(S9.0)
+    assert run.cost_usd == pytest.approx(9412 / 1e6 * 0.2 + 486 / 1e6 * 1.2 + 1 * 0.01)
     assert run.latency_ms >= 0
 
     sent = json.loads(route.calls[0].request.content)
-    assert sent["model"] == "gpt-5.6-terra"  # 未指定 model 时用 meta 默认
+    assert sent["model"] == "gpt-5.6-luna"  # 未指定 model 时用 meta 默认(ChatGPT 免费版默认,用户定)
     assert sent["max_output_tokens"] == 4096
     assert sent["input"] == "中小团队用什么 CRM 好?"
 
@@ -124,7 +125,7 @@ def test_no_search_is_success_with_observable_negative_trace():
     assert run.search_trace.opened_sources == []
     assert run.answer.citations_available is True
     assert run.answer.citations == []
-    assert run.cost_usd == pytest.approx(388 / 1e6 * 2.0 + 92 / 1e6 * 12.0)  # 无检索费
+    assert run.cost_usd == pytest.approx(388 / 1e6 * 0.2 + 92 / 1e6 * 1.2)  # 无检索费;gpt-5.6-luna 价目
 
 
 # ── 检索模式 ─────────────────────────────────────────────────────────

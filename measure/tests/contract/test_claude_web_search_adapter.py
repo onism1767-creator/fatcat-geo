@@ -71,7 +71,7 @@ def test_success_with_citations_translates_field_by_field():
     run = ClaudeWebSearchAdapter(api_key="test-key").ask(make_request())
 
     assert (run.run_id, run.prompt_id, run.run_index) == ("run-1", "need-1", 1)
-    assert (run.provider, run.surface, run.model) == ("anthropic", "claude_web_search", "claude-sonnet-5")
+    assert (run.provider, run.surface, run.model) == ("anthropic", "claude_web_search", "claude-sonnet-5-5")
     assert run.search_mode is SearchMode.DEFAULT and run.locale == "zh-CN" and run.region is None
     assert run.outcome is Outcome.SUCCESS and run.error is None
 
@@ -101,7 +101,7 @@ def test_success_with_citations_translates_field_by_field():
     assert run.latency_ms >= 0
 
     sent = json.loads(route.calls[0].request.content)
-    assert sent["model"] == "claude-sonnet-5"  # 未指定 model 时用 meta 默认
+    assert sent["model"] == "claude-sonnet-5-5"  # 未指定 model 时用 meta 默认
     assert sent["max_tokens"] == 4096
     assert sent["messages"] == [{"role": "user", "content": "中小团队用什么 CRM 好?"}]
 

@@ -1,7 +1,7 @@
 {
   "error": {
-    "message": "Rate limit exceeded. Please try again later.",
-    "type": "rate_limit_exceeded",
-    "code": 429
+    "message": "Rate limit exceeded. Retry after 20 seconds.",
+    "code": "rate_limit_exceeded",
+    "type": "rate_limit"
   }
 }

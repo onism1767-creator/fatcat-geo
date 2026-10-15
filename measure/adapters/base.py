@@ -126,6 +126,12 @@ class SurfaceMeta(FrozenModel):
     api_name: str
     models: list[str]
     default_model: str
+    # 型号标记(配置资产,S9.0;用户定 2026-10-14):「消费端默认」= 该家聊天产品界面默认用的型号;
+    # 「最强」= 该家公认最强的型号。两个都必须在 models 里(加载器校验)。
+    # 来源与核对日期写在 models_checked,查不到官方说法的写明「待核对」,不猜(铁律 7)。
+    consumer_default_model: str
+    strongest_model: str
+    models_checked: str
     capabilities: CapabilityRegistry
     unit_prices: dict[str, float] = {}  # 计费单价,键为该 surface 的计费口径(如每千输入 token)
     # 单次调用期望成本,确认页预估用(v0.4.6;v0.4.19 起按型号报价):键 = models 里的每个型号

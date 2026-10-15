@@ -29,6 +29,7 @@ class ScriptedAdapter(SurfaceAdapter):
     def meta(self) -> SurfaceMeta:
         return SurfaceMeta(display_name="T", api_name="T", provider="test_provider", surface="t", models=["m"],
                            default_model="m", capabilities=CapabilityRegistry(supports_citations=True),
+                           consumer_default_model="m", strongest_model="m", models_checked="test",
                            est_cost_per_call_usd={"m": 0.01})
 
     def ask(self, request):
