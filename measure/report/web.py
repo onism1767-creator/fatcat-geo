@@ -14,6 +14,7 @@ from fastapi.templating import Jinja2Templates
 from adapters.base import SurfaceAdapter
 from diagnosis.access_audit import AccessLayer
 from diagnosis.messages import msg, render_msg
+from engine.judge import JudgeConfig
 from engine.storage import CallStat
 from engine.tiers import TierConfig
 from report.i18n import (
@@ -79,6 +80,7 @@ class WebContext:
     launcher: JobLauncher
     target_name: TargetNamer
     tiers: TierConfig  # 档位配置(S9.1,config/tiers.yaml)
+    judges: JudgeConfig  # 高档裁判配置(S9.3,config/judges.yaml):预估按它算裁判费用
 
     def __post_init__(self) -> None:
         self._templates = _templates(self.target_name)

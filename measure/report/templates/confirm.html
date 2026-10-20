@@ -100,6 +100,7 @@
     <p class="kv">{{ t["est_label"] }}<b><span id="est-calls">–</span></b> {{ t["est_calls_word"] }} ·
       ≈ <b>$<span id="est-cost">–</span></b> ·
       ≈ <b><span id="est-min">–</span> {{ t["est_min_word"] }}</b>({{ t["est_note"] }})
+      <span id="est-judge" class="muted" style="display:none"></span>
       <span id="est-custom" class="muted" style="display:none">· {{ t["est_custom_note"] }}</span></p>
     <p class="kv muted">{{ t["est_breakdown"] }}<span id="est-breakdown">–</span></p>
     <p class="kv muted">{{ est_basis }}</p>
@@ -112,7 +113,7 @@
 // 预估公式只在服务端(report/estimate.py):每次勾选变化把整张表单发过去,这里只负责显示(v0.4.24 审查 #3)。
 // 档位(S9.1):选一档就把该档的型号与次数填进自定义区;用户再改就按自定义算(服务端判)。
 const TIERS = {{ tier_defaults|tojson }};
-const WORDS = {calls: {{ t["est_calls_word"]|tojson }}, min: {{ t["est_min_word"]|tojson }}};
+const WORDS = {calls: {{ t["est_calls_word"]|tojson }}, min: {{ t["est_min_word"]|tojson }}, judge: {{ t["est_judge"]|tojson }}};
 const form = document.getElementById('confirm-form');
 function applyTier(name) {
   const spec = TIERS[name];
@@ -121,7 +122,11 @@ function applyTier(name) {
   form.querySelector('input[name=runs]').value = spec.runs;
 }
 form.querySelectorAll('input[name=tier]').forEach(r => r.addEventListener('change', () => applyTier(r.value)));
-function fmt(e) { return e.calls + ' ' + WORDS.calls + ' · ≈ $' + e.cost_usd.toFixed(2) + ' · ≈ ' + e.minutes.toFixed(1) + ' ' + WORDS.min; }
+function judgeNote(e) { return WORDS.judge.replace('{n}', e.judge_calls).replace('{cost}', e.judge_cost_usd.toFixed(2)); }
+function fmt(e) {
+  return e.calls + ' ' + WORDS.calls + ' · ≈ $' + e.cost_usd.toFixed(2) + ' · ≈ ' + e.minutes.toFixed(1) + ' ' + WORDS.min
+    + (e.judge_calls ? ' · ' + judgeNote(e) : '');
+}
 let seq = 0;
 async function recalc() {
   const mine = ++seq;
@@ -133,6 +138,9 @@ async function recalc() {
   document.getElementById('est-cost').textContent = e.cost_usd.toFixed(2);
   document.getElementById('est-min').textContent = e.minutes.toFixed(1);
   document.getElementById('est-custom').style.display = e.custom ? '' : 'none';
+  const judge = document.getElementById('est-judge');
+  judge.textContent = e.judge_calls ? '· ' + judgeNote(e) : '';
+  judge.style.display = e.judge_calls ? '' : 'none';
   document.getElementById('est-breakdown').textContent = e.breakdown.length
     ? e.breakdown.map(b => b.display + ' ≈ $' + b.cost_usd.toFixed(2)).join('; ') : '–';
   for (const [name, est] of Object.entries(e.tiers)) {

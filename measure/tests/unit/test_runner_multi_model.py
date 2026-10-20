@@ -285,3 +285,35 @@ def test_redirect_citations_are_judged_by_resolved_destination_not_title(storage
     assert unresolved.params["n"] == 3  # 每条回答一条还原不出去向的引用,记看不到
     by_domain = next(line for line in citation.evidence_lines if line.code == "citation.by_domain")
     assert [(item.params["domain"], item.params["k"]) for item in by_domain.params["items"]] == [("aurora-crm.com", 3)]
+
+
+def test_high_tier_asks_a_judge_once_per_answer_and_reuses_it_on_replay(storage, offline):
+    """S9.3 高档:另一家 AI 逐条复核;一条回答只判一次,费用进账本;重新生成报告时装回库里的判定,不再花钱。"""
+    from engine.judge import JudgeConfig, JudgeModel
+    from engine.tiers import MentionMethod, TierChoice
+    from tests.unit.test_judge import ScriptedJudge
+
+    job, prompt = _new_job("中小团队用什么 CRM 好?")
+    job.tier = TierChoice(name="high", runs_per_prompt=3, mention_method=MentionMethod.RULES_FUZZY_JUDGE, custom=False)
+    judges = {"judge_a": ScriptedJudge("judge_a", "vendor_a", "ja"),
+              "judge_b": ScriptedJudge("judge_b", "vendor_b", "jb")}
+    config = JudgeConfig(primary=JudgeModel(surface="judge_a", model="ja", est_cost_per_call_usd=0.001),
+                         backup=JudgeModel(surface="judge_b", model="jb", est_cost_per_call_usd=0.001))
+    adapters = {"two_model": TwoModelAdapter(), **judges}
+    runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry(), judges=config)
+    assert job.state is JobState.DONE, job.error
+    assert len(judges["judge_a"].requests) == 6 and judges["judge_b"].requests == []  # 6 条各判一次;被测不是裁判自家
+    assert job.spent_usd == pytest.approx(3 * 0.01 + 3 * 0.001 + 6 * 0.001)  # 裁判费用进账本
+    assert job.judge_total == 6 and job.judge_done == 6
+    note = job.sampling
+    assert note is not None and [t.key for t in note.judge_targets] == ["judge_a::ja", "judge_b::jb"]
+    assert _citation_status(job) == {CITES: StageStatus.PASS, SILENT: StageStatus.FAIL}
+    run = storage.runs_for_prompt(prompt.prompt_id, surface="two_model", model=CITES)[0]
+    rows = {r["detector_name"]: r for r in storage.observations_for_run(run.run_id)}
+    assert rows["brand_mention_judge"]["mentioned"] is True and rows["brand_mention_judge"]["match_kind"] == "judge"
+    assert rows["sentiment_judge"]["sentiment"] == "positive" and "brand_mention_fuzzy" in rows  # 三个判定器并排存档
+
+    runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry(), replay=True,
+                       judges=config)
+    assert job.state is JobState.DONE, job.error
+    assert len(judges["judge_a"].requests) == 6  # 重新生成报告:裁判判定从库里装回,一次都没多问

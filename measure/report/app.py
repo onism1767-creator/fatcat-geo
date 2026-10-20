@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from adapters.base import SurfaceAdapter
 from diagnosis.recommender import EvidenceEntry, load_evidence_registry
 from engine.envfile import load_env_file
+from engine.judge import JudgeConfig, load_judges
 from engine.loader import build_adapters
 from engine.storage import CallStat, Storage, default_dsn
 from engine.tiers import TierConfig, load_tiers
@@ -33,6 +34,7 @@ def create_app(
     job_runner: JobRunner | None = None,
     registry: JobRegistry | None = None,  # 启动恢复(v0.4.9)由入口注入;缺省全新登记处
     tiers: TierConfig | None = None,  # 档位配置(S9.1);None = 读 config/tiers.yaml
+    judges: JudgeConfig | None = None,  # 高档裁判配置(S9.3);None = 读 config/judges.yaml
 ) -> FastAPI:
     if adapters is None:
         load_env_file()
@@ -55,6 +57,7 @@ def create_app(
         ),
         target_name=target_namer(adapters),
         tiers=tiers or load_tiers(),
+        judges=judges or load_judges(),
     )
     app.include_router(router)
     return app

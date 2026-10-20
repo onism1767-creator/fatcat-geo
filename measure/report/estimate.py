@@ -12,6 +12,7 @@ from report.jobs import PLAN_CONCURRENCY
 
 # 兜底值(v0.4.17):库里没有足量历史时用;有历史即按实测均值(香奈儿首单加权均值 20.2 s)
 AVG_SECONDS_PER_CALL = 20.0
+JUDGE_SECONDS_PER_CALL = 4.0  # 裁判不联网、输出短,一条约几秒(S9.3;有实测后改读实测)
 MIN_STAT_SAMPLES = 10  # 少于这么多次历史调用不算数,仍用声明单价(v0.4.17)
 
 
@@ -61,6 +62,8 @@ class Estimate(FrozenModel):
     cost_usd: float
     minutes: float
     per_target: list[tuple[Target, float]]  # 各对象的花费(含闭卷腿),与勾选同序
+    judge_calls: int  # 高档:AI 裁判要判几条回答(= 提问次数),其余档 0
+    judge_cost_usd: float
 
 
 def estimate_job(
@@ -70,9 +73,11 @@ def estimate_job(
     targets: list[Target],
     dependency: bool,
     prices: UnitPrices,
+    judge_cost_per_call: float | None = None,
 ) -> Estimate:
-    """每条腿(一个对象 × 一种检索模式)的调用数 = 题数 × 每题次数(次数固定,v0.4.26 S2);
-    启用检索依赖对照时,支持闭卷的对象多一条闭卷腿,按闭卷单价另计。"""
+    """每条腿(一个对象 × 一种检索模式)的调用数 = 题数 × 每题次数(次数随档位,S9.1);
+    启用检索依赖对照时,支持闭卷的对象多一条闭卷腿,按闭卷单价另计;
+    高档(judge_cost_per_call 非空)每条回答再请 AI 裁判判一次,按裁判单价另计(S9.3)。"""
     per_leg_calls = n_prompts * runs_per_prompt
     per_target: list[tuple[Target, float]] = []
     legs = 0
@@ -84,9 +89,13 @@ def estimate_job(
             legs += 1
         per_target.append((target, cost))
     calls = per_leg_calls * legs
+    judge_calls = calls if judge_cost_per_call is not None else 0
+    judge_cost = judge_calls * (judge_cost_per_call or 0.0)
     return Estimate(
         calls=calls,
-        cost_usd=sum(cost for _, cost in per_target),
-        minutes=calls * prices.seconds_per_call / 60 / PLAN_CONCURRENCY,
+        cost_usd=sum(cost for _, cost in per_target) + judge_cost,
+        minutes=(calls * prices.seconds_per_call + judge_calls * JUDGE_SECONDS_PER_CALL) / 60 / PLAN_CONCURRENCY,
         per_target=per_target,
+        judge_calls=judge_calls,
+        judge_cost_usd=judge_cost,
     )

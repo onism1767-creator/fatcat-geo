@@ -135,14 +135,15 @@ def test_tier_method_picks_the_main_detector_and_sentiment_follows_it():
     assert fuzzy.sentiment is not None and fuzzy.sentiment.sentiment.value == "positive"  # 情感句跟主判定器定位
     assert ObserveContext(competitors=[]).mention_method is MentionMethod.RULES
     assert mention_detector(MentionMethod.RULES).name == "brand_mention_rules"
-    with pytest.raises(ValueError, match="S9.3"):
-        mention_detector(MentionMethod.RULES_FUZZY_JUDGE)  # 裁判还没有:明确报错,不静默退回
+    with pytest.raises(ValueError, match="裁判"):
+        mention_detector(MentionMethod.RULES_FUZZY_JUDGE)  # 高档没装配裁判:明确报错,不静默退回
 
 
 def test_both_mention_detectors_are_archived_side_by_side():
     store = ListStore()
     run = run_with("用 auroracrms 的团队都说好用。")
-    persist_observations(store, [run], BRAND, ObserveContext(competitors=[], mention_method=MentionMethod.RULES_FUZZY))
+    context = ObserveContext(competitors=[], mention_method=MentionMethod.RULES_FUZZY)
+    persist_observations(store, [observe(run, BRAND, context)])
     mentions = {(o.detector_name, o.detector_version): o.mentioned for o in store.rows
                 if o.detector_name.startswith("brand_mention")}
     assert mentions == {("brand_mention_rules", 2): False, ("brand_mention_fuzzy", 1): True}

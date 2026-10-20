@@ -52,6 +52,7 @@ def run_task[T](
     locale: str,
     ledger: Ledger,
     search_mode: SearchMode = SearchMode.DEFAULT,
+    model: str | None = None,  # None = 适配器默认型号;裁判(S9.3)指定便宜型号
     policy: SamplingPolicy | None = None,
     sleep: Callable[[float], None] = time.sleep,
 ) -> TaskResult[T]:
@@ -67,6 +68,7 @@ def run_task[T](
             prompt_text=prompt,
             locale=locale,
             search_mode=search_mode,
+            model=model,
             timeout_s=policy.timeout_s,
         )
         run = ask_with_retries(adapter, request, policy, sleep=sleep)

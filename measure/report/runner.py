@@ -36,7 +36,10 @@ from engine.aggregate import (
     tally_spellings,
 )
 from engine.brand_domains import BrandDomainDiscovery, load_platforms
+from engine.detectors.brand_mention_judge import DETECTOR_NAME as JUDGE_DETECTOR
+from engine.detectors.brand_mention_judge import SENTIMENT_DETECTOR_NAME as JUDGE_SENTIMENT
 from engine.detectors.matching import registrable
+from engine.judge import JudgeConfig, JudgeVerdict, MentionJudge, load_judges
 from engine.method import METHOD_VERSION
 from engine.models import (
     BrandDomainList,
@@ -45,6 +48,7 @@ from engine.models import (
     PromptIntent,
     RunErrorType,
     SearchMode,
+    Sentiment,
     SourceClass,
     StopReason,
     SurfaceRun,
@@ -62,6 +66,7 @@ from engine.scheduler import (
     reinterpret_account_errors,
 )
 from engine.storage import Storage, StorageUnavailable
+from engine.tiers import MentionMethod
 from engine.validity import is_valid_answer
 from report.archive import attach_latest_report
 from report.jobs import (
@@ -107,10 +112,11 @@ def execute_job(
     dsn: str,
     evidence: list[EvidenceEntry],
     replay: bool = False,
+    judges: JudgeConfig | None = None,  # 高档裁判配置(S9.3);None = 读 config/judges.yaml
 ) -> None:
-    """replay=True:重新生成报告——只用库里已有的样本重算,不向 AI 提问(样本不补)。"""
+    """replay=True:重新生成报告——只用库里已有的样本重算,不向 AI 提问(样本不补;裁判判定也从库里装回)。"""
     try:
-        _execute(job, adapters=adapters, dsn=dsn, evidence=evidence, replay=replay)
+        _execute(job, adapters=adapters, dsn=dsn, evidence=evidence, replay=replay, judges=judges)
     except AccountProblem as exc:  # v0.4.21:我方账户问题——停下、说人话、等充值后续跑
         log.error("job_halted_account_problem", job_id=job.job_id, surface=exc.surface,
                   model=exc.model, error=exc.message)
@@ -154,6 +160,7 @@ def _execute(
     dsn: str,
     evidence: list[EvidenceEntry],
     replay: bool = False,
+    judges: JudgeConfig | None = None,
 ) -> None:
     _reset_progress(job)
     job.access_result = access_audit.audit(job.website)
@@ -176,8 +183,9 @@ def _execute(
         resolution = _resolve_redirects(storage, adapters, [*runs_by.values(), *offline_runs_by.values()])
         all_runs = [run for runs in runs_by.values() for run in runs]
         pages = _check_pages(job, storage, all_runs, resolution)
+        judge = _judge_for(job, adapters, storage, all_runs, judges)  # 高档:装配裁判、装回库里的判定、并行预判(S9.3)
         context = ObserveContext(competitors=job.competitors, resolution=resolution, pages=pages,
-                                 mention_method=job.frozen_tier().mention_method)
+                                 mention_method=job.frozen_tier().mention_method, judge=judge)
         observations = {
             key: [observe(run, job.brand, context) for run in runs] for key, runs in runs_by.items()
         }
@@ -207,9 +215,9 @@ def _execute(
                 quotes=[SurfaceQuotes(surface=m.target.surface, model=m.target.model, quotes=m.quotes)
                         for m in measurements],
             ))
-        persist_observations(storage, [
-            run for key in runs_by for run in runs_by[key] + offline_runs_by[key]
-        ], job.brand, context)
+        persist_observations(storage, [  # 存 observe() 算出的判定行,不重跑(裁判花钱)
+            o for key in runs_by for o in observations[key] + offline_observations[key]
+        ])
         job.surface_verdicts = [
             surface_verdict(target.surface, target.model, inputs) for target, inputs in verdict_inputs.items()
         ]
@@ -220,11 +228,12 @@ def _execute(
         # 采样后:回答里出现、名单外的同名域名再查一次,标 B1 / B2——只提示,用户确认后才算官网(S5)
         job.adopt_domain_list(_look_alikes(job, all_runs, resolution))
         truncated = any(r.stop_reason in _TRUNCATION_REASONS for r in results.values())
-        _finish(job, storage, truncated=truncated, sampling=_sampling_note(job, runs_by, offline_runs_by))
+        _finish(job, storage, truncated=truncated, sampling=_sampling_note(job, runs_by, offline_runs_by, judge))
 
 
 def _sampling_note(
     job: DiagnosisJob, runs_by: dict[RunsKey, list[SurfaceRun]], offline_runs_by: dict[RunsKey, list[SurfaceRun]],
+    judge: MentionJudge | None,
 ) -> SamplingNote:
     """报告顶部的采样说明(S8.2):本单实际问了多少、有效多少、测了哪些接口与型号、官网名单情况、方法版本。
     结束时刻由 _finish 落定后再填。"""
@@ -239,7 +248,66 @@ def _sampling_note(
         domains_unconfirmed=len(dl.unconfirmed_domains) if dl is not None else 0,
         domains_at=dl.discovered_at if dl is not None else None,
         method_version=METHOD_VERSION,
+        judge_targets=judge.config.targets if judge is not None else [],
     )
+
+
+def _judge_for(
+    job: DiagnosisJob, adapters: dict[str, SurfaceAdapter], storage: Storage, runs: list[SurfaceRun],
+    judges: JudgeConfig | None,
+) -> MentionJudge | None:
+    """高档才有(S9.3):按 config/judges.yaml 装配裁判(型号没加载就明确报错);库里已有的裁判判定先装回(续跑 / 重算不花钱);
+    其余有效回答并行预判,进度给任务页;裁判花费记进辅助调用账本(主线程落库:psycopg 连接非线程安全)。"""
+    if job.frozen_tier().mention_method is not MentionMethod.RULES_FUZZY_JUDGE:
+        return None
+    ledger_lock = threading.Lock()
+    ledger_runs: list[SurfaceRun] = []
+
+    def ledger(run: SurfaceRun) -> None:
+        with ledger_lock:
+            ledger_runs.append(run)
+            job.spent_usd += run.cost_usd
+            job.last_result_at = datetime.now(UTC)
+
+    judge = MentionJudge(judges or load_judges(), adapters, ledger=ledger, locale=job.locale,
+                         competitors=[c.name for c in job.competitors])
+    judge.preload(_stored_verdicts(storage, runs))
+    pending = [run for run in runs if is_valid_answer(run) and not judge.has(run.run_id)]
+    job.phase = "phase_judging"
+    job.judge_total, job.judge_done = len(pending), 0
+
+    def progress(done: int, total: int) -> None:
+        job.judge_done, job.judge_total = done, total
+        job.last_result_at = datetime.now(UTC)
+
+    try:
+        judge.warm(pending, job.brand, concurrency=PLAN_CONCURRENCY, progress=progress)
+    finally:
+        for run in ledger_runs:
+            storage.insert_aux_call(job_id=job.job_id, task="裁判", run=run)
+    job.phase = "phase_scoring"
+    log.info("judging_done", job_id=job.job_id, judged=len(pending), unavailable=judge.unavailable,
+             calls=len(ledger_runs))
+    return judge
+
+
+def _stored_verdicts(storage: Storage, runs: list[SurfaceRun]) -> dict[str, JudgeVerdict]:
+    """库里已有的裁判判定行(每条回答取最高版本)翻回裁判结论;态度取裁判的态度行。"""
+    rows_by_run = storage.observations_for_runs([run.run_id for run in runs])
+    verdicts: dict[str, JudgeVerdict] = {}
+    for run_id, rows in rows_by_run.items():
+        mentions = [r for r in rows if r["detector_name"] == JUDGE_DETECTOR]
+        if not mentions:
+            continue
+        row = max(mentions, key=lambda r: r["detector_version"])
+        tones = [r for r in rows if r["detector_name"] == JUDGE_SENTIMENT]
+        tone = max(tones, key=lambda r: r["detector_version"])["sentiment"] if tones else None
+        verdicts[run_id] = JudgeVerdict(
+            mentioned=bool(row["mentioned"]), spans=[row["matched_text"]] if row.get("matched_text") else [],
+            first_position=row.get("first_position"), confidence=float(row.get("confidence") or 0.0),
+            sentiment=Sentiment(tone) if tone else None, reason=row.get("reason") or "",
+        )
+    return verdicts
 
 
 def _reset_progress(job: DiagnosisJob) -> None:

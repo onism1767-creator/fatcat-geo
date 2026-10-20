@@ -15,7 +15,7 @@ from engine.page_check import BUDGET_S as VERIFY_BUDGET_S
 from engine.page_check import PageChecker
 from engine.spellings import suggest_spellings
 from engine.storage import Storage
-from engine.tiers import tier_targets
+from engine.tiers import MentionMethod, tier_targets
 from report.estimate import estimate_job, unit_prices
 from report.export import build_bundle, content_disposition
 from report.forms import (
@@ -147,21 +147,32 @@ async def confirm_estimate(
     choice, targets = chosen
     n_prompts = count_prompts(job, prompts_selected, custom)
     prices = unit_prices(ctx.adapters, ctx.call_stats())
+
+    def judge_cost(method: MentionMethod) -> float | None:  # 高档每条回答另请 AI 裁判判一次(S9.3)
+        return ctx.judges.primary.est_cost_per_call_usd if method is MentionMethod.RULES_FUZZY_JUDGE else None
+
     estimate = estimate_job(n_prompts=n_prompts, runs_per_prompt=choice.runs_per_prompt, targets=targets,
-                            dependency=bool(dependency), prices=prices)
+                            dependency=bool(dependency), prices=prices,
+                            judge_cost_per_call=judge_cost(choice.mention_method))
     per_tier = {
         spec.name: estimate_job(n_prompts=n_prompts, runs_per_prompt=spec.runs_per_prompt,
-                                targets=tier_targets(spec, ctx.adapters), dependency=bool(dependency), prices=prices)
+                                targets=tier_targets(spec, ctx.adapters), dependency=bool(dependency), prices=prices,
+                                judge_cost_per_call=judge_cost(spec.mention_method))
         for spec in ctx.tiers.tiers
     }
+    breakdown = [{"display": ctx.target_name(t.surface, t.model), "cost_usd": cost} for t, cost in estimate.per_target]
+    if estimate.judge_calls:
+        breakdown.append({"display": MESSAGES[lang_of(request)]["est_judge_word"], "cost_usd": estimate.judge_cost_usd})
     return JSONResponse({
         "calls": estimate.calls,
         "cost_usd": estimate.cost_usd,
         "minutes": estimate.minutes,
         "custom": choice.custom,
-        "breakdown": [{"display": ctx.target_name(t.surface, t.model), "cost_usd": cost}
-                      for t, cost in estimate.per_target],
-        "tiers": {name: {"calls": e.calls, "cost_usd": round(e.cost_usd, 4), "minutes": round(e.minutes, 1)}
+        "judge_calls": estimate.judge_calls,
+        "judge_cost_usd": estimate.judge_cost_usd,
+        "breakdown": breakdown,
+        "tiers": {name: {"calls": e.calls, "cost_usd": round(e.cost_usd, 4), "minutes": round(e.minutes, 1),
+                         "judge_calls": e.judge_calls, "judge_cost_usd": round(e.judge_cost_usd, 4)}
                   for name, e in per_tier.items()},
     })
 

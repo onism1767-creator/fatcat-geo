@@ -68,7 +68,7 @@ def main() -> int:
     result = RepeatSampler(storage).run_plan(adapter, PROMPTS, policy=POLICY, model=target.model)
     runs = [r for p in PROMPTS for r in storage.runs_for_prompt(p.prompt_id, surface=SURFACE, model=target.model)]
     observations = [observe(run, BRAND, ObserveContext(competitors=[])) for run in runs]
-    persist_observations(storage, runs, BRAND, ObserveContext(competitors=[]))
+    persist_observations(storage, observations)
     measurement = measure_target(
         target, meta.provider, PromptIntent.CATEGORY_DISCOVERY, observations, [p.prompt_id for p in PROMPTS],
         stop_reason=result.stop_reason, competitor_names=[], exposes_retrieval=meta.capabilities.supports_query_trace,

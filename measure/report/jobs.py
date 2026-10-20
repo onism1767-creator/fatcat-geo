@@ -90,6 +90,7 @@ class SamplingNote(FrozenModel):
     domains_unconfirmed: int  # 待用户确认几个
     domains_at: datetime | None  # 名单日期
     method_version: str  # engine/method.py::METHOD_VERSION,生成时冻结
+    judge_targets: list[Target]  # 高档的 AI 裁判(主 + 备用;S9.3),没用裁判为空
 
 
 class ReportPayload(FrozenModel):
@@ -172,6 +173,8 @@ class DiagnosisJob:
         self.verify_done = 0
         self.verify_stage: str | None = None  # fetch / render / archive / done
         self.verify_started_at: datetime | None = None
+        self.judge_total = 0  # 高档 AI 裁判复核进度(S9.3):要判几条、判了几条
+        self.judge_done = 0
         # 出错说明(v0.4.21):有代码的错误按「代码 + 参数」存、随界面语言渲染;没代码的(意外异常)存原文
         self.error_code: str | None = None
         self.error_params: dict[str, str] = {}
@@ -191,14 +194,15 @@ class DiagnosisJob:
 
     @property
     def overall_pct(self) -> int:
-        """总进度(用户 2026-10-14 要求):按阶段分段——官网检查 / 找官网名单 / 提问 / 核对网页 / 整理,
-        提问段按已问次数走(占大头),核对段按已开网页数走;各段权重是经验值,不是时间估计,页面上注明。"""
+        """总进度(用户 2026-10-14 要求):按阶段分段——官网检查 / 找官网名单 / 提问 / 核对网页 / AI 裁判复核(高档)/ 整理,
+        提问段按已问次数走(占大头),核对段按已开网页数走,裁判段按已判条数走;各段权重是经验值,不是时间估计,页面上注明。"""
         if self.finished:
             return 100
         sampling = self.completed_runs / self.total_runs if self.total_runs else 0.0  # 用精确比例,别先取整
         spans = {"phase_draft": 0, "phase_confirmed": 1, "phase_access": 3, "phase_discover": 6,
                  "phase_sampling": 8 + int(72 * sampling),
-                 "phase_verify": 80 + int(16 * (self.verify_done / self.verify_total if self.verify_total else 0)),
+                 "phase_verify": 80 + int(12 * (self.verify_done / self.verify_total if self.verify_total else 0)),
+                 "phase_judging": 92 + int(5 * (self.judge_done / self.judge_total if self.judge_total else 0)),
                  "phase_scoring": 97}
         return spans.get(self.phase, 8 + int(72 * sampling))  # 出错 / 中断:停在当时的位置
 

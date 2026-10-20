@@ -282,6 +282,8 @@ class BrandMentionObservation(DerivedObservation):
     matched_text: str | None = None  # 原文里的命中片段
     match_kind: str | None = None  # exact / normalized / fuzzy
     edit_distance: int | None = None  # 模糊匹配时差几个字母
+    confidence: float | None = None  # 裁判的置信度(S9.3,0–1;其他判定器不填)
+    reason: str | None = None  # 裁判的一句理由(S9.3)
 
 
 class CitationObservation(DerivedObservation):

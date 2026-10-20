@@ -16,6 +16,7 @@
     <li>{{ t["sampling_tier_custom" if sn.tier.custom else "sampling_tier"].format(tier=t["tier_name_" + sn.tier.name], runs=sn.tier.runs_per_prompt, method=t["method_" + sn.tier.mention_method.value]) }}</li>
     <li>{{ t["sampling_time"].format(start=sn.started_at|utc_time if sn.started_at else "—", end=sn.finished_at|utc_time if sn.finished_at else "—") }}</li>
     <li>{{ t["sampling_targets_pre"] }}{% for x in sn.targets %}{{ target_name(x.surface, x.model) }}{% if not loop.last %};{% endif %}{% endfor %}</li>
+    {% if sn.judge_targets %}<li>{{ t["sampling_judges"].format(primary=target_name(sn.judge_targets[0].surface, sn.judge_targets[0].model), backup=target_name(sn.judge_targets[1].surface, sn.judge_targets[1].model)) }}</li>{% endif %}
     <li>{{ t["sampling_domains"].format(confirmed=sn.domains_confirmed, unconfirmed=sn.domains_unconfirmed, date=sn.domains_at|utc_time("%Y-%m-%d") if sn.domains_at else "—") }} <a href="#official">{{ t["sampling_domains_link"] }}</a></li>
     <li>{{ t["sampling_version"].format(method=sn.method_version, code=job.report_meta.code_version if job.report_meta and job.report_meta.code_version else "—") }}</li>
   </ul>

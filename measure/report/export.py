@@ -178,6 +178,10 @@ def _summary_md(job: DiagnosisJob, lang: str, name_of: TargetNamer, summary: Rep
         start=sn.started_at.astimezone(UTC).strftime(fmt) if sn.started_at else "—",
         end=sn.finished_at.astimezone(UTC).strftime(fmt) if sn.finished_at else "—"))
     lines.append("- " + t["sampling_targets_pre"] + ";".join(name_of(x.surface, x.model) for x in sn.targets))
+    if sn.judge_targets:  # S9.3:高档的 AI 裁判
+        primary, backup = sn.judge_targets[0], sn.judge_targets[1]
+        lines.append("- " + t["sampling_judges"].format(primary=name_of(primary.surface, primary.model),
+                                                         backup=name_of(backup.surface, backup.model)))
     lines.append("- " + t["sampling_domains"].format(
         confirmed=sn.domains_confirmed, unconfirmed=sn.domains_unconfirmed,
         date=sn.domains_at.astimezone(UTC).strftime("%Y-%m-%d") if sn.domains_at else "—"))

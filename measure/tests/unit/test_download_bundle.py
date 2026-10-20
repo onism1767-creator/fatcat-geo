@@ -9,7 +9,7 @@ import zipfile
 from datetime import UTC, datetime
 
 from engine.models import BrandDomainList, BrandSpec
-from engine.observe import ObserveContext, persist_observations
+from engine.observe import ObserveContext, observe, persist_observations
 from engine.page_check import PageIndex
 from report.jobs import DiagnosisJob
 from tests.unit.test_report_page import finished_job
@@ -26,7 +26,8 @@ def _prepared(storage):
             _run(prompt.prompt_id, run_id="b2", index=2, text="别家更好。")]
     for run in runs:
         storage.insert_surface_run(run)
-    persist_observations(storage, runs, job.brand, ObserveContext(competitors=[], pages=PageIndex()))
+    context = ObserveContext(competitors=[], pages=PageIndex())
+    persist_observations(storage, [observe(run, job.brand, context) for run in runs])
     return job
 
 

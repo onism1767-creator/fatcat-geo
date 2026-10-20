@@ -17,7 +17,7 @@ from engine.models import (
     SearchMode,
     SurfaceRun,
 )
-from engine.observe import ObserveContext, persist_observations
+from engine.observe import ObserveContext, observe, persist_observations
 from engine.page_check import PageIndex
 from report.app import create_app
 from tests.unit.conftest import TEST_DSN
@@ -55,7 +55,7 @@ def test_response_page_shows_one_answer_with_its_recorded_judgements(storage):
     run = _run(prompt.prompt_id)
     storage.insert_surface_run(run)
     # 出报告时落的判定行
-    persist_observations(storage, [run], job.brand, ObserveContext(competitors=[], pages=PageIndex()))
+    persist_observations(storage, [observe(run, job.brand, ObserveContext(competitors=[], pages=PageIndex()))])
     client = _client(job)
     html = client.get(f"/jobs/{job.job_id}/responses/r1?lang=zh").text
     assert "中小团队用什么 CRM 好" in html and "第 2 次 · S1 · m1 · 2026-10-14 03:04" in html
@@ -109,8 +109,8 @@ def test_response_page_explains_a_fuzzy_match(storage):
     storage.insert_prompt(prompt)
     run = _run(prompt.prompt_id, run_id="fz1", text="我们用 auroracrms 管客户,挺推荐的。")
     storage.insert_surface_run(run)
-    persist_observations(storage, [run], job.brand,
-                         ObserveContext(competitors=[], pages=PageIndex(), mention_method=MentionMethod.RULES_FUZZY))
+    context = ObserveContext(competitors=[], pages=PageIndex(), mention_method=MentionMethod.RULES_FUZZY)
+    persist_observations(storage, [observe(run, job.brand, context)])
     html = _client(job).get(f"/jobs/{job.job_id}/responses/fz1?lang=zh").text
     assert "提到了" in html and "差 1 个字母(模糊匹配)" in html and "auroracrms" in html
     assert "brand_mention_fuzzy v1" in html and "brand_mention_rules v2" in html  # 两个判定器都存了

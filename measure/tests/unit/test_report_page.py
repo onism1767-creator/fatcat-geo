@@ -126,7 +126,7 @@ def finished_job() -> DiagnosisJob:
         started_at=datetime(2026, 8, 24, 1, 0, tzinfo=UTC), finished_at=datetime(2026, 8, 24, 1, 30, tzinfo=UTC),
         targets=[Target(surface="s1", model="m1"), Target(surface="s2", model="m2")],
         domains_confirmed=1, domains_unconfirmed=2, domains_at=datetime(2026, 8, 24, tzinfo=UTC),
-        method_version="0.4.26",
+        method_version="0.4.26", judge_targets=[],
     )
     quotes = [SurfaceQuotes(surface="s1", model="m1", quotes=[  # S7:AI 原话只进证据区;外来文字含标签,须转义
         AnswerQuote(prompt_id="p", prompt_no=1, run_index=1, run_id="r1", mentioned=True,
@@ -563,6 +563,13 @@ def test_estimate_job_arithmetic():
     assert est_dep.cost_usd == pytest.approx(9 * (0.005 + 0.17 + 0.04))
     assert est_dep.per_target == [(cheap, pytest.approx(9 * 0.005)), (pricey, pytest.approx(9 * (0.17 + 0.04)))]
     assert est_dep.minutes == pytest.approx(27 * 20 / 60 / 3)
+    # 高档(S9.3):每条回答(含闭卷腿)另请 AI 裁判判一次,按裁判单价与每条几秒另计
+    judged = estimate_job(n_prompts=3, runs_per_prompt=3, targets=[cheap, pricey], dependency=True, prices=prices,
+                          judge_cost_per_call=0.001)
+    assert judged.calls == 27 and judged.judge_calls == 27 and judged.judge_cost_usd == pytest.approx(0.027)
+    assert judged.cost_usd == pytest.approx(est_dep.cost_usd + 0.027)
+    assert judged.minutes == pytest.approx((27 * 20 + 27 * 4) / 60 / 3)
+    assert est_dep.judge_calls == 0 and est_dep.judge_cost_usd == 0.0
 
 
 def test_job_snapshot_round_trip():

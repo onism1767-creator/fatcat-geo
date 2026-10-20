@@ -42,9 +42,9 @@ def test_config_has_three_tiers_with_the_decided_numbers():
     assert [t.runs_per_prompt for t in config.tiers] == [3, 5, 7]  # 用户拍板 T5
     assert [t.models for t in config.tiers] == [ModelRule.CONSUMER_DEFAULT, ModelRule.STRONGEST_AND_CONSUMER_DEFAULT,
                                                 ModelRule.ALL]
-    # 低档规则;中 / 高档规则 + 模糊(S9.2);高档的裁判 S9.3 落地后再切
+    # 低档规则;中档规则 + 模糊(S9.2);高档再加 AI 裁判(S9.3)
     assert [t.mention_method for t in config.tiers] == [MentionMethod.RULES, MentionMethod.RULES_FUZZY,
-                                                        MentionMethod.RULES_FUZZY]
+                                                        MentionMethod.RULES_FUZZY_JUDGE]
     assert (config.custom_runs.min, config.custom_runs.max) == (3, 10) and config.allows_runs(10)
     assert not config.allows_runs(2) and not config.allows_runs(11)
     assert config.default_tier.name == "medium" and config.get("nope") is None
