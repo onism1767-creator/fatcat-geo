@@ -278,6 +278,10 @@ class BrandMentionObservation(DerivedObservation):
     matched_alias: str | None = None  # 命中的品牌名/别名/错写
     first_position: int | None = None  # 回答文本中的首次出现字符偏移
     brand_rank: int | None = None  # 回答列举多个品牌时的名次,1 起;不适用为 None
+    # S9.2(模糊判定器起):怎么认出来的,供单条回答页与校准;规则判定器(v2)不填
+    matched_text: str | None = None  # 原文里的命中片段
+    match_kind: str | None = None  # exact / normalized / fuzzy
+    edit_distance: int | None = None  # 模糊匹配时差几个字母
 
 
 class CitationObservation(DerivedObservation):

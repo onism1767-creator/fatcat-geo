@@ -1,4 +1,4 @@
-"""情感判定器 v2:品牌提及句的词表极性统计。
+"""情感判定器 v3:品牌提及句的词表极性统计;哪一句是「提及句」跟档位的主提及判定器走(S9.2)。
 
 明确的 v1 局限(规则打底,LLM 复核升级为 v2,升级后全量重算):
 - 只看首次提及品牌所在的单句,不做跨句归因;
@@ -6,18 +6,21 @@
 - 为避免"不推荐"同时命中正负词,先匹配并遮蔽负面词,再数正面词。
 
 判定不了的一律 None:品牌未被提及时,谈不上"AI 对它的情感"。
+v3(S9.2):提及句的定位不再自己匹配,改用传进来的主提及判定器(规则 / 模糊随档位),
+两者才会对「提到了几次」「提到你的 N 句话」口径一致;配规则判定器时行为与 v2 相同。
 """
 
 from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from engine.detectors.matching import find_first_alias, mention_sentence
-from engine.models import BrandSpec, Sentiment, SentimentObservation, SurfaceRun
+from engine.detectors.matching import mention_sentence
+from engine.detectors.runner import Detector
+from engine.models import BrandMentionObservation, BrandSpec, Sentiment, SentimentObservation, SurfaceRun
 from engine.validity import is_valid_answer
 
 DETECTOR_NAME = "sentiment_lexicon"
-DETECTOR_VERSION = 2
+DETECTOR_VERSION = 3
 
 _NEGATIVE_TERMS = (
     "不推荐", "不建议", "避免", "缺点", "劣势", "昂贵", "价格高", "难用", "复杂",
@@ -53,14 +56,17 @@ class SentimentDetector:
     name = DETECTOR_NAME
     version = DETECTOR_VERSION
 
+    def __init__(self, mention: Detector) -> None:
+        self._mention = mention  # 档位的主提及判定器:提及句按它定位(S9.2)
+
     def detect(self, run: SurfaceRun, brand: BrandSpec) -> SentimentObservation | None:
         if not is_valid_answer(run):
             return None
         assert run.answer is not None
-        found = find_first_alias(run.answer.answer_text, brand)
-        if found is None:
+        found = self._mention.detect(run, brand)
+        if not isinstance(found, BrandMentionObservation) or not found.mentioned or found.first_position is None:
             return None  # 未提及 → 情感不可判定,不产出观测
-        sentence = mention_sentence(run.answer.answer_text, found[0])  # 取句原语在 matching.py 共用(S7),规则未变
+        sentence = mention_sentence(run.answer.answer_text, found.first_position)  # 取句原语在 matching.py 共用(S7)
         return SentimentObservation(
             run_id=run.run_id,
             detector_name=self.name,

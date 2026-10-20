@@ -8,6 +8,7 @@
 from datetime import UTC, datetime
 
 from engine.detectors.brand_mention import BrandMentionDetector
+from engine.detectors.brand_mention_fuzzy import FuzzyBrandMentionDetector
 from engine.detectors.citation import CitationDetector
 from engine.detectors.query_trace import QueryTraceDetector
 from engine.detectors.retrieval_rank import RetrievalRankDetector
@@ -314,6 +315,21 @@ SENTIMENT_EXPECTED[2] = {  # v2:随匹配原语改词边界提版;空回答不�
     "mention_latin_substring_rejected": None,  # 词边界下未提及 → 情感不可判定
     "empty_answer_success": None,
 }
+# v3(S9.2):提及句跟主提及判定器定位;配规则判定器(本文件的归档口径)时行为与 v2 相同
+SENTIMENT_EXPECTED[3] = {**SENTIMENT_EXPECTED[2]}
+
+# 模糊判定器 v1(S9.2):精确 / 规整与规则判定器 v2 同;连写 auroracrms 这类差 1 个字母的接住;中英混合名字不模糊
+FUZZY_MENTION_EXPECTED = {
+    1: {
+        **{name: {**expected, "match_kind": "exact"} if expected and expected["mentioned"] else expected
+           for name, expected in MENTION_EXPECTED[2].items()
+           if name != "mention_latin_substring_rejected"},
+        "mention_latin_substring_rejected": dict(
+            mentioned=True, matched_alias="AuroraCRM", first_position=4, match_kind="fuzzy",
+            matched_text="auroracrms", edit_distance=1,
+        ),
+    }
+}
 
 
 QUERY_TRACE_EXPECTED = {
@@ -354,7 +370,11 @@ def test_retrieval_rank_detector_matches_archived_expectations():
 
 
 def test_sentiment_detector_matches_archived_expectations():
-    run_expectations(SentimentDetector(), SENTIMENT_EXPECTED)
+    run_expectations(SentimentDetector(BrandMentionDetector()), SENTIMENT_EXPECTED)
+
+
+def test_fuzzy_mention_detector_matches_archived_expectations():
+    run_expectations(FuzzyBrandMentionDetector(), FUZZY_MENTION_EXPECTED)
 
 
 def test_query_trace_detector_matches_archived_expectations():
@@ -401,5 +421,6 @@ def test_current_versions_have_archived_expectations():
     assert BrandMentionDetector().version in MENTION_EXPECTED
     assert CitationDetector().version in CITATION_EXPECTED
     assert RetrievalRankDetector().version in RETRIEVAL_RANK_EXPECTED
-    assert SentimentDetector().version in SENTIMENT_EXPECTED
+    assert SentimentDetector(BrandMentionDetector()).version in SENTIMENT_EXPECTED
+    assert FuzzyBrandMentionDetector().version in FUZZY_MENTION_EXPECTED
     assert QueryTraceDetector().version in QUERY_TRACE_EXPECTED

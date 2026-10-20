@@ -12,6 +12,8 @@
   <p><b>{{ t["resp_mentioned_word"] }}:</b>
     {% if not view.valid %}{% set why = t["resp_blank"] if run.outcome.value == "SUCCESS" else t.get("outcome_" ~ run.outcome.value, run.outcome.value) %}{{ t["resp_invalid"].format(why=why) }}{% elif view.mentioned is none %}{{ t["resp_no_record"] }}{% elif view.mentioned %}{{ t["resp_yes"] }}{% else %}{{ t["resp_no"] }}{% endif %}</p>
   {% if view.excerpt %}<p><b>{{ t["resp_excerpt"] }}:</b>「{{ view.excerpt }}」</p>{% endif %}
+  {#- 怎么认出来的(S9.2,模糊判定器起才记;规则判定器的记录没有这一行) -#}
+  {% if view.match_kind %}<p class="kv">{{ t["resp_match_" ~ view.match_kind].format(text=view.matched_text, alias=view.matched_alias, d=view.edit_distance) }}</p>{% endif %}
   {% if view.tone %}<p><b>{{ t["resp_tone"] }}:</b>{{ t["sentiment_" ~ view.tone] }}</p>{% endif %}
 </div>
 

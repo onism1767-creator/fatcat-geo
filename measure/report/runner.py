@@ -170,7 +170,8 @@ def _execute(
         resolution = _resolve_redirects(storage, adapters, [*runs_by.values(), *offline_runs_by.values()])
         all_runs = [run for runs in runs_by.values() for run in runs]
         pages = _check_pages(job, storage, all_runs, resolution)
-        context = ObserveContext(competitors=job.competitors, resolution=resolution, pages=pages)
+        context = ObserveContext(competitors=job.competitors, resolution=resolution, pages=pages,
+                                 mention_method=job.frozen_tier().mention_method)
         observations = {
             key: [observe(run, job.brand, context) for run in runs] for key, runs in runs_by.items()
         }

@@ -10,7 +10,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Final
 
-from engine.detectors.brand_mention import DETECTOR_NAME as MENTION_LABEL
 from engine.detectors.citation import DETECTOR_NAME as CITATION_LABEL
 from engine.detectors.matching import mention_sentence
 from engine.detectors.retrieval_rank import DETECTOR_NAME as PRESENCE_LABEL
@@ -29,6 +28,8 @@ from engine.models import (
 from engine.observe import RunObservations
 from engine.scheduler import is_account_error
 from engine.validity import is_valid_answer
+
+MENTION_LABEL = "brand_mention"  # 提及指标的标签;用的是哪个判定器随档位(S9.2),记在观测行与采样说明里
 
 PRIMARY_CITATION_LABEL = f"{CITATION_LABEL}:primary"  # 主站引用率的命中口径(v0.4.26 S4)
 CHANNEL_CITATION_LABEL = f"{CITATION_LABEL}:official_channel"  # 官方渠道引用的命中口径(S5,单列)

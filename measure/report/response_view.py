@@ -8,9 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from engine.detectors import brand_mention, citation, sentiment, source_class
+from engine.detectors import citation, sentiment, source_class
 from engine.detectors.matching import mention_sentence
 from engine.models import BrandDomainList, FrozenModel, SurfaceRun, Target
+from engine.observe import mention_detector
 from engine.validity import is_valid_answer
 from report.jobs import DiagnosisJob
 
@@ -30,6 +31,10 @@ class ResponseView(FrozenModel):
     valid: bool  # 有效回答(成功且正文非空)
     mentioned: bool | None  # None = 没有有效回答,判不了
     excerpt: str | None  # 第一次提到你的那一句
+    matched_alias: str | None  # 命中的登记名 / 别名
+    matched_text: str | None  # 回答里的命中片段(S9.2,模糊判定器起才有)
+    match_kind: str | None  # exact / normalized / fuzzy(规则判定器不填)
+    edit_distance: int | None
     tone: str | None  # 词表情感:positive / neutral / negative / mixed
     own_sites: list[tuple[str, str]]  # (命中的官网注册域名, 等级:primary / A / B / unknown)
     citations: list[CitationRow]
@@ -78,7 +83,7 @@ def citation_rows(run: SurfaceRun, attribution: dict[str, Any] | None) -> list[C
 
 def build_response_view(job: DiagnosisJob, run: SurfaceRun, observations: list[dict[str, Any]]) -> ResponseView:
     prompt_text = next((p.text for p in job.prompts if p.prompt_id == run.prompt_id), "")
-    mention = latest_observation(observations, brand_mention.DETECTOR_NAME)
+    mention = latest_observation(observations, mention_detector(job.frozen_tier().mention_method).name)
     cite = latest_observation(observations, citation.DETECTOR_NAME)
     tone = latest_observation(observations, sentiment.DETECTOR_NAME)
     attribution = latest_observation(observations, source_class.DETECTOR_NAME)
@@ -92,6 +97,10 @@ def build_response_view(job: DiagnosisJob, run: SurfaceRun, observations: list[d
         valid=is_valid_answer(run),
         mentioned=mentioned,
         excerpt=excerpt,
+        matched_alias=mention.get("matched_alias") if mention else None,
+        matched_text=mention.get("matched_text") if mention else None,
+        match_kind=mention.get("match_kind") if mention else None,
+        edit_distance=mention.get("edit_distance") if mention else None,
         tone=tone["sentiment"] if tone is not None else None,
         own_sites=[(d, _tier(job.domain_list, d)) for d in (cite.get("matched_domains", []) if cite else [])],
         citations=citation_rows(run, attribution),

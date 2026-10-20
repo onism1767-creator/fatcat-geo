@@ -18,10 +18,11 @@ from typing import Any
 from urllib.parse import quote, urlsplit
 
 from diagnosis.messages import msg, render_msg
-from engine.detectors import brand_mention, citation, sentiment
+from engine.detectors import citation, sentiment
 from engine.detectors import source_class as source_class_detector
 from engine.detectors.matching import mention_sentence
 from engine.models import SurfaceRun
+from engine.observe import mention_detector
 from engine.storage import Storage
 from engine.tiers import TierChoice
 from report.i18n import INTENT_LABELS, MESSAGES, STATUS_LABELS
@@ -93,18 +94,21 @@ def _responses_and_citations(
         for run in storage.runs_for_prompt(prompt.prompt_id, surface=target.surface, model=target.model)
     ]
     observations = storage.observations_for_runs([run.run_id for _, run in runs])  # 判定行一次取齐,不逐条查库
+    mention_name = mention_detector(job.frozen_tier().mention_method).name  # 「提到没提到」按本单档位的主判定器
     responses: list[dict[str, Any]] = []
     rows: list[list[Any]] = []
     for no, run in runs:
         ai = name_of(run.surface, run.model)
         recorded = observations.get(run.run_id, [])
-        responses.append(_response_record(run, no, ai, recorded))
+        responses.append(_response_record(run, no, ai, recorded, mention_name))
         rows.extend(_citation_rows(run, no, ai, recorded))
     return responses, rows
 
 
-def _response_record(run: SurfaceRun, prompt_no: int, ai: str, observations: list[dict[str, Any]]) -> dict[str, Any]:
-    mention = latest_observation(observations, brand_mention.DETECTOR_NAME)
+def _response_record(
+    run: SurfaceRun, prompt_no: int, ai: str, observations: list[dict[str, Any]], mention_name: str,
+) -> dict[str, Any]:
+    mention = latest_observation(observations, mention_name)
     cited = latest_observation(observations, citation.DETECTOR_NAME)
     tone = latest_observation(observations, sentiment.DETECTOR_NAME)
     excerpt = None
@@ -127,6 +131,9 @@ def _response_record(run: SurfaceRun, prompt_no: int, ai: str, observations: lis
         "judgements": {  # 出报告时存下的判定行;没有就 None(不现算)
             "mentioned": mention.get("mentioned") if mention else None,
             "matched_alias": mention.get("matched_alias") if mention else None,
+            "matched_text": mention.get("matched_text") if mention else None,  # S9.2:怎么认出来的
+            "match_kind": mention.get("match_kind") if mention else None,
+            "edit_distance": mention.get("edit_distance") if mention else None,
             "excerpt": excerpt,
             "brand_site_cited": cited.get("cited") if cited else None,
             "cited_brand_domains": cited.get("matched_domains", []) if cited else [],

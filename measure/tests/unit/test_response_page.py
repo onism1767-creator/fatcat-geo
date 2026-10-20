@@ -96,3 +96,22 @@ def test_response_page_without_judgement_rows_still_shows_the_answer(storage):
     storage.insert_surface_run(_run(prompt.prompt_id, run_id="bare"))
     html = _client(job).get(f"/jobs/{job.job_id}/responses/bare?lang=zh").text
     assert "没有判定记录" in html and "https://review.test/best-crm" in html and "没有归类记录" in html
+
+
+def test_response_page_explains_a_fuzzy_match(storage):
+    """S9.2:中档(规则 + 模糊)认出来的,单条回答页写明回答里写的是什么、和登记名差几个字母。"""
+    from engine.tiers import MentionMethod, TierChoice
+
+    job = finished_job()
+    job.tier = TierChoice(name="medium", runs_per_prompt=5, mention_method=MentionMethod.RULES_FUZZY, custom=False)
+    job.brand = job.brand.model_copy(update={"aliases": ["AuroraCRM"]})  # 模糊只对拉丁名字;夹具品牌只有中文名
+    prompt = job.prompts[0]
+    storage.insert_prompt(prompt)
+    run = _run(prompt.prompt_id, run_id="fz1", text="我们用 auroracrms 管客户,挺推荐的。")
+    storage.insert_surface_run(run)
+    persist_observations(storage, [run], job.brand,
+                         ObserveContext(competitors=[], pages=PageIndex(), mention_method=MentionMethod.RULES_FUZZY))
+    html = _client(job).get(f"/jobs/{job.job_id}/responses/fz1?lang=zh").text
+    assert "提到了" in html and "差 1 个字母(模糊匹配)" in html and "auroracrms" in html
+    assert "brand_mention_fuzzy v1" in html and "brand_mention_rules v2" in html  # 两个判定器都存了
+    assert "sentiment_lexicon v3" in html and "正面" in html  # 情感句跟主判定器定位

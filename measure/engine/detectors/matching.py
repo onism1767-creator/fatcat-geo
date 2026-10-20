@@ -70,7 +70,7 @@ _UNSPACED_RANGES = (
 )
 
 
-def _is_spaced_script_char(ch: str) -> bool:
+def is_spaced_script_char(ch: str) -> bool:
     """拉丁字母、数字这类「以空格分词」的字符:品牌名以它开头 / 结尾时,那一侧要查词边界,
     免得把 "Aurora" 认进 "Auroras"、把 "CRM" 认进 "CRMS"。"""
     if not ch.isalnum():
@@ -79,13 +79,13 @@ def _is_spaced_script_char(ch: str) -> bool:
     return not any(lo <= code <= hi for lo, hi in _UNSPACED_RANGES)
 
 
-def _bounded_at(lowered: str, start: int, needle: str) -> bool:
+def bounded_at(lowered: str, start: int, needle: str) -> bool:
     """命中位置两侧是否成词边界。只对 needle 以「空格分词」字符开头 / 结尾的那一侧检查:
     "极光CRM" 后面接汉字(「极光CRM系统」)算命中,接拉丁字母(「极光CRMS」)不算。"""
     end = start + len(needle)
-    if _is_spaced_script_char(needle[0]) and start > 0 and _is_spaced_script_char(lowered[start - 1]):
+    if is_spaced_script_char(needle[0]) and start > 0 and is_spaced_script_char(lowered[start - 1]):
         return False
-    if _is_spaced_script_char(needle[-1]) and end < len(lowered) and _is_spaced_script_char(lowered[end]):
+    if is_spaced_script_char(needle[-1]) and end < len(lowered) and is_spaced_script_char(lowered[end]):
         return False
     return True
 
@@ -101,7 +101,7 @@ def find_first_alias(text: str, brand: BrandSpec) -> tuple[int, str] | None:
         if not needle:
             continue
         pos = lowered.find(needle)
-        while pos >= 0 and not _bounded_at(lowered, pos, needle):
+        while pos >= 0 and not bounded_at(lowered, pos, needle):
             pos = lowered.find(needle, pos + 1)
         if pos >= 0 and (best is None or pos < best[0]):
             best = (pos, alias)
