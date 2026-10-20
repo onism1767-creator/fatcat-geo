@@ -16,6 +16,7 @@ from diagnosis.recommender import EvidenceEntry, load_evidence_registry
 from engine.envfile import load_env_file
 from engine.loader import build_adapters
 from engine.storage import CallStat, Storage, default_dsn
+from engine.tiers import TierConfig, load_tiers
 from report import runner
 from report.jobs import JobRegistry
 from report.launcher import JobLauncher, JobRunner
@@ -31,6 +32,7 @@ def create_app(
     evidence: list[EvidenceEntry] | None = None,
     job_runner: JobRunner | None = None,
     registry: JobRegistry | None = None,  # 启动恢复(v0.4.9)由入口注入;缺省全新登记处
+    tiers: TierConfig | None = None,  # 档位配置(S9.1);None = 读 config/tiers.yaml
 ) -> FastAPI:
     if adapters is None:
         load_env_file()
@@ -52,6 +54,7 @@ def create_app(
             evidence=evidence if evidence is not None else load_evidence_registry(),
         ),
         target_name=target_namer(adapters),
+        tiers=tiers or load_tiers(),
     )
     app.include_router(router)
     return app

@@ -10,6 +10,7 @@ from urllib.parse import urlsplit
 from adapters.base import SurfaceAdapter
 from engine.drafting import PromptCandidate, manual_intent
 from engine.models import BrandSpec, FrozenModel, Prompt, PromptOrigin, Target
+from engine.tiers import TierChoice, TierConfig, tier_targets
 from report.jobs import DiagnosisJob
 
 MAX_PROMPTS = 40  # 产品文档默认 24 道;用户可增删,封顶 40
@@ -55,11 +56,6 @@ def preselect_candidates(candidates: list[PromptCandidate]) -> list[int]:
     return list(range(len(candidates)))
 
 
-def default_targets(adapters: dict[str, SurfaceAdapter]) -> set[str]:
-    """确认页默认勾的被测对象:每家只勾一个当前主力型号(产品文档 D17),其余用户自己勾。"""
-    return {Target(surface=name, model=adapter.meta().default_model).key for name, adapter in adapters.items()}
-
-
 def selected_targets(keys: list[str], adapters: dict[str, SurfaceAdapter]) -> list[Target]:
     """表单勾选的被测对象,只认当前清单里真实存在的(同序)。"""
     return [
@@ -73,12 +69,35 @@ def count_prompts(job: DiagnosisJob, prompts_selected: list[int], custom: str) -
     return sum(0 <= i < len(job.candidates) for i in prompts_selected) + len(lines_of(custom))
 
 
+def tier_choice(
+    tiers: TierConfig, adapters: dict[str, SurfaceAdapter], *, tier: str, runs: str, targets_selected: list[str],
+) -> tuple[TierChoice, list[Target]] | str:
+    """档位 + 自定义(S9.1,用户定 T8):以选中的档位为起点,型号与次数改过就按自定义算,「提到你」的认法跟起点档走。
+    确认与实时预估共用;不合格返回错误码。"""
+    spec = tiers.get(tier)
+    if spec is None:
+        return "err_bad_tier"
+    try:
+        n = int(runs)
+    except ValueError:
+        return "err_runs_range"
+    if not tiers.allows_runs(n):
+        return "err_runs_range"
+    targets = selected_targets(targets_selected, adapters)
+    if not targets:
+        return "err_no_target"
+    standard = {t.key for t in tier_targets(spec, adapters)}
+    custom = {t.key for t in targets} != standard or n != spec.runs_per_prompt
+    return TierChoice(name=spec.name, runs_per_prompt=n, mention_method=spec.mention_method, custom=custom), targets
+
+
 class ConfirmChoice(FrozenModel):
     """确认页定下的全部口径,原样交给 DiagnosisJob.freeze。"""
 
     prompts: list[Prompt]
     competitors: list[BrandSpec]
     targets: list[Target]
+    tier: TierChoice
     budget_usd: float | None
     dependency_enabled: bool
 
@@ -86,11 +105,14 @@ class ConfirmChoice(FrozenModel):
 def confirm_choice(
     job: DiagnosisJob,
     adapters: dict[str, SurfaceAdapter],
+    tiers: TierConfig,
     *,
     prompts_selected: list[int],
     custom: str,
     competitors_selected: list[int],
     targets_selected: list[str],
+    tier: str,
+    runs: str,
     budget: str,
     dependency: str,
 ) -> ConfirmChoice | str:
@@ -105,9 +127,10 @@ def confirm_choice(
     ]
     if not 1 <= len(prompts) <= MAX_PROMPTS:
         return "err_prompts_count"
-    targets = selected_targets(targets_selected, adapters)
-    if not targets:
-        return "err_no_target"
+    chosen = tier_choice(tiers, adapters, tier=tier, runs=runs, targets_selected=targets_selected)
+    if isinstance(chosen, str):
+        return chosen
+    choice, targets = chosen
     try:
         budget_usd = float(budget) if budget.strip() else None
     except ValueError:
@@ -119,5 +142,5 @@ def confirm_choice(
         for i in competitors_selected if 0 <= i < len(job.competitors_suggested)
         for c in [job.competitors_suggested[i]]
     ]
-    return ConfirmChoice(prompts=prompts, competitors=competitors, targets=targets,
+    return ConfirmChoice(prompts=prompts, competitors=competitors, targets=targets, tier=choice,
                          budget_usd=budget_usd, dependency_enabled=bool(dependency))

@@ -36,27 +36,57 @@
 
   <div class="card">
     <h3>{{ t["plan_title"] }}</h3>
-    <div class="row">
-      <div><label>{{ t["surfaces_label"] }}</label>
-        {% for ai_name, group in target_groups %}
-        <div style="margin-bottom:6px">
-          {% if group|length > 1 %}<span class="muted">{{ ai_name }}</span>{% endif %}
-          {% for target in group %}
-          <label style="font-weight:400"><input type="checkbox" name="targets_selected" value="{{ target.key }}" {{ "checked" if target.key in default_keys else "" }}> {{ target.model if group|length > 1 else ai_name }}</label>
+    {#- 档位三张卡片(S9.1,架构书附录 v0.4.27;默认选「中」,用户定):每张用人话写测几个型号、每题问几次、「提到你」怎么认、本单预估 -#}
+    <p class="muted" style="margin:0 0 8px">{{ t["tier_intro"] }}</p>
+    <div class="tiers">
+      {% for spec, targets in tier_cards %}
+      <label class="tier">
+        <input type="radio" name="tier" value="{{ spec.name }}" {{ "checked" if spec.name == default_tier else "" }}>
+        <b>{{ t["tier_name_" + spec.name] }}</b>{% if spec.name == default_tier %} <span class="muted">({{ t["tier_default_word"] }})</span>{% endif %}
+        <div class="muted" style="margin:2px 0 4px">{{ t["tier_blurb_" + spec.name] }}</div>
+        <ul class="ev">
+          <li>{{ t["tier_models_line"].format(n=targets|length) }}:{% for x in targets %}{{ target_name(x.surface, x.model) }}{% if not loop.last %};{% endif %}{% endfor %}</li>
+          <li>{{ t["tier_runs_line"].format(n=spec.runs_per_prompt) }}</li>
+          <li>{{ t["tier_method_line"] }}{{ t["method_" + spec.mention_method.value] }}</li>
+          <li>{{ t["tier_est_line"] }}<b><span class="tier-est" data-tier="{{ spec.name }}">–</span></b></li>
+        </ul>
+      </label>
+      {% endfor %}
+    </div>
+    <p class="kv muted">{{ t["tier_accuracy_note"] }}</p>
+
+    {#- 自定义(用户定 T8):以选中的档位为起点改型号与次数;「提到你」怎么认跟起点档走 -#}
+    <details>
+      <summary>{{ t["custom_summary"] }}</summary>
+      <p class="muted">{{ t["custom_hint"] }}</p>
+      <div class="row">
+        <div><label>{{ t["surfaces_label"] }}</label>
+          {% for ai_name, group in target_groups %}
+          <div style="margin-bottom:6px">
+            {% if group|length > 1 %}<span class="muted">{{ ai_name }}</span>{% endif %}
+            {% for target in group %}
+            <label style="font-weight:400"><input type="checkbox" name="targets_selected" value="{{ target.key }}" {{ "checked" if target.key in default_keys else "" }}> {{ target.model if group|length > 1 else ai_name }}</label>
+            {% endfor %}
+          </div>
           {% endfor %}
         </div>
-        {% endfor %}
+        <div><label>{{ t["runs_label"].format(min=custom_runs.min, max=custom_runs.max) }}</label>
+          <input type="number" name="runs" step="1" min="{{ custom_runs.min }}" max="{{ custom_runs.max }}" value="{{ default_runs }}">
+        </div>
       </div>
+    </details>
+
+    <div class="row">
       <div><label>{{ t["budget_label"] }}</label>
         <input type="number" name="budget" step="0.1" min="0.1" placeholder="10.0">
       </div>
     </div>
-    <p class="muted" style="margin:2px 0 8px">{{ t["runs_note"].format(n=runs_per_prompt) }}</p>
     <label style="font-weight:400"><input type="checkbox" name="dependency" value="on"> {{ t["dep_label"] }}</label>
     <p class="muted" style="margin:2px 0 8px">{{ t["dep_hint"] }}</p>
     <p class="kv">{{ t["est_label"] }}<b><span id="est-calls">–</span></b> {{ t["est_calls_word"] }} ·
       ≈ <b>$<span id="est-cost">–</span></b> ·
-      ≈ <b><span id="est-min">–</span> {{ t["est_min_word"] }}</b>({{ t["est_note"] }})</p>
+      ≈ <b><span id="est-min">–</span> {{ t["est_min_word"] }}</b>({{ t["est_note"] }})
+      <span id="est-custom" class="muted" style="display:none">· {{ t["est_custom_note"] }}</span></p>
     <p class="kv muted">{{ t["est_breakdown"] }}<span id="est-breakdown">–</span></p>
     <p class="kv muted">{{ est_basis }}</p>
     <p class="kv" style="color:#a15c00">{{ t["est_balance_hint"] }}</p>
@@ -65,24 +95,40 @@
 </form>
 
 <script>
-// 预估公式只在服务端(report/estimate.py):每次勾选变化把整张表单发过去,这里只负责显示(v0.4.24 审查 #3)
+// 预估公式只在服务端(report/estimate.py):每次勾选变化把整张表单发过去,这里只负责显示(v0.4.24 审查 #3)。
+// 档位(S9.1):选一档就把该档的型号与次数填进自定义区;用户再改就按自定义算(服务端判)。
+const TIERS = {{ tier_defaults|tojson }};
+const WORDS = {calls: {{ t["est_calls_word"]|tojson }}, min: {{ t["est_min_word"]|tojson }}};
+const form = document.getElementById('confirm-form');
+function applyTier(name) {
+  const spec = TIERS[name];
+  if (!spec) return;
+  form.querySelectorAll('input[name=targets_selected]').forEach(cb => { cb.checked = spec.keys.includes(cb.value); });
+  form.querySelector('input[name=runs]').value = spec.runs;
+}
+form.querySelectorAll('input[name=tier]').forEach(r => r.addEventListener('change', () => applyTier(r.value)));
+function fmt(e) { return e.calls + ' ' + WORDS.calls + ' · ≈ $' + e.cost_usd.toFixed(2) + ' · ≈ ' + e.minutes.toFixed(1) + ' ' + WORDS.min; }
 let seq = 0;
 async function recalc() {
   const mine = ++seq;
-  const resp = await fetch('/jobs/{{ job.job_id }}/estimate', {
-    method: 'POST', body: new FormData(document.getElementById('confirm-form')),
-  });
+  const resp = await fetch('/jobs/{{ job.job_id }}/estimate', {method: 'POST', body: new FormData(form)});
   if (!resp.ok || mine !== seq) return;
   const e = await resp.json();
   if (mine !== seq) return;  // 连续勾选时只显示最后一次的结果
   document.getElementById('est-calls').textContent = e.calls;
   document.getElementById('est-cost').textContent = e.cost_usd.toFixed(2);
   document.getElementById('est-min').textContent = e.minutes.toFixed(1);
+  document.getElementById('est-custom').style.display = e.custom ? '' : 'none';
   document.getElementById('est-breakdown').textContent = e.breakdown.length
     ? e.breakdown.map(b => b.display + ' ≈ $' + b.cost_usd.toFixed(2)).join('; ') : '–';
+  for (const [name, est] of Object.entries(e.tiers)) {
+    const el = form.querySelector('.tier-est[data-tier="' + name + '"]');
+    if (el) el.textContent = fmt(est);
+  }
 }
 document.addEventListener('change', recalc);
-document.querySelector('textarea[name=custom]').addEventListener('input', recalc);
+form.querySelector('textarea[name=custom]').addEventListener('input', recalc);
+form.querySelector('input[name=runs]').addEventListener('input', recalc);
 recalc();
 </script>
 {% endblock %}

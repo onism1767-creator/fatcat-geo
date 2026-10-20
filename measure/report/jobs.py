@@ -34,14 +34,14 @@ from engine.models import (
     Target,
 )
 from engine.scheduler import SamplingPolicy
+from engine.tiers import TierChoice
 
 log = structlog.get_logger("report.jobs")
 
 PLAN_CONCURRENCY = 3  # 采样计划并发路数(16.1)
 # 多少分钟没有任何新样本就在任务页报 JOB_STALLED(v0.4.22):一次采样最坏 = 3 次尝试 × 180 s 超时 + 退避 ≈ 10 分钟
 STALL_MINUTES = 10
-POLICY = SamplingPolicy()  # 采样参数(v0.4.26 S2:每题原样问 3 次,无档位);预算上限按单另加
-RUNS_PER_PROMPT = POLICY.runs_per_prompt
+POLICY = SamplingPolicy()  # 重试 / 熔断参数(13.2);每题次数由档位给(S9.1,DiagnosisJob.policy()),预算上限按单另加
 
 
 class JobState(StrEnum):
@@ -77,7 +77,7 @@ class SamplingNote(FrozenModel):
 
     n_prompts: int
     n_targets: int  # 被测对象数(接口 × 型号)
-    runs_per_prompt: int
+    tier: TierChoice  # 档位与参数(S9.1):档位名 / 每题次数 / 「提到你」怎么认 / 是否自定义
     n_runs: int  # 开卷提问次数(含失败 / 拒答)
     n_valid: int  # 有效回答数
     n_offline_runs: int  # 闭卷对照次数(检索依赖,0 = 没开),单独算
@@ -143,9 +143,10 @@ class DiagnosisJob:
 
         self.state = JobState.DRAFT
         self.phase = "phase_draft"
-        self.prompts: list[Prompt] = []  # 题目集,确认时冻结(每题原样问 RUNS_PER_PROMPT 次)
+        self.prompts: list[Prompt] = []  # 题目集,确认时冻结(每题原样问 tier.runs_per_prompt 次)
         self.competitors: list[BrandSpec] = []
         self.targets: list[Target] = []  # 被测对象(仪器 × 型号),确认时冻结
+        self.tier: TierChoice | None = None  # 档位参数(S9.1):型号怎么选 × 每题几次 × 认法,确认时冻结
         self.budget_usd: float | None = None
         self.dependency_enabled = False  # 检索依赖对照(第 9 章挂靠),默认关
         self.fingerprint = ""
@@ -228,12 +229,14 @@ class DiagnosisJob:
         competitors: list[BrandSpec],
         targets: list[Target],
         budget_usd: float | None,
+        tier: TierChoice,
         dependency_enabled: bool = False,
     ) -> None:
         """确认即冻结:任务快照 + config_fingerprint(16.3)。改题 = 新任务新基线。"""
         self.prompts = prompts
         self.competitors = competitors
         self.targets = targets
+        self.tier = tier
         self.budget_usd = budget_usd
         self.dependency_enabled = dependency_enabled
         self._refingerprint()
@@ -258,6 +261,16 @@ class DiagnosisJob:
         self.adopt_domain_list(updated)
         return True
 
+    def frozen_tier(self) -> TierChoice:
+        """确认后才有的档位参数;没冻结就来取是程序顺序错了,直接报错,不给默认值。"""
+        if self.tier is None:
+            raise RuntimeError("任务还没确认,没有档位参数(tier 为空)")
+        return self.tier
+
+    def policy(self) -> SamplingPolicy:
+        """本单的采样参数:重试 / 熔断用全局 POLICY,每题次数按档位(S9.1)。"""
+        return POLICY.model_copy(update={"runs_per_prompt": self.frozen_tier().runs_per_prompt})
+
     def _refingerprint(self) -> None:
         snapshot = {
             "brand": self.brand.model_dump(),
@@ -269,7 +282,8 @@ class DiagnosisJob:
             "targets": [t.model_dump() for t in self.targets],
             "budget_usd": self.budget_usd,
             "dependency_enabled": self.dependency_enabled,
-            "policy": POLICY.model_dump(),
+            "tier": self.frozen_tier().model_dump(mode="json"),
+            "policy": self.policy().model_dump(),
         }
         canonical = json.dumps(snapshot, ensure_ascii=False, sort_keys=True)
         self.fingerprint = hashlib.sha256(canonical.encode("utf-8")).hexdigest()[:16]
@@ -290,6 +304,7 @@ class DiagnosisJob:
             "prompts": [p.model_dump(mode="json") for p in self.prompts],
             "competitors": [c.model_dump(mode="json") for c in self.competitors],
             "targets": [t.model_dump() for t in self.targets],
+            "tier": self.frozen_tier().model_dump(mode="json"),
             "budget_usd": self.budget_usd,
             "dependency_enabled": self.dependency_enabled,
             "fingerprint": self.fingerprint,
@@ -340,6 +355,7 @@ class DiagnosisJob:
         job.prompts = [Prompt.model_validate(p) for p in snapshot["prompts"]]
         job.competitors = [BrandSpec.model_validate(c) for c in snapshot["competitors"]]
         job.targets = [Target.model_validate(t) for t in snapshot["targets"]]
+        job.tier = TierChoice.model_validate(snapshot["tier"])  # S9.1 起才有;更早的快照读不动,由 archive 记警告跳过
         job.budget_usd = snapshot["budget_usd"]
         job.dependency_enabled = snapshot["dependency_enabled"]
         job.fingerprint = snapshot["fingerprint"]

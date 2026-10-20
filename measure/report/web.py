@@ -15,6 +15,7 @@ from adapters.base import SurfaceAdapter
 from diagnosis.access_audit import AccessLayer
 from diagnosis.messages import msg, render_msg
 from engine.storage import CallStat
+from engine.tiers import TierConfig
 from report.i18n import (
     ACCESS_LABELS,
     DEP_LABELS,
@@ -77,6 +78,7 @@ class WebContext:
     registry: JobRegistry
     launcher: JobLauncher
     target_name: TargetNamer
+    tiers: TierConfig  # 档位配置(S9.1,config/tiers.yaml)
 
     def __post_init__(self) -> None:
         self._templates = _templates(self.target_name)

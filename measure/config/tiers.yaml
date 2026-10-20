@@ -1,0 +1,31 @@
+# 档位(架构书附录 v0.4.27 + 用户 2026-10-14 拍板;S9.1):一套冻结的测量参数 = 型号怎么选 × 每题几次 × 「提到你」怎么认。
+# 新档位 = 本文件加一段,L2 / L3 零改动(硬边界 10)。档位名与参数记进报告「这次是怎么测的」;方法版本号不带档位。
+#
+# models(型号从各适配器 meta 的标记里选;标记是配置资产,来源与核对日期写在各适配器里):
+#   consumer_default                 每家消费端默认型号一个(该家聊天产品界面默认用的那个)
+#   strongest_and_consumer_default   每家最强 + 消费端默认各一个;同一个型号只算一个,再补清单里紧挨着它的下一个
+#                                    (排在它后面的第一个;它已是最后一个就补前面那个;清单只有一个就不补)
+#   all                              每家全部当前一代型号
+# mention_method(「提到你」怎么认;自定义跟起点档走,不单独选):
+#   rules              别名表 + 词边界精确匹配(判定器 v2,现状)
+#   rules_fuzzy        + 模糊匹配(S9.2 落地后中档切过来)
+#   rules_fuzzy_judge  + AI 裁判读上下文(S9.3 落地后高档切过来)
+# 落地前中 / 高两档照旧用 rules:配置写的就是现在真实用的,不预先写还没有的方法。
+
+default: medium
+custom_runs:            # 自定义每题次数范围(用户定 2026-10-14:3–10)
+  min: 3
+  max: 10
+tiers:
+  - name: low
+    runs_per_prompt: 3
+    models: consumer_default
+    mention_method: rules
+  - name: medium
+    runs_per_prompt: 5
+    models: strongest_and_consumer_default
+    mention_method: rules          # S9.2 → rules_fuzzy
+  - name: high
+    runs_per_prompt: 7
+    models: all
+    mention_method: rules          # S9.3 → rules_fuzzy_judge

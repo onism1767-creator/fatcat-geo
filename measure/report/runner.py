@@ -60,7 +60,6 @@ from engine.validity import is_valid_answer
 from report.archive import attach_latest_report
 from report.jobs import (
     PLAN_CONCURRENCY,
-    POLICY,
     ClassReport,
     DiagnosisJob,
     JobState,
@@ -221,7 +220,7 @@ def _sampling_note(
     runs = [run for batch in runs_by.values() for run in batch]
     dl = job.domain_list
     return SamplingNote(
-        n_prompts=len(job.prompts), n_targets=len(job.targets), runs_per_prompt=POLICY.runs_per_prompt,
+        n_prompts=len(job.prompts), n_targets=len(job.targets), tier=job.frozen_tier(),
         n_runs=len(runs), n_valid=sum(is_valid_answer(run) for run in runs),
         n_offline_runs=sum(len(batch) for batch in offline_runs_by.values()),
         started_at=job.started_at, finished_at=None, targets=list(job.targets),
@@ -265,7 +264,7 @@ def _sample(
         (target, SearchMode.SEARCH_DISABLED) for target in dependency_targets
     ]
     per_plan_budget = job.budget_usd / len(plans) if job.budget_usd else None
-    policy = POLICY.model_copy(update={"budget_usd": per_plan_budget})
+    policy = job.policy().model_copy(update={"budget_usd": per_plan_budget})  # 每题次数按档位(S9.1)
     job.total_runs = len(job.prompts) * policy.runs_per_prompt * len(plans)
 
     job.phase = "phase_sampling"

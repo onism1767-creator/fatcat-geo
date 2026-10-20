@@ -13,19 +13,19 @@ from engine.drafting import PromptCandidate, draft_prompt_candidates
 from engine.models import Target
 from engine.page_check import BUDGET_S as VERIFY_BUDGET_S
 from engine.storage import Storage
+from engine.tiers import tier_targets
 from report.estimate import estimate_job, unit_prices
 from report.export import build_bundle, content_disposition
 from report.forms import (
     brand_from_form,
     confirm_choice,
     count_prompts,
-    default_targets,
     manual_candidates,
     preselect_candidates,
-    selected_targets,
+    tier_choice,
 )
 from report.i18n import MESSAGES
-from report.jobs import RUNS_PER_PROMPT, STALL_MINUTES, DiagnosisJob, JobState
+from report.jobs import STALL_MINUTES, DiagnosisJob, JobState
 from report.response_view import build_response_view, run_belongs_to
 from report.summary import summarize
 from report.web import ctx_of, error_text, lang_of, not_found, redirect
@@ -86,10 +86,15 @@ async def confirm_page(request: Request, job_id: str, error: str = ""):
     if job.state is not JobState.DRAFT:
         return redirect(request, f"/jobs/{job.job_id}")
     prices = unit_prices(ctx.adapters, ctx.call_stats())
-    target_groups = [  # 按 AI 分组列出全部型号(默认只勾每家的主力型号,D17)
+    target_groups = [  # 自定义区按 AI 分组列出全部型号;默认勾选跟默认档位(S9.1)
         (ctx.display_names[name], [Target(surface=name, model=m) for m in ctx.adapters[name].meta().models])
         for name in sorted(ctx.adapters)
     ]
+    tiers = ctx.tiers
+    tier_cards = [(spec, tier_targets(spec, ctx.adapters)) for spec in tiers.tiers]
+    tier_defaults = {spec.name: {"runs": spec.runs_per_prompt, "keys": [x.key for x in targets]}
+                     for spec, targets in tier_cards}
+    default_keys = {x.key for spec, targets in tier_cards if spec.name == tiers.default for x in targets}
     t = MESSAGES[lang_of(request)]
     basis = []
     if prices.measured:
@@ -100,8 +105,11 @@ async def confirm_page(request: Request, job_id: str, error: str = ""):
             names="、".join(ctx.target_name(x.surface, x.model) for x in prices.declared)))
     basis.append(t["est_basis_tail"])
     return ctx.render(request, "confirm.html", job=job, target_groups=target_groups,
-                      default_keys=default_targets(ctx.adapters), runs_per_prompt=RUNS_PER_PROMPT,
-                      est_basis=" ".join(basis), error=error_text(request, error))
+                      tier_cards=tier_cards, tier_defaults=tier_defaults, default_tier=tiers.default,
+                      default_keys=default_keys,
+                      default_runs=tiers.default_tier.runs_per_prompt, custom_runs=tiers.custom_runs,
+                      est_basis=" ".join(basis),
+                      error=error_text(request, error, min=str(tiers.custom_runs.min), max=str(tiers.custom_runs.max)))
 
 
 @router.post("/jobs/{job_id}/estimate")
@@ -111,24 +119,38 @@ async def confirm_estimate(
     prompts_selected: list[int] = Form([]),
     custom: str = Form(""),
     targets_selected: list[str] = Form([]),
+    tier: str = Form(""),
+    runs: str = Form(""),
     dependency: str = Form(""),
 ):
-    """确认页的实时预估:页面每次勾选变化都把整张表单发来,算好的数字发回去,页面只负责显示。"""
+    """确认页的实时预估:页面每次勾选变化都把整张表单发来,算好的数字发回去,页面只负责显示。
+    S9.1:同时按三档各算一份(卡片上显示),并告诉页面当前勾选是不是自定义。"""
     ctx = ctx_of(request)
     job = ctx.registry.get(job_id)
     if job is None:
         return JSONResponse({"error": "not_found"}, status_code=404)
-    estimate = estimate_job(
-        n_prompts=count_prompts(job, prompts_selected, custom), runs_per_prompt=RUNS_PER_PROMPT,
-        targets=selected_targets(targets_selected, ctx.adapters), dependency=bool(dependency),
-        prices=unit_prices(ctx.adapters, ctx.call_stats()),
-    )
+    chosen = tier_choice(ctx.tiers, ctx.adapters, tier=tier, runs=runs, targets_selected=targets_selected)
+    if isinstance(chosen, str):
+        return JSONResponse({"error": chosen}, status_code=400)
+    choice, targets = chosen
+    n_prompts = count_prompts(job, prompts_selected, custom)
+    prices = unit_prices(ctx.adapters, ctx.call_stats())
+    estimate = estimate_job(n_prompts=n_prompts, runs_per_prompt=choice.runs_per_prompt, targets=targets,
+                            dependency=bool(dependency), prices=prices)
+    per_tier = {
+        spec.name: estimate_job(n_prompts=n_prompts, runs_per_prompt=spec.runs_per_prompt,
+                                targets=tier_targets(spec, ctx.adapters), dependency=bool(dependency), prices=prices)
+        for spec in ctx.tiers.tiers
+    }
     return JSONResponse({
         "calls": estimate.calls,
         "cost_usd": estimate.cost_usd,
         "minutes": estimate.minutes,
+        "custom": choice.custom,
         "breakdown": [{"display": ctx.target_name(t.surface, t.model), "cost_usd": cost}
                       for t, cost in estimate.per_target],
+        "tiers": {name: {"calls": e.calls, "cost_usd": round(e.cost_usd, 4), "minutes": round(e.minutes, 1)}
+                  for name, e in per_tier.items()},
     })
 
 
@@ -140,6 +162,8 @@ async def confirm(
     custom: str = Form(""),
     competitors_selected: list[int] = Form([]),
     targets_selected: list[str] = Form([]),
+    tier: str = Form(""),
+    runs: str = Form(""),
     budget: str = Form(""),
     dependency: str = Form(""),
 ):
@@ -150,13 +174,13 @@ async def confirm(
     if job.state is not JobState.DRAFT:
         return redirect(request, f"/jobs/{job.job_id}")
     choice = confirm_choice(
-        job, ctx.adapters, prompts_selected=prompts_selected, custom=custom,
-        competitors_selected=competitors_selected, targets_selected=targets_selected,
+        job, ctx.adapters, ctx.tiers, prompts_selected=prompts_selected, custom=custom,
+        competitors_selected=competitors_selected, targets_selected=targets_selected, tier=tier, runs=runs,
         budget=budget, dependency=dependency,
     )
     if isinstance(choice, str):
         return redirect(request, f"/jobs/{job.job_id}/confirm?error={choice}")
-    job.freeze(prompts=choice.prompts, competitors=choice.competitors, targets=choice.targets,
+    job.freeze(prompts=choice.prompts, competitors=choice.competitors, targets=choice.targets, tier=choice.tier,
                budget_usd=choice.budget_usd, dependency_enabled=choice.dependency_enabled)
     ctx.launcher.launch(job, replay=False)
     return redirect(request, f"/jobs/{job.job_id}")
@@ -214,7 +238,7 @@ async def job_status(request: Request, job_id: str):
     failure = t[job.error_code].format(**job.error_params) if job.error_code else job.error
     quiet = job.quiet_minutes(now)  # 卡住了没有?(v0.4.22)超过阈值给 JOB_STALLED
     stalled = t["job_stalled"].format(minutes=round(quiet)) if quiet is not None and quiet >= STALL_MINUTES else None
-    return ctx.render(request, "job.html", job=job, runs_per_prompt=RUNS_PER_PROMPT,
+    return ctx.render(request, "job.html", job=job, runs_per_prompt=job.frozen_tier().runs_per_prompt,
                       elapsed_minutes=job.elapsed_minutes(now), eta_minutes=job.eta_minutes(now),
                       verify_remaining_minutes=job.verify_remaining_minutes(now, VERIFY_BUDGET_S),
                       error_text=failure, quiet_minutes=quiet, stalled_text=stalled)
@@ -229,7 +253,7 @@ async def job_report(request: Request, job_id: str):
     if not job.finished:
         return redirect(request, f"/jobs/{job.job_id}")
     # 报告写实际发生的每题次数(采样说明),不读当前策略:策略以后随档位变,旧报告不能跟着变
-    return ctx.render(request, "report.html", job=job, runs_per_prompt=job.sampling_note().runs_per_prompt,
+    return ctx.render(request, "report.html", job=job, runs_per_prompt=job.sampling_note().tier.runs_per_prompt,
                       summary=summarize(job.class_reports, ctx.target_name, ctx.api_name),
                       psl_version=PSL_SNAPSHOT_VERSION)
 

@@ -5,7 +5,7 @@ respx 模拟全部抓取(零真实网络);时钟与 sleep 可注入,边界测试
 
 import threading
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import httpx
 import psycopg
@@ -475,11 +475,12 @@ def test_progress_reports_done_even_when_the_check_blows_up():
 
 
 def test_page_check_table_is_append_only_and_latest_per_url(storage):
+    now = datetime.now(UTC)  # 日期要相对现在:recent_page_checks 只认 7 天内的,写死日期的测试过一周就过期(10-20 踩过)
     older = PageCheck(url="https://x.test/a", normalized_url="https://x.test/a", status=PageFetchStatus.FETCH_FAILED,
-                      error="ConnectError", fetcher_version=1, fetched_at=datetime(2026, 10, 12, tzinfo=UTC))
+                      error="ConnectError", fetcher_version=1, fetched_at=now - timedelta(days=2))
     newer = PageCheck(url="https://x.test/a", normalized_url="https://x.test/a", status=PageFetchStatus.OK,
                       http_status=200, title="T", text="AuroraCRM is here", text_source="archive_main", text_chars=17,
-                      fetcher_version=1, fetched_at=datetime(2026, 10, 13, tzinfo=UTC),
+                      fetcher_version=1, fetched_at=now - timedelta(days=1),
                       archive_url="https://web.archive.org/web/20250102030405/https://x.test/a",
                       archive_timestamp="20250102030405", live_status=PageFetchStatus.BLOCKED)
     storage.insert_page_check(older)

@@ -23,6 +23,7 @@ from engine.detectors import source_class as source_class_detector
 from engine.detectors.matching import mention_sentence
 from engine.models import SurfaceRun
 from engine.storage import Storage
+from engine.tiers import TierChoice
 from report.i18n import INTENT_LABELS, MESSAGES, STATUS_LABELS
 from report.jobs import DiagnosisJob
 from report.narrative import api_line_text, wrap_up_text
@@ -147,16 +148,24 @@ def _citation_rows(run: SurfaceRun, prompt_no: int, ai: str, observations: list[
     ]
 
 
+def _tier_line(tier: TierChoice, t: dict[str, str]) -> str:
+    """采样说明里的档位一行(S9.1):自定义写实际参数、不冠档位名,只说以哪一档为起点。"""
+    key = "sampling_tier_custom" if tier.custom else "sampling_tier"
+    return t[key].format(tier=t["tier_name_" + tier.name], runs=tier.runs_per_prompt,
+                         method=t["method_" + tier.mention_method.value])
+
+
 def _summary_md(job: DiagnosisJob, lang: str, name_of: TargetNamer, summary: ReportSummary) -> str:
     t = MESSAGES[lang]
     plain = lambda m: render_msg(m, lang, "plain")  # noqa: E731
     lines = [f"# {job.brand.name} {t['report_title']}", "", t["scope_note"], t["api_note"], ""]
     sn = job.sampling_note()
     lines += [f"## {t['sampling_title']}", ""]
-    counts = t["sampling_counts"].format(prompts=sn.n_prompts, targets=sn.n_targets, reps=sn.runs_per_prompt,
+    counts = t["sampling_counts"].format(prompts=sn.n_prompts, targets=sn.n_targets, reps=sn.tier.runs_per_prompt,
                                         runs=sn.n_runs, valid=sn.n_valid)
     offline = " " + t["sampling_offline"].format(n=sn.n_offline_runs) if sn.n_offline_runs else ""
     lines.append("- " + counts + offline)
+    lines.append("- " + _tier_line(sn.tier, t))
     fmt = "%Y-%m-%d %H:%M"
     lines.append("- " + t["sampling_time"].format(
         start=sn.started_at.astimezone(UTC).strftime(fmt) if sn.started_at else "—",
@@ -198,7 +207,7 @@ def _summary_md(job: DiagnosisJob, lang: str, name_of: TargetNamer, summary: Rep
         lines.append("")
     if summary.wrap_up is not None:
         first_action = summary.actions[0].recommendation.plain[lang] if summary.actions else None
-        wrap = wrap_up_text(summary.wrap_up, lang, sn.runs_per_prompt, first_action)
+        wrap = wrap_up_text(summary.wrap_up, lang, sn.tier.runs_per_prompt, first_action)
         lines += [f"## {t['wrapup_title']}", "", wrap, ""]
     if summary.actions:
         lines += [f"## {t['first_word']}", ""]

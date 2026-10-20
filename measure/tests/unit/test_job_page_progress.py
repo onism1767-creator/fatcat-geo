@@ -10,13 +10,14 @@ from engine.models import BrandSpec, Prompt, PromptIntent, PromptOrigin, Target
 from report.app import create_app
 from report.jobs import DiagnosisJob, JobState
 from tests.unit.test_job_error_page import DummyAdapter
+from tests.unit.test_report_page import LOW
 
 
 def _running_job(now: datetime) -> DiagnosisJob:
     job = DiagnosisJob(brand=BrandSpec(name="X", domains=["x.com"]), website="https://x.com",
                        category="C", locale="zh-CN", candidates=[], competitors_suggested=[])
     prompt = Prompt(text="q?", intent=PromptIntent.CATEGORY_DISCOVERY, origin=PromptOrigin.USER, locale="zh-CN")
-    job.freeze(prompts=[prompt], competitors=[], targets=[Target(surface="s1", model="m1")], budget_usd=None)
+    job.freeze(prompts=[prompt], competitors=[], targets=[Target(surface="s1", model="m1")], budget_usd=None, tier=LOW)
     job.state, job.phase = JobState.RUNNING, "phase_verify"
     job.started_at = now - timedelta(minutes=5)
     job.total_runs = 3  # 执行器开跑时才算总数;这里直接给

@@ -35,10 +35,12 @@ from engine.models import (
     StopReason,
     Target,
 )
+from engine.tiers import MentionMethod, TierChoice
 from report.app import create_app
 from report.jobs import ClassReport, DiagnosisJob, JobState, SamplingNote, SurfaceQuotes
 
 REGISTRY = load_evidence_registry()
+LOW = TierChoice(name="low", runs_per_prompt=3, mention_method=MentionMethod.RULES, custom=False)  # 夹具用的档位(S9.1)
 
 
 class DummyAdapter(SurfaceAdapter):
@@ -115,12 +117,12 @@ def finished_job() -> DiagnosisJob:
     diagnosis = diagnose_class(PromptIntent.CATEGORY_DISCOVERY, access=access, surfaces=[blind_block, generative_block])
     job = DiagnosisJob(brand=brand, website="https://aurora-crm.com", category="CRM",
                        locale="zh-CN", candidates=[], competitors_suggested=[])
-    job.freeze(prompts=[prompt], competitors=[], targets=[Target(surface="s1", model="m1")], budget_usd=1.0)
+    job.freeze(prompts=[prompt], competitors=[], targets=[Target(surface="s1", model="m1")], budget_usd=1.0, tier=LOW)
     job.state = JobState.DONE
     job.phase = "完成"
     job.finished_at = datetime(2026, 8, 24, tzinfo=UTC)
     job.sampling = SamplingNote(  # S8.2:采样说明(实际发生的数字)
-        n_prompts=1, n_targets=2, runs_per_prompt=3, n_runs=6, n_valid=5, n_offline_runs=3,
+        n_prompts=1, n_targets=2, tier=LOW, n_runs=6, n_valid=5, n_offline_runs=3,
         started_at=datetime(2026, 8, 24, 1, 0, tzinfo=UTC), finished_at=datetime(2026, 8, 24, 1, 30, tzinfo=UTC),
         targets=[Target(surface="s1", model="m1"), Target(surface="s2", model="m2")],
         domains_confirmed=1, domains_unconfirmed=2, domains_at=datetime(2026, 8, 24, tzinfo=UTC),
@@ -474,6 +476,7 @@ def test_manual_flow_to_confirm_and_launch(client_and_job):
 
     resp = client.post(confirm_url, data={
         "prompts_selected": ["0", "1"], "targets_selected": ["s1::m1"], "budget": "1.0", "custom": "",
+        "tier": "low", "runs": "3",
     }, follow_redirects=False)
     assert resp.status_code == 303
     job_id = resp.headers["location"].rsplit("/", 1)[-1].split("?")[0]
@@ -523,7 +526,7 @@ def test_confirm_estimate_prefers_measured_history():
         page = client.get(resp.headers["location"]).text
         job_id = resp.headers["location"].split("/")[2]
         estimate = client.post(f"/jobs/{job_id}/estimate?lang=zh", data={
-            "prompts_selected": ["0"], "targets_selected": ["s1::m1"]}).json()
+            "prompts_selected": ["0"], "targets_selected": ["s1::m1"], "tier": "low", "runs": "3"}).json()
         return page, estimate
 
     def stat(n: int) -> CallStat:
@@ -567,6 +570,7 @@ def test_job_snapshot_round_trip():
     assert restored.state is JobState.DONE and restored.phase == "phase_done"
     assert [p.prompt_id for p in restored.prompts] == [p.prompt_id for p in job.prompts]
     assert restored.targets == job.targets
+    assert restored.tier == job.tier  # 档位参数进快照(S9.1)
     assert restored.dependency_enabled == job.dependency_enabled
     assert restored.class_reports == []
 
@@ -741,7 +745,7 @@ def test_fingerprint_sensitive_to_dependency_flag():
         job.freeze(prompts=[Prompt(prompt_id="fixed", text="问法甲", intent=PromptIntent.CATEGORY_DISCOVERY,
                                    origin=PromptOrigin.USER, locale="zh-CN",
                                    created_at=datetime(2026, 8, 24, tzinfo=UTC))],
-                   competitors=[], targets=[Target(surface="s1", model="m1")], budget_usd=None,
+                   competitors=[], targets=[Target(surface="s1", model="m1")], budget_usd=None, tier=LOW,
                    dependency_enabled=dependency_enabled)
         return job.fingerprint
 
@@ -756,7 +760,7 @@ def test_fingerprint_stable_and_sensitive():
         job.freeze(prompts=[Prompt(prompt_id="fixed", text=statement, intent=PromptIntent.CATEGORY_DISCOVERY,
                                    origin=PromptOrigin.USER, locale="zh-CN",
                                    created_at=datetime(2026, 8, 24, tzinfo=UTC))],
-                   competitors=[], targets=[Target(surface="s1", model="m1")], budget_usd=None)
+                   competitors=[], targets=[Target(surface="s1", model="m1")], budget_usd=None, tier=LOW)
         return job.fingerprint
 
     assert build("问法甲") == build("问法甲")  # 同快照同指纹
@@ -773,6 +777,17 @@ def test_retired_surfaces_only_flags_surfaces_missing_from_registry():
     job = finished_job()  # 被测对象只有 s1
     assert retired_surfaces(job, known_surfaces={"s1", "s2"}) == []
     assert retired_surfaces(job, known_surfaces={"s2"}) == ["s1"]
+
+
+def test_restore_registry_skips_job_snapshots_it_cannot_read(storage):
+    """S9.1 加了档位:更早的任务快照没有 tier,读不动就记警告跳过(不加兼容层、不猜默认档);库里的快照原样保留。"""
+    from report.archive import restore_registry
+
+    job = finished_job()
+    stale = job.to_snapshot()
+    del stale["tier"]
+    storage.upsert_job_snapshot(stale)
+    assert job.job_id not in {j.job_id for j in restore_registry(storage, known_surfaces={"s1"}).recent(limit=100)}
 
 
 def test_restore_registry_does_not_restore_jobs_with_retired_surface(storage):

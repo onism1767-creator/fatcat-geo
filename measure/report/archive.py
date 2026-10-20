@@ -33,7 +33,11 @@ def restore_registry(storage: Storage, known_surfaces: Collection[str]) -> JobRe
     registry = JobRegistry()
     storage.ensure_schema()
     for snapshot in storage.load_job_snapshots():
-        job = DiagnosisJob.from_snapshot(snapshot)
+        try:
+            job = DiagnosisJob.from_snapshot(snapshot)
+        except (KeyError, ValueError) as exc:  # 快照结构随代码演进(S9.1 加档位):旧快照读不动就记警告跳过,不猜默认值
+            log.warning("job_snapshot_unreadable", job_id=snapshot.get("job_id"), error=f"{type(exc).__name__}: {exc}")
+            continue
         if retired := retired_surfaces(job, known_surfaces):
             log.warning("job_not_restored_retired_surface", job_id=job.job_id, surfaces=retired)
             continue

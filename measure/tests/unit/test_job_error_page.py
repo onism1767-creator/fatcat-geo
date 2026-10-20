@@ -8,6 +8,7 @@ from diagnosis.recommender import load_evidence_registry
 from engine.models import BrandSpec, Prompt, PromptIntent, PromptOrigin, Target
 from report.app import create_app
 from report.jobs import DiagnosisJob, JobState
+from tests.unit.test_report_page import LOW
 
 
 class DummyAdapter(SurfaceAdapter):
@@ -29,7 +30,7 @@ def _failed_job(code: str | None, text: str | None = None) -> DiagnosisJob:
                        category="C", locale="zh-CN", candidates=[], competitors_suggested=[])
     prompt = Prompt(text="q?", intent=PromptIntent.CATEGORY_DISCOVERY, origin=PromptOrigin.USER, locale="zh-CN")
     job.freeze(prompts=[prompt],
-               competitors=[], targets=[Target(surface="s1", model="m1")], budget_usd=None)
+               competitors=[], targets=[Target(surface="s1", model="m1")], budget_usd=None, tier=LOW)
     job.state, job.phase = JobState.FAILED, "phase_failed"
     job.error_code = code
     job.error_params = {"ai": "S1", "model": "m1", "detail": "Your credit balance is too low"} if code else {}

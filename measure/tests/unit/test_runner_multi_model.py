@@ -34,7 +34,8 @@ from engine.models import (
 )
 from engine.page_check import PageIndex
 from report import runner
-from report.jobs import RUNS_PER_PROMPT, DiagnosisJob, JobState
+from report.jobs import DiagnosisJob, JobState
+from tests.unit.test_report_page import LOW
 
 BRAND = BrandSpec(name="极光CRM", domains=["aurora-crm.com"])
 CITES, SILENT = "m-cites", "m-silent"
@@ -156,7 +157,7 @@ def _new_job(text: str) -> tuple[DiagnosisJob, Prompt]:
                        locale="zh-CN", candidates=[], competitors_suggested=[])
     job.freeze(prompts=[prompt], competitors=[],
                targets=[Target(surface="two_model", model=CITES), Target(surface="two_model", model=SILENT)],
-               budget_usd=None)
+               budget_usd=None, tier=LOW)
     return job, prompt
 
 
@@ -168,7 +169,7 @@ def test_two_models_of_one_surface_are_sampled_and_diagnosed_apart(storage, offl
     runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=evidence)
 
     assert job.state is JobState.DONE, job.error
-    assert job.total_runs == 2 * RUNS_PER_PROMPT == job.completed_runs  # 1 道题 × 3 次 × 2 个型号
+    assert job.total_runs == 2 * LOW.runs_per_prompt == job.completed_runs  # 1 道题 × 3 次(低档)× 2 个型号
     runs = storage.runs_for_prompt(prompt.prompt_id, surface="two_model")
     per_model = {m: [r for r in runs if r.model == m] for m in (CITES, SILENT)}
     assert {m: sorted(r.run_index for r in rs) for m, rs in per_model.items()} == {CITES: [1, 2, 3], SILENT: [1, 2, 3]}
@@ -179,7 +180,7 @@ def test_two_models_of_one_surface_are_sampled_and_diagnosed_apart(storage, offl
     from engine.method import METHOD_VERSION
 
     note = job.sampling  # 采样说明(S8.2):实际问了多少、有效多少、测了谁、方法版本
-    assert note is not None and (note.n_prompts, note.n_targets, note.runs_per_prompt, note.n_runs) == (1, 2, 3, 6)
+    assert note is not None and (note.n_prompts, note.n_targets, note.tier, note.n_runs) == (1, 2, LOW, 6)
     assert note.n_valid == 6 and note.n_offline_runs == 0 and note.method_version == METHOD_VERSION
     assert note.started_at is not None and note.finished_at is not None and note.finished_at == job.finished_at
     assert {(x.surface, x.model) for x in note.targets} == {("two_model", CITES), ("two_model", SILENT)}
@@ -266,7 +267,8 @@ def test_redirect_citations_are_judged_by_resolved_destination_not_title(storage
                     origin=PromptOrigin.USER, locale="zh-CN")
     job = DiagnosisJob(brand=BRAND, website="https://aurora-crm.com", category="CRM",
                        locale="zh-CN", candidates=[], competitors_suggested=[])
-    job.freeze(prompts=[prompt], competitors=[], targets=[Target(surface="redirect_ai", model="r1")], budget_usd=None)
+    job.freeze(prompts=[prompt], competitors=[], targets=[Target(surface="redirect_ai", model="r1")], budget_usd=None,
+               tier=LOW)
     try:
         runner.execute_job(job=job, adapters={"redirect_ai": RedirectAdapter()}, dsn=TEST_DSN,
                            evidence=load_evidence_registry())
