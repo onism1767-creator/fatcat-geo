@@ -143,3 +143,30 @@ def test_fingerprint_changes_with_tier_runs():
                                       "targets_selected": ["s1::m1"]}, follow_redirects=False)
         prints.append(_job_of(client, resp.headers["location"]).fingerprint)
     assert prints[0] != prints[1]  # 每题次数是口径的一部分,进指纹
+
+
+def test_confirm_page_offers_spellings_and_ticked_ones_become_aliases():
+    """S9.2b(用户定「甲」):确认页列 AI 查到的写法与网页里的次数,出现过的预勾、太短的不勾;勾上的进别名表、进指纹。"""
+    from engine.spellings import SpellingCandidate
+
+    client, _ = _client()
+    url = _confirm_url(client)
+    job = _job_of(client, url)
+    job.spellings_suggested = [
+        SpellingCandidate(text="Aurora CRM", reason="英文名加空格", pages_seen=5, pages_with=3, occurrences=7,
+                          short=False),
+        SpellingCandidate(text="JG", reason="拼音首字母", pages_seen=5, pages_with=2, occurrences=2, short=True),
+        SpellingCandidate(text="Aurora", reason="只写前半截", pages_seen=5, pages_with=0, occurrences=0, short=False),
+    ]
+    html = client.get(url).text
+    assert "AI 查到的你的常见写法" in html and "共 5 个网页" in html
+    assert 'name="spellings_selected" value="0" checked' in html and "在 3 个网页里出现 7 次" in html
+    assert 'name="spellings_selected" value="1" >' in html and "太短,容易把别家认成你" in html
+    assert 'name="spellings_selected" value="2" >' in html and "查到的网页里没出现" in html
+    base = {"prompts_selected": ["0"], "custom": "", "tier": "low", "runs": "3", "targets_selected": ["s1::m1"]}
+    client.post(url, data={**base, "spellings_selected": ["0", "1"]}, follow_redirects=False)
+    assert job.brand.aliases == ["Aurora CRM", "JG"] and job.fingerprint
+    plain = _confirm_url(client)
+    other = _job_of(client, plain)
+    client.post(plain, data=base, follow_redirects=False)
+    assert other.brand.aliases == [] and other.fingerprint != job.fingerprint  # 别名是口径的一部分

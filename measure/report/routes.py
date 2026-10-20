@@ -12,6 +12,8 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from engine.drafting import PromptCandidate, draft_prompt_candidates
 from engine.models import Target
 from engine.page_check import BUDGET_S as VERIFY_BUDGET_S
+from engine.page_check import PageChecker
+from engine.spellings import suggest_spellings
 from engine.storage import Storage
 from engine.tiers import tier_targets
 from report.estimate import estimate_job, unit_prices
@@ -31,6 +33,7 @@ from report.summary import summarize
 from report.web import ctx_of, error_text, lang_of, not_found, redirect
 
 router = APIRouter()
+SPELLING_PAGES_BUDGET_S = 45.0  # 出题时为数写法开网页的时间上限(用户在等确认页;开不完的不算分母)
 PSL_SNAPSHOT_VERSION = _package_version("tldextract")  # 注册域名用的公共后缀表快照版本,写进报告方法说明(S4)
 
 
@@ -68,6 +71,15 @@ async def create_job(
                 generation_adapter, category=category, brand=brand, locale=locale,
                 ledger=lambda run: store.insert_aux_call(job_id=job.job_id, task="出题", run=run),
             )
+            # 顺手让 AI 列品牌的常见写法,并在它搜到的网页 + 官网首页里数次数(S9.2b);网页同样落 page_check 表
+            opener = PageChecker(store, budget_s=SPELLING_PAGES_BUDGET_S)
+            try:
+                job.spellings_suggested = suggest_spellings(
+                    generation_adapter, brand=brand, website=normalized, locale=locale, pages=opener,
+                    ledger=lambda run: store.insert_aux_call(job_id=job.job_id, task="常见写法", run=run),
+                )
+            finally:
+                opener.close()
     job.candidates = drafted + manual_candidates(questions, brand)
     if not job.candidates:
         return ctx.render(request, "index.html", jobs=ctx.registry.recent(), surfaces=sorted(ctx.adapters),
@@ -166,6 +178,7 @@ async def confirm(
     runs: str = Form(""),
     budget: str = Form(""),
     dependency: str = Form(""),
+    spellings_selected: list[int] = Form([]),
 ):
     ctx = ctx_of(request)
     job = ctx.registry.get(job_id)
@@ -176,10 +189,11 @@ async def confirm(
     choice = confirm_choice(
         job, ctx.adapters, ctx.tiers, prompts_selected=prompts_selected, custom=custom,
         competitors_selected=competitors_selected, targets_selected=targets_selected, tier=tier, runs=runs,
-        budget=budget, dependency=dependency,
+        budget=budget, dependency=dependency, spellings_selected=spellings_selected,
     )
     if isinstance(choice, str):
         return redirect(request, f"/jobs/{job.job_id}/confirm?error={choice}")
+    job.brand = job.brand.model_copy(update={"aliases": choice.aliases})  # 勾上的常见写法进别名表(S9.2b),随冻结进指纹
     job.freeze(prompts=choice.prompts, competitors=choice.competitors, targets=choice.targets, tier=choice.tier,
                budget_usd=choice.budget_usd, dependency_enabled=choice.dependency_enabled)
     ctx.launcher.launch(job, replay=False)

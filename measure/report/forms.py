@@ -98,6 +98,7 @@ class ConfirmChoice(FrozenModel):
     competitors: list[BrandSpec]
     targets: list[Target]
     tier: TierChoice
+    aliases: list[str]  # 原有别名 + 确认页勾上的常见写法(S9.2b),去重保序
     budget_usd: float | None
     dependency_enabled: bool
 
@@ -115,6 +116,7 @@ def confirm_choice(
     runs: str,
     budget: str,
     dependency: str,
+    spellings_selected: list[int] | None = None,
 ) -> ConfirmChoice | str:
     """确认页表单 → 口径;不合格返回错误码。"""
     prompts = [
@@ -142,5 +144,8 @@ def confirm_choice(
         for i in competitors_selected if 0 <= i < len(job.competitors_suggested)
         for c in [job.competitors_suggested[i]]
     ]
-    return ConfirmChoice(prompts=prompts, competitors=competitors, targets=targets, tier=choice,
+    picked = [job.spellings_suggested[i].text for i in (spellings_selected or [])
+              if 0 <= i < len(job.spellings_suggested)]
+    aliases = list(dict.fromkeys([*job.brand.aliases, *picked]))
+    return ConfirmChoice(prompts=prompts, competitors=competitors, targets=targets, tier=choice, aliases=aliases,
                          budget_usd=budget_usd, dependency_enabled=bool(dependency))

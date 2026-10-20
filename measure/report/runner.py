@@ -28,7 +28,13 @@ from diagnosis.assemble import diagnose_class_targets
 from diagnosis.diagnose import access_finding, diagnose_class
 from diagnosis.recommender import EvidenceEntry
 from diagnosis.verdict import VerdictInput, surface_verdict
-from engine.aggregate import ClassSurfaceMetric, TargetMeasurement, measure_closed_book, measure_target
+from engine.aggregate import (
+    ClassSurfaceMetric,
+    TargetMeasurement,
+    measure_closed_book,
+    measure_target,
+    tally_spellings,
+)
 from engine.brand_domains import BrandDomainDiscovery, load_platforms
 from engine.detectors.matching import registrable
 from engine.method import METHOD_VERSION
@@ -207,6 +213,10 @@ def _execute(
         job.surface_verdicts = [
             surface_verdict(target.surface, target.model, inputs) for target, inputs in verdict_inputs.items()
         ]
+        # AI 回答里写你的名字的写法与次数(S9.2b):开卷 + 闭卷全部回答,按主判定器的命中片段数
+        job.spellings = tally_spellings(
+            [o for batch in [*observations.values(), *offline_observations.values()] for o in batch], job.brand,
+        )
         # 采样后:回答里出现、名单外的同名域名再查一次,标 B1 / B2——只提示,用户确认后才算官网(S5)
         job.adopt_domain_list(_look_alikes(job, all_runs, resolution))
         truncated = any(r.stop_reason in _TRUNCATION_REASONS for r in results.values())

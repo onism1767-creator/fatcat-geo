@@ -21,7 +21,7 @@ from diagnosis.representation_diag import compare_mentions, diagnose_representat
 from diagnosis.retrieval_dependency import diagnose_retrieval_dependency
 from diagnosis.retrieval_diag import retrieval_not_observable
 from diagnosis.verdict import SurfaceVerdict
-from engine.aggregate import ClassSurfaceMetric
+from engine.aggregate import ClassSurfaceMetric, NameSpelling
 from engine.drafting import PromptCandidate
 from engine.metrics import account_outcomes, rate
 from engine.models import (
@@ -136,6 +136,10 @@ def finished_job() -> DiagnosisJob:
     ])]
     job.class_reports = [ClassReport(intent=PromptIntent.CATEGORY_DISCOVERY, prompt_texts=[prompt.text],
                                      diagnosis=diagnosis, quotes=quotes)]
+    job.spellings = [  # S9.2b:AI 回答里的写法与次数(auroracrms 没登记,下次可加进别名)
+        NameSpelling(text="极光CRM", count=12, registered=True),
+        NameSpelling(text="auroracrms", count=3, registered=False),
+    ]
     job.surface_verdicts = [  # 每家 AI 一句话(v0.4.14):s2 缺「直接问起」场景,句尾说明
         SurfaceVerdict(surface="s1", model="m1", code="verdict.only_when_named", missing=[]),
         SurfaceVerdict(surface="s2", model="m2", code="verdict.known_sometimes_site_rare",
@@ -800,3 +804,18 @@ def test_restore_registry_does_not_restore_jobs_with_retired_surface(storage):
     restored_with = {j.job_id for j in restore_registry(storage, known_surfaces={"s1"}).recent(limit=100)}
     assert job.job_id not in restored_without
     assert job.job_id in restored_with
+
+
+def test_report_lists_how_the_ais_write_the_name(client_and_job):
+    """S9.2b(用户定):报告末尾列 AI 回答里最常见的写法,按次数,标出还没登记的。"""
+    client, job, _ = client_and_job
+    html = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
+    assert "AI 回答里写你的名字,最常见的几种写法" in html
+    assert "以下是 AI 回答里出现过的、你的品牌最常见的别名" in html
+    assert "<td>极光CRM</td><td>12</td><td>已登记</td>" in html
+    assert "<td>auroracrms</td><td>3</td><td>还没登记,下次可加进别名</td>" in html
+    en = client.get(f"/jobs/{job.job_id}/report?lang=en").text
+    assert "How the AIs write your name" in en and "not registered" in en
+    restored = DiagnosisJob.from_snapshot(job.to_snapshot())
+    restored.load_report(job.report_payload())
+    assert restored.spellings == job.spellings  # 进报告快照

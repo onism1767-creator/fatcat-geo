@@ -21,6 +21,7 @@ import structlog
 from diagnosis.access_audit import AccessAuditResult
 from diagnosis.diagnose import ClassDiagnosis
 from diagnosis.verdict import SurfaceVerdict
+from engine.aggregate import NameSpelling
 from engine.brand_domains import apply_user_choice
 from engine.drafting import PromptCandidate
 from engine.models import (
@@ -34,6 +35,7 @@ from engine.models import (
     Target,
 )
 from engine.scheduler import SamplingPolicy
+from engine.spellings import SpellingCandidate
 from engine.tiers import TierChoice
 
 log = structlog.get_logger("report.jobs")
@@ -98,6 +100,7 @@ class ReportPayload(FrozenModel):
     surface_verdicts: list[SurfaceVerdict]
     finished_at: datetime | None
     sampling: SamplingNote  # 采样说明(S8.2)
+    spellings: list[NameSpelling]  # AI 回答里写你的名字的写法与次数(S9.2b)
 
 
 class ReportMeta(FrozenModel):
@@ -140,6 +143,7 @@ class DiagnosisJob:
         self.candidates = candidates
         self.preselected: list[int] = []  # 确认页默认勾选的候选题下标(建任务时由 preselect_candidates 定)
         self.competitors_suggested = competitors_suggested
+        self.spellings_suggested: list[SpellingCandidate] = []  # AI 列的常见写法 + 网页里数的次数(S9.2b),只服务确认页
 
         self.state = JobState.DRAFT
         self.phase = "phase_draft"
@@ -160,6 +164,7 @@ class DiagnosisJob:
         self.domain_list: BrandDomainList | None = None  # 官网名单(S5):开跑时自动发现一次,随快照冻结,再测沿用
         self.report_meta: ReportMeta | None = None  # 最新一版报告快照的档案信息(v0.4.16)
         self.sampling: SamplingNote | None = None  # 采样说明(S8.2):出报告时算,随报告快照存
+        self.spellings: list[NameSpelling] = []  # AI 回答里的写法统计(S9.2b),随报告快照存
         self.started_at: datetime | None = None  # 本次执行开始时刻(任务页按实际速度算剩余时间)
         self.last_result_at: datetime | None = None  # 最近一条样本落库的时刻(任务页据此报「卡住了」)
         # 核对网页阶段的进度(S8.5):提问完之后还要开网页(最多 15 分钟),任务页单独显示;不进快照(重启后重跑)
@@ -328,6 +333,7 @@ class DiagnosisJob:
             surface_verdicts=self.surface_verdicts,
             finished_at=self.finished_at,
             sampling=self.sampling_note(),
+            spellings=self.spellings,
         ).model_dump(mode="json")
 
     def load_report(self, payload: dict) -> None:
@@ -338,6 +344,7 @@ class DiagnosisJob:
         self.surface_verdicts = report.surface_verdicts
         self.finished_at = report.finished_at
         self.sampling = report.sampling
+        self.spellings = report.spellings
 
     @classmethod
     def from_snapshot(cls, snapshot: dict) -> DiagnosisJob:

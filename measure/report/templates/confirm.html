@@ -21,6 +21,20 @@
     <textarea name="custom"></textarea>
   </div>
 
+  {#- AI 查到的常见写法(S9.2b,用户定「甲」):次数是在网页里数出来的;出现过的预勾、太短的不勾 -#}
+  {% if job.spellings_suggested %}
+  <div class="card">
+    <h3>{{ t["spellings_title"] }}</h3>
+    <p class="muted" style="margin:0 0 6px">{{ t["spellings_hint"].format(n=job.spellings_suggested[0].pages_seen) }}</p>
+    {% for sp in job.spellings_suggested %}
+    <label style="font-weight:400">
+      <input type="checkbox" name="spellings_selected" value="{{ loop.index0 }}" {{ "checked" if sp.preselected else "" }}>
+      <b>{{ sp.text }}</b> <span class="muted">· {{ sp.reason }} · {% if sp.pages_with %}{{ t["spellings_seen"].format(pages=sp.pages_with, n=sp.occurrences) }}{% else %}{{ t["spellings_unseen"] }}{% endif %}{% if sp.short %} · {{ t["spellings_short"] }}{% endif %}</span>
+    </label>
+    {% endfor %}
+  </div>
+  {% endif %}
+
   {% if job.competitors_suggested %}
   <div class="card">
     <h3>{{ t["competitors_title"] }}</h3>

@@ -90,6 +90,22 @@ def bounded_at(lowered: str, start: int, needle: str) -> bool:
     return True
 
 
+def count_alias(text: str, alias: str) -> int:
+    """一个名字在文本里出现几次:不区分大小写、词边界规则同 find_first_alias、不重叠(S9.2b 数网页里的写法用)。"""
+    lowered = text.lower()
+    needle = alias.strip().lower()
+    if not needle:
+        return 0
+    count, pos = 0, lowered.find(needle)
+    while pos >= 0:
+        if bounded_at(lowered, pos, needle):
+            count += 1
+            pos = lowered.find(needle, pos + len(needle))
+        else:
+            pos = lowered.find(needle, pos + 1)
+    return count
+
+
 def find_first_alias(text: str, brand: BrandSpec) -> tuple[int, str] | None:
     """在文本中定位最早出现的品牌名/别名。返回 (字符偏移, 命中别名) 或 None。
     不区分大小写;拉丁字母的名字按词边界,中文等不以空格分词的文字按子串(D18,v2)。

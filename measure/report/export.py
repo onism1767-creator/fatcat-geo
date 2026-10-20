@@ -216,6 +216,12 @@ def _summary_md(job: DiagnosisJob, lang: str, name_of: TargetNamer, summary: Rep
         first_action = summary.actions[0].recommendation.plain[lang] if summary.actions else None
         wrap = wrap_up_text(summary.wrap_up, lang, sn.tier.runs_per_prompt, first_action)
         lines += [f"## {t['wrapup_title']}", "", wrap, ""]
+    if job.spellings:  # S9.2b:AI 回答里写你的名字的写法
+        lines += [f"## {t['spellings_report_title']}", "", t["spellings_report_lead"], ""]
+        for sp in job.spellings:
+            status = t["spellings_registered"] if sp.registered else t["spellings_unregistered"]
+            lines.append(f"- {sp.text} · {sp.count} · {status}")
+        lines.append("")
     if summary.actions:
         lines += [f"## {t['first_word']}", ""]
         for a in summary.actions:

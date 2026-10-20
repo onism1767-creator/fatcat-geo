@@ -6,7 +6,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Final
 
@@ -17,6 +17,7 @@ from engine.metrics import Rate, SampleAccounting, account_runs, rate_of
 from engine.models import (
     UNKNOWN,
     AnswerQuote,
+    BrandSpec,
     FrozenModel,
     PromptIntent,
     Sentiment,
@@ -30,6 +31,36 @@ from engine.scheduler import is_account_error
 from engine.validity import is_valid_answer
 
 MENTION_LABEL = "brand_mention"  # 提及指标的标签;用的是哪个判定器随档位(S9.2),记在观测行与采样说明里
+SPELLINGS_LIMIT = 8  # 报告末尾最多列几种写法(S9.2b)
+
+
+class NameSpelling(FrozenModel):
+    """AI 回答里写你的名字的一种写法(S9.2b,用户定):原样文字、出现次数、是否已登记为名字 / 别名。
+    没登记的下次测可以加进别名——这是从本单回答里数出来的真数据。"""
+
+    text: str
+    count: int
+    registered: bool
+
+
+def tally_spellings(
+    observations: Iterable[RunObservations], brand: BrandSpec, limit: int = SPELLINGS_LIMIT,
+) -> list[NameSpelling]:
+    """按主判定器的命中片段数写法(规则判定器没有命中片段,用它命中的登记名);大小写合并、显示第一次见到的写法。"""
+    known = {brand.name.strip().lower(), *(alias.strip().lower() for alias in brand.aliases)}
+    counts: Counter[str] = Counter()
+    display: dict[str, str] = {}
+    for o in observations:
+        m = o.mention
+        if m is None or not m.mentioned:
+            continue
+        text = (m.matched_text or m.matched_alias or "").strip()
+        if not text:
+            continue
+        key = text.lower()
+        counts[key] += 1
+        display.setdefault(key, text)
+    return [NameSpelling(text=display[key], count=n, registered=key in known) for key, n in counts.most_common(limit)]
 
 PRIMARY_CITATION_LABEL = f"{CITATION_LABEL}:primary"  # 主站引用率的命中口径(v0.4.26 S4)
 CHANNEL_CITATION_LABEL = f"{CITATION_LABEL}:official_channel"  # 官方渠道引用的命中口径(S5,单列)
