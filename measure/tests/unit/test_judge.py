@@ -102,8 +102,8 @@ def test_prompt_isolates_the_answer_as_data_and_carries_the_brand_card():
 
 def test_parse_verdict_checks_every_field_and_the_spans_mechanically():
     answer = "我们推荐 极光CRM,它比竞品甲好。"
-    v = parse_verdict('{"mentioned": true, "spans": ["极光CRM", "不在原文里"], "confidence": 0.8, '
-                      '"sentiment": "positive", "reason": "点名"}', answer)
+    v = parse_verdict('{"mentioned": true, "spans": ["极光CRM", "不在原文里", "极光CRM"], "confidence": 0.8, '
+                      '"sentiment": "positive", "reason": "点名"}', answer)  # 不在原文的去掉、重复的去重
     assert v == JudgeVerdict(mentioned=True, spans=["极光CRM"], first_position=answer.index("极光CRM"), confidence=0.8,
                              sentiment=Sentiment.POSITIVE, reason="点名")
     absent = parse_verdict('{"mentioned": false, "spans": ["极光CRM"], "confidence": 1, "sentiment": null, '

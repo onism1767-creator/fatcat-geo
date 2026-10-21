@@ -2,11 +2,12 @@
 # 主裁判 = 最便宜够用的型号;被测回答出自裁判自家时换备用裁判(另一家);两家都是自家 → 这条「裁判看不到」,不猜。
 # 厂商名只许出现在本文件与 adapters/。裁判不联网(search_disabled),只看回答文本与品牌卡;费用进辅助调用账本(task=裁判)。
 # est_cost_per_call_usd:推导上界——一条回答约 1,500 输入 token + 150 输出 token,按型号价目算后留余量;价目核对 2026-10-20。
+# 2026-10-21 真实冒烟:短回答每条 $0.00006–0.00011、2–4 秒;长回答按 1,500 输入 token 推导 ≈ $0.0003 → 写 0.0004。
 primary:
   surface: openai_web_search
-  model: gpt-6-luna                # $0.10 / $0.50 per MTok → 约 $0.0003 / 条,写 0.001 留余量
-  est_cost_per_call_usd: 0.001
+  model: gpt-6-luna                # $0.10 / $0.50 per MTok → 约 $0.0003 / 条,写 0.0004 留余量
+  est_cost_per_call_usd: 0.0004
 backup:
   surface: claude_web_search
   model: claude-haiku-5-5          # $0.10 / $0.50 per MTok,同上
-  est_cost_per_call_usd: 0.001
+  est_cost_per_call_usd: 0.0004

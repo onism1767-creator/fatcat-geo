@@ -82,7 +82,7 @@ _PROMPT = """你是「品牌提及」判定员。下面「待判定文本」是�
 
 只返回合法 JSON,不要 markdown,不要解释:
 {"mentioned": true 或 false,
- "spans": ["回答里原样摘出的片段,最多 3 处;没提到就是 []"],
+ "spans": ["回答里原样摘出的片段:只摘品牌名本身那几个字(含它的写法),不要整句;最多 3 处;没提到就是 []"],
  "confidence": 0 到 1 之间的数,
  "sentiment": "positive" 或 "neutral" 或 "negative" 或 "mixed" 或 null,
  "reason": "一句话理由"}
@@ -109,7 +109,7 @@ Decide two things:
 
 Return ONLY valid JSON, no markdown, no comments:
 {"mentioned": true or false,
- "spans": ["verbatim excerpts from the text, at most 3; [] when not mentioned"],
+ "spans": ["verbatim excerpts: just the brand name as written (not whole sentences), at most 3; [] when not mentioned"],
  "confidence": a number from 0 to 1,
  "sentiment": "positive" or "neutral" or "negative" or "mixed" or null,
  "reason": "one sentence"}
@@ -146,7 +146,8 @@ def parse_verdict(text: str, answer: str) -> JudgeVerdict:
     raw_spans = data.get("spans") or []
     if not isinstance(raw_spans, list) or not all(isinstance(s, str) for s in raw_spans):
         raise ValueError("spans 须为字符串数组")
-    spans = [s for s in (s.strip() for s in raw_spans[:MAX_SPANS]) if s and s in answer]  # 机械核对:必须原样在回答里
+    # 机械核对:必须原样在回答里;去重(裁判会把同一片段重复列)
+    spans = list(dict.fromkeys(s for s in (s.strip() for s in raw_spans[:MAX_SPANS]) if s and s in answer))
     if mentioned and not spans:
         raise ValueError("裁判说提到了,却摘不出原样出现在回答里的片段")
     confidence = data.get("confidence")
