@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from diagnosis.messages import msg, render_msg
 from diagnosis.verdict import SurfaceVerdict
+from engine.calibration import CalibrationReport
 from report.i18n import INTENT_LABELS, MESSAGES
 from report.summary import ApiLine, WrapUp
 
@@ -91,3 +92,24 @@ def verdict_text(verdict: SurfaceVerdict, display: str, lang: str) -> str:
         missing = t["count_sep"].join(render_msg(msg(code), lang, "plain") for code in verdict.missing)
         text += f"({t['missing_pre']}{missing})"
     return text
+
+
+def calibration_text(report: CalibrationReport, lang: str) -> str:
+    """确认页「准确率对比」(S9.4,用户定):只写自动校准数出来的计数,标明非人工核对;没跑过就不叫这个函数。"""
+    t = MESSAGES[lang]
+    rules, fuzzy, judge = report.totals("rules"), report.totals("fuzzy"), report.totals("judge")
+    parts = [t["calib_head"].format(date=report.calibrated_at.strftime("%Y-%m-%d"), n=report.n_answers),
+             t["calib_pos"].format(r=rules["pos_hit"], rn=rules["pos_n"], f=fuzzy["pos_hit"], fn=fuzzy["pos_n"])]
+    if judge["pos_n"]:
+        parts.append(t["calib_pos_judge"].format(j=judge["pos_hit"], jn=judge["pos_n"]))
+    parts.append(t["calib_neg"].format(r=rules["neg_false"], rn=rules["neg_n"], f=fuzzy["neg_false"],
+                                       fn=fuzzy["neg_n"]))
+    if judge["neg_n"]:
+        parts.append(t["calib_neg_judge"].format(j=judge["neg_false"], jn=judge["neg_n"]))
+    pair = report.pair("rules", "fuzzy")
+    if pair is not None:
+        parts.append(t["calib_rf"].format(d=pair.disagree, n=pair.n))
+    if report.double_judge is not None and report.double_judge.n:
+        parts.append(t["calib_double"].format(a=report.double_judge.agree, n=report.double_judge.n))
+    parts.append(t["calib_tail"])
+    return "".join(parts)

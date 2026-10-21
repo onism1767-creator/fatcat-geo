@@ -28,6 +28,7 @@ from report.forms import (
 )
 from report.i18n import MESSAGES
 from report.jobs import STALL_MINUTES, DiagnosisJob, JobState
+from report.narrative import calibration_text
 from report.response_view import build_response_view, run_belongs_to
 from report.summary import summarize
 from report.web import ctx_of, error_text, lang_of, not_found, redirect
@@ -121,6 +122,8 @@ async def confirm_page(request: Request, job_id: str, error: str = ""):
                       default_keys=default_keys,
                       default_runs=tiers.default_tier.runs_per_prompt, custom_runs=tiers.custom_runs,
                       est_basis=" ".join(basis),
+                      calibration_text=(calibration_text(ctx.calibration, lang_of(request))
+                                        if ctx.calibration is not None else None),
                       error=error_text(request, error, min=str(tiers.custom_runs.min), max=str(tiers.custom_runs.max)))
 
 

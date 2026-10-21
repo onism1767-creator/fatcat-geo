@@ -35,7 +35,8 @@ def _client() -> tuple[TestClient, list]:
         calls.append(job.job_id)
 
     app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter(), "s2": TwoModelAdapter()},
-                     dsn="postgresql://unused", evidence=REGISTRY, job_runner=stub_runner)
+                     dsn="postgresql://unused", evidence=REGISTRY, job_runner=stub_runner,
+                     calibration=None)  # 页面测试不读本机的校准文件:「还没校准」的样子也要能测
     return TestClient(app), calls
 
 

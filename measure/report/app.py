@@ -13,6 +13,7 @@ from fastapi import FastAPI
 
 from adapters.base import SurfaceAdapter
 from diagnosis.recommender import EvidenceEntry, load_evidence_registry
+from engine.calibration import CalibrationReport, load_calibration
 from engine.envfile import load_env_file
 from engine.judge import JudgeConfig, load_judges
 from engine.loader import build_adapters
@@ -25,6 +26,13 @@ from report.routes import router
 from report.web import WebContext, target_namer
 
 
+class _Unset:
+    """「没传」与「明确没有校准结果」要分得开:测试里传 None 表示还没校准,不读本机文件。"""
+
+
+_UNSET = _Unset()
+
+
 def create_app(
     *,
     adapters: dict[str, SurfaceAdapter] | None = None,
@@ -35,6 +43,7 @@ def create_app(
     registry: JobRegistry | None = None,  # 启动恢复(v0.4.9)由入口注入;缺省全新登记处
     tiers: TierConfig | None = None,  # 档位配置(S9.1);None = 读 config/tiers.yaml
     judges: JudgeConfig | None = None,  # 高档裁判配置(S9.3);None = 读 config/judges.yaml
+    calibration: CalibrationReport | None | _Unset = _UNSET,  # 自动校准结果(S9.4);不给 = 读 config/calibration.yaml
 ) -> FastAPI:
     if adapters is None:
         load_env_file()
@@ -58,6 +67,7 @@ def create_app(
         target_name=target_namer(adapters),
         tiers=tiers or load_tiers(),
         judges=judges or load_judges(),
+        calibration=load_calibration() if isinstance(calibration, _Unset) else calibration,
     )
     app.include_router(router)
     return app

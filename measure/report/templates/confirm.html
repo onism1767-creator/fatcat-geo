@@ -67,7 +67,8 @@
       </label>
       {% endfor %}
     </div>
-    <p class="kv muted">{{ t["tier_accuracy_note"] }}</p>
+    {#- 准确率对比(S9.4):只写自动校准数出来的计数;没跑过就说没跑过 -#}
+    {% if calibration_text %}<p class="kv">{{ calibration_text }}</p>{% else %}<p class="kv muted">{{ t["tier_accuracy_note"] }}</p>{% endif %}
 
     {#- 自定义(用户定 T8):以选中的档位为起点改型号与次数;「提到你」怎么认跟起点档走 -#}
     <details>
