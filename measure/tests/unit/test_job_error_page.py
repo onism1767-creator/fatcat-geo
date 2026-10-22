@@ -46,12 +46,12 @@ def _page(job: DiagnosisJob, lang: str) -> str:
 
 
 def test_credit_and_auth_problems_get_their_own_sentence_in_both_languages():
-    credit_zh = _page(_failed_job("job_error.account_credit"), "zh")
+    credit_zh = _page(_failed_job("ACCOUNT_CREDIT"), "zh")
     assert "S1(型号 m1)" in credit_zh and "额度不足" in credit_zh and "充值" in credit_zh
     assert "Your credit balance is too low" in credit_zh and "AccountProblem" not in credit_zh
-    auth_zh = _page(_failed_job("job_error.account_auth"), "zh")
+    auth_zh = _page(_failed_job("ACCOUNT_AUTH"), "zh")
     assert "key 无效或没有使用权限" in auth_zh and "换好后" in auth_zh and "充值" not in auth_zh
-    credit_en = _page(_failed_job("job_error.account_credit"), "en")
+    credit_en = _page(_failed_job("ACCOUNT_CREDIT"), "en")
     assert "out of credit" in credit_en and "Top up" in credit_en
 
 
@@ -61,7 +61,7 @@ def test_uncoded_failures_still_show_their_raw_text():
 
 
 def test_db_unreachable_has_its_own_code_and_instructions():
-    page = _page(_failed_job("job_error.db_unreachable"), "zh")
+    page = _page(_failed_job("DB_UNREACHABLE"), "zh")
     assert "DB_UNREACHABLE" in page and "pgdev.ps1 status" in page and "PG_ZOMBIE" in page
 
 

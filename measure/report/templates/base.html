@@ -74,7 +74,8 @@
 <body>
 <header><div class="wrap"><a href="/?lang={{ lang }}">GEO Insight</a>
   <span class="muted">{{ t["tagline"] }}</span>
-  <span style="margin-left:auto"><a class="muted" href="?lang={{ 'en' if lang == 'zh' else 'zh' }}">{{ t["lang_switch"] }}</a></span></div></header>
+  <span style="margin-left:auto"><a class="muted" href="/errors?lang={{ lang }}">{{ t["errors_nav"] }}</a> ·
+    <a class="muted" href="?lang={{ 'en' if lang == 'zh' else 'zh' }}">{{ t["lang_switch"] }}</a></span></div></header>
 <main class="wrap">{% block content %}{% endblock %}</main>
 </body>
 </html>

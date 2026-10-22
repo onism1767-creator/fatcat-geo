@@ -311,7 +311,7 @@ def test_confirm_validation_errors_are_plain_codes_not_free_text(client_and_job)
     confirm_url = resp.headers["location"]
     job_path = confirm_url.split("?")[0].rsplit("/", 1)[0]
     back = client.post(f"{job_path}/confirm?lang=zh", data={"targets_selected": ["s1::m1"]}, follow_redirects=False)
-    assert "error=err_prompts_count" in back.headers["location"]
+    assert "error=FORM_PROMPTS_COUNT" in back.headers["location"]
     page = visible_text(client.get(back.headers["location"]).text)
     assert "要测的题请选 1 到 40 道" in page and not any(token in page for token in UI_FORBIDDEN)
     forged = visible_text(client.get(f"{job_path}/confirm?lang=zh&error=job_stalled").text)

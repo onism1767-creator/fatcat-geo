@@ -84,7 +84,7 @@ async def create_job(
     job.candidates = drafted + manual_candidates(questions, brand)
     if not job.candidates:
         return ctx.render(request, "index.html", jobs=ctx.registry.recent(), surfaces=sorted(ctx.adapters),
-                          error=error_text(request, "err_no_question"))
+                          error=error_text(request, "FORM_NO_QUESTION"))
     job.preselected = preselect_candidates(job.candidates)
     ctx.registry.add(job)
     return redirect(request, f"/jobs/{job.job_id}/confirm")
@@ -249,7 +249,7 @@ def _relaunch(request: Request, job: DiagnosisJob, *, replay: bool):
     ctx = ctx_of(request)
     missing = sorted({t.surface for t in job.targets if t.surface not in ctx.adapters})
     if missing:
-        return redirect(request, f"/?error=err_missing_ai&names={','.join(missing)}")
+        return redirect(request, f"/?error=RESUME_MISSING_AI&names={','.join(missing)}")
     ctx.launcher.launch(job, replay=replay)
     return redirect(request, f"/jobs/{job.job_id}")
 
@@ -261,15 +261,24 @@ async def job_status(request: Request, job_id: str):
     if job is None:
         return not_found()
     now = datetime.now(UTC)
-    t = MESSAGES[lang_of(request)]
-    # 有代码的出错说明按当前界面语言组句;没代码的(意外异常)照原文
-    failure = t[job.error_code].format(**job.error_params) if job.error_code else job.error
+    lang = lang_of(request)
+    # 有代码的出错说明从错误库按当前界面语言组句(S10.1);没代码的(旧快照)照原文
+    failure = (ctx.errors[job.error_code].text(lang, with_next_step=True, **job.error_params)
+               if job.error_code else job.error)
     quiet = job.quiet_minutes(now)  # 卡住了没有?(v0.4.22)超过阈值给 JOB_STALLED
-    stalled = t["job_stalled"].format(minutes=round(quiet)) if quiet is not None and quiet >= STALL_MINUTES else None
+    stalled = (ctx.errors["JOB_STALLED"].text(lang, with_next_step=True, minutes=str(round(quiet)))
+               if quiet is not None and quiet >= STALL_MINUTES else None)
     return ctx.render(request, "job.html", job=job, runs_per_prompt=job.frozen_tier().runs_per_prompt,
                       elapsed_minutes=job.elapsed_minutes(now), eta_minutes=job.eta_minutes(now),
                       verify_remaining_minutes=job.verify_remaining_minutes(now, VERIFY_BUDGET_S),
                       error_text=failure, quiet_minutes=quiet, stalled_text=stalled)
+
+
+@router.get("/errors", response_class=HTMLResponse)
+async def error_codes(request: Request):
+    """错误码对照页(S10.1):config/errors.yaml 全部条目,给用户与客服对照。"""
+    ctx = ctx_of(request)
+    return ctx.render(request, "errors.html", groups=ctx.errors.by_scope())
 
 
 @router.get("/jobs/{job_id}/report", response_class=HTMLResponse)

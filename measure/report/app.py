@@ -20,6 +20,7 @@ from engine.loader import build_adapters
 from engine.storage import CallStat, Storage, default_dsn
 from engine.tiers import TierConfig, load_tiers
 from report import runner
+from report.errors import ErrorLibrary, load_errors
 from report.jobs import JobRegistry
 from report.launcher import JobLauncher, JobRunner
 from report.routes import router
@@ -44,6 +45,7 @@ def create_app(
     tiers: TierConfig | None = None,  # 档位配置(S9.1);None = 读 config/tiers.yaml
     judges: JudgeConfig | None = None,  # 高档裁判配置(S9.3);None = 读 config/judges.yaml
     calibration: CalibrationReport | None | _Unset = _UNSET,  # 自动校准结果(S9.4);不给 = 读 config/calibration.yaml
+    errors: ErrorLibrary | None = None,  # 错误库(S10.1);None = 读 config/errors.yaml
 ) -> FastAPI:
     if adapters is None:
         load_env_file()
@@ -68,6 +70,7 @@ def create_app(
         tiers=tiers or load_tiers(),
         judges=judges or load_judges(),
         calibration=load_calibration() if isinstance(calibration, _Unset) else calibration,
+        errors=errors or load_errors(),
     )
     app.include_router(router)
     return app

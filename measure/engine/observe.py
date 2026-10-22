@@ -22,7 +22,7 @@ from engine.detectors.retrieval_rank import RetrievalRankDetector
 from engine.detectors.runner import Detector, ObservationStore
 from engine.detectors.sentiment import SentimentDetector
 from engine.detectors.source_class import SourceClassifier
-from engine.judge import MentionJudge
+from engine.judge import JudgeUnavailable, MentionJudge
 from engine.models import (
     BrandMentionObservation,
     BrandSpec,
@@ -52,7 +52,7 @@ def mention_detector(method: MentionMethod, judge: MentionJudge | None = None) -
     if method is MentionMethod.RULES_FUZZY:
         return _FUZZY
     if judge is None:
-        raise ValueError("高档的提及判定要 AI 裁判,但没有装配裁判(config/judges.yaml 的型号没加载)")
+        raise JudgeUnavailable("高档的提及判定要 AI 裁判,但没有装配裁判(config/judges.yaml 的型号没加载)")
     return JudgeBrandMentionDetector(judge)
 
 

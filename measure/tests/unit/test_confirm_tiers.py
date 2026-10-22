@@ -91,7 +91,7 @@ def test_estimate_endpoint_returns_every_tier_and_flags_custom():
                                                   "targets_selected": ["s1::m1"]}).json()
     assert fewer["custom"] is True
     bad = client.post(f"{path}/estimate", data={**base, "tier": "low", "runs": "11", "targets_selected": ["s1::m1"]})
-    assert bad.status_code == 400 and bad.json() == {"error": "err_runs_range"}
+    assert bad.status_code == 400 and bad.json() == {"error": "FORM_RUNS_RANGE"}
 
 
 def test_confirm_freezes_the_tier_and_the_runner_reads_it():
@@ -126,13 +126,13 @@ def test_tier_and_runs_are_validated_with_plain_errors():
     url = _confirm_url(client)
     base = {"prompts_selected": ["0"], "custom": "", "targets_selected": ["s1::m1"]}
     no_tier = client.post(url, data={**base, "runs": "3"}, follow_redirects=False)
-    assert "error=err_bad_tier" in no_tier.headers["location"]
+    assert "error=FORM_BAD_TIER" in no_tier.headers["location"]
     too_many = client.post(url, data={**base, "tier": "low", "runs": "11"}, follow_redirects=False)
-    assert "error=err_runs_range" in too_many.headers["location"]
+    assert "error=FORM_RUNS_RANGE" in too_many.headers["location"]
     page = visible_text(client.get(too_many.headers["location"]).text)
     assert "每题次数请填 3 到 10" in page
     not_int = client.post(url, data={**base, "tier": "low", "runs": "three"}, follow_redirects=False)
-    assert "error=err_runs_range" in not_int.headers["location"]
+    assert "error=FORM_RUNS_RANGE" in not_int.headers["location"]
 
 
 def test_fingerprint_changes_with_tier_runs():

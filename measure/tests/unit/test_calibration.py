@@ -120,3 +120,14 @@ def test_confirm_page_shows_measured_counts_only_after_calibration():
     assert "规则误认 0/600,模糊误认 3/600,裁判误认 0/70" in after
     assert "规则与模糊判法不同 31/900 条" in after and "两家裁判一致 91/95 条" in after
     assert "低档用规则,中档用模糊,高档用裁判" in after
+
+
+def test_prefetch_hook_gets_the_sampled_answers_then_their_synthetic_runs():
+    """脚本靠这个钩子并行预判:先抽样的真实回答(两家都判),再这些底本的合成样本(只请主裁判)。"""
+    samples = [sample("常见选择包括 Alpha。", "r1"), sample("推荐 极光CRM。", "r2")]
+    calls = []
+    calibrate(samples, source="测试", judge_a=lambda run, brand: False, judge_b=lambda run, brand: False,
+              judge_sample=2, prefetch=lambda batch, both: calls.append((sorted(s.run.run_id for s in batch), both)))
+    assert calls[0] == (["r1", "r2"], True)
+    synthetic_ids, both = calls[1]
+    assert both is False and synthetic_ids and all(i.startswith("r1#") for i in synthetic_ids)  # 只有 r1 是底本

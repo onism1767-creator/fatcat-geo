@@ -96,16 +96,34 @@ def main() -> int:
         first = MentionJudge(config, adapters, ledger=lambda r: spent.append(r.cost_usd), locale="zh-CN")
         second = MentionJudge(swapped, adapters, ledger=lambda r: spent.append(r.cost_usd), locale="zh-CN")
 
-        def as_bool(judge: MentionJudge):
+        def same_judge(run) -> bool:
+            """两家裁判必须真是两家:被测回答出自其中一家时两边会挑到同一个型号,这条就不算「两家一致」。"""
+            mine, theirs = first.pick(run), second.pick(run)
+            return mine is None or theirs is None or mine[1] == theirs[1]
+
+        def as_bool(judge: MentionJudge, second_opinion: bool = False):
             def says(run, brand):
+                if second_opinion and same_judge(run):
+                    return None
                 verdict = judge.judge(run, brand)
                 return None if verdict is None else verdict.mentioned
             return says
 
-        judge_a, judge_b = as_bool(first), as_bool(second)
+        judge_a, judge_b = as_bool(first), as_bool(second, second_opinion=True)
+
+        def prefetch(batch, both: bool) -> None:
+            """并行预判(4 路),裁判结论进缓存;calibrate 再顺序读。"""
+            by_brand: dict[str, tuple[BrandSpec, list[SurfaceRun]]] = {}
+            for s in batch:
+                by_brand.setdefault(s.brand.name, (s.brand, []))[1].append(s.run)
+            for brand, runs in by_brand.values():
+                first.warm(runs, brand, concurrency=4)
+                if both:
+                    second.warm([r for r in runs if not same_judge(r)], brand, concurrency=4)
     try:
         report = calibrate(samples, source=source, judge_a=judge_a, judge_b=judge_b,
-                           judge_sample=args.judge_sample, seed=args.seed)
+                           judge_sample=args.judge_sample, seed=args.seed,
+                           prefetch=prefetch if judge_a is not None else None)
     finally:
         for adapter in adapters.values():
             adapter.close()

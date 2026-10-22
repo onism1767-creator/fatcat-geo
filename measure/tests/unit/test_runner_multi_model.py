@@ -203,7 +203,7 @@ def test_account_problem_halts_job_plainly_and_resume_keeps_account_rows_out_of_
     runner.execute_job(job=job, adapters={"two_model": TwoModelAdapter(broke_model=SILENT)},
                        dsn=TEST_DSN, evidence=evidence)
     assert job.state is JobState.FAILED
-    assert job.error_code == "job_error.account_credit"  # 充值那句,不是换 key 那句
+    assert job.error_code == "ACCOUNT_CREDIT"  # 充值那句,不是换 key 那句
     assert job.error_params["ai"] == "假 AI" and job.error_params["model"] == SILENT
     assert "credit balance" in job.error_params["detail"] and job.error is None
     restored = DiagnosisJob.from_snapshot(job.to_snapshot())  # 出错说明进快照:去充值期间重启也不丢

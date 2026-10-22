@@ -14,6 +14,9 @@ from engine.tiers import TierChoice, TierConfig, tier_targets
 from report.jobs import DiagnosisJob
 
 MAX_PROMPTS = 40  # 产品文档默认 24 道;用户可增删,封顶 40
+# 表单校验会返回的错误码(S10.1):都在 config/errors.yaml 里(测试把守),文案从库里取
+FORM_CODES = ("FORM_PROMPTS_COUNT", "FORM_NO_TARGET", "FORM_BAD_TIER", "FORM_RUNS_RANGE", "FORM_BAD_BUDGET",
+              "FORM_NO_QUESTION", "RESUME_MISSING_AI")
 
 
 def lines_of(text: str) -> list[str]:
@@ -76,16 +79,16 @@ def tier_choice(
     确认与实时预估共用;不合格返回错误码。"""
     spec = tiers.get(tier)
     if spec is None:
-        return "err_bad_tier"
+        return "FORM_BAD_TIER"
     try:
         n = int(runs)
     except ValueError:
-        return "err_runs_range"
+        return "FORM_RUNS_RANGE"
     if not tiers.allows_runs(n):
-        return "err_runs_range"
+        return "FORM_RUNS_RANGE"
     targets = selected_targets(targets_selected, adapters)
     if not targets:
-        return "err_no_target"
+        return "FORM_NO_TARGET"
     standard = {t.key for t in tier_targets(spec, adapters)}
     custom = {t.key for t in targets} != standard or n != spec.runs_per_prompt
     return TierChoice(name=spec.name, runs_per_prompt=n, mention_method=spec.mention_method, custom=custom), targets
@@ -128,7 +131,7 @@ def confirm_choice(
         for text in lines_of(custom)
     ]
     if not 1 <= len(prompts) <= MAX_PROMPTS:
-        return "err_prompts_count"
+        return "FORM_PROMPTS_COUNT"
     chosen = tier_choice(tiers, adapters, tier=tier, runs=runs, targets_selected=targets_selected)
     if isinstance(chosen, str):
         return chosen
@@ -136,9 +139,9 @@ def confirm_choice(
     try:
         budget_usd = float(budget) if budget.strip() else None
     except ValueError:
-        return "err_bad_params"
+        return "FORM_BAD_BUDGET"
     if budget_usd is not None and budget_usd <= 0:
-        return "err_bad_params"
+        return "FORM_BAD_BUDGET"
     competitors = [
         BrandSpec(name=c.name, domains=[c.domain])
         for i in competitors_selected if 0 <= i < len(job.competitors_suggested)

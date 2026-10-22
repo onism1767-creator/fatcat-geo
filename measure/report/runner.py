@@ -39,7 +39,7 @@ from engine.brand_domains import BrandDomainDiscovery, load_platforms
 from engine.detectors.brand_mention_judge import DETECTOR_NAME as JUDGE_DETECTOR
 from engine.detectors.brand_mention_judge import SENTIMENT_DETECTOR_NAME as JUDGE_SENTIMENT
 from engine.detectors.matching import registrable
-from engine.judge import JudgeConfig, JudgeVerdict, MentionJudge, load_judges
+from engine.judge import JudgeConfig, JudgeUnavailable, JudgeVerdict, MentionJudge, load_judges
 from engine.method import METHOD_VERSION
 from engine.models import (
     BrandDomainList,
@@ -105,6 +105,10 @@ class _ProgressSink:
             self._job.last_result_at = datetime.now(UTC)
 
 
+# 执行器会写进 job.error_code 的码(S10.1):都在 config/errors.yaml 里(测试把守),文案由任务页从库里取
+RUNNER_CODES = ("ACCOUNT_AUTH", "ACCOUNT_CREDIT", "DB_UNREACHABLE", "JUDGE_UNAVAILABLE", "JOB_CRASHED")
+
+
 def execute_job(
     *,
     job: DiagnosisJob,
@@ -122,9 +126,9 @@ def execute_job(
                   model=exc.model, error=exc.message)
         display = adapters[exc.surface].meta().display_name if exc.surface in adapters else exc.surface
         job.state = JobState.FAILED
-        job.error_code = {  # 两种账户问题两句话:换 key / 充值(文案在 report/i18n.py,随界面语言渲染)
-            RunErrorType.ACCOUNT_AUTH: "job_error.account_auth",
-            RunErrorType.ACCOUNT_CREDIT: "job_error.account_credit",
+        job.error_code = {  # 两种账户问题两句话:换 key / 充值(文案在 config/errors.yaml,随界面语言渲染)
+            RunErrorType.ACCOUNT_AUTH: "ACCOUNT_AUTH",
+            RunErrorType.ACCOUNT_CREDIT: "ACCOUNT_CREDIT",
         }[exc.error_type]
         job.error_params = {"ai": display, "model": exc.model, "detail": exc.message}
         job.error = None
@@ -133,13 +137,20 @@ def execute_job(
     except StorageUnavailable as exc:  # v0.4.22:数据库掉线也要有代码和人话
         log.error("job_halted_db_unreachable", job_id=job.job_id, error=str(exc))
         job.state = JobState.FAILED
-        job.error_code, job.error_params, job.error = "job_error.db_unreachable", {"detail": str(exc)}, None
+        job.error_code, job.error_params, job.error = "DB_UNREACHABLE", {"detail": str(exc)}, None
         job.phase = "phase_failed"
         _persist_failure(job, dsn)
-    except Exception as exc:  # 失败不静默:状态页如实展示
+    except JudgeUnavailable as exc:  # S10.1:高档的裁判没准备好,也要有码和人话
+        log.error("job_halted_judge_unavailable", job_id=job.job_id, error=str(exc))
+        job.state = JobState.FAILED
+        job.error_code, job.error_params, job.error = "JUDGE_UNAVAILABLE", {"detail": str(exc)}, None
+        job.phase = "phase_failed"
+        _persist_failure(job, dsn)
+    except Exception as exc:  # 失败不静默:状态页如实展示,也给码(S10.1)
         log.error("job_failed", job_id=job.job_id, error=f"{type(exc).__name__}: {exc}")
         job.state = JobState.FAILED
-        job.error = f"{type(exc).__name__}: {exc}"
+        job.error_code, job.error_params = "JOB_CRASHED", {"detail": f"{type(exc).__name__}: {exc}"}
+        job.error = None
         job.phase = "phase_failed"
         _persist_failure(job, dsn)
 

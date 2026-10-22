@@ -197,8 +197,10 @@ def calibrate(
     judge_sample: int = 0,
     seed: int = 0,
     now: datetime | None = None,
+    prefetch: Callable[[Sequence[Sample], bool], None] | None = None,
 ) -> CalibrationReport:
-    """三件套一次跑完。裁判只在抽样的 judge_sample 条真实回答及其合成样本上跑(花钱有界);没给裁判就只比规则 / 模糊。"""
+    """三件套一次跑完。裁判只在抽样的 judge_sample 条真实回答及其合成样本上跑(花钱有界);没给裁判就只比规则 / 模糊。
+    prefetch(批, 两家都判吗):给脚本并行预判的钩子——先把一批裁判结论并行取回缓存,这里再顺序读。"""
     rng = random.Random(seed)
     rules, fuzzy = _rules_judge(), _fuzzy_judge()
     verdicts: dict[str, dict[str, bool | None]] = {m: {} for m in METHODS}  # 判法 → run_id → 结论
@@ -209,6 +211,8 @@ def calibrate(
     double: DoubleJudge | None = None
     if judge_a is not None and judge_sample > 0:
         judged = rng.sample(list(samples), min(judge_sample, len(samples)))
+        if prefetch is not None:
+            prefetch(judged, True)
         for s in judged:
             verdicts["judge"][s.run.run_id] = judge_a(s.run, s.brand)
         if judge_b is not None:
@@ -229,20 +233,23 @@ def calibrate(
     bases = [s for s in samples if verdicts["rules"].get(s.run.run_id) is False
              and verdicts["fuzzy"].get(s.run.run_id) is False]
     judged_ids = {s.run.run_id for s in judged if verdicts["judge"].get(s.run.run_id) is False}
+    synthetic_runs = [(base, variant, synthetic_run(base, variant, i))
+                      for base in bases for i, variant in enumerate(variants_of(base.brand))]
+    if prefetch is not None and judge_a is not None:
+        prefetch([Sample(run=run, brand=base.brand) for base, _, run in synthetic_runs
+                  if base.run.run_id in judged_ids], False)  # 合成样本只请主裁判
     scores: dict[tuple[str, str, bool], list[int]] = {}
-    for base in bases:
-        for i, variant in enumerate(variants_of(base.brand)):
-            run = synthetic_run(base, variant, i)
-            methods: list[tuple[str, Judge]] = [("rules", rules), ("fuzzy", fuzzy)]
-            if judge_a is not None and base.run.run_id in judged_ids:
-                methods.append(("judge", judge_a))
-            for method, says in methods:
-                said = says(run, base.brand)
-                if said is None:
-                    continue  # 看不到的不算
-                cell = scores.setdefault((method, variant.kind, variant.expected), [0, 0])
-                cell[0] += 1
-                cell[1] += int(said == variant.expected)
+    for base, variant, run in synthetic_runs:
+        methods: list[tuple[str, Judge]] = [("rules", rules), ("fuzzy", fuzzy)]
+        if judge_a is not None and base.run.run_id in judged_ids:
+            methods.append(("judge", judge_a))
+        for method, says in methods:
+            said = says(run, base.brand)
+            if said is None:
+                continue  # 看不到的不算
+            cell = scores.setdefault((method, variant.kind, variant.expected), [0, 0])
+            cell[0] += 1
+            cell[1] += int(said == variant.expected)
     synthetic = [KindScore(method=m, kind=k, expected=e, n=n, correct=c)
                  for (m, k, e), (n, c) in sorted(scores.items(), key=lambda kv: (METHODS.index(kv[0][0]), kv[0][1]))]
     return CalibrationReport(

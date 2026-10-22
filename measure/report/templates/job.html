@@ -32,8 +32,8 @@
   <div class="bar"><div style="width: {{ (100 * job.judge_done / job.judge_total)|round|int if job.judge_total else 0 }}%"></div></div>
   {% endif %}
   {% if quiet_minutes %}<p class="kv muted">{{ t["last_result_line"].format(minutes=quiet_minutes|round(1)) }}</p>{% endif %}
-  {% if stalled_text %}<div class="err">{{ stalled_text }}</div>{% endif %}
-  {% if error_text %}<div class="err">{{ t["job_failed"] }}:{{ error_text }}</div>{% endif %}
+  {% if stalled_text %}<div class="err">{{ stalled_text }} <a href="/errors?lang={{ lang }}#JOB_STALLED">{{ t["errors_link"].format(code="JOB_STALLED") }}</a></div>{% endif %}
+  {% if error_text %}<div class="err">{{ t["job_failed"] }}:{{ error_text }}{% if job.error_code %} <a href="/errors?lang={{ lang }}#{{ job.error_code }}">{{ t["errors_link"].format(code=job.error_code) }}</a>{% endif %}</div>{% endif %}
 </div>
 
 {% if job.access_result %}

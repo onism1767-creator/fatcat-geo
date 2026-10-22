@@ -33,6 +33,10 @@ DEFAULT_JUDGES_PATH = Path(__file__).resolve().parents[1] / "config" / "judges.y
 MAX_SPANS = 3
 
 
+class JudgeUnavailable(ValueError):
+    """高档需要裁判但裁判没准备好(没加载 / 型号不在清单 / 不支持不联网 / 没装配):整单停下,给码 JUDGE_UNAVAILABLE。"""
+
+
 class JudgeModel(FrozenModel):
     surface: str
     model: str
@@ -187,12 +191,12 @@ class MentionJudge:
         for spec in (config.primary, config.backup):
             adapter = adapters.get(spec.surface)
             if adapter is None:
-                raise ValueError(f"高档需要 AI 裁判,但裁判仪器 {spec.surface} 没有加载(缺 key 或已下线)")
+                raise JudgeUnavailable(f"高档需要 AI 裁判,但裁判仪器 {spec.surface} 没有加载(缺 key 或已下线)")
             meta = adapter.meta()
             if spec.model not in meta.models:
-                raise ValueError(f"裁判型号 {spec.model} 不在 {spec.surface} 的清单里")
+                raise JudgeUnavailable(f"裁判型号 {spec.model} 不在 {spec.surface} 的清单里")
             if not meta.capabilities.supports_search_disabled:
-                raise ValueError(f"裁判仪器 {spec.surface} 不支持不联网调用,不能当裁判")
+                raise JudgeUnavailable(f"裁判仪器 {spec.surface} 不支持不联网调用,不能当裁判")
             self._judges.append((adapter, spec, meta.provider))
         self._cache: dict[str, JudgeVerdict | None] = {}
         self._lock = threading.Lock()

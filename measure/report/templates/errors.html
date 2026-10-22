@@ -1,0 +1,24 @@
+{% extends "base.html" %}
+{% block title %}{{ t["errors_title"] }}{% endblock %}
+{% block content %}
+<h1>{{ t["errors_title"] }}</h1>
+<p class="muted">{{ t["errors_intro"] }}</p>
+{#- 错误库对照页(S10.1):config/errors.yaml 全部条目按范围分组;供用户与客服对照,代码本身就是内容 -#}
+{% for scope, entries in groups %}
+<div class="card">
+  <h2 style="margin-top:0">{{ t["errors_scope_" + scope] }}</h2>
+  <table class="brief">
+    <tr><th>{{ t["errors_col_code"] }}</th><th>{{ t["errors_col_when"] }}</th><th>{{ t["errors_col_see"] }}</th><th>{{ t["errors_col_next"] }}</th><th>{{ t["errors_col_resume"] }}</th></tr>
+    {% for e in entries %}
+    <tr id="{{ e.code }}">
+      <td><span class="id">{{ e.code }}</span></td>
+      <td>{{ e.trigger[lang] }}</td>
+      <td>{{ e.message[lang] }}</td>
+      <td>{{ e.next_step[lang] }}</td>
+      <td>{{ t["errors_yes"] if e.resumable else t["errors_no"] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+</div>
+{% endfor %}
+{% endblock %}

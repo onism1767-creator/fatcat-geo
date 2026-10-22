@@ -1,0 +1,255 @@
+# 错误库(S10.1;架构书附录 v0.4.27 第 4b 节,用户定 2026-10-12「完整的错误库和错误页面」)。
+# 用户跑一单会遇到的全部失败路径,每个码一条:什么时候出现(trigger)、用户看到的一句话(message)、下一步(next_step)、
+# 能不能「接着跑」(resumable)。zh / en 两套,测试机械把守(每个码双语齐全、代码里用到的码都在表里)。
+# message / next_step 里的 {占位符} 由出错处填;/errors 页按 scope 分组列出全部码。码名风格与产品文档 11.2 / 15.2 一致。
+#
+# scope:form 首页 / 确认页表单校验 · account 我方账户 · db 本机数据库 · job 整单停下 · ai 单次提问 · judge 高档裁判 ·
+#        breaker 熔断(整条腿提前停) · page 打开网页 · verify 核验被引网页 · access 官网抓取审计
+errors:
+  # ── 表单 ──
+  - code: FORM_PROMPTS_COUNT
+    scope: form
+    resumable: false
+    trigger: {zh: "确认页勾的题目不在 1 到 40 道之间", en: "The confirm page has fewer than 1 or more than 40 questions ticked"}
+    message: {zh: "要测的题请选 1 到 40 道。", en: "Please pick 1 to 40 questions to test."}
+    next_step: {zh: "回到确认页增减题目再确认。", en: "Adjust the ticked questions on the confirm page and confirm again."}
+  - code: FORM_NO_TARGET
+    scope: form
+    resumable: false
+    trigger: {zh: "确认页一个 AI 型号都没勾", en: "No AI model is ticked on the confirm page"}
+    message: {zh: "请至少选一个要测的 AI 型号。", en: "Please pick at least one AI model to test."}
+    next_step: {zh: "在「自定义」里勾上型号,或直接选一个档位。", en: "Tick a model under Customise, or pick a tier."}
+  - code: FORM_BAD_TIER
+    scope: form
+    resumable: false
+    trigger: {zh: "表单里的档位名不在 config/tiers.yaml 里", en: "The submitted tier name is not in config/tiers.yaml"}
+    message: {zh: "请选一个档位。", en: "Please pick a tier."}
+    next_step: {zh: "回到确认页选低 / 中 / 高任一档。", en: "Go back and pick the low, medium or high tier."}
+  - code: FORM_RUNS_RANGE
+    scope: form
+    resumable: false
+    trigger: {zh: "自定义的每题次数不是 {min} 到 {max} 的整数", en: "Custom times-per-question is not a whole number from {min} to {max}"}
+    message: {zh: "每题次数请填 {min} 到 {max} 之间的整数。", en: "Times per question must be a whole number from {min} to {max}."}
+    next_step: {zh: "改好次数再确认。", en: "Fix the number and confirm again."}
+  - code: FORM_BAD_BUDGET
+    scope: form
+    resumable: false
+    trigger: {zh: "费用上限不是正数", en: "The spending cap is not a positive number"}
+    message: {zh: "预算填得不对,请检查后再试。", en: "The budget is not valid — please check and try again."}
+    next_step: {zh: "填一个正数,或留空表示不设上限。", en: "Enter a positive number, or leave it blank for no cap."}
+  - code: FORM_NO_QUESTION
+    scope: form
+    resumable: false
+    trigger: {zh: "首页既没手填问题也没勾「让系统帮我出题」", en: "No question typed on the home page and drafting not ticked"}
+    message: {zh: "请至少手填一个问题,或者勾选「让系统帮我出题」。", en: "Enter at least one question, or tick “Draft questions for me”."}
+    next_step: {zh: "补一个问题或勾上出题再提交。", en: "Add a question or tick drafting, then submit."}
+  - code: RESUME_MISSING_AI
+    scope: form
+    resumable: false
+    trigger: {zh: "要接着跑的单里有 AI 没接入(缺 API key)", en: "A job to resume uses an AI that is not connected (missing API key)"}
+    message: {zh: "有的 AI 没接入(缺少 API key),不能接着跑:{names}", en: "Some AIs are not connected (missing API key), so this job cannot resume: {names}"}
+    next_step: {zh: "在 .env 里补上这家的 key,重启服务后再点「接着跑」。", en: "Add that key to .env, restart the service, then press Resume."}
+
+  # ── 我方账户 ──
+  - code: ACCOUNT_AUTH
+    scope: account
+    resumable: true
+    trigger: {zh: "某家 AI 返回 401 / 403:我方 key 无效或没权限;整单立刻停,不再花钱", en: "An AI returned 401 / 403: our key is invalid or lacks permission; the whole run stops at once"}
+    message: {zh: "{ai}(型号 {model})的 API key 无效或没有使用权限,检测已经停下,不会再花钱。平台原话:{detail}", en: "The API key for {ai} (model {model}) is invalid or lacks permission. The run has stopped and will spend nothing more. Platform said: {detail}"}
+    next_step: {zh: "检查 .env 里这家的 key,换好后重启服务,再点「接着跑」;已经采集的结果不会重跑。", en: "Check that key in .env, restart the service, then press Resume; results already collected are kept."}
+  - code: ACCOUNT_CREDIT
+    scope: account
+    resumable: true
+    trigger: {zh: "某家 AI 返回额度不足 / 欠费(402,或 400 / 429 带欠费原话);整单立刻停", en: "An AI reported insufficient credit (402, or 400 / 429 with a billing message); the whole run stops"}
+    message: {zh: "{ai}(型号 {model})的 API 账户额度不足或欠费,检测已经停下,不会再花钱。平台原话:{detail}", en: "The API account for {ai} (model {model}) is out of credit. The run has stopped and will spend nothing more. Platform said: {detail}"}
+    next_step: {zh: "充值后点「接着跑」,已经采集的结果不会重跑。", en: "Top up, then press Resume; results already collected are kept."}
+
+  # ── 本机数据库 ──
+  - code: DB_UNREACHABLE
+    scope: db
+    resumable: true
+    trigger: {zh: "开跑或跑的途中连不上本机 PostgreSQL(端口 5433)", en: "The local PostgreSQL (port 5433) could not be reached at start or mid-run"}
+    message: {zh: "连不上本机数据库(端口 5433),检测已经停下。原话:{detail}", en: "Cannot reach the local database (port 5433); the run has stopped. Detail: {detail}"}
+    next_step: {zh: "运行 scripts/pgdev.ps1 status:显示 STOPPED 就 start,显示 PG_ZOMBIE 就 restart;数据库起好后点「接着跑」,已经采集的结果不会丢。", en: "Run scripts/pgdev.ps1 status: STOPPED means start it, PG_ZOMBIE means restart it; then press Resume. Results already collected are kept."}
+
+  # ── 整单 ──
+  - code: JOB_STALLED
+    scope: job
+    resumable: true
+    trigger: {zh: "运行中 {minutes} 分钟没有任何新结果(网络断了、某家 AI 长时间不响应、或数据库出了问题)", en: "No new result for {minutes} minutes while running (network down, an AI not responding, or a database problem)"}
+    message: {zh: "已经 {minutes} 分钟没有收到任何新结果,检测可能卡住了。", en: "No new result for {minutes} minutes; the run may be stuck."}
+    next_step: {zh: "重启服务后点「接着跑」,已经采集的结果不会丢。", en: "Restart the service and press Resume; results already collected are kept."}
+  - code: JOB_CRASHED
+    scope: job
+    resumable: true
+    trigger: {zh: "执行器遇到没预料到的程序错误", en: "The runner hit an unexpected program error"}
+    message: {zh: "检测中途出了程序错误,已经停下。原话:{detail}", en: "The run hit a program error and stopped. Detail: {detail}"}
+    next_step: {zh: "可以点「接着跑」补缺口;反复出现请把这段原话记进错误日志反馈。", en: "Press Resume to fill the gaps; if it keeps happening, report the detail text."}
+  - code: DRAFTING_FAILED
+    scope: job
+    resumable: false
+    trigger: {zh: "让 AI 出题 / 列竞品时,问了 3 轮都没拿到合格的题", en: "Drafting questions / competitors got no valid result after 3 rounds"}
+    message: {zh: "AI 这次没能出好题,没有开单。原话:{detail}", en: "The AI could not draft usable questions this time, so no job was created. Detail: {detail}"}
+    next_step: {zh: "换个更具体的品类再试,或者自己手填问题。出题花掉的钱已记账。", en: "Try a more specific category, or type the questions yourself. Drafting spend is recorded."}
+  - code: SPELLINGS_FAILED
+    scope: job
+    resumable: false
+    trigger: {zh: "让 AI 列品牌常见写法时,问了 3 轮都没拿到合格结果", en: "Listing common spellings got no valid result after 3 rounds"}
+    message: {zh: "AI 这次没能列出你的常见写法,没有开单。原话:{detail}", en: "The AI could not list common spellings this time, so no job was created. Detail: {detail}"}
+    next_step: {zh: "再提交一次;仍不行就在首页自己填别名。", en: "Submit again; if it still fails, type the aliases yourself on the home page."}
+
+  # ── 单次提问(进口径,不停单) ──
+  - code: AI_PROVIDER_ERROR
+    scope: ai
+    resumable: true
+    trigger: {zh: "某次提问重试耗尽仍失败,或平台返回永久错误", en: "One ask failed after all retries, or the platform returned a permanent error"}
+    message: {zh: "这次提问没有拿到回答(接口错误:超时或服务端错误)。", en: "This ask got no answer (API error: timeout or server error)."}
+    next_step: {zh: "不用做什么:失败次数会写在口径里;多了会触发熔断,届时可「接着跑」补齐。", en: "Nothing to do: failures are reported in the measurement note; too many trigger the breaker, after which you can Resume."}
+  - code: AI_PROVIDER_RATE_LIMITED
+    scope: ai
+    resumable: true
+    trigger: {zh: "平台限流(429),按它要求等待后仍失败", en: "The platform rate-limited us (429) and the ask still failed after the requested wait"}
+    message: {zh: "这次提问被平台限流,没有拿到回答。", en: "This ask was rate-limited by the platform and got no answer."}
+    next_step: {zh: "不用做什么;频繁出现就把并发调低,或稍后「接着跑」。", en: "Nothing to do; if frequent, lower concurrency or Resume later."}
+  - code: AI_RESPONSE_INVALID
+    scope: ai
+    resumable: false
+    trigger: {zh: "AI 拒答,或说成功了却一个字没给", en: "The AI refused, or returned success with an empty answer"}
+    message: {zh: "这次 AI 拒答或给了空回答,不算有效回答。", en: "The AI refused or gave a blank answer; it does not count as a valid answer."}
+    next_step: {zh: "不用做什么:拒答与空回答单独计数,不进比例的分母。", en: "Nothing to do: refusals and blanks are counted separately and never enter a denominator."}
+
+  # ── 高档裁判 ──
+  - code: JUDGE_UNAVAILABLE
+    scope: judge
+    resumable: true
+    trigger: {zh: "高档开跑时裁判型号没加载(缺 key / 不在清单 / 不支持不联网)", en: "A high-tier run started but a judge model is not loaded (missing key / not in lineup / cannot run without search)"}
+    message: {zh: "高档需要另一家 AI 当裁判,但裁判没准备好,检测已经停下。原话:{detail}", en: "The high tier needs a second AI as judge, but the judge is not ready; the run has stopped. Detail: {detail}"}
+    next_step: {zh: "检查 config/judges.yaml 里两家裁判的 key 和型号,重启服务后点「接着跑」。", en: "Check the keys and models of both judges in config/judges.yaml, restart, then press Resume."}
+  - code: JUDGE_NOT_VISIBLE
+    scope: judge
+    resumable: false
+    trigger: {zh: "某条回答裁判判不了:两家裁判都是这条回答自家的,或裁判 3 轮都没给出合格 JSON", en: "The judge could not rule on an answer: both judges belong to that answer's vendor, or gave no valid JSON in 3 rounds"}
+    message: {zh: "这条回答裁判看不到,不猜;它不进「提到你」的分母。", en: "The judge could not see this answer; it is not guessed and not counted in the mention denominator."}
+    next_step: {zh: "不用做什么;条数多的话换一个备用裁判(config/judges.yaml)。", en: "Nothing to do; if it happens a lot, switch the backup judge in config/judges.yaml."}
+
+  # ── 熔断(一条腿提前停) ──
+  - code: FAILURE_RATE_EXCEEDED
+    scope: breaker
+    resumable: true
+    trigger: {zh: "某个型号最近 20 次提问里失败超过一半(至少 4 次之后才判)", en: "A model failed more than half of its last 20 asks (judged after at least 4)"}
+    message: {zh: "{ai} 的 {model} 提前停了:失败太多。", en: "{ai}'s {model} stopped early: too many failures."}
+    next_step: {zh: "看任务页的失败明细;问题过去后点「接着跑」只补空槽位,已花的钱不重花。", en: "See the failure details on the job page; once the problem passes, press Resume to fill only the empty slots."}
+  - code: BUDGET_EXHAUSTED
+    scope: breaker
+    resumable: true
+    trigger: {zh: "这条腿的花费到了你设的费用上限", en: "This leg reached the spending cap you set"}
+    message: {zh: "{ai} 的 {model} 提前停了:到了费用上限。", en: "{ai}'s {model} stopped early: the spending cap was reached."}
+    next_step: {zh: "提高上限后点「接着跑」补齐;或就按部分完成的报告看。", en: "Raise the cap and press Resume to finish, or read the partly completed report as is."}
+  - code: SURFACE_DISABLED
+    scope: breaker
+    resumable: false
+    trigger: {zh: "这台仪器在 config/surfaces.yaml 里被关掉或没加载", en: "This instrument is disabled or not loaded in config/surfaces.yaml"}
+    message: {zh: "{ai} 这次没有测:仪器没启用。", en: "{ai} was not tested: the instrument is not enabled."}
+    next_step: {zh: "需要的话启用它并补 key,新开一单。", en: "Enable it and add its key if needed, then start a new job."}
+  - code: NOT_RESAMPLED
+    scope: breaker
+    resumable: false
+    trigger: {zh: "重新生成报告时只用已有样本重算,不补采", en: "Regenerating a report reuses existing samples without new asks"}
+    message: {zh: "这版报告没有新提问,用的是已有的样本。", en: "This report version made no new asks; it reuses the existing samples."}
+    next_step: {zh: "不用做什么。", en: "Nothing to do."}
+
+  # ── 打开网页(第三方 / 官网被引网页) ──
+  - code: PAGE_EMPTY_TEXT
+    scope: page
+    resumable: false
+    trigger: {zh: "网页打开了,但一个字的正文也抽不出(脚本渲染的空壳)", en: "The page opened but no body text could be extracted (script-rendered shell)"}
+    message: {zh: "抽不出正文。", en: "No extractable text."}
+    next_step: {zh: "装了浏览器渲染会自动补抓;仍不行就记「看不到」。", en: "Browser rendering retries automatically when installed; otherwise it stays “could not be checked”."}
+  - code: PAGE_NOT_HTML
+    scope: page
+    resumable: false
+    trigger: {zh: "打开的是 PDF / 图片等,不是网页", en: "The URL is a PDF, image or other non-HTML file"}
+    message: {zh: "不是网页。", en: "Not an HTML page."}
+    next_step: {zh: "不用做什么,这类来源记「看不到」。", en: "Nothing to do; such sources are recorded as not checkable."}
+  - code: PAGE_ROBOTS_DISALLOWED
+    scope: page
+    resumable: false
+    trigger: {zh: "第三方站的 robots.txt 不允许抓这页,我们没抓", en: "The third-party site's robots.txt disallows this page, so it was not fetched"}
+    message: {zh: "站点不允许抓取。", en: "Site disallows fetching."}
+    next_step: {zh: "尊重对方规则,不绕;记「看不到」。", en: "We respect the rule and do not work around it; recorded as not checkable."}
+  - code: PAGE_BLOCKED
+    scope: page
+    resumable: false
+    trigger: {zh: "403 / 429 / 503:疑似机器人防护拦截了本工具", en: "403 / 429 / 503: bot protection probably blocked this tool"}
+    message: {zh: "被拦截。", en: "Blocked."}
+    next_step: {zh: "第三方网页会自动试公开存档(注明存档日期);官网被拦请在你的站上放行。", en: "Third-party pages are retried from the public archive (dated); if your own site blocks us, allow this client."}
+  - code: PAGE_LOGIN_REQUIRED
+    scope: page
+    resumable: false
+    trigger: {zh: "401,或终点落在登录页", en: "401, or the final page is a login page"}
+    message: {zh: "需要登录。", en: "Login required."}
+    next_step: {zh: "不绕登录;记「看不到」。", en: "We do not bypass logins; recorded as not checkable."}
+  - code: PAGE_FETCH_FAILED
+    scope: page
+    resumable: false
+    trigger: {zh: "404、超时、网络错误等", en: "404, timeout, network error, etc."}
+    message: {zh: "打不开。", en: "Could not be opened."}
+    next_step: {zh: "不用做什么;下一单会再试。", en: "Nothing to do; it will be tried again in the next job."}
+  - code: PAGE_NOT_ATTEMPTED
+    scope: page
+    resumable: false
+    trigger: {zh: "核对网页的时间预算用完,这页没来得及开", en: "The page-check time budget ran out before this page was reached"}
+    message: {zh: "没来得及开。", en: "Not attempted within the time budget."}
+    next_step: {zh: "不用做什么;「重新生成报告」会接着开剩下的。", en: "Nothing to do; regenerating the report continues with the rest."}
+  - code: CITATION_UNRESOLVED
+    scope: page
+    resumable: false
+    trigger: {zh: "引用是平台跳转链,还原终点失败", en: "The citation is a platform redirect link whose destination could not be resolved"}
+    message: {zh: "跳转去向查不到。", en: "Redirect destination unresolved."}
+    next_step: {zh: "不猜;这条引用不进任何数。", en: "Not guessed; this citation enters no count."}
+
+  # ── 核验被引网页(官网那条线) ──
+  - code: VERIFY_FETCH_BLOCKED
+    scope: verify
+    resumable: false
+    trigger: {zh: "核验被引的官网网页时被 401 / 403 / 429 / 503 拦住", en: "Verifying a cited own-site page was blocked with 401 / 403 / 429 / 503"}
+    message: {zh: "核验时被拦截,看不到网页内容。", en: "Blocked during verification; page content not visible."}
+    next_step: {zh: "在你的站上放行本工具的客户端。", en: "Allow this tool's client on your site."}
+  - code: VERIFY_UNPARSED
+    scope: verify
+    resumable: false
+    trigger: {zh: "被引网页可达但不是 HTML,或抽不出正文", en: "The cited page is reachable but not HTML, or has no extractable text"}
+    message: {zh: "核验时读不出网页正文。", en: "Could not read the page text during verification."}
+    next_step: {zh: "检查这页是否靠脚本渲染;装了浏览器渲染会自动补抓。", en: "Check whether the page is script-rendered; browser rendering retries automatically when installed."}
+  - code: VERIFY_UNREACHABLE
+    scope: verify
+    resumable: false
+    trigger: {zh: "被引网页 404、超时或 DNS 失败", en: "The cited page returned 404, timed out or failed DNS"}
+    message: {zh: "核验时打不开被引的网页。", en: "The cited page could not be opened during verification."}
+    next_step: {zh: "确认这页是否已下线;下线了就修链接或做跳转。", en: "Check whether the page is gone; if so, fix or redirect the link."}
+
+  # ── 官网抓取审计 ──
+  - code: ACCESS_REACH_ERROR
+    scope: access
+    resumable: false
+    trigger: {zh: "打开官网首页时网络层出错(DNS / 连接 / 超时)", en: "Network-level error opening the home page (DNS / connect / timeout)"}
+    message: {zh: "官网首页打不开(网络层错误)。", en: "The home page could not be opened (network error)."}
+    next_step: {zh: "检查域名解析和服务器是否在线;修好后重新生成报告。", en: "Check DNS and whether the server is up; then regenerate the report."}
+  - code: ACCESS_REACH_BLOCKED
+    scope: access
+    resumable: false
+    trigger: {zh: "官网首页返回 403 / 429 / 503,疑似拦截", en: "The home page returned 403 / 429 / 503, probably blocked"}
+    message: {zh: "官网首页疑似拦截了本工具,审计判不了。", en: "The home page appears to block this tool; the audit cannot judge."}
+    next_step: {zh: "在防火墙 / 机器人防护里放行,再重新生成报告。", en: "Allow the client in your firewall / bot protection, then regenerate."}
+  - code: ACCESS_REDIRECT_LOOP
+    scope: access
+    resumable: false
+    trigger: {zh: "官网首页跳转链出现循环或超过上限", en: "The home page redirect chain loops or exceeds the limit"}
+    message: {zh: "官网首页跳转打转,到不了终点。", en: "The home page redirects in a loop and never settles."}
+    next_step: {zh: "修跳转规则(通常是 http / https 或 www 互跳)。", en: "Fix the redirect rules (usually http/https or www loops)."}
+  - code: ACCESS_ROBOTS_FETCH_FAILED
+    scope: access
+    resumable: false
+    trigger: {zh: "官网的 robots.txt 取不到或服务端出错", en: "The site's robots.txt could not be fetched or returned a server error"}
+    message: {zh: "官网的 robots.txt 读不到,爬虫规则判不了。", en: "Could not read the site's robots.txt; crawler rules cannot be judged."}
+    next_step: {zh: "确认 /robots.txt 能正常打开(200 或 404 都行,5xx 不行)。", en: "Make sure /robots.txt opens (200 or 404 is fine; 5xx is not)."}

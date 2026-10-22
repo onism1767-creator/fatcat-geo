@@ -18,6 +18,7 @@ from engine.calibration import CalibrationReport
 from engine.judge import JudgeConfig
 from engine.storage import CallStat
 from engine.tiers import TierConfig
+from report.errors import ErrorLibrary
 from report.i18n import (
     ACCESS_LABELS,
     DEP_LABELS,
@@ -83,6 +84,7 @@ class WebContext:
     tiers: TierConfig  # 档位配置(S9.1,config/tiers.yaml)
     judges: JudgeConfig  # 高档裁判配置(S9.3,config/judges.yaml):预估按它算裁判费用
     calibration: CalibrationReport | None  # 自动校准结果(S9.4,config/calibration.yaml);None = 还没跑过
+    errors: ErrorLibrary  # 错误库(S10.1,config/errors.yaml):全部错误码与文案的唯一出处
 
     def __post_init__(self) -> None:
         self._templates = _templates(self.target_name)
@@ -116,13 +118,13 @@ def lang_of(request: Request) -> str:
 
 
 def error_text(request: Request, code: str, **params: str) -> str:
-    """错误码(err_ 开头)→ 当前界面语言的一句人话;未知码或缺参数就不显示——错误码可能来自地址栏,
-    不把任意文字回显到页面上,也不因缺参数出错。"""
-    template = MESSAGES[lang_of(request)].get(code) if code.startswith("err_") else None
-    if template is None:
+    """错误码 → 当前界面语言的一句人话 + 下一步(文案只在 config/errors.yaml,S10.1);未知码或缺参数就不显示——
+    错误码可能来自地址栏,不把任意文字回显到页面上,也不因缺参数出错。"""
+    entry = ctx_of(request).errors.get(code) if code else None
+    if entry is None:
         return ""
     try:
-        return template.format(**params)
+        return entry.text(lang_of(request), with_next_step=True, **params)
     except (KeyError, IndexError):
         return ""
 
