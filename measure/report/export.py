@@ -177,6 +177,10 @@ def _summary_md(
                                         runs=sn.n_runs, valid=sn.n_valid)
     offline = " " + t["sampling_offline"].format(n=sn.n_offline_runs) if sn.n_offline_runs else ""
     lines.append("- " + counts + offline)
+    if sn.fresh:  # S11.3
+        lines.append("- " + t["sampling_fresh"])
+    elif sn.n_cached:  # S11.2
+        lines.append("- " + t["sampling_cached"].format(n=sn.n_cached, hours=sn.cache_hours))
     lines.append("- " + _tier_line(sn.tier, t))
     fmt = "%Y-%m-%d %H:%M"
     lines.append("- " + t["sampling_time"].format(

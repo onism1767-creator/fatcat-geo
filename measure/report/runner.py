@@ -36,6 +36,7 @@ from engine.aggregate import (
     tally_spellings,
 )
 from engine.brand_domains import BrandDomainDiscovery, load_platforms
+from engine.cache import CACHE_HOURS, fill_from_cache
 from engine.detectors.brand_mention_judge import DETECTOR_NAME as JUDGE_DETECTOR
 from engine.detectors.brand_mention_judge import SENTIMENT_DETECTOR_NAME as JUDGE_SENTIMENT
 from engine.detectors.matching import registrable
@@ -205,6 +206,8 @@ def _execute(
             job.phase = "phase_discover"
             job.adopt_domain_list(_discover_domains(job))
             storage.upsert_job_snapshot(job.to_snapshot())
+        if not replay and not job.fresh:
+            _fill_from_cache(job, storage, adapter_of)  # 回答缓存(S11.2):别的单 12 小时内同题同型号的回答先填进空槽位
         results = _sample(job, dsn, adapter_of, replay=replay)
         job.stop_details = [StopDetail.from_result(r) for r in results.values()]  # 熔断要说清原因(S10.2)
 
@@ -258,7 +261,8 @@ def _execute(
         # 采样后:回答里出现、名单外的同名域名再查一次,标 B1 / B2——只提示,用户确认后才算官网(S5)
         job.adopt_domain_list(_look_alikes(job, all_runs, resolution))
         truncated = any(r.stop_reason in _TRUNCATION_REASONS for r in results.values())
-        _finish(job, storage, truncated=truncated, sampling=_sampling_note(job, runs_by, offline_runs_by, judge))
+        sampling = _sampling_note(job, runs_by, offline_runs_by, judge, storage)
+        _finish(job, storage, truncated=truncated, sampling=sampling)
 
 
 def _precheck(
@@ -290,15 +294,41 @@ def _precheck(
     log.info("precheck_passed", job_id=job.job_id, surfaces=sorted(to_check))
 
 
+def _fill_from_cache(job: DiagnosisJob, storage: Storage, adapter_of: dict[Target, SurfaceAdapter]) -> int:
+    """开卷腿(启用对照时闭卷腿也算)每题每对象空着的槽位,先用同品牌别的单里 12 小时内的有效回答填
+    (复制成本单的运行,花费 0,
+    复用关系进 cache_reuse);填不上的才向 AI 提问。返回填进去的条数。"""
+    now = datetime.now(UTC)
+    filled = 0
+    for target, adapter in adapter_of.items():
+        modes = [SearchMode.DEFAULT]
+        if job.dependency_enabled and adapter.meta().capabilities.supports_search_disabled:
+            modes.append(SearchMode.SEARCH_DISABLED)
+        for prompt in job.prompts:
+            existing = reinterpret_account_errors(
+                storage.runs_for_prompt(prompt.prompt_id, surface=target.surface, model=target.model))
+            for mode in modes:
+                taken = {r.run_index for r in existing if r.search_mode is mode and not is_account_error(r)}
+                missing = [i for i in range(1, job.frozen_tier().runs_per_prompt + 1) if i not in taken]
+                filled += len(fill_from_cache(
+                    storage, job_id=job.job_id, brand_name=job.brand.name, prompt=prompt, target=target,
+                    search_mode=mode, missing_indices=missing, now=now,
+                ))
+    if filled:
+        log.info("answers_reused_from_cache", job_id=job.job_id, n=filled, hours=CACHE_HOURS)
+    return filled
+
+
 def _sampling_note(
     job: DiagnosisJob, runs_by: dict[RunsKey, list[SurfaceRun]], offline_runs_by: dict[RunsKey, list[SurfaceRun]],
-    judge: MentionJudge | None,
+    judge: MentionJudge | None, storage: Storage,
 ) -> SamplingNote:
     """报告顶部的采样说明(S8.2):本单实际问了多少、有效多少、测了哪些接口与型号、官网名单情况、方法版本。
     结束时刻由 _finish 落定后再填。"""
     runs = [run for batch in runs_by.values() for run in batch]
     dl = job.domain_list
     return SamplingNote(
+        n_cached=storage.cache_reuse_count(job.job_id), cache_hours=CACHE_HOURS, fresh=job.fresh,
         n_prompts=len(job.prompts), n_targets=len(job.targets), tier=job.frozen_tier(),
         n_runs=len(runs), n_valid=sum(is_valid_answer(run) for run in runs),
         n_offline_runs=sum(len(batch) for batch in offline_runs_by.values()),

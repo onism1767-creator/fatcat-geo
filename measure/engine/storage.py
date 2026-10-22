@@ -254,6 +254,26 @@ class Storage:
             ),
         )
 
+    def brand_prompts(self, brand_name: str, *, exclude_job_id: str) -> list[tuple[str, str, str]]:
+        """同品牌别的任务里的题(prompt_id, 原文, 语言)——回答缓存的键里有品牌,品牌只在任务快照里(S11.2)。"""
+        out: list[tuple[str, str, str]] = []
+        for snapshot in self.load_job_snapshots():
+            if snapshot.get("job_id") == exclude_job_id or (snapshot.get("brand") or {}).get("name") != brand_name:
+                continue
+            out += [(p["prompt_id"], p["text"], p["locale"]) for p in snapshot.get("prompts", [])]
+        return out
+
+    def insert_cache_reuse(self, *, job_id: str, run_id: str, source_run_id: str, cache_age_s: int) -> None:
+        self._conn.execute(
+            "INSERT INTO cache_reuse (reuse_id, job_id, run_id, source_run_id, reused_at, cache_age_s) "
+            "VALUES (%s, %s, %s, %s, %s, %s)",
+            (str(uuid4()), job_id, run_id, source_run_id, datetime.now(UTC), cache_age_s),
+        )
+
+    def cache_reuse_count(self, job_id: str) -> int:
+        row = self._conn.execute("SELECT count(*) FROM cache_reuse WHERE job_id = %s", (job_id,)).fetchone()
+        return int(row[0]) if row is not None else 0
+
     def load_job_snapshots(self) -> list[dict[str, Any]]:
         rows = self._conn.execute(
             "SELECT snapshot FROM diagnosis_job ORDER BY created_at"

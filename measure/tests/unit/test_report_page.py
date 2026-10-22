@@ -124,7 +124,8 @@ def finished_job() -> DiagnosisJob:
     job.phase = "完成"
     job.finished_at = datetime(2026, 8, 24, tzinfo=UTC)
     job.sampling = SamplingNote(  # S8.2:采样说明(实际发生的数字)
-        n_prompts=1, n_targets=2, tier=LOW, n_runs=6, n_valid=5, n_offline_runs=3,
+        n_prompts=1, n_targets=2, tier=LOW, n_runs=6, n_valid=5, n_offline_runs=3, n_cached=0, cache_hours=12,
+        fresh=False,
         started_at=datetime(2026, 8, 24, 1, 0, tzinfo=UTC), finished_at=datetime(2026, 8, 24, 1, 30, tzinfo=UTC),
         targets=[Target(surface="s1", model="m1"), Target(surface="s2", model="m2")],
         domains_confirmed=1, domains_unconfirmed=2, domains_at=datetime(2026, 8, 24, tzinfo=UTC),

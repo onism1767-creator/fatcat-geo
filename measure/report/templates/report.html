@@ -12,6 +12,8 @@
   <h2 style="margin-top:0">{{ t["sampling_title"] }}</h2>
   <ul class="ev">
     <li>{{ t["sampling_counts"].format(prompts=sn.n_prompts, targets=sn.n_targets, reps=sn.tier.runs_per_prompt, runs=sn.n_runs, valid=sn.n_valid) }}{% if sn.n_offline_runs %} {{ t["sampling_offline"].format(n=sn.n_offline_runs) }}{% endif %}</li>
+    {#- 回答缓存(S11.2)/ 再测(S11.3):用了缓存就写明几条、几小时内;再测的单写明一律重新提问 -#}
+    {% if sn.fresh %}<li>{{ t["sampling_fresh"] }}</li>{% elif sn.n_cached %}<li>{{ t["sampling_cached"].format(n=sn.n_cached, hours=sn.cache_hours) }}</li>{% endif %}
     {#- 档位(S9.1):自定义写实际参数、不冠档位名,只说以哪一档为起点 -#}
     <li>{{ t["sampling_tier_custom" if sn.tier.custom else "sampling_tier"].format(tier=t["tier_name_" + sn.tier.name], runs=sn.tier.runs_per_prompt, method=t["method_" + sn.tier.mention_method.value]) }}</li>
     <li>{{ t["sampling_time"].format(start=sn.started_at|utc_time if sn.started_at else "—", end=sn.finished_at|utc_time if sn.finished_at else "—") }}</li>

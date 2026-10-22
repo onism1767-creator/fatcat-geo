@@ -83,6 +83,9 @@ class SamplingNote(FrozenModel):
     n_runs: int  # 开卷提问次数(含失败 / 拒答)
     n_valid: int  # 有效回答数
     n_offline_runs: int  # 闭卷对照次数(检索依赖,0 = 没开),单独算
+    n_cached: int  # 其中几条回答来自回答缓存(别的单里 cache_hours 小时内问过的,S11.2),不算本单花费
+    cache_hours: int
+    fresh: bool  # 「修好后再测」:一律重新提问、没用缓存(S11.3)
     started_at: datetime | None
     finished_at: datetime | None
     targets: list[Target]  # 实际调用的接口与型号(显示名由报告层命名器给)
@@ -155,6 +158,7 @@ class DiagnosisJob:
         self.tier: TierChoice | None = None  # 档位参数(S9.1):型号怎么选 × 每题几次 × 认法,确认时冻结
         self.budget_usd: float | None = None
         self.dependency_enabled = False  # 检索依赖对照(第 9 章挂靠),默认关
+        self.fresh = False  # 「修好后再测」的单(S11.3):一律重新提问,不走回答缓存(S11.2)
         self.fingerprint = ""
 
         self.total_runs = 0  # 本单要发的提问次数(题数 × 每题次数 × 腿数)
@@ -300,6 +304,7 @@ class DiagnosisJob:
             "targets": [t.model_dump() for t in self.targets],
             "budget_usd": self.budget_usd,
             "dependency_enabled": self.dependency_enabled,
+            "fresh": self.fresh,
             "tier": self.frozen_tier().model_dump(mode="json"),
             "policy": self.policy().model_dump(),
         }
@@ -325,6 +330,7 @@ class DiagnosisJob:
             "tier": self.frozen_tier().model_dump(mode="json"),
             "budget_usd": self.budget_usd,
             "dependency_enabled": self.dependency_enabled,
+            "fresh": self.fresh,
             "fingerprint": self.fingerprint,
             "domain_list": self.domain_list.model_dump(mode="json") if self.domain_list is not None else None,
             "error": {"code": self.error_code, "params": self.error_params, "text": self.error},
@@ -380,6 +386,7 @@ class DiagnosisJob:
         job.tier = TierChoice.model_validate(snapshot["tier"])  # S9.1 起才有;更早的快照读不动,由 archive 记警告跳过
         job.budget_usd = snapshot["budget_usd"]
         job.dependency_enabled = snapshot["dependency_enabled"]
+        job.fresh = snapshot["fresh"]
         job.fingerprint = snapshot["fingerprint"]
         if snapshot.get("domain_list"):
             job.domain_list = BrandDomainList.model_validate(snapshot["domain_list"])

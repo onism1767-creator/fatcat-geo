@@ -201,6 +201,28 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         BEFORE TRUNCATE ON aux_call
         FOR EACH STATEMENT EXECUTE FUNCTION reject_mutation()
     """,
+    # 回答缓存复用关系(v0.4.26 S11.2,C8):本单哪条运行是从别的单哪条回答复制来的、当时隔了多久;只追加
+    """
+    CREATE TABLE IF NOT EXISTS cache_reuse (
+        reuse_id text PRIMARY KEY,
+        job_id text NOT NULL,
+        run_id text NOT NULL REFERENCES surface_run(run_id),
+        source_run_id text NOT NULL REFERENCES surface_run(run_id),
+        reused_at timestamptz NOT NULL,
+        cache_age_s integer NOT NULL
+    )
+    """,
+    "CREATE INDEX IF NOT EXISTS cache_reuse_job_idx ON cache_reuse (job_id)",
+    """
+    CREATE OR REPLACE TRIGGER cache_reuse_append_only
+        BEFORE UPDATE OR DELETE ON cache_reuse
+        FOR EACH ROW EXECUTE FUNCTION reject_mutation()
+    """,
+    """
+    CREATE OR REPLACE TRIGGER cache_reuse_no_truncate
+        BEFORE TRUNCATE ON cache_reuse
+        FOR EACH STATEMENT EXECUTE FUNCTION reject_mutation()
+    """,
     # 报告快照(v0.4.16):派生层的档案——每次生成报告追加一版,永不改写;
     # payload 对 L2 不透明,结构由 L4 report/jobs.py 定义。原始层仍是唯一底账。
     """

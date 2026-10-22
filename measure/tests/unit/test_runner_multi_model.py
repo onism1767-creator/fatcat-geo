@@ -6,6 +6,7 @@
 
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
+from uuid import uuid4
 
 import pytest
 from conftest import TEST_DSN
@@ -151,8 +152,11 @@ def _citation_status(job: DiagnosisJob) -> dict[str, StageStatus]:
     }
 
 
-def _new_job(text: str) -> tuple[DiagnosisJob, Prompt]:
-    prompt = Prompt(text=text, intent=PromptIntent.CATEGORY_DISCOVERY, origin=PromptOrigin.USER, locale="zh-CN")
+def _new_job(text: str, tag: str | None = None) -> tuple[DiagnosisJob, Prompt]:
+    """每个测试各自的题(带随机尾巴):回答缓存(S11.2)会复用同品牌同题的回答,测试之间不能串;要同题就传同一个 tag。"""
+    tag = tag or uuid4().hex[:6]
+    prompt = Prompt(text=f"{text}({tag})", intent=PromptIntent.CATEGORY_DISCOVERY, origin=PromptOrigin.USER,
+                    locale="zh-CN")
     job = DiagnosisJob(brand=BRAND, website="https://aurora-crm.com", category="CRM",
                        locale="zh-CN", candidates=[], competitors_suggested=[])
     job.freeze(prompts=[prompt], competitors=[],
@@ -357,3 +361,46 @@ def test_precheck_stops_the_job_before_any_sampling(storage, offline):
     runner.execute_job(job=job2, adapters={"two_model": down}, dsn=TEST_DSN, evidence=load_evidence_registry(),
                        replay=True)  # 重算不提问,也就不预检
     assert job2.state is JobState.DONE, job2.error
+
+
+class CountingAdapter(TwoModelAdapter):
+    def __init__(self) -> None:
+        super().__init__()
+        self.asks = 0
+
+    def ask(self, request: AskRequest) -> SurfaceRun:
+        self.asks += 1
+        return super().ask(request)
+
+
+def test_answers_are_reused_from_cache_for_the_same_brand_question_and_model(storage, offline):
+    """S11.2(C8):同品牌、同题、同型号 12 小时内别的单问过的回答直接复用——一次都不再问、不算本单花费、采样说明写明;
+    别的品牌不复用;「修好后再测」(fresh)不复用。"""
+    first = CountingAdapter()
+    tag = uuid4().hex[:6]
+    job_a, prompt_a = _new_job("中小团队用什么 CRM 好?", tag=tag)
+    runner.execute_job(job=job_a, adapters={"two_model": first}, dsn=TEST_DSN, evidence=load_evidence_registry())
+    assert job_a.state is JobState.DONE and first.asks == 6 and job_a.sampling.n_cached == 0
+
+    second = CountingAdapter()
+    job_b, prompt_b = _new_job("中小团队用什么  CRM 好?", tag=tag)  # 空格不一样:规范化后同一道题
+    runner.execute_job(job=job_b, adapters={"two_model": second}, dsn=TEST_DSN, evidence=load_evidence_registry())
+    assert job_b.state is JobState.DONE, job_b.error
+    assert second.asks == 0 and job_b.spent_usd == 0.0  # 6 条全部复用,一分钱没花
+    note = job_b.sampling
+    assert note is not None and (note.n_cached, note.cache_hours, note.fresh, note.n_valid) == (6, 12, False, 6)
+    copies = storage.runs_for_prompt(prompt_b.prompt_id, surface="two_model")
+    assert len(copies) == 6 and all(r.cost_usd == 0.0 for r in copies) and {r.run_index for r in copies} == {1, 2, 3}
+    assert storage.cache_reuse_count(job_b.job_id) == 6
+
+    third = CountingAdapter()
+    job_c, _ = _new_job("中小团队用什么 CRM 好?", tag=tag)
+    job_c.brand = BrandSpec(name="别家CRM", domains=["other.test"])
+    runner.execute_job(job=job_c, adapters={"two_model": third}, dsn=TEST_DSN, evidence=load_evidence_registry())
+    assert third.asks == 6 and job_c.sampling.n_cached == 0  # 别的品牌:不复用
+
+    fourth = CountingAdapter()
+    job_d, _ = _new_job("中小团队用什么 CRM 好?", tag=tag)
+    job_d.fresh = True
+    runner.execute_job(job=job_d, adapters={"two_model": fourth}, dsn=TEST_DSN, evidence=load_evidence_registry())
+    assert fourth.asks == 6 and job_d.sampling.n_cached == 0 and job_d.sampling.fresh is True  # 再测:一律重新提问
