@@ -26,7 +26,7 @@
     {% for c in view.citations %}
     <tr><td>{{ c.position }}</td>
       <td style="word-break:break-all">{{ c.url }}{% if c.final_url %}<br><span class="muted">{{ t["resp_col_final"] }}:{{ c.final_url }}</span>{% endif %}</td>
-      <td>{{ t["class_" ~ c.kind] }}{% if c.competitor %}({{ c.competitor }}){% endif %}{% if c.reason %} <span class="muted">({{ t.get("reason_" ~ c.reason, c.reason) }})</span>{% endif %}</td></tr>
+      <td>{{ t["class_" ~ c.kind] }}{% if c.competitor %}({{ c.competitor }}){% endif %}{% if c.reason %}{% set code = "CITATION_UNRESOLVED" if c.reason == "UNRESOLVED" else "PAGE_" ~ c.reason %} <span class="muted">(<a href="/errors?lang={{ lang }}#{{ code }}">{{ t.get("reason_" ~ c.reason, c.reason) }}</a>)</span>{% endif %}</td></tr>
     {% endfor %}
   </table>
   {% if view.unresolved %}<p class="muted">{{ t["resp_unresolved"].format(n=view.unresolved) }}</p>{% endif %}

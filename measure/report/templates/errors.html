@@ -8,11 +8,12 @@
 <div class="card">
   <h2 style="margin-top:0">{{ t["errors_scope_" + scope] }}</h2>
   <table class="brief">
-    <tr><th>{{ t["errors_col_code"] }}</th><th>{{ t["errors_col_when"] }}</th><th>{{ t["errors_col_see"] }}</th><th>{{ t["errors_col_next"] }}</th><th>{{ t["errors_col_resume"] }}</th></tr>
+    <tr><th>{{ t["errors_col_code"] }}</th><th>{{ t["errors_col_when"] }}</th><th>{{ t["errors_col_causes"] }}</th><th>{{ t["errors_col_see"] }}</th><th>{{ t["errors_col_next"] }}</th><th>{{ t["errors_col_resume"] }}</th></tr>
     {% for e in entries %}
     <tr id="{{ e.code }}">
       <td><span class="id">{{ e.code }}</span></td>
       <td>{{ e.trigger[lang] }}</td>
+      <td>{{ e.causes[lang] if e.causes else "—" }}</td>
       <td>{{ e.message[lang] }}</td>
       <td>{{ e.next_step[lang] }}</td>
       <td>{{ t["errors_yes"] if e.resumable else t["errors_no"] }}</td>

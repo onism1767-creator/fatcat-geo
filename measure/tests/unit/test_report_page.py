@@ -844,7 +844,8 @@ def test_legs_that_stopped_early_are_explained_on_job_page_and_report(client_and
     expected = ("s2 的 m2 提前停了:失败太多。 12 次尝试里 5 次没拿到有效回答——"
                 "3 次限流(平台要求放慢)、2 次拒答或空回答。 "
                 "最后一条平台原话:429 Too Many Requests "
-                "看任务页的失败明细;问题过去后点「接着跑」只补空槽位,已花的钱不重花。")
+                "先看任务页的失败明细是哪一类:限流就调低并发或换时段;接口错误就等平台恢复;key / 型号停用就换。"
+                "问题过去后点「接着跑」只补空槽位,已花的钱不重花。")
     report = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
     assert "提前停的型号" in report and expected in report and "#FAILURE_RATE_EXCEEDED" in report
     assert "s1 的 m1" not in report.split("提前停的型号")[1].split("</div>")[0]  # 问完的那条不列
@@ -856,3 +857,31 @@ def test_legs_that_stopped_early_are_explained_on_job_page_and_report(client_and
     restored = DiagnosisJob.from_snapshot(job.to_snapshot())
     restored.load_report(job.report_payload())
     assert restored.stop_details == job.stop_details  # 进报告快照
+
+
+def test_partial_job_can_resume_to_fill_gaps_and_raise_the_cap(monkeypatch):
+    """S10.3(用户定 T7 ④):部分完成的单开放「接着跑」——只补空槽位(replay=False),可顺手提高费用上限(只能往上);
+    任务页与首页都给入口;报告里提前停的型号带标记。"""
+    runs: list = []
+    app = _sync_app(monkeypatch, runs)
+    client = TestClient(app)
+    job = finished_job()
+    job.state, job.phase = JobState.PARTIAL, "phase_partial"
+    app.state.ctx.registry.add(job)
+    page = client.get(f"/jobs/{job.job_id}?lang=zh").text
+    assert "接着跑(只补没问完的)" in page and "提高费用上限" in page and "看报告" in page
+    home = client.get("/?lang=zh").text
+    assert "接着跑(只补没问完的)" in home and "看报告" in home
+    report = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
+    assert "· m2 <span class=\"muted\">(提前停,没问完)</span>" in report and "· m1 <span" not in report
+    before = job.fingerprint
+    resp = client.post(f"/jobs/{job.job_id}/resume?lang=zh", data={"budget": "5.0"}, follow_redirects=False)
+    assert resp.status_code == 303 and runs == [False]  # 补缺口,不是只重算
+    assert job.budget_usd == 5.0 and job.fingerprint != before
+    job.state = JobState.PARTIAL
+    bad = client.post(f"/jobs/{job.job_id}/resume?lang=zh", data={"budget": "0.5"}, follow_redirects=False)
+    assert "error=FORM_BAD_BUDGET" in bad.headers["location"] and job.budget_usd == 5.0 and runs == [False]
+    assert "预算填得不对" in client.get(bad.headers["location"]).text
+    job.state = JobState.DONE
+    client.post(f"/jobs/{job.job_id}/resume?lang=zh", follow_redirects=False)
+    assert runs == [False, True]  # 全部完成的单:重新生成报告,不提问

@@ -100,7 +100,7 @@
   {% for block in it.apis %}
     <tr class="api"><td>{{ block.api }}</td><td colspan="{{ 2 if third_col else 1 }}">{{ count_models(block.status_counts, block.models|length, lang) }}</td></tr>
     {% for m in block.models %}
-    <tr><td class="model">· {{ m.model }}</td>
+    <tr><td class="model">· {{ m.model }}{% if (m.surface, m.model) in truncated %} <span class="muted">{{ t["truncated_tag"] }}</span>{% endif %}</td>
       <td><span class="chip {{ m.own.status.value }}">{{ status_labels[m.own.status.value] }}</span> {{ m.own.text|plain(lang) }}</td>
       {% if third_col %}<td>{% if m.third %}<span class="chip {{ m.third.status.value }}">{{ status_labels[m.third.status.value] }}</span> {{ m.third.text|plain(lang) }}{% else %}<span class="muted">—</span>{% endif %}</td>{% endif %}</tr>
     {% endfor %}

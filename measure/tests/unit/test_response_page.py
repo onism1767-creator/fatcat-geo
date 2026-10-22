@@ -115,3 +115,15 @@ def test_response_page_explains_a_fuzzy_match(storage):
     assert "提到了" in html and "差 1 个字母(模糊匹配)" in html and "auroracrms" in html
     assert "brand_mention_fuzzy v1" in html and "brand_mention_rules v2" in html  # 两个判定器都存了
     assert "sentiment_lexicon v3" in html and "正面" in html  # 情感句跟主判定器定位
+
+
+def test_unreadable_citations_link_to_the_error_code_guide(storage):
+    """S10.3:单条回答页里「没来得及开」「跳转去向查不到」这类原因链到 /errors 对应的码。"""
+    job = finished_job()
+    prompt = job.prompts[0]
+    storage.insert_prompt(prompt)
+    run = _run(prompt.prompt_id, run_id="lnk1")
+    storage.insert_surface_run(run)
+    persist_observations(storage, [observe(run, job.brand, ObserveContext(competitors=[], pages=PageIndex()))])
+    html = _client(job).get(f"/jobs/{job.job_id}/responses/lnk1?lang=zh").text
+    assert 'href="/errors?lang=zh#PAGE_NOT_ATTEMPTED">没来得及开</a>' in html

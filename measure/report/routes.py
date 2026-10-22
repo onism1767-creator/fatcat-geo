@@ -215,16 +215,22 @@ async def confirm(
 
 
 @router.post("/jobs/{job_id}/resume")
-async def resume(request: Request, job_id: str):
-    """幂等续跑(v0.4.9):中断/失败任务补缺口;已完成任务重新生成报告(v0.4.16:追加一版报告快照,
-    旧版本留档)——只用已有样本重算,不向 AI 提问。已存样本按幂等键复用,已花的钱不重花。"""
+async def resume(request: Request, job_id: str, budget: str = Form("")):
+    """幂等续跑(v0.4.9):中断 / 失败 / **部分完成(S10.3)** 的任务补缺口——只补空槽位,已花的钱不重花;
+    部分完成的可顺手提高费用上限(预算截断的腿才有机会补齐)。全部完成的任务「重新生成报告」(v0.4.16:追加一版报告快照,
+    旧版本留档)——只用已有样本重算,不向 AI 提问。"""
     ctx = ctx_of(request)
     job = ctx.registry.get(job_id)
     if job is None:
         return not_found()
     if not (job.state in (JobState.INTERRUPTED, JobState.FAILED) or job.finished):
         return redirect(request, f"/jobs/{job.job_id}")
-    return _relaunch(request, job, replay=job.finished)
+    if budget.strip():
+        try:
+            job.raise_budget(float(budget))
+        except ValueError:
+            return redirect(request, f"/jobs/{job.job_id}?error=FORM_BAD_BUDGET")
+    return _relaunch(request, job, replay=job.state is JobState.DONE)
 
 
 @router.post("/jobs/{job_id}/official_domains")
@@ -268,11 +274,12 @@ async def job_status(request: Request, job_id: str):
     quiet = job.quiet_minutes(now)  # 卡住了没有?(v0.4.22)超过阈值给 JOB_STALLED
     stalled = (ctx.errors["JOB_STALLED"].text(lang, with_next_step=True, minutes=str(round(quiet)))
                if quiet is not None and quiet >= STALL_MINUTES else None)
+    form_error = error_text(request, request.query_params.get("error", ""))  # 接着跑时费用上限填错(S10.3)
     return ctx.render(request, "job.html", job=job, runs_per_prompt=job.frozen_tier().runs_per_prompt,
                       elapsed_minutes=job.elapsed_minutes(now), eta_minutes=job.eta_minutes(now),
                       verify_remaining_minutes=job.verify_remaining_minutes(now, VERIFY_BUDGET_S),
                       error_text=failure, quiet_minutes=quiet, stalled_text=stalled,
-                      stop_texts=stop_texts(ctx, job, lang))
+                      stop_texts=stop_texts(ctx, job, lang), form_error=form_error)
 
 
 def stop_texts(ctx: WebContext, job: DiagnosisJob, lang: str) -> list[tuple[str, str]]:
@@ -299,7 +306,8 @@ async def job_report(request: Request, job_id: str):
     # 报告写实际发生的每题次数(采样说明),不读当前策略:策略以后随档位变,旧报告不能跟着变
     return ctx.render(request, "report.html", job=job, runs_per_prompt=job.sampling_note().tier.runs_per_prompt,
                       summary=summarize(job.class_reports, ctx.target_name, ctx.api_name),
-                      psl_version=PSL_SNAPSHOT_VERSION, stop_texts=stop_texts(ctx, job, lang_of(request)))
+                      psl_version=PSL_SNAPSHOT_VERSION, stop_texts=stop_texts(ctx, job, lang_of(request)),
+                      truncated={(d.surface, d.model) for d in job.stop_details if d.truncated})
 
 
 @router.get("/jobs/{job_id}/responses/{run_id}", response_class=HTMLResponse)

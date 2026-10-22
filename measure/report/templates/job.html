@@ -53,8 +53,20 @@
 </div>
 {% endif %}
 
+{#- 底部动作(S10.3 统一):完成 → 看报告;部分完成 → 看报告 + 接着跑(可提高费用上限);中断 / 出错 → 接着跑;跑着 → 自动刷新 -#}
+{% if form_error %}<div class="err">{{ form_error }}</div>{% endif %}
 {% if job.finished %}
 <p><a href="/jobs/{{ job.job_id }}/report?lang={{ lang }}"><button>{{ t["view_report_btn"] }}</button></a></p>
+{% endif %}
+{% if job.state.value in ("PARTIAL", "INTERRUPTED", "FAILED") %}
+<form method="post" action="/jobs/{{ job.job_id }}/resume?lang={{ lang }}" class="card">
+  <p style="margin:0 0 6px">{{ t["resume_fill_hint"] }}</p>
+  {% if job.state.value == "PARTIAL" %}
+  <label>{{ t["resume_budget_label"] }}</label>
+  <input type="number" name="budget" step="0.1" min="0.1" placeholder="{{ job.budget_usd if job.budget_usd else '' }}" style="max-width:200px">
+  {% endif %}
+  <button type="submit">{{ t["btn_resume_fill"] }}</button>
+</form>
 {% elif job.state.value == "RUNNING" %}
 <p class="muted">{{ t["auto_refresh"] }}</p>
 {% endif %}

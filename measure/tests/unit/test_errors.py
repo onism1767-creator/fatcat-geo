@@ -79,3 +79,15 @@ def test_errors_page_lists_every_code_in_both_languages():
     assert "能接着跑" in zh and "ACCOUNT_CREDIT" in zh
     en = client.get("/errors?lang=en").text
     assert "Error codes" in en and LIBRARY["JOB_STALLED"].message["en"] in en and "错误码对照" not in en
+
+
+def test_runtime_codes_explain_their_common_causes():
+    """用户 2026-10-21:熔断类错误要分析原因和解决方案——运行类范围的码都要有「常见原因」,并出现在 /errors 页。"""
+    runtime = {e.code for e in LIBRARY.entries if e.scope in ("account", "db", "job", "ai", "judge", "breaker")}
+    missing = {code for code in runtime if LIBRARY[code].causes is None}
+    assert not missing, missing
+    breaker = LIBRARY["FAILURE_RATE_EXCEEDED"]
+    assert breaker.causes is not None and "限流" in breaker.causes["zh"] and "rate limits" in breaker.causes["en"]
+    assert "调低并发" in breaker.next_step["zh"] or "并发" in breaker.next_step["zh"]
+    page = _client().get("/errors?lang=zh").text
+    assert "常见原因" in page and breaker.causes["zh"] in page

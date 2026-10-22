@@ -24,6 +24,7 @@ class ErrorEntry(FrozenModel):
     trigger: dict[str, str]
     message: dict[str, str]
     next_step: dict[str, str]
+    causes: dict[str, str] | None = None  # 常见原因(运行类错误必填,测试把守;表单 / 网页类由 trigger 说明即可)
 
     def text(self, lang: str, *, with_next_step: bool, **params: str) -> str:
         """用户看到的句子:message(+ 下一步)。缺占位符就报错——出错处必须把参数填齐,不静默吞。"""
@@ -60,8 +61,10 @@ def load_errors(path: Path = DEFAULT_ERRORS_PATH) -> ErrorLibrary:
     for entry in library.entries:
         if entry.scope not in SCOPES:
             raise ValueError(f"错误码 {entry.code} 的 scope {entry.scope!r} 不在 {SCOPES} 里")
-        for field in ("trigger", "message", "next_step"):
+        for field in ("trigger", "message", "next_step", "causes"):
             texts = getattr(entry, field)
+            if texts is None:
+                continue
             if set(texts) != {"zh", "en"} or not all(v.strip() for v in texts.values()):
                 raise ValueError(f"错误码 {entry.code} 的 {field} 必须 zh / en 都有且非空")
     return library

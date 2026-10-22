@@ -272,6 +272,13 @@ class DiagnosisJob:
         self.adopt_domain_list(updated)
         return True
 
+    def raise_budget(self, budget_usd: float) -> None:
+        """接着跑前提高费用上限(S10.3):只许往上调(预算截断的腿才补得齐),指纹随之更新;不是口径,样本照旧复用。"""
+        if budget_usd <= 0 or (self.budget_usd is not None and budget_usd < self.budget_usd):
+            raise ValueError("费用上限只能往上调,且必须是正数")
+        self.budget_usd = budget_usd
+        self._refingerprint()
+
     def frozen_tier(self) -> TierChoice:
         """确认后才有的档位参数;没冻结就来取是程序顺序错了,直接报错,不给默认值。"""
         if self.tier is None:
