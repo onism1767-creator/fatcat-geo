@@ -1,6 +1,6 @@
 # 自动校准结果(S9.4,scripts/calibrate_mention_detectors.py 生成;只记计数,非人工核对)。
 # 确认页「准确率对比」只读本文件。
-calibrated_at: '2026-10-22T01:20:49.263714Z'
+calibrated_at: '2026-10-22T01:36:27.319709Z'
 source: 旧库 geo_tool:香奈儿(1796f5fac88f,180 条)、始祖鸟(b4099bc0df58,680 条)
 n_answers: 860
 n_bases: 162
@@ -27,10 +27,10 @@ synthetic:
   n: 422
   correct: 422
 - method: rules
-  kind: 近似错名
+  kind: 竞品名
   expected: false
-  n: 616
-  correct: 616
+  n: 486
+  correct: 486
 - method: rules
   kind: 错一个字母
   expected: true
@@ -57,10 +57,10 @@ synthetic:
   n: 422
   correct: 422
 - method: fuzzy
-  kind: 近似错名
+  kind: 竞品名
   expected: false
-  n: 616
-  correct: 616
+  n: 486
+  correct: 486
 - method: fuzzy
   kind: 错一个字母
   expected: true
@@ -87,10 +87,10 @@ synthetic:
   n: 42
   correct: 42
 - method: judge
-  kind: 近似错名
+  kind: 竞品名
   expected: false
-  n: 61
-  correct: 0
+  n: 48
+  correct: 48
 - method: judge
   kind: 错一个字母
   expected: true

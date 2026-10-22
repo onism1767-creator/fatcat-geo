@@ -47,6 +47,8 @@ def load_old_samples(dsn: str) -> tuple[list[Sample], str]:
             brand = BrandSpec(name=snap["brand"]["name"], aliases=snap["brand"].get("aliases", []),
                               domains=snap["brand"].get("domains", []))
             need_ids = [n["need_id"] for n in snap.get("needs", [])]
+            competitors = [str(c.get("name", "")) if isinstance(c, dict) else str(c)
+                           for c in snap.get("competitors", [])]
             if not need_ids:
                 continue
             rows = conn.execute(
@@ -69,7 +71,7 @@ def load_old_samples(dsn: str) -> tuple[list[Sample], str]:
                     search_trace=SearchTrace(), raw_payload={}, timestamp=ts, latency_ms=latency or 0,
                     cost_usd=cost or 0.0,
                 )
-                samples.append(Sample(run=run, brand=brand))
+                samples.append(Sample(run=run, brand=brand, competitors=[c for c in competitors if c]))
                 count += 1
             parts.append(f"{brand.name}({job_id},{count} 条)")
     return samples, "旧库 geo_tool:" + "、".join(parts)

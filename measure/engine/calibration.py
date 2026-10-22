@@ -35,10 +35,11 @@ METHODS = ("rules", "fuzzy", "judge")
 class Sample(FrozenModel):
     run: SurfaceRun
     brand: BrandSpec
+    competitors: list[str] = []  # 这单的竞品名:塞进去当负例(肯定不是你;S9.4b,10-21 换掉首字母错名)
 
 
 class Variant(FrozenModel):
-    kind: str  # 写法种类(原样 / 小写 / 去空格 / 全角 / 复数 / 错一个字母 / 近似错名……)
+    kind: str  # 写法种类(原样 / 小写 / 去空格 / 全角 / 复数 / 错一个字母 / 竞品名……)
     text: str
     expected: bool  # 塞进去之后「提到了」的正确答案
 
@@ -107,16 +108,11 @@ def _typo(name: str) -> str:
     return name[:middle] + swap + name[middle + 1:]
 
 
-def _other_first(name: str) -> str:
-    """首字母换掉:同前缀规则下不该被认成品牌(近似错名)。"""
-    first = next(i for i, c in enumerate(name) if c.isalpha())
-    swap = "Z" if name[first].upper() != "Z" else "Q"
-    return name[:first] + swap + name[first + 1:]
 
-
-def variants_of(brand: BrandSpec) -> list[Variant]:
+def variants_of(brand: BrandSpec, competitors: Sequence[str] = ()) -> list[Variant]:
     """一张品牌卡能生成的写法:拉丁名字的大小写 / 空格 / 连字符 / 全角 / 复数 / 错一个字母(都该认出来)
-    与近似错名(不该认);中文名字只做原样与换一个字的错名(中文不模糊,用户定)。"""
+    中文名字只做原样(中文不模糊,用户定);负例 = 竞品名(肯定不是你;首字母换掉的错名裁判会当成拼错的品牌名,
+    不算干净负例,10-21 换掉)。"""
     out: list[Variant] = []
     seen: set[tuple[str, bool]] = set()
 
@@ -141,9 +137,10 @@ def variants_of(brand: BrandSpec) -> list[Variant]:
                 add("复数", name + "s", True)
             if len(name) >= 6:
                 add("错一个字母", _typo(name), True)
-            add("近似错名", _other_first(name), False)
-        elif len(name) >= 3:
-            add("近似错名", name[:-1] + "牌", False)
+    known = {n.strip().lower() for n in [brand.name, *brand.aliases]}
+    for competitor in competitors:
+        if competitor.strip() and competitor.strip().lower() not in known:
+            add("竞品名", competitor.strip(), False)
     return out
 
 
@@ -234,7 +231,7 @@ def calibrate(
              and verdicts["fuzzy"].get(s.run.run_id) is False]
     judged_ids = {s.run.run_id for s in judged if verdicts["judge"].get(s.run.run_id) is False}
     synthetic_runs = [(base, variant, synthetic_run(base, variant, i))
-                      for base in bases for i, variant in enumerate(variants_of(base.brand))]
+                      for base in bases for i, variant in enumerate(variants_of(base.brand, base.competitors))]
     if prefetch is not None and judge_a is not None:
         prefetch([Sample(run=run, brand=base.brand) for base, _, run in synthetic_runs
                   if base.run.run_id in judged_ids], False)  # 合成样本只请主裁判
