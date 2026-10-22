@@ -159,6 +159,7 @@ class DiagnosisJob:
         self.budget_usd: float | None = None
         self.dependency_enabled = False  # 检索依赖对照(第 9 章挂靠),默认关
         self.fresh = False  # 「修好后再测」的单(S11.3):一律重新提问,不走回答缓存(S11.2)
+        self.parent_job_id: str | None = None  # 再测对照的上一单编号(S11.3);不是口径,不进指纹
         self.fingerprint = ""
 
         self.total_runs = 0  # 本单要发的提问次数(题数 × 每题次数 × 腿数)
@@ -283,6 +284,23 @@ class DiagnosisJob:
         self.budget_usd = budget_usd
         self._refingerprint()
 
+    def retest(self) -> DiagnosisJob:
+        """「修好后再测」(S11.3):按这一单冻结的口径新开一单——同样的品牌(含别名与官网域名)、题目、竞品、被测对象、档位、
+        费用上限、对照开关与官网名单(产品文档 D12:再测默认沿用同一份名单,保证前后可比)。题目换新编号:槽位按题目编号认,
+        沿用旧编号会把上一单的回答当成已问过的;fresh=True 一律重新提问、不走回答缓存;记下上一单编号供两单对照。
+        没跑完的单不能再测——那是程序顺序错了,直接报错。"""
+        if not self.finished:
+            raise RuntimeError("还没跑完的任务不能再测")
+        job = DiagnosisJob(brand=self.brand, website=self.website, category=self.category, locale=self.locale,
+                           candidates=[], competitors_suggested=[])
+        job.fresh = True
+        job.parent_job_id = self.job_id
+        job.domain_list = self.domain_list
+        job.freeze(prompts=[p.model_copy(update={"prompt_id": str(uuid4())}) for p in self.prompts],
+                   competitors=self.competitors, targets=self.targets, tier=self.frozen_tier(),
+                   budget_usd=self.budget_usd, dependency_enabled=self.dependency_enabled)
+        return job
+
     def frozen_tier(self) -> TierChoice:
         """确认后才有的档位参数;没冻结就来取是程序顺序错了,直接报错,不给默认值。"""
         if self.tier is None:
@@ -331,6 +349,7 @@ class DiagnosisJob:
             "budget_usd": self.budget_usd,
             "dependency_enabled": self.dependency_enabled,
             "fresh": self.fresh,
+            "parent_job_id": self.parent_job_id,
             "fingerprint": self.fingerprint,
             "domain_list": self.domain_list.model_dump(mode="json") if self.domain_list is not None else None,
             "error": {"code": self.error_code, "params": self.error_params, "text": self.error},
@@ -387,6 +406,7 @@ class DiagnosisJob:
         job.budget_usd = snapshot["budget_usd"]
         job.dependency_enabled = snapshot["dependency_enabled"]
         job.fresh = snapshot["fresh"]
+        job.parent_job_id = snapshot["parent_job_id"]
         job.fingerprint = snapshot["fingerprint"]
         if snapshot.get("domain_list"):
             job.domain_list = BrandDomainList.model_validate(snapshot["domain_list"])
@@ -411,6 +431,10 @@ class JobRegistry:
 
     def get(self, job_id: str) -> DiagnosisJob | None:
         return self._jobs.get(job_id)
+
+    def retests_of(self, job_id: str) -> list[DiagnosisJob]:
+        """这一单的全部再测(S11.3),旧的在前。"""
+        return sorted((j for j in self._jobs.values() if j.parent_job_id == job_id), key=lambda j: j.created_at)
 
     def recent(self, limit: int = 20) -> list[DiagnosisJob]:
         jobs = sorted(self._jobs.values(), key=lambda j: j.created_at, reverse=True)

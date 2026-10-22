@@ -8,6 +8,8 @@
   <p><b>{{ state }}</b>{% if phase != state %} · {{ phase }}{% endif %}
      <span class="muted">{{ job.prompts|length }} {{ t["prompts_word"] }} × {{ runs_per_prompt }} {{ t["runs_word"] }} × {{ job.targets|length }} {{ t["surfaces_word"] }}
      · {{ t["fingerprint_word"] }} {{ job.fingerprint or "—" }}</span></p>
+  {#- 「修好后再测」的单(S11.3):全部重新提问、不用缓存,链到上一单报告 -#}
+  {% if job.fresh %}<p class="kv">{{ t["retest_banner"] }}{% if job.parent_job_id %} <a href="/jobs/{{ job.parent_job_id }}/report?lang={{ lang }}">{{ t["retest_parent_short"] }}</a>{% endif %}</p>{% endif %}
   {#- 总进度(用户定 2026-10-14):按阶段分段的一条,下面才是各阶段自己的 -#}
   <p class="kv" style="margin-bottom:2px"><b>{{ t["overall_word"] }} {{ job.overall_pct }}%</b> <span class="muted">{{ t["overall_note"] }}</span></p>
   <div class="bar total"><div style="width: {{ job.overall_pct }}%"></div></div>

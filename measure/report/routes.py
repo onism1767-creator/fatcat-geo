@@ -248,6 +248,29 @@ async def resume(request: Request, job_id: str, budget: str = Form("")):
     return _relaunch(request, job, replay=job.state is JobState.DONE)
 
 
+@router.post("/jobs/{job_id}/retest")
+async def retest(request: Request, job_id: str):
+    """「修好后再测」(S11.3):按这一单冻结的口径新开一单,一律重新提问、不走回答缓存,直接开跑(费用上限与上一单相同),
+    跳到新单的任务页。没跑完的单不能再测;上一次再测还在跑就跳到它、不另开一单(连点两下不花两份钱);
+    有 AI 没接入(缺 key)就不开,回首页说明。"""
+    ctx = ctx_of(request)
+    job = ctx.registry.get(job_id)
+    if job is None:
+        return not_found()
+    if not job.finished:
+        return redirect(request, f"/jobs/{job.job_id}")
+    running = next((r for r in ctx.registry.retests_of(job.job_id)
+                    if r.state in (JobState.CONFIRMED, JobState.RUNNING)), None)
+    if running is not None:
+        return redirect(request, f"/jobs/{running.job_id}")
+    if missing := _missing_adapters(ctx, job):
+        return redirect(request, f"/?error=RESUME_MISSING_AI&names={','.join(missing)}")
+    new = job.retest()
+    ctx.registry.add(new)
+    ctx.launcher.launch(new, replay=False)
+    return redirect(request, f"/jobs/{new.job_id}")
+
+
 @router.post("/jobs/{job_id}/official_domains")
 async def choose_official_domains(
     request: Request, job_id: str, confirm: list[str] = Form([]), remove: list[str] = Form([]),
@@ -265,11 +288,15 @@ async def choose_official_domains(
     return _relaunch(request, job, replay=True)
 
 
+def _missing_adapters(ctx: WebContext, job: DiagnosisJob) -> list[str]:
+    """任务的被测对象里没接入(缺 key)的 AI。"""
+    return sorted({t.surface for t in job.targets if t.surface not in ctx.adapters})
+
+
 def _relaunch(request: Request, job: DiagnosisJob, *, replay: bool):
     """再起一次执行器;有 AI 没接入(缺 key)就不起,回首页说明。"""
     ctx = ctx_of(request)
-    missing = sorted({t.surface for t in job.targets if t.surface not in ctx.adapters})
-    if missing:
+    if missing := _missing_adapters(ctx, job):
         return redirect(request, f"/?error=RESUME_MISSING_AI&names={','.join(missing)}")
     ctx.launcher.launch(job, replay=replay)
     return redirect(request, f"/jobs/{job.job_id}")
@@ -322,7 +349,10 @@ async def job_report(request: Request, job_id: str):
     return ctx.render(request, "report.html", job=job, runs_per_prompt=job.sampling_note().tier.runs_per_prompt,
                       summary=summarize(job.class_reports, ctx.target_name, ctx.api_name),
                       psl_version=PSL_SNAPSHOT_VERSION, stop_texts=stop_texts(ctx, job, lang_of(request)),
-                      truncated={(d.surface, d.model) for d in job.stop_details if d.truncated})
+                      truncated={(d.surface, d.model) for d in job.stop_details if d.truncated},
+                      # 再测(S11.3):本单对照的上一单 + 本单已有的再测,报告页互相链到好对照
+                      parent=ctx.registry.get(job.parent_job_id) if job.parent_job_id else None,
+                      retests=ctx.registry.retests_of(job.job_id))
 
 
 @router.get("/jobs/{job_id}/responses/{run_id}", response_class=HTMLResponse)

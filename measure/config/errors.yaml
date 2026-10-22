@@ -47,9 +47,9 @@ errors:
   - code: RESUME_MISSING_AI
     scope: form
     resumable: false
-    trigger: {zh: "要接着跑的单里有 AI 没接入(缺 API key)", en: "A job to resume uses an AI that is not connected (missing API key)"}
-    message: {zh: "有的 AI 没接入(缺少 API key),不能接着跑:{names}", en: "Some AIs are not connected (missing API key), so this job cannot resume: {names}"}
-    next_step: {zh: "在 .env 里补上这家的 key,重启服务后再点「接着跑」。", en: "Add that key to .env, restart the service, then press Resume."}
+    trigger: {zh: "要接着跑 / 再测的单里有 AI 没接入(缺 API key)", en: "A job to resume or re-test uses an AI that is not connected (missing API key)"}
+    message: {zh: "有的 AI 没接入(缺少 API key),这单不能接着跑或再测:{names}", en: "Some AIs are not connected (missing API key), so this job cannot resume or be re-tested: {names}"}
+    next_step: {zh: "在 .env 里补上这家的 key,重启服务后再点「接着跑」或「修好后再测」。", en: "Add that key to .env, restart the service, then press Resume or Re-test."}
 
   # ── 我方账户 ──
   - code: ACCOUNT_AUTH

@@ -5,6 +5,11 @@
 <p class="muted">{{ t["scope_note"] }} {{ t["api_note"] }}</p>
 <p><a class="button" href="/jobs/{{ job.job_id }}/download?lang={{ lang }}">{{ t["download_bundle"] }}</a></p>
 
+{#- 「修好后再测」的单(S11.3):说明一切与上一单相同、全部重新提问,链到上一单报告好对照 -#}
+{% if job.fresh %}
+<div class="card"><b>{{ t["retest_banner"] }}</b>{% if parent %} <a href="/jobs/{{ parent.job_id }}/report?lang={{ lang }}">{{ t["retest_parent_link"].format(when=parent.created_at.strftime("%Y-%m-%d %H:%M")) }}</a>{% endif %}</div>
+{% endif %}
+
 {#- 采样说明(S8.2,架构书 v0.4.26 §10):这份报告是怎么测出来的——实际发生的数字,不是计划 -#}
 {% set sn = job.sampling %}
 {% if sn %}
@@ -320,5 +325,12 @@
     <button type="submit" style="margin:0;padding:4px 12px;font-weight:400">{{ t["btn_recompute"] }}</button>
     <span class="muted"> {{ t["regen_hint"] }}</span>
   </form>
+  {#- 修好后再测(S11.3):同样的题 / 竞品 / 型号 / 档位 / 官网名单新开一单、全部重新提问,会花钱;已有的再测列出来好对照 -#}
+  <form method="post" action="/jobs/{{ job.job_id }}/retest?lang={{ lang }}" style="margin-top:10px">
+    <button type="submit" style="margin:0;padding:4px 12px;font-weight:400">{{ t["btn_retest"] }}</button>
+    <span class="muted"> {{ t["retest_hint"] }}{% if job.budget_usd %} {{ t["retest_budget"].format(budget=job.budget_usd) }}{% endif %}</span>
+  </form>
+  {% if retests %}<p class="muted">{{ t["retests_title"] }}
+    {% for r in retests %}<a href="/jobs/{{ r.job_id }}{% if r.finished %}/report{% endif %}?lang={{ lang }}">{{ r.created_at.strftime("%Y-%m-%d %H:%M") }} · {{ state_labels[r.state.value] }}</a>{% if not loop.last %};{% endif %}{% endfor %}</p>{% endif %}
 </div>
 {% endblock %}

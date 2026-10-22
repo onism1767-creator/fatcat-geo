@@ -375,7 +375,7 @@ class CountingAdapter(TwoModelAdapter):
 
 def test_answers_are_reused_from_cache_for_the_same_brand_question_and_model(storage, offline):
     """S11.2(C8):同品牌、同题、同型号 12 小时内别的单问过的回答直接复用——一次都不再问、不算本单花费、采样说明写明;
-    别的品牌不复用;「修好后再测」(fresh)不复用。"""
+    别的品牌不复用;「修好后再测」(S11.3,`DiagnosisJob.retest`)不复用——题换了新编号,6 条全部重新问。"""
     first = CountingAdapter()
     tag = uuid4().hex[:6]
     job_a, prompt_a = _new_job("中小团队用什么 CRM 好?", tag=tag)
@@ -400,7 +400,10 @@ def test_answers_are_reused_from_cache_for_the_same_brand_question_and_model(sto
     assert third.asks == 6 and job_c.sampling.n_cached == 0  # 别的品牌:不复用
 
     fourth = CountingAdapter()
-    job_d, _ = _new_job("中小团队用什么 CRM 好?", tag=tag)
-    job_d.fresh = True
+    job_d = job_a.retest()  # 「修好后再测」:同一份口径新开一单,题换新编号,官网名单沿用
     runner.execute_job(job=job_d, adapters={"two_model": fourth}, dsn=TEST_DSN, evidence=load_evidence_registry())
+    assert job_d.state is JobState.DONE, job_d.error
     assert fourth.asks == 6 and job_d.sampling.n_cached == 0 and job_d.sampling.fresh is True  # 再测:一律重新提问
+    assert job_d.spent_usd == job_a.spent_usd and job_d.parent_job_id == job_a.job_id  # 真花钱,和上一单一样多
+    assert len(storage.runs_for_prompt(job_d.prompts[0].prompt_id, surface="two_model")) == 6  # 新编号下 6 条新回答
+    assert job_d.domain_list == job_a.domain_list

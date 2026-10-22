@@ -605,7 +605,7 @@ def test_resume_endpoint_relaunches_interrupted_job(client_and_job):
     assert calls == [job.job_id]  # 执行器被再次触发(可重入,只补缺口)
 
 
-def _sync_app(monkeypatch, runs: list):
+def _sync_app(monkeypatch, runs: list, job_runner=None):
     """线程换成同步执行;执行器桩只记下被怎么叫(不改状态)。"""
 
     class SyncThread:
@@ -617,7 +617,7 @@ def _sync_app(monkeypatch, runs: list):
 
     monkeypatch.setattr("report.launcher.threading.Thread", SyncThread)
     return create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
-                      evidence=REGISTRY, job_runner=lambda *, job, replay, **_: runs.append(replay))
+                      evidence=REGISTRY, job_runner=job_runner or (lambda *, job, replay, **_: runs.append(replay)))
 
 
 def test_choosing_official_domains_updates_list_and_only_recomputes(monkeypatch):
@@ -703,6 +703,71 @@ def test_resume_endpoint_regenerates_completed_job(client_and_job):
     resp = client.post(f"/jobs/{job.job_id}/resume?lang=zh", follow_redirects=False)
     assert resp.status_code == 303
     assert calls == [job.job_id]
+
+
+def test_retest_opens_a_fresh_job_with_the_same_frozen_scope(monkeypatch):
+    """「修好后再测」(S11.3):报告页一键按同一份冻结口径新开一单——同样的品牌、题(换新编号)、竞品、对象、档位、费用上限、
+    官网名单;fresh=True 一律重新提问、不走缓存;新单直接开跑并跳到它的任务页;没跑完的单不能再测;
+    上一次再测还在跑时再点不另开一单(连点两下不花两份钱);再测标记与上一单编号随快照往返。"""
+    from datetime import UTC, datetime
+
+    from engine.models import BrandDomain, BrandDomainList, DomainEvidence, DomainStatus, DomainTier
+
+    launched: list[tuple[str, bool]] = []
+    app = _sync_app(monkeypatch, [], job_runner=lambda *, job, replay, **_: launched.append((job.job_id, replay)))
+    job = finished_job()
+    job.adopt_domain_list(BrandDomainList(
+        primary="aurora-crm.com", discovered_at=datetime(2026, 10, 13, tzinfo=UTC), public_suffix_list="test",
+        domains=[BrandDomain(domain="aurora-crm.de", tier=DomainTier.A1, status=DomainStatus.CONFIRMED,
+                             bidirectional=True, evidence=[DomainEvidence(kind="back_link")])],
+    ))
+    registry = app.state.ctx.registry
+    registry.add(job)
+    client = TestClient(app)
+
+    resp = client.post(f"/jobs/{job.job_id}/retest?lang=zh", follow_redirects=False)
+    assert resp.status_code == 303
+    new = registry.get(resp.headers["location"].removeprefix("/jobs/").split("?")[0])
+    assert new is not None and new is not job and new.fresh is True and new.parent_job_id == job.job_id
+    assert launched == [(new.job_id, False)]  # 新单直接开跑,是真提问不是重算
+    assert [(p.text, p.intent, p.locale) for p in new.prompts] == [(p.text, p.intent, p.locale) for p in job.prompts]
+    assert {p.prompt_id for p in new.prompts}.isdisjoint({p.prompt_id for p in job.prompts})  # 题换新编号
+    same = ("brand", "website", "category", "locale", "competitors", "targets", "tier", "budget_usd",
+            "dependency_enabled", "domain_list")
+    assert all(getattr(new, f) == getattr(job, f) for f in same)
+    assert new.brand.domains == ["aurora-crm.com", "aurora-crm.de"] and new.fingerprint != job.fingerprint
+    assert registry.retests_of(job.job_id) == [new]
+    # 再测还在跑(排队中):再点一次跳到它,不另开一单
+    again = client.post(f"/jobs/{job.job_id}/retest?lang=zh", follow_redirects=False)
+    assert again.headers["location"] == f"/jobs/{new.job_id}?lang=zh" and len(registry.recent()) == 2
+    # 没跑完的单不能再测
+    blocked = client.post(f"/jobs/{new.job_id}/retest?lang=zh", follow_redirects=False)
+    assert blocked.headers["location"] == f"/jobs/{new.job_id}?lang=zh" and len(registry.recent()) == 2
+    restored = DiagnosisJob.from_snapshot(new.to_snapshot())
+    assert restored.fresh is True and restored.parent_job_id == job.job_id and restored.fingerprint == new.fingerprint
+
+
+def test_retest_pages_say_everything_was_asked_afresh(client_and_job):
+    """再测的单(S11.3):报告顶部与任务页写明「全部重新提问、没用缓存」并链到上一单报告;上一单的报告有再测按钮并列出它的再测;
+    首页历史里标「再测」;英文页同样;页面不带技术词。"""
+    client, job, _ = client_and_job
+    retest = job.retest()
+    retest.state, retest.phase = JobState.DONE, "phase_done"
+    retest.class_reports, retest.surface_verdicts = job.class_reports, job.surface_verdicts
+    retest.sampling = job.sampling.model_copy(update={"fresh": True})
+    client.app.state.ctx.registry.add(retest)
+
+    report = client.get(f"/jobs/{retest.job_id}/report?lang=zh").text
+    assert "修好后再测" in report and "全部重新提问" in report and f"/jobs/{job.job_id}/report?lang=zh" in report
+    assert not any(token in user_view_of(report) for token in USER_VIEW_FORBIDDEN)
+    parent = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
+    assert "修好后再测(全部重新提问)" in parent and "这一单已经再测过" in parent
+    assert f"/jobs/{retest.job_id}/report?lang=zh" in parent
+    page = visible_text(client.get(f"/jobs/{retest.job_id}?lang=zh").text)
+    assert "修好后再测" in page and "没有用缓存" in page and not any(token in page for token in UI_FORBIDDEN)
+    assert "再测" in visible_text(client.get("/?lang=zh").text)
+    en = client.get(f"/jobs/{retest.job_id}/report?lang=en").text
+    assert "re-test after fixes" in en and "asked afresh" in en
 
 
 def test_report_payload_round_trip_rehydrates_messages():

@@ -34,7 +34,7 @@
   <tr><th>{{ t["th_brand"] }}</th><th>{{ t["th_state"] }}</th><th>{{ t["th_phase"] }}</th><th>{{ t["th_cost"] }}</th><th></th></tr>
   {% for j in jobs %}
   <tr>
-    <td>{{ j.brand.name }}<span class="muted"> · {{ j.category }} · {{ j.locale }}</span></td>
+    <td>{{ j.brand.name }}<span class="muted"> · {{ j.category }} · {{ j.locale }}{% if j.fresh %} · {{ t["retest_tag"] }}{% endif %}</span></td>
     <td>{{ state_labels[j.state.value] }}</td>
     <td>{{ t.get(j.phase, j.phase) }}</td>
     <td>${{ "%.4f"|format(j.spent_usd) }}</td>

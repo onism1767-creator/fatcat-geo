@@ -177,8 +177,10 @@ def _summary_md(
                                         runs=sn.n_runs, valid=sn.n_valid)
     offline = " " + t["sampling_offline"].format(n=sn.n_offline_runs) if sn.n_offline_runs else ""
     lines.append("- " + counts + offline)
-    if sn.fresh:  # S11.3
+    if sn.fresh:  # S11.3:再测的单写明一律重新提问,并记对照的上一单
         lines.append("- " + t["sampling_fresh"])
+        if job.parent_job_id:
+            lines.append("- " + t["retest_parent_line"].format(id=job.parent_job_id))
     elif sn.n_cached:  # S11.2
         lines.append("- " + t["sampling_cached"].format(n=sn.n_cached, hours=sn.cache_hours))
     lines.append("- " + _tier_line(sn.tier, t))
