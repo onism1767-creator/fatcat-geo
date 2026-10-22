@@ -162,7 +162,8 @@ class SurfaceAdapter(ABC):
 
     @abstractmethod
     def healthcheck(self) -> bool:
-        """key 有效性、配额可用性。"""
+        """key 有效性、配额可用性(最小请求,成本近零)。账户问题(key 无效 / 额度不足)直接抛 AdapterAccountError——
+        开跑前预检据此停单并说清是换 key 还是充值(S11.1);其余问题(服务不可用、网络)返回 False。"""
 
     def close(self) -> None:  # noqa: B027 —— 刻意的可选钩子,不设为抽象方法
         """释放底层连接。持有 httpx.Client 的适配器必须覆写;

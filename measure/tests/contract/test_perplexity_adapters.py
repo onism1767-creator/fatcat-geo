@@ -13,6 +13,7 @@ import pytest
 import respx
 
 from adapters.base import (
+    AdapterAccountError,
     AdapterPermanentError,
     AdapterTransientError,
     CapabilityNotSupportedError,
@@ -178,7 +179,8 @@ def test_agent_healthcheck():
     respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json=body))
     assert PerplexityAgentAdapter(api_key="test-key").healthcheck() is True
     respx.post(AGENT_URL).mock(return_value=httpx.Response(401, json={"error": "bad key"}))
-    assert PerplexityAgentAdapter(api_key="bad-key").healthcheck() is False
+    with pytest.raises(AdapterAccountError):  # 账户问题不吞:开跑前预检靠它停单并说清换 key / 充值(S11.1)
+        PerplexityAgentAdapter(api_key="bad-key").healthcheck()
 
 
 def test_close_releases_http_client():

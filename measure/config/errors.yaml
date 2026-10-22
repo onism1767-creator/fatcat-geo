@@ -77,6 +77,13 @@ errors:
     next_step: {zh: "运行 scripts/pgdev.ps1 status:显示 STOPPED 就 start,显示 PG_ZOMBIE 就 restart;数据库起好后点「接着跑」,已经采集的结果不会丢。", en: "Run scripts/pgdev.ps1 status: STOPPED means start it, PG_ZOMBIE means restart it; then press Resume. Results already collected are kept."}
 
   # ── 整单 ──
+  - code: PRECHECK_FAILED
+    scope: job
+    resumable: true
+    trigger: {zh: "开跑前的预检:某家接口打最小请求不通(不是账户问题),一次采样都没发、没花钱", en: "Pre-run check: an AI's minimal probe request failed (not an account problem); no sampling was sent and nothing was spent"}
+    causes: {zh: "平台故障或维护;本地网络不通;接口地址变了(平台改版,适配器还打旧地址)。", en: "Platform outage or maintenance; local network down; the API endpoint changed (platform revamp, adapter still calling the old one)."}
+    message: {zh: "开跑前检查没通过:{names} 的接口现在不可用,检测没有开始,没有花钱。", en: "The pre-run check failed: {names} is not reachable right now. The run did not start and nothing was spent."}
+    next_step: {zh: "稍后点「接着跑」重试;持续不通就看这家的服务状态页,或在确认页去掉它再开一单。", en: "Press Resume later; if it stays down, check that provider's status page, or start a new job without it."}
   - code: JOB_STALLED
     scope: job
     resumable: true

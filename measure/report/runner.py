@@ -18,7 +18,7 @@ from datetime import UTC, datetime
 
 import structlog
 
-from adapters.base import SurfaceAdapter
+from adapters.base import AdapterAccountError, SurfaceAdapter
 from crawler.reddit_api import RedditFetcher
 from crawler.render import PlaywrightRenderer, playwright_available
 from crawler.wayback import WaybackClient
@@ -107,7 +107,16 @@ class _ProgressSink:
 
 
 # 执行器会写进 job.error_code 的码(S10.1):都在 config/errors.yaml 里(测试把守),文案由任务页从库里取
-RUNNER_CODES = ("ACCOUNT_AUTH", "ACCOUNT_CREDIT", "DB_UNREACHABLE", "JUDGE_UNAVAILABLE", "JOB_CRASHED")
+RUNNER_CODES = ("ACCOUNT_AUTH", "ACCOUNT_CREDIT", "DB_UNREACHABLE", "JUDGE_UNAVAILABLE", "JOB_CRASHED",
+                "PRECHECK_FAILED")
+
+
+class PrecheckFailed(Exception):
+    """开跑前预检(S11.1):某家接口不可用(不是账户问题),一次采样都没发;names = 不可用的 AI 产品名。"""
+
+    def __init__(self, names: list[str]) -> None:
+        super().__init__(", ".join(names))
+        self.names = names
 
 
 def execute_job(
@@ -139,6 +148,12 @@ def execute_job(
         log.error("job_halted_db_unreachable", job_id=job.job_id, error=str(exc))
         job.state = JobState.FAILED
         job.error_code, job.error_params, job.error = "DB_UNREACHABLE", {"detail": str(exc)}, None
+        job.phase = "phase_failed"
+        _persist_failure(job, dsn)
+    except PrecheckFailed as exc:  # S11.1:开跑前接口不通,没花钱就停
+        log.error("job_halted_precheck_failed", job_id=job.job_id, names=exc.names)
+        job.state = JobState.FAILED
+        job.error_code, job.error_params, job.error = "PRECHECK_FAILED", {"names": ", ".join(exc.names)}, None
         job.phase = "phase_failed"
         _persist_failure(job, dsn)
     except JudgeUnavailable as exc:  # S10.1:高档的裁判没准备好,也要有码和人话
@@ -181,6 +196,8 @@ def _execute(
         storage.upsert_job_snapshot(job.to_snapshot())
         # 被测对象 = 仪器 × 型号(v0.4.19):型号是口径的一部分,计划、样本、指标、诊断块一律按对象分开
         adapter_of = {target: adapters[target.surface] for target in job.targets}
+        if not replay:
+            _precheck(job, adapters, adapter_of, judges)  # 开跑前预检(S11.1):key / 额度 / 接口可用,一次采样都没发
         for prompt in job.prompts:
             storage.insert_prompt(prompt)  # 幂等:续跑不重复
         job.spent_usd = storage.aux_spent_usd(job.job_id)  # 辅助调用(出题)记在账本里,续跑也不丢
@@ -242,6 +259,35 @@ def _execute(
         job.adopt_domain_list(_look_alikes(job, all_runs, resolution))
         truncated = any(r.stop_reason in _TRUNCATION_REASONS for r in results.values())
         _finish(job, storage, truncated=truncated, sampling=_sampling_note(job, runs_by, offline_runs_by, judge))
+
+
+def _precheck(
+    job: DiagnosisJob, adapters: dict[str, SurfaceAdapter], adapter_of: dict[Target, SurfaceAdapter],
+    judges: JudgeConfig | None,
+) -> None:
+    """开跑前预检(S11.1,用户 2026-10-12「开跑前自动查余额」):每家被测仪器(高档再加两家裁判)各打一次最小请求——
+    账户问题(key 无效 / 额度不足)按原有的换 key / 充值流程停单;接口不通给 PRECHECK_FAILED。重算(replay)不预检。"""
+    job.phase = "phase_precheck"
+    to_check: dict[str, SurfaceAdapter] = {}
+    for target, adapter in adapter_of.items():
+        to_check.setdefault(target.surface, adapter)
+    if job.frozen_tier().mention_method is MentionMethod.RULES_FUZZY_JUDGE:
+        for judge_target in (judges or load_judges()).targets:
+            if judge_target.surface in adapters:
+                to_check.setdefault(judge_target.surface, adapters[judge_target.surface])
+    unavailable: list[str] = []
+    for surface, adapter in to_check.items():
+        meta = adapter.meta()
+        try:
+            healthy = adapter.healthcheck()
+        except AdapterAccountError as exc:
+            raise AccountProblem(provider=meta.provider, surface=surface, model=meta.default_model,
+                                 error_type=exc.error_type, message=str(exc)) from exc
+        if not healthy:
+            unavailable.append(meta.display_name)
+    if unavailable:
+        raise PrecheckFailed(unavailable)
+    log.info("precheck_passed", job_id=job.job_id, surfaces=sorted(to_check))
 
 
 def _sampling_note(

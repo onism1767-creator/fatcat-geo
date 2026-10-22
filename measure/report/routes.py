@@ -5,14 +5,17 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from importlib.metadata import version as _package_version
+from urllib.parse import quote
 
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
+from engine.ai_task import TaskFailed
 from engine.drafting import PromptCandidate, draft_prompt_candidates
-from engine.models import Target
+from engine.models import RunErrorType, Target
 from engine.page_check import BUDGET_S as VERIFY_BUDGET_S
 from engine.page_check import PageChecker
+from engine.scheduler import AccountProblem
 from engine.spellings import suggest_spellings
 from engine.storage import Storage
 from engine.tiers import MentionMethod, tier_targets
@@ -39,10 +42,11 @@ PSL_SNAPSHOT_VERSION = _package_version("tldextract")  # 注册域名用的公�
 
 
 @router.get("/", response_class=HTMLResponse)
-async def index(request: Request, error: str = "", names: str = ""):
+async def index(request: Request, error: str = ""):
     ctx = ctx_of(request)
+    params = {k: v for k, v in request.query_params.items() if k not in ("lang", "error")}  # 错误句子的占位符
     return ctx.render(request, "index.html", jobs=ctx.registry.recent(), surfaces=sorted(ctx.adapters),
-                      error=error_text(request, error, names=names))
+                      error=error_text(request, error, **params))
 
 
 @router.post("/jobs")
@@ -67,20 +71,31 @@ async def create_job(
         (a for a in ctx.adapters.values() if a.meta().capabilities.supports_citations), None
     )
     if generate and generation_adapter is not None:
-        with Storage(ctx.dsn) as store:
-            drafted, job.competitors_suggested = draft_prompt_candidates(
-                generation_adapter, category=category, brand=brand, locale=locale,
-                ledger=lambda run: store.insert_aux_call(job_id=job.job_id, task="出题", run=run),
-            )
-            # 顺手让 AI 列品牌的常见写法,并在它搜到的网页 + 官网首页里数次数(S9.2b);网页同样落 page_check 表
-            opener = PageChecker(store, budget_s=SPELLING_PAGES_BUDGET_S)
-            try:
-                job.spellings_suggested = suggest_spellings(
-                    generation_adapter, brand=brand, website=normalized, locale=locale, pages=opener,
-                    ledger=lambda run: store.insert_aux_call(job_id=job.job_id, task="常见写法", run=run),
-                )
-            finally:
-                opener.close()
+        try:
+            with Storage(ctx.dsn) as store:
+                try:
+                    drafted, job.competitors_suggested = draft_prompt_candidates(
+                        generation_adapter, category=category, brand=brand, locale=locale,
+                        ledger=lambda run: store.insert_aux_call(job_id=job.job_id, task="出题", run=run),
+                    )
+                except TaskFailed as exc:  # 出不好题:回首页说人话(S11.1),花掉的钱已记账
+                    return redirect(request, f"/?error=DRAFTING_FAILED&detail={quote(str(exc)[:200])}")
+                # 顺手让 AI 列品牌的常见写法,并在它搜到的网页 + 官网首页里数次数(S9.2b);网页同样落 page_check 表
+                opener = PageChecker(store, budget_s=SPELLING_PAGES_BUDGET_S)
+                try:
+                    job.spellings_suggested = suggest_spellings(
+                        generation_adapter, brand=brand, website=normalized, locale=locale, pages=opener,
+                        ledger=lambda run: store.insert_aux_call(job_id=job.job_id, task="常见写法", run=run),
+                    )
+                except TaskFailed as exc:
+                    return redirect(request, f"/?error=SPELLINGS_FAILED&detail={quote(str(exc)[:200])}")
+                finally:
+                    opener.close()
+        except AccountProblem as exc:  # 出题时就撞上 key / 额度问题:同一套换 key / 充值的话,回首页说
+            code = "ACCOUNT_AUTH" if exc.error_type is RunErrorType.ACCOUNT_AUTH else "ACCOUNT_CREDIT"
+            display = ctx.display_names.get(exc.surface, exc.surface)
+            return redirect(request, f"/?error={code}&ai={quote(display)}&model={quote(exc.model)}"
+                                     f"&detail={quote(exc.message[:200])}")
     job.candidates = drafted + manual_candidates(questions, brand)
     if not job.candidates:
         return ctx.render(request, "index.html", jobs=ctx.registry.recent(), surfaces=sorted(ctx.adapters),

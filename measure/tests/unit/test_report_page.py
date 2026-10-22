@@ -885,3 +885,25 @@ def test_partial_job_can_resume_to_fill_gaps_and_raise_the_cap(monkeypatch):
     job.state = JobState.DONE
     client.post(f"/jobs/{job.job_id}/resume?lang=zh", follow_redirects=False)
     assert runs == [False, True]  # 全部完成的单:重新生成报告,不提问
+
+
+def test_drafting_account_problem_sends_the_user_back_home_with_the_credit_sentence(storage):
+    """S11.1:出题时就撞上额度问题,不再是 500——回首页用同一套「充值」句子说明,出题花掉的钱已记账(走真库的账本)。"""
+    from adapters.base import AdapterAccountError
+    from engine.models import RunErrorType
+    from tests.unit.conftest import TEST_DSN
+
+    class BrokeAdapter(DummyAdapter):
+        def ask(self, request):
+            raise AdapterAccountError("Your credit balance is too low", error_type=RunErrorType.ACCOUNT_CREDIT,
+                                      http_status=402, response_body="{}")
+
+    app = create_app(call_stats=lambda: [], adapters={"s1": BrokeAdapter()}, dsn=TEST_DSN, evidence=REGISTRY,
+                     job_runner=lambda **kw: None, calibration=None)
+    client = TestClient(app)
+    resp = client.post("/jobs?lang=zh", data={"brand_name": "极光CRM", "aliases": "", "website": "aurora-crm.com",
+                                              "category": "CRM", "questions": "", "generate": "1"},
+                       follow_redirects=False)
+    assert resp.status_code == 303 and "error=ACCOUNT_CREDIT" in resp.headers["location"]
+    page = client.get(resp.headers["location"]).text
+    assert "S1(型号 m1)的 API 账户额度不足或欠费" in page and "Your credit balance is too low" in page

@@ -17,6 +17,7 @@ import pytest
 import respx
 
 from adapters.base import (
+    AdapterAccountError,
     AdapterPermanentError,
     AdapterTransientError,
     CapabilityNotSupportedError,
@@ -302,7 +303,8 @@ def test_healthcheck_minimal_request_without_tools():
 
     bad = {"type": "error", "error": {"type": "authentication_error", "message": "bad"}}
     respx.post(MSG_URL).mock(return_value=httpx.Response(401, json=bad))
-    assert ClaudeWebSearchAdapter(api_key="bad-key").healthcheck() is False
+    with pytest.raises(AdapterAccountError):  # 账户问题不吞:开跑前预检靠它停单并说清换 key / 充值(S11.1)
+        ClaudeWebSearchAdapter(api_key="bad-key").healthcheck()
 
 
 def test_close_releases_http_client():

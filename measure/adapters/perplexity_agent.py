@@ -26,6 +26,7 @@ from typing import Any
 import httpx
 
 from adapters.base import (
+    AdapterAccountError,
     AdapterError,
     AdapterPermanentError,
     CapabilityRegistry,
@@ -225,6 +226,8 @@ class PerplexityAgentAdapter(SurfaceAdapter):
                 payload={"model": _DEFAULT_MODEL, "input": "ping", "max_output_tokens": 16},
                 timeout_s=15.0,
             )
+        except AdapterAccountError:
+            raise  # 账户问题要说清是换 key 还是充值:开跑前预检据此停单(S11.1)
         except AdapterError:
             return False
         return True

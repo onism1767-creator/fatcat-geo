@@ -19,6 +19,7 @@ import pytest
 import respx
 
 from adapters.base import (
+    AdapterAccountError,
     AdapterPermanentError,
     AdapterTransientError,
     CapabilityNotSupportedError,
@@ -223,4 +224,5 @@ def test_healthcheck_minimal_request_without_tools():
 
     bad = {"error": {"code": 403, "message": "API key not valid.", "status": "PERMISSION_DENIED"}}
     respx.post(API_URL).mock(return_value=httpx.Response(403, json=bad))
-    assert GeminiGroundingAdapter(api_key="bad-key").healthcheck() is False
+    with pytest.raises(AdapterAccountError):  # 账户问题不吞:开跑前预检靠它停单并说清换 key / 充值(S11.1)
+        GeminiGroundingAdapter(api_key="bad-key").healthcheck()

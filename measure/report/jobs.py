@@ -201,7 +201,7 @@ class DiagnosisJob:
         if self.finished:
             return 100
         sampling = self.completed_runs / self.total_runs if self.total_runs else 0.0  # 用精确比例,别先取整
-        spans = {"phase_draft": 0, "phase_confirmed": 1, "phase_access": 3, "phase_discover": 6,
+        spans = {"phase_draft": 0, "phase_confirmed": 1, "phase_precheck": 2, "phase_access": 3, "phase_discover": 6,
                  "phase_sampling": 8 + int(72 * sampling),
                  "phase_verify": 80 + int(12 * (self.verify_done / self.verify_total if self.verify_total else 0)),
                  "phase_judging": 92 + int(5 * (self.judge_done / self.judge_total if self.judge_total else 0)),

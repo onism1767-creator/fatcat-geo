@@ -317,3 +317,43 @@ def test_high_tier_asks_a_judge_once_per_answer_and_reuses_it_on_replay(storage,
                        judges=config)
     assert job.state is JobState.DONE, job.error
     assert len(judges["judge_a"].requests) == 6  # 重新生成报告:裁判判定从库里装回,一次都没多问
+
+
+class SickAdapter(TwoModelAdapter):
+    """开跑前预检用:healthcheck 抛账户问题或报不可用;ask 一旦被调就是预检没拦住。"""
+
+    def __init__(self, problem) -> None:
+        super().__init__()
+        self._problem = problem
+        self.asks = 0
+
+    def healthcheck(self) -> bool:
+        if isinstance(self._problem, Exception):
+            raise self._problem
+        return bool(self._problem)
+
+    def ask(self, request: AskRequest) -> SurfaceRun:
+        self.asks += 1
+        return super().ask(request)
+
+
+def test_precheck_stops_the_job_before_any_sampling(storage, offline):
+    """S11.1(用户定「开跑前自动查余额」):各家先打最小请求——额度问题按充值那句停单、接口不通给 PRECHECK_FAILED,
+    一次采样都没发;重算(replay)不预检。"""
+    broke = SickAdapter(AdapterAccountError("credit balance too low", error_type=RunErrorType.ACCOUNT_CREDIT,
+                                            http_status=402, response_body="{}"))
+    job, prompt = _new_job("中小团队用什么 CRM 好?")
+    runner.execute_job(job=job, adapters={"two_model": broke}, dsn=TEST_DSN, evidence=load_evidence_registry())
+    assert job.state is JobState.FAILED and job.error_code == "ACCOUNT_CREDIT" and job.error_params["ai"] == "假 AI"
+    assert broke.asks == 0 and storage.runs_for_prompt(prompt.prompt_id, surface="two_model") == []
+    assert job.spent_usd == 0.0
+
+    down = SickAdapter(False)
+    job2, prompt2 = _new_job("中小团队用什么 CRM 好?")
+    runner.execute_job(job=job2, adapters={"two_model": down}, dsn=TEST_DSN, evidence=load_evidence_registry())
+    assert job2.state is JobState.FAILED and job2.error_code == "PRECHECK_FAILED"
+    assert job2.error_params == {"names": "假 AI"} and down.asks == 0
+
+    runner.execute_job(job=job2, adapters={"two_model": down}, dsn=TEST_DSN, evidence=load_evidence_registry(),
+                       replay=True)  # 重算不提问,也就不预检
+    assert job2.state is JobState.DONE, job2.error

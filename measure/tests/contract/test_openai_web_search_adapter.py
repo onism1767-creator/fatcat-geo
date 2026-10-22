@@ -17,6 +17,7 @@ import pytest
 import respx
 
 from adapters.base import (
+    AdapterAccountError,
     AdapterPermanentError,
     AdapterTransientError,
     CapabilityNotSupportedError,
@@ -278,4 +279,5 @@ def test_healthcheck_minimal_request_without_tools():
     bad = {"error": {"message": "bad key", "type": "invalid_request_error",
                      "param": None, "code": "invalid_api_key"}}
     respx.post(RESP_URL).mock(return_value=httpx.Response(401, json=bad))
-    assert OpenAIWebSearchAdapter(api_key="bad-key").healthcheck() is False
+    with pytest.raises(AdapterAccountError):  # 账户问题不吞:开跑前预检靠它停单并说清换 key / 充值(S11.1)
+        OpenAIWebSearchAdapter(api_key="bad-key").healthcheck()
