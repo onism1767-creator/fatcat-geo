@@ -62,6 +62,7 @@ from engine.scheduler import (
     AccountProblem,
     RepeatSampler,
     SamplingResult,
+    StopDetail,
     is_account_error,
     reinterpret_account_errors,
 )
@@ -188,6 +189,7 @@ def _execute(
             job.adopt_domain_list(_discover_domains(job))
             storage.upsert_job_snapshot(job.to_snapshot())
         results = _sample(job, dsn, adapter_of, replay=replay)
+        job.stop_details = [StopDetail.from_result(r) for r in results.values()]  # 熔断要说清原因(S10.2)
 
         job.phase = "phase_verify"
         runs_by, offline_runs_by = _load_runs(job, storage)

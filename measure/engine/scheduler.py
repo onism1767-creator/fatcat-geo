@@ -19,7 +19,7 @@ from __future__ import annotations
 
 import random
 import time
-from collections import deque
+from collections import Counter, deque
 from collections.abc import Callable
 from datetime import UTC, datetime
 from typing import Protocol
@@ -119,6 +119,34 @@ class SamplingResult(FrozenModel):
     accounting: SampleAccounting
     total_cost_usd: float
     run_ids: list[str]
+    # S10.2(熔断要说清原因,用户定):没拿到有效回答的尝试按对外错误码分组计数,附最后一条平台原话
+    failure_counts: dict[str, int] = {}
+    last_failure_message: str | None = None
+
+
+class StopDetail(FrozenModel):
+    """一条腿怎么停的(S10.2):随报告快照存,任务页与报告按错误库组句
+    「{AI} 的 {型号} 提前停了:n 次尝试里 k 次没拿到回答——a 次限流、b 次接口错误」,码与原话进折叠区。"""
+
+    surface: str
+    model: str
+    search_mode: SearchMode
+    stop_reason: StopReason
+    n_attempts: int
+    n_valid: int
+    failure_counts: dict[str, int]
+    last_failure_message: str | None
+
+    @classmethod
+    def from_result(cls, result: SamplingResult) -> StopDetail:
+        return cls(surface=result.surface, model=result.model, search_mode=result.search_mode,
+                   stop_reason=result.stop_reason, n_attempts=result.n_attempts, n_valid=result.accounting.n_valid,
+                   failure_counts=dict(result.failure_counts), last_failure_message=result.last_failure_message)
+
+    @property
+    def truncated(self) -> bool:
+        """提前停了(熔断 / 预算),报告要说清;问完的和重算不补采的不算。"""
+        return self.stop_reason in (StopReason.FAILURE_RATE_EXCEEDED, StopReason.BUDGET_EXHAUSTED)
 
 
 class RepeatSampler:
@@ -213,6 +241,7 @@ class RepeatSampler:
             if stop_reason is not None:
                 break
 
+        codes = [code for run in counted if (code := public_error_code(run)) is not None]
         result = SamplingResult(
             provider=meta.provider,
             surface=meta.surface,
@@ -223,6 +252,8 @@ class RepeatSampler:
             accounting=account_runs(counted, n_account_error=n_account_error),
             total_cost_usd=total_cost,
             run_ids=run_ids,
+            failure_counts={code.value: n for code, n in Counter(codes).items()},
+            last_failure_message=next((r.error.message for r in reversed(counted) if r.error is not None), None),
         )
         log.info("plan_stopped", surface=meta.surface, model=resolved_model, search_mode=search_mode.value,
                  stop_reason=result.stop_reason.value, n_attempts=result.n_attempts,

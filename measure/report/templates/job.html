@@ -33,6 +33,9 @@
   {% endif %}
   {% if quiet_minutes %}<p class="kv muted">{{ t["last_result_line"].format(minutes=quiet_minutes|round(1)) }}</p>{% endif %}
   {% if stalled_text %}<div class="err">{{ stalled_text }} <a href="/errors?lang={{ lang }}#JOB_STALLED">{{ t["errors_link"].format(code="JOB_STALLED") }}</a></div>{% endif %}
+  {#- 提前停的腿(S10.2):错误库组句,码链到说明 -#}
+  {% if stop_texts %}<div class="caution"><b>{{ t["breaker_title"] }}</b>
+    <ul class="ev">{% for code, text in stop_texts %}<li>{{ text }} <a href="/errors?lang={{ lang }}#{{ code }}">{{ t["errors_link"].format(code=code) }}</a></li>{% endfor %}</ul></div>{% endif %}
   {% if error_text %}<div class="err">{{ t["job_failed"] }}:{{ error_text }}{% if job.error_code %} <a href="/errors?lang={{ lang }}#{{ job.error_code }}">{{ t["errors_link"].format(code=job.error_code) }}</a>{% endif %}</div>{% endif %}
 </div>
 

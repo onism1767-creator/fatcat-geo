@@ -28,10 +28,10 @@ from report.forms import (
 )
 from report.i18n import MESSAGES
 from report.jobs import STALL_MINUTES, DiagnosisJob, JobState
-from report.narrative import calibration_text
+from report.narrative import calibration_text, stop_detail_text
 from report.response_view import build_response_view, run_belongs_to
 from report.summary import summarize
-from report.web import ctx_of, error_text, lang_of, not_found, redirect
+from report.web import WebContext, ctx_of, error_text, lang_of, not_found, redirect
 
 router = APIRouter()
 SPELLING_PAGES_BUDGET_S = 45.0  # 出题时为数写法开网页的时间上限(用户在等确认页;开不完的不算分母)
@@ -271,7 +271,14 @@ async def job_status(request: Request, job_id: str):
     return ctx.render(request, "job.html", job=job, runs_per_prompt=job.frozen_tier().runs_per_prompt,
                       elapsed_minutes=job.elapsed_minutes(now), eta_minutes=job.eta_minutes(now),
                       verify_remaining_minutes=job.verify_remaining_minutes(now, VERIFY_BUDGET_S),
-                      error_text=failure, quiet_minutes=quiet, stalled_text=stalled)
+                      error_text=failure, quiet_minutes=quiet, stalled_text=stalled,
+                      stop_texts=stop_texts(ctx, job, lang))
+
+
+def stop_texts(ctx: WebContext, job: DiagnosisJob, lang: str) -> list[tuple[str, str]]:
+    """提前停的腿各一句(码, 句子),任务页 / 报告 / 结果文件共用(S10.2)。"""
+    return [(d.stop_reason.value, stop_detail_text(d, lang, ctx.errors, ctx.api_name(d.surface)))
+            for d in job.stop_details if d.truncated]
 
 
 @router.get("/errors", response_class=HTMLResponse)
@@ -292,7 +299,7 @@ async def job_report(request: Request, job_id: str):
     # 报告写实际发生的每题次数(采样说明),不读当前策略:策略以后随档位变,旧报告不能跟着变
     return ctx.render(request, "report.html", job=job, runs_per_prompt=job.sampling_note().tier.runs_per_prompt,
                       summary=summarize(job.class_reports, ctx.target_name, ctx.api_name),
-                      psl_version=PSL_SNAPSHOT_VERSION)
+                      psl_version=PSL_SNAPSHOT_VERSION, stop_texts=stop_texts(ctx, job, lang_of(request)))
 
 
 @router.get("/jobs/{job_id}/responses/{run_id}", response_class=HTMLResponse)
@@ -336,6 +343,7 @@ async def job_download(request: Request, job_id: str):
         return redirect(request, f"/jobs/{job.job_id}")
     summary = summarize(job.class_reports, ctx.target_name, ctx.api_name)
     with Storage(ctx.dsn) as store:
-        data = build_bundle(job, store, lang_of(request), ctx.target_name, summary)
+        data = build_bundle(job, store, lang_of(request), ctx.target_name, summary,
+                            stop_texts(ctx, job, lang_of(request)))
     return Response(content=data, media_type="application/zip",
                     headers={"Content-Disposition": content_disposition(job)})

@@ -9,6 +9,9 @@ from __future__ import annotations
 from diagnosis.messages import msg, render_msg
 from diagnosis.verdict import SurfaceVerdict
 from engine.calibration import CalibrationReport
+from engine.models import SearchMode
+from engine.scheduler import StopDetail
+from report.errors import ErrorLibrary
 from report.i18n import INTENT_LABELS, MESSAGES
 from report.summary import ApiLine, WrapUp
 
@@ -113,3 +116,22 @@ def calibration_text(report: CalibrationReport, lang: str) -> str:
         parts.append(t["calib_double"].format(a=report.double_judge.agree, n=report.double_judge.n))
     parts.append(t["calib_tail"])
     return "".join(parts)
+
+
+def stop_detail_text(detail: StopDetail, lang: str, errors: ErrorLibrary, ai: str) -> str:
+    """一条腿提前停了怎么说(S10.2,用户定「熔断要说清原因」):
+    错误库的一句话 + 失败按码分组的明细 + 最后一条平台原话 + 下一步。"""
+    t = MESSAGES[lang]
+    entry = errors[detail.stop_reason.value]
+    if detail.search_mode is SearchMode.SEARCH_DISABLED:
+        ai = ai + t["breaker_offline_leg"]
+    parts = t["breaker_sep"].join(t["breaker_code_" + code].format(c=n) for code, n in detail.failure_counts.items())
+    lines = [
+        entry.message[lang].format(ai=ai, model=detail.model),
+        t["breaker_detail"].format(n=detail.n_attempts, k=sum(detail.failure_counts.values()),
+                                   parts=parts or t["breaker_no_failures"]),
+    ]
+    if detail.last_failure_message:
+        lines.append(t["breaker_last"].format(last=detail.last_failure_message))
+    lines.append(entry.next_step[lang])
+    return " ".join(lines)

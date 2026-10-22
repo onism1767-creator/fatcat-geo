@@ -337,3 +337,22 @@ def test_resume_excludes_account_error_priors_and_breaker_ignores_history():
     assert acc.n_total == 3  # 历史普通失败仍是观测,账户行不是
     assert acc.n_transient_failure == 1 and acc.n_valid == 2
     assert not any(r.startswith("acct-") for r in result.run_ids)
+
+
+def test_result_carries_failure_counts_by_code_and_the_last_platform_message():
+    """S10.2(熔断要说清原因):没拿到有效回答的尝试按对外错误码分组计数,附最后一条平台原话;StopDetail 原样带走。"""
+    from engine.scheduler import StopDetail
+
+    storage = MemoryStorage()
+    result = make_sampler(storage).run_plan(
+        ScriptedAdapter([AdapterTransientError("限流 429", http_status=429)]), [P1, P2], policy=SamplingPolicy(),
+    )
+    assert result.stop_reason is StopReason.FAILURE_RATE_EXCEEDED
+    assert result.failure_counts == {"AI_PROVIDER_RATE_LIMITED": result.n_attempts}
+    assert result.last_failure_message and "限流" in result.last_failure_message
+    detail = StopDetail.from_result(result)
+    assert detail.truncated and detail.n_valid == 0 and detail.failure_counts == result.failure_counts
+    assert detail.last_failure_message == result.last_failure_message
+    mixed = make_sampler(MemoryStorage()).run_plan(ScriptedAdapter(["refuse", "ok"]), [P1], policy=SamplingPolicy())
+    assert mixed.stop_reason is StopReason.COMPLETED and mixed.failure_counts == {"AI_RESPONSE_INVALID": 1}
+    assert mixed.last_failure_message == "filtered" and StopDetail.from_result(mixed).truncated is False

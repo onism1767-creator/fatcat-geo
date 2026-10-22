@@ -45,7 +45,10 @@ def content_disposition(job: DiagnosisJob) -> str:
     return f"attachment; filename=\"{bundle_filename(job)}\"; filename*=UTF-8''{pretty}"
 
 
-def build_bundle(job: DiagnosisJob, storage: Storage, lang: str, name_of: TargetNamer, summary: ReportSummary) -> bytes:
+def build_bundle(
+    job: DiagnosisJob, storage: Storage, lang: str, name_of: TargetNamer, summary: ReportSummary,
+    stop_texts: list[tuple[str, str]],
+) -> bytes:
     responses, citation_rows = _responses_and_citations(job, storage, name_of)
     files: dict[str, str | bytes] = {
         "prompts.csv": _csv(["no", "prompt_id", "intent", "origin", "locale", "text"], [
@@ -60,7 +63,7 @@ def build_bundle(job: DiagnosisJob, storage: Storage, lang: str, name_of: Target
             "brand": job.brand.model_dump(mode="json"),
             "list": job.domain_list.model_dump(mode="json") if job.domain_list is not None else None,
         }, ensure_ascii=False, indent=2),
-        "summary.md": _summary_md(job, lang, name_of, summary),
+        "summary.md": _summary_md(job, lang, name_of, summary, stop_texts),
     }
     buffer = io.BytesIO()
     with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
@@ -162,7 +165,9 @@ def _tier_line(tier: TierChoice, t: dict[str, str]) -> str:
                          method=t["method_" + tier.mention_method.value])
 
 
-def _summary_md(job: DiagnosisJob, lang: str, name_of: TargetNamer, summary: ReportSummary) -> str:
+def _summary_md(
+    job: DiagnosisJob, lang: str, name_of: TargetNamer, summary: ReportSummary, stop_texts: list[tuple[str, str]],
+) -> str:
     t = MESSAGES[lang]
     plain = lambda m: render_msg(m, lang, "plain")  # noqa: E731
     lines = [f"# {job.brand.name} {t['report_title']}", "", t["scope_note"], t["api_note"], ""]
@@ -187,6 +192,8 @@ def _summary_md(job: DiagnosisJob, lang: str, name_of: TargetNamer, summary: Rep
         date=sn.domains_at.astimezone(UTC).strftime("%Y-%m-%d") if sn.domains_at else "—"))
     code = job.report_meta.code_version if job.report_meta and job.report_meta.code_version else "—"
     lines += ["- " + t["sampling_version"].format(method=sn.method_version, code=code), ""]
+    if stop_texts:  # S10.2:提前停的腿
+        lines += [f"## {t['breaker_title']}", ""] + [f"- {text}({code})" for code, text in stop_texts] + [""]
     lines += [f"## {t['verdicts_word']}", ""]
     for line in summary.api_lines:
         lines.append(f"- {api_line_text(line, lang)}")

@@ -31,10 +31,12 @@ from engine.models import (
     Prompt,
     PromptIntent,
     PromptOrigin,
+    SearchMode,
     Sentiment,
     StopReason,
     Target,
 )
+from engine.scheduler import StopDetail
 from engine.tiers import MentionMethod, TierChoice
 from report.app import create_app
 from report.jobs import ClassReport, DiagnosisJob, JobState, SamplingNote, SurfaceQuotes
@@ -136,6 +138,14 @@ def finished_job() -> DiagnosisJob:
     ])]
     job.class_reports = [ClassReport(intent=PromptIntent.CATEGORY_DISCOVERY, prompt_texts=[prompt.text],
                                      diagnosis=diagnosis, quotes=quotes)]
+    job.stop_details = [  # S10.2:s2 这条腿失败太多提前停了;s1 问完了
+        StopDetail(surface="s2", model="m2", search_mode=SearchMode.DEFAULT,
+                   stop_reason=StopReason.FAILURE_RATE_EXCEEDED,
+                   n_attempts=12, n_valid=7, failure_counts={"AI_PROVIDER_RATE_LIMITED": 3, "AI_RESPONSE_INVALID": 2},
+                   last_failure_message="429 Too Many Requests"),
+        StopDetail(surface="s1", model="m1", search_mode=SearchMode.DEFAULT, stop_reason=StopReason.COMPLETED,
+                   n_attempts=30, n_valid=30, failure_counts={}, last_failure_message=None),
+    ]
     job.spellings = [  # S9.2b:AI 回答里的写法与次数(auroracrms 没登记,下次可加进别名)
         NameSpelling(text="极光CRM", count=12, registered=True),
         NameSpelling(text="auroracrms", count=3, registered=False),
@@ -826,3 +836,23 @@ def test_report_lists_how_the_ais_write_the_name(client_and_job):
     restored = DiagnosisJob.from_snapshot(job.to_snapshot())
     restored.load_report(job.report_payload())
     assert restored.spellings == job.spellings  # 进报告快照
+
+
+def test_legs_that_stopped_early_are_explained_on_job_page_and_report(client_and_job):
+    """S10.2(用户定「熔断要说清原因」):哪条腿提前停了、几次里几次没拿到回答、按码分组、平台原话、下一步;链到错误码说明。"""
+    client, job, _ = client_and_job
+    expected = ("s2 的 m2 提前停了:失败太多。 12 次尝试里 5 次没拿到有效回答——"
+                "3 次限流(平台要求放慢)、2 次拒答或空回答。 "
+                "最后一条平台原话:429 Too Many Requests "
+                "看任务页的失败明细;问题过去后点「接着跑」只补空槽位,已花的钱不重花。")
+    report = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
+    assert "提前停的型号" in report and expected in report and "#FAILURE_RATE_EXCEEDED" in report
+    assert "s1 的 m1" not in report.split("提前停的型号")[1].split("</div>")[0]  # 问完的那条不列
+    job.state, job.phase = JobState.PARTIAL, "phase_partial"
+    page = client.get(f"/jobs/{job.job_id}?lang=zh").text
+    assert "提前停的型号" in page and expected in page
+    en = client.get(f"/jobs/{job.job_id}/report?lang=en").text
+    assert "Models that stopped early" in en and "3 rate-limited (platform asked us to slow down)" in en
+    restored = DiagnosisJob.from_snapshot(job.to_snapshot())
+    restored.load_report(job.report_payload())
+    assert restored.stop_details == job.stop_details  # 进报告快照

@@ -23,6 +23,13 @@
 </div>
 {% endif %}
 
+{#- 提前停的腿(S10.2,用户定「熔断要说清原因」):在报告最前面说清哪条腿没问完、为什么 -#}
+{% if stop_texts %}
+<div class="caution"><b>{{ t["breaker_title"] }}</b>
+  <ul class="ev">{% for code, text in stop_texts %}<li>{{ text }} <a href="/errors?lang={{ lang }}#{{ code }}">{{ t["errors_link"].format(code=code) }}</a></li>{% endfor %}</ul>
+</div>
+{% endif %}
+
 {% set access = job.access_result %}
 {% set info_tag = "(提示)" if lang == "zh" else " (info)" %}
 

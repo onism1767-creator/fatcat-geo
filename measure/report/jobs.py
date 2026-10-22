@@ -34,7 +34,7 @@ from engine.models import (
     PromptIntent,
     Target,
 )
-from engine.scheduler import SamplingPolicy
+from engine.scheduler import SamplingPolicy, StopDetail
 from engine.spellings import SpellingCandidate
 from engine.tiers import TierChoice
 
@@ -102,6 +102,7 @@ class ReportPayload(FrozenModel):
     finished_at: datetime | None
     sampling: SamplingNote  # 采样说明(S8.2)
     spellings: list[NameSpelling]  # AI 回答里写你的名字的写法与次数(S9.2b)
+    stop_details: list[StopDetail]  # 各条腿怎么停的(S10.2):提前停的报告里要说清原因
 
 
 class ReportMeta(FrozenModel):
@@ -166,6 +167,7 @@ class DiagnosisJob:
         self.report_meta: ReportMeta | None = None  # 最新一版报告快照的档案信息(v0.4.16)
         self.sampling: SamplingNote | None = None  # 采样说明(S8.2):出报告时算,随报告快照存
         self.spellings: list[NameSpelling] = []  # AI 回答里的写法统计(S9.2b),随报告快照存
+        self.stop_details: list[StopDetail] = []  # 各条腿怎么停的(S10.2),随报告快照存
         self.started_at: datetime | None = None  # 本次执行开始时刻(任务页按实际速度算剩余时间)
         self.last_result_at: datetime | None = None  # 最近一条样本落库的时刻(任务页据此报「卡住了」)
         # 核对网页阶段的进度(S8.5):提问完之后还要开网页(最多 15 分钟),任务页单独显示;不进快照(重启后重跑)
@@ -338,6 +340,7 @@ class DiagnosisJob:
             finished_at=self.finished_at,
             sampling=self.sampling_note(),
             spellings=self.spellings,
+            stop_details=self.stop_details,
         ).model_dump(mode="json")
 
     def load_report(self, payload: dict) -> None:
@@ -349,6 +352,7 @@ class DiagnosisJob:
         self.finished_at = report.finished_at
         self.sampling = report.sampling
         self.spellings = report.spellings
+        self.stop_details = report.stop_details
 
     @classmethod
     def from_snapshot(cls, snapshot: dict) -> DiagnosisJob:

@@ -71,6 +71,7 @@ def test_bundle_has_the_five_files_built_from_the_database(storage):
     assert "题目 1 道 · 型号 2 个 · 每题问 3 次" in summary and "S1 · m1" in summary
     assert "档位:低档 —— 每道题问 3 次;「提到你」按你的名字和别名精确匹配(整词)。" in summary  # S9.1
     assert "## AI 回答里写你的名字,最常见的几种写法" in summary and "- auroracrms · 3 · 还没登记" in summary  # S9.2b
+    assert "## 提前停的型号" in summary and "s2 的 m2 提前停了:失败太多。" in summary  # S10.2
     assert "## 各 AI 一句话" in summary and "## 建议先做" in summary and "## 文件说明" in summary
     assert "竞品提及对比(AI 回答里提到谁更多):你 12/30 · 竞品甲 20/30(比你多)" in summary
     assert "提到你的 18 句话里:正面 1(6%)、中性 9(50%)、负面 8(44%)" in summary
