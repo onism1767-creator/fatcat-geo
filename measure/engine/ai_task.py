@@ -54,13 +54,14 @@ def run_task[T](
     search_mode: SearchMode = SearchMode.DEFAULT,
     model: str | None = None,  # None = 适配器默认型号;裁判(S9.3)指定便宜型号
     policy: SamplingPolicy | None = None,
+    max_rounds: int = MAX_ROUNDS,  # 用户在页面上等着的小事(S11.4 品类核对)只问一轮,不拖
     sleep: Callable[[float], None] = time.sleep,
 ) -> TaskResult[T]:
     """label 是这件事的人话名字(如「变体生成」),用于调用编号与报错。"""
     policy = policy or SamplingPolicy()
     runs: list[SurfaceRun] = []
     last: Exception | None = None
-    for _ in range(MAX_ROUNDS):
+    for _ in range(max_rounds):
         request = AskRequest(
             run_id=f"task-{uuid4().hex[:12]}",
             prompt_id=prompt_id,
@@ -86,7 +87,7 @@ def run_task[T](
             return TaskResult(value=parse(run.answer.answer_text), runs=runs)
         except (ValueError, KeyError, TypeError) as exc:
             last = exc
-    raise TaskFailed(f"{label}失败:{MAX_ROUNDS} 次尝试仍未产出合格结果:{last}")
+    raise TaskFailed(f"{label}失败:{max_rounds} 次尝试仍未产出合格结果:{last}")
 
 
 def extract_json(text: str) -> Any:

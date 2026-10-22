@@ -1,4 +1,5 @@
-"""抓网页的公共部件:统一的请求头、超时、跳转策略,可见文字与正文提取,robots.txt 读取,疑似机器人防护的状态码。
+"""抓网页的公共部件:统一的请求头、超时、跳转策略,可见文字与正文提取,网页自我介绍(标题 / H1 / 简介 / 结构化数据),
+robots.txt 读取,疑似机器人防护的状态码。
 
 只抓回、只提取,不做任何判定。正文提取用 trafilatura(S6.1,用户定;Apache-2.0)。
 """
@@ -6,7 +7,9 @@
 from __future__ import annotations
 
 import html as html_lib
+import json
 import re
+from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Final
 from urllib import robotparser
@@ -85,15 +88,21 @@ _META = re.compile(
 MIN_VISIBLE_CHARS: Final = 200  # 可见文字至少这么多才算「页面有正文」(产品文档 C02 同一阈值)
 
 
-def extract_meta_summary(html: str) -> str | None:
-    """网页自带的摘要:标题 + 简介(og:/twitter:/description 元信息)。没有简介就不算(光有标题太弱)。
-    这是网页自己公开写给搜索引擎和分享卡片看的,脚本页的原始 HTML 里通常也有。"""
+def _meta_fields(html: str) -> dict[str, str]:
+    """标题 / 简介类元信息(og:/twitter:/description),同名只取第一条。"""
     found: dict[str, str] = {}
     for match in _META.finditer(html[:MAX_PARSED_BYTES]):
         key = (match.group("key") or match.group("key2") or "").lower()
         value = html_lib.unescape(match.group("value") or match.group("value2") or "").strip()
         if value and key not in found:
             found[key] = value
+    return found
+
+
+def extract_meta_summary(html: str) -> str | None:
+    """网页自带的摘要:标题 + 简介(og:/twitter:/description 元信息)。没有简介就不算(光有标题太弱)。
+    这是网页自己公开写给搜索引擎和分享卡片看的,脚本页的原始 HTML 里通常也有。"""
+    found = _meta_fields(html)
     description = found.get("og:description") or found.get("description") or found.get("twitter:description")
     if not description:
         return None
@@ -190,3 +199,106 @@ def extract_visible_text(html: str) -> str:
     extractor = _TextExtractor()
     extractor.feed(html[:MAX_PARSED_BYTES])
     return re.sub(r"\s+", " ", "".join(extractor.parts)).strip()
+
+
+# ── 网页的自我介绍(S11.4 品类自动核对):只提取,不判定 ────────────────────────────────────────
+
+
+@dataclass(frozen=True)
+class PageIntro:
+    """一个网页自己怎么介绍自己:标题、第一个 H1、简介(description 元信息)、结构化数据里组织 / 产品的名字与一句介绍。
+    四样都没有 = 这页没说自己是干什么的;怎么办由调用方定,这里不猜。"""
+
+    title: str | None
+    h1: str | None
+    description: str | None
+    schema_names: tuple[str, ...]  # Organization / Product 节点的 name 与 description,按出现顺序去重
+
+    @property
+    def empty(self) -> bool:
+        return not (self.title or self.h1 or self.description or self.schema_names)
+
+
+INTRO_FIELD_MAX_CHARS: Final = 400  # 每一样最多留这么多字:自我介绍是几句话,不是整页正文
+_H1 = re.compile(r"<h1[^>]*>(.*?)</h1>", re.IGNORECASE | re.DOTALL)
+_INTRO_SCHEMA_TYPES: Final = frozenset({"Organization", "Corporation", "LocalBusiness", "Product"})
+
+
+def page_h1(html: str) -> str | None:
+    """第一个 <h1> 的文字(去掉里面的标签与多余空白)。"""
+    match = _H1.search(html[:MAX_PARSED_BYTES])
+    if match is None:
+        return None
+    text = re.sub(r"\s+", " ", html_lib.unescape(re.sub(r"<[^>]+>", " ", match.group(1)))).strip()
+    return text or None
+
+
+def page_description(html: str) -> str | None:
+    """网页简介:description 元信息优先,其次 og:description / twitter:description。"""
+    found = _meta_fields(html)
+    return found.get("description") or found.get("og:description") or found.get("twitter:description") or None
+
+
+class _JsonLdCollector(HTMLParser):
+    def __init__(self) -> None:
+        super().__init__()
+        self.blobs: list[str] = []
+        self._inside = False
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, str | None]]) -> None:
+        if tag == "script" and (dict(attrs).get("type") or "").lower() == "application/ld+json":
+            self._inside = True
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag == "script":
+            self._inside = False
+
+    def handle_data(self, data: str) -> None:
+        if self._inside:
+            self.blobs.append(data)
+
+
+def _schema_intro(node: object) -> list[str]:
+    """Organization / Product 节点(含 @graph、列表嵌套)的 name 与 description。"""
+    found: list[str] = []
+    if isinstance(node, list):
+        for item in node:
+            found += _schema_intro(item)
+        return found
+    if not isinstance(node, dict):
+        return found
+    types = node.get("@type")
+    type_set = set(types) if isinstance(types, list) else {types} if isinstance(types, str) else set()
+    if type_set & _INTRO_SCHEMA_TYPES:
+        for field in ("name", "description"):
+            value = node.get(field)
+            if isinstance(value, str) and value.strip():
+                found.append(value)
+    for key in ("@graph", "publisher", "brand"):
+        if key in node:
+            found += _schema_intro(node[key])
+    return found
+
+
+def _clip(text: str) -> str:
+    text = re.sub(r"\s+", " ", html_lib.unescape(text)).strip()
+    return text[:INTRO_FIELD_MAX_CHARS]
+
+
+def extract_page_intro(html: str) -> PageIntro:
+    """网页自我介绍:标题 / 第一个 H1 / 简介 / 结构化数据里组织与产品的名字和介绍。坏 JSON-LD 跳过,不猜。"""
+    collector = _JsonLdCollector()
+    collector.feed(html[:MAX_PARSED_BYTES])
+    names: list[str] = []
+    for blob in collector.blobs:
+        try:
+            names += _schema_intro(json.loads(blob))
+        except ValueError:
+            continue
+    clipped = [_clip(name) for name in names]
+    return PageIntro(
+        title=_clip(title) if (title := page_title(html)) else None,
+        h1=_clip(h1) if (h1 := page_h1(html)) else None,
+        description=_clip(desc) if (desc := page_description(html)) else None,
+        schema_names=tuple(dict.fromkeys(name for name in clipped if name)),
+    )
