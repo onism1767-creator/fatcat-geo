@@ -8,12 +8,13 @@ import sys
 
 import uvicorn
 
-from engine.envfile import load_env_file
+from engine.envfile import load_env_file, utf8_output
 from engine.loader import load_surface_registry
 from engine.storage import Storage, StorageUnavailable, default_dsn
 from report.app import create_app
 from report.archive import restore_registry
 
+utf8_output()  # 日志被预览窗口 / 管道接走时写 UTF-8,中文不乱码(2026-10-27)
 load_env_file()
 try:
     with Storage(default_dsn()) as startup_storage:
