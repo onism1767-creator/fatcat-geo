@@ -23,6 +23,7 @@ from diagnosis.diagnose import ClassDiagnosis
 from diagnosis.verdict import SurfaceVerdict
 from engine.aggregate import NameSpelling
 from engine.brand_domains import apply_user_choice
+from engine.category_check import CategoryCheck
 from engine.drafting import PromptCandidate
 from engine.models import (
     AnswerQuote,
@@ -108,6 +109,13 @@ class ReportPayload(FrozenModel):
     stop_details: list[StopDetail]  # 各条腿怎么停的(S10.2):提前停的报告里要说清原因
 
 
+class PendingDraft(FrozenModel):
+    """首页填的、要等品类定下来才用的出题输入(S11.4):品类自动核对判「不是一类」时,先拦一页问品类,选完才出题。"""
+
+    questions: str  # 手填的问题原文(每行一条)
+    generate: bool  # 勾了「让系统帮我出题」
+
+
 class ReportMeta(FrozenModel):
     """报告快照的档案信息(v0.4.16):生成时间、第几版、生成时的程序版本。"""
 
@@ -149,6 +157,9 @@ class DiagnosisJob:
         self.preselected: list[int] = []  # 确认页默认勾选的候选题下标(建任务时由 preselect_candidates 定)
         self.competitors_suggested = competitors_suggested
         self.spellings_suggested: list[SpellingCandidate] = []  # AI 列的常见写法 + 网页里数的次数(S9.2b),只服务确认页
+        # 品类自动核对(S11.4):判「不是一类」才留下结果渲染品类页;出题输入先存着,品类定下来再出题;都不进快照
+        self.category_check: CategoryCheck | None = None
+        self.pending_draft: PendingDraft | None = None
 
         self.state = JobState.DRAFT
         self.phase = "phase_draft"

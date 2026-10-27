@@ -78,10 +78,11 @@ def test_fetch_intro_follows_redirect_and_returns_none_when_unreachable_or_not_h
                                                                        headers={"content-type": "text/html"}))
     respx.get("https://json.test/").mock(return_value=httpx.Response(200, json={"a": 1}))
     respx.get("https://blank.test/").mock(return_value=_html("<html><body></body></html>"))
-    intro = fetch_intro("https://aurora-crm.com/")
-    assert intro is not None and intro.title == "Aurora CRM — 中小团队的客户管理"
-    for url in ("https://down.test/", "https://gone.test/", "https://json.test/", "https://blank.test/"):
-        assert fetch_intro(url) is None, url
+    with httpx.Client(follow_redirects=True) as client:  # 共用一个客户端:新建客户端要装证书,每个约 1 秒
+        intro = fetch_intro("https://aurora-crm.com/", client=client)
+        assert intro is not None and intro.title == "Aurora CRM — 中小团队的客户管理"
+        for url in ("https://down.test/", "https://gone.test/", "https://json.test/", "https://blank.test/"):
+            assert fetch_intro(url, client=client) is None, url
 
 
 # ── engine:一次不联网小调用 ─────────────────────────────────────────────────────────────────
@@ -218,21 +219,17 @@ def test_run_category_check_end_to_end_and_every_skip_path_returns_none():
     respx.get("https://aurora-crm.com/").mock(return_value=_html(HOMEPAGE))
     respx.get("https://down.test/").mock(side_effect=httpx.ConnectError("boom"))
     primary = ScriptedAdapter([DIFFERENT])
-    out = run_category_check({"s_main": primary}, JUDGES, website="https://aurora-crm.com/", category="宠物食品",
+    out = run_category_check(primary, "m_cheap", website="https://aurora-crm.com/", category="宠物食品",
                              locale="zh-CN", ledger=lambda r: None)
-    assert out is not None and out.verdict is CategoryVerdict.DIFFERENT
-    # 没 AI:连首页都不抓(免费的先判),也不花钱
-    assert run_category_check({}, JUDGES, website="https://aurora-crm.com/", category="c", locale="zh-CN",
-                              ledger=lambda r: None) is None
-    assert respx.calls.call_count == 1
+    assert out is not None and out.verdict is CategoryVerdict.DIFFERENT and respx.calls.call_count == 1
     # 官网打不开:不调用 AI
     untouched = ScriptedAdapter([DIFFERENT])
-    assert run_category_check({"s_main": untouched}, JUDGES, website="https://down.test/", category="c",
+    assert run_category_check(untouched, "m_cheap", website="https://down.test/", category="c",
                               locale="zh-CN", ledger=lambda r: None) is None
     assert untouched.requests == []
     # 一致:照常往下走(返回结果但不拦)
     agree = ScriptedAdapter([{"verdict": "same", "reason": "一样"}])
-    out = run_category_check({"s_main": agree}, JUDGES, website="https://aurora-crm.com/", category="CRM",
+    out = run_category_check(agree, "m_cheap", website="https://aurora-crm.com/", category="CRM",
                              locale="zh-CN", ledger=lambda r: None)
     assert out is not None and not out.blocks
 

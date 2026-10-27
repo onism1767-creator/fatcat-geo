@@ -44,6 +44,12 @@ errors:
     trigger: {zh: "首页既没手填问题也没勾「让系统帮我出题」", en: "No question typed on the home page and drafting not ticked"}
     message: {zh: "请至少手填一个问题,或者勾选「让系统帮我出题」。", en: "Enter at least one question, or tick “Draft questions for me”."}
     next_step: {zh: "补一个问题或勾上出题再提交。", en: "Add a question or tick drafting, then submit."}
+  - code: FORM_CATEGORY_EMPTY
+    scope: form
+    resumable: false
+    trigger: {zh: "品类核对页没选任何一项,或选了「自己改」却没填", en: "Nothing picked on the category page, or “Edit it myself” picked with nothing typed"}
+    message: {zh: "请选一个品类:用你填的、换成官网的,或者自己填一个。", en: "Please pick a category: keep yours, use the homepage's, or type your own."}
+    next_step: {zh: "选好再点下一步。", en: "Pick one, then continue."}
   - code: RESUME_MISSING_AI
     scope: form
     resumable: false

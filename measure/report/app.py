@@ -24,7 +24,7 @@ from report.errors import ErrorLibrary, load_errors
 from report.jobs import JobRegistry
 from report.launcher import JobLauncher, JobRunner
 from report.routes import router
-from report.web import WebContext, target_namer
+from report.web import CategoryChecker, WebContext, category_checker, target_namer
 
 
 class _Unset:
@@ -46,11 +46,13 @@ def create_app(
     judges: JudgeConfig | None = None,  # 高档裁判配置(S9.3);None = 读 config/judges.yaml
     calibration: CalibrationReport | None | _Unset = _UNSET,  # 自动校准结果(S9.4);不给 = 读 config/calibration.yaml
     errors: ErrorLibrary | None = None,  # 错误库(S10.1);None = 读 config/errors.yaml
+    category_check: CategoryChecker | None = None,  # 品类自动核对(S11.4);None = 真抓首页 + 真调用,记辅助调用账本
 ) -> FastAPI:
     if adapters is None:
         load_env_file()
         adapters = build_adapters(os.environ)
     resolved_dsn = dsn or default_dsn()
+    resolved_judges = judges or load_judges()
 
     def measured_call_stats() -> list[CallStat]:
         with Storage(resolved_dsn) as store:
@@ -68,9 +70,10 @@ def create_app(
         ),
         target_name=target_namer(adapters),
         tiers=tiers or load_tiers(),
-        judges=judges or load_judges(),
+        judges=resolved_judges,
         calibration=load_calibration() if isinstance(calibration, _Unset) else calibration,
         errors=errors or load_errors(),
+        category_check=category_check or category_checker(adapters, resolved_judges, resolved_dsn),
     )
     app.include_router(router)
     return app

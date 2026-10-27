@@ -16,7 +16,7 @@ from report.jobs import DiagnosisJob
 MAX_PROMPTS = 40  # 产品文档默认 24 道;用户可增删,封顶 40
 # 表单校验会返回的错误码(S10.1):都在 config/errors.yaml 里(测试把守),文案从库里取
 FORM_CODES = ("FORM_PROMPTS_COUNT", "FORM_NO_TARGET", "FORM_BAD_TIER", "FORM_RUNS_RANGE", "FORM_BAD_BUDGET",
-              "FORM_NO_QUESTION", "RESUME_MISSING_AI")
+              "FORM_NO_QUESTION", "FORM_CATEGORY_EMPTY", "RESUME_MISSING_AI")
 
 
 def lines_of(text: str) -> list[str]:
@@ -52,6 +52,18 @@ def manual_candidates(questions: str, brand: BrandSpec) -> list[PromptCandidate]
         PromptCandidate(origin=PromptOrigin.USER, intent=manual_intent(text, brand), text=text)
         for text in lines_of(questions)
     ]
+
+
+def category_choice(job: DiagnosisJob, *, choice: str, custom: str) -> str | None:
+    """品类页三选一(S11.4):用我填的 / 换成官网的 / 自己改 → 定下的品类;
+    没选、或自己改却没填 → None(路由给 FORM_CATEGORY_EMPTY)。"""
+    if choice == "mine":
+        return job.category
+    if choice == "site" and job.category_check is not None and job.category_check.suggested:
+        return job.category_check.suggested
+    if choice == "custom" and custom.strip():
+        return custom.strip()
+    return None
 
 
 def preselect_candidates(candidates: list[PromptCandidate]) -> list[int]:

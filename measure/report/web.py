@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+import structlog
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
@@ -15,8 +16,9 @@ from adapters.base import SurfaceAdapter
 from diagnosis.access_audit import AccessLayer
 from diagnosis.messages import msg, render_msg
 from engine.calibration import CalibrationReport
+from engine.category_check import TASK_LABEL, CategoryCheck, helper_model, run_category_check
 from engine.judge import JudgeConfig
-from engine.storage import CallStat
+from engine.storage import CallStat, Storage, StorageUnavailable
 from engine.tiers import TierConfig
 from report.errors import ErrorLibrary
 from report.i18n import (
@@ -29,11 +31,37 @@ from report.i18n import (
     STATUS_LABELS,
     resolve_lang,
 )
-from report.jobs import JobRegistry
+from report.jobs import DiagnosisJob, JobRegistry
 from report.launcher import JobLauncher
 from report.narrative import api_line_text, count_models, verdict_text, wrap_up_text
 
+log = structlog.get_logger("report.web")
+
 TargetNamer = Callable[[str, str], str]
+CategoryChecker = Callable[[DiagnosisJob], CategoryCheck | None]  # 品类自动核对(S11.4);None = 没核对出来,照常往下走
+
+
+def category_checker(adapters: dict[str, SurfaceAdapter], judges: JudgeConfig, dsn: str) -> CategoryChecker:
+    """提交后、出题前的品类自动核对:先挑仪器(免费;没有能用的就不核对,也不碰库),花掉的钱记进本单的辅助调用账本;
+    连不上库就不核对(钱没处记就不花)。哪一环没成都记一行日志。"""
+
+    def check(job: DiagnosisJob) -> CategoryCheck | None:
+        picked = helper_model(judges, adapters)
+        if picked is None:
+            log.info("category_check_skipped", reason="no_ai", job_id=job.job_id)
+            return None
+        adapter, spec = picked
+        try:
+            with Storage(dsn) as store:
+                return run_category_check(
+                    adapter, spec.model, website=job.website, category=job.category, locale=job.locale,
+                    ledger=lambda run: store.insert_aux_call(job_id=job.job_id, task=TASK_LABEL, run=run),
+                )
+        except StorageUnavailable as exc:
+            log.warning("category_check_skipped", reason="db_unreachable", job_id=job.job_id, error=str(exc))
+            return None
+
+    return check
 
 
 def target_namer(adapters: dict[str, SurfaceAdapter]) -> TargetNamer:
@@ -85,6 +113,7 @@ class WebContext:
     judges: JudgeConfig  # 高档裁判配置(S9.3,config/judges.yaml):预估按它算裁判费用
     calibration: CalibrationReport | None  # 自动校准结果(S9.4,config/calibration.yaml);None = 还没跑过
     errors: ErrorLibrary  # 错误库(S10.1,config/errors.yaml):全部错误码与文案的唯一出处
+    category_check: CategoryChecker  # 品类自动核对(S11.4):create_app 装配,测试注入桩
 
     def __post_init__(self) -> None:
         self._templates = _templates(self.target_name)

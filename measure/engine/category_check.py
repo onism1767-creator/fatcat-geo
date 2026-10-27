@@ -211,8 +211,8 @@ def check_category(
 
 
 def run_category_check(
-    adapters: Mapping[str, SurfaceAdapter],
-    judges: JudgeConfig,
+    adapter: SurfaceAdapter,
+    model: str,
     *,
     website: str,
     category: str,
@@ -220,13 +220,9 @@ def run_category_check(
     ledger: Ledger,
     client: httpx.Client | None = None,
 ) -> CategoryCheck | None:
-    """整套:挑仪器(免费,先做)→ 抓首页 → 问一次。任何一环没成 → None,照常往下走。"""
-    picked = helper_model(judges, adapters)
-    if picked is None:
-        log.info("category_check_skipped", reason="no_ai", website=website)
-        return None
+    """抓首页 → 问一次。任何一环没成 → None,照常往下走。
+    仪器由调用方先用 helper_model 挑好(免费;挑不到就不该走到这里)。"""
     intro = fetch_intro(website, client=client)
     if intro is None:
         return None
-    adapter, spec = picked
-    return check_category(adapter, spec.model, category=category, intro=intro, locale=locale, ledger=ledger)
+    return check_category(adapter, model, category=category, intro=intro, locale=locale, ledger=ledger)

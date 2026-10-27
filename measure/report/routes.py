@@ -7,9 +7,11 @@ from datetime import UTC, datetime
 from importlib.metadata import version as _package_version
 from urllib.parse import quote
 
+import structlog
 from fastapi import APIRouter, Form, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response
 
+from adapters.base import SurfaceAdapter
 from engine.ai_task import TaskFailed
 from engine.drafting import PromptCandidate, draft_prompt_candidates
 from engine.models import RunErrorType, Target
@@ -23,19 +25,22 @@ from report.estimate import estimate_job, unit_prices
 from report.export import build_bundle, content_disposition
 from report.forms import (
     brand_from_form,
+    category_choice,
     confirm_choice,
     count_prompts,
+    lines_of,
     manual_candidates,
     preselect_candidates,
     tier_choice,
 )
 from report.i18n import MESSAGES
-from report.jobs import STALL_MINUTES, DiagnosisJob, JobState
+from report.jobs import STALL_MINUTES, DiagnosisJob, JobState, PendingDraft
 from report.narrative import calibration_text, stop_detail_text
 from report.response_view import build_response_view, run_belongs_to
 from report.summary import summarize
 from report.web import WebContext, ctx_of, error_text, lang_of, not_found, redirect
 
+log = structlog.get_logger("report.routes")
 router = APIRouter()
 SPELLING_PAGES_BUDGET_S = 45.0  # 出题时为数写法开网页的时间上限(用户在等确认页;开不完的不算分母)
 PSL_SNAPSHOT_VERSION = _package_version("tldextract")  # 注册域名用的公共后缀表快照版本,写进报告方法说明(S4)
@@ -63,13 +68,65 @@ async def create_job(
     ctx = ctx_of(request)
     locale = locale if locale in ("zh-CN", "en-US") else "zh-CN"
     brand, normalized = brand_from_form(brand_name, aliases, website)
-    # 先有任务编号再出题:出题的每次调用当场记进辅助调用账本(哪怕出题失败,花掉的钱也有记录)
-    job = DiagnosisJob(brand=brand, website=normalized, category=category, locale=locale,
+    # 先有任务编号再花钱:品类核对与出题的每次调用都当场记进辅助调用账本(哪怕最后没成,花掉的钱也有记录)
+    job = DiagnosisJob(brand=brand, website=normalized, category=category.strip(), locale=locale,
                        candidates=[], competitors_suggested=[])
+    if not lines_of(questions) and not (generate and _generation_adapter(ctx) is not None):
+        return ctx.render(request, "index.html", jobs=ctx.registry.recent(), surfaces=sorted(ctx.adapters),
+                          error=error_text(request, "FORM_NO_QUESTION"))  # 没题可测:一分钱都别花
+    # 品类自动核对(S11.4,产品文档 D24):出题前照官网核一下;只有「不是一类」才拦一页问清楚,其余照常往下走
+    check = ctx.category_check(job)
+    if check is not None and check.blocks:
+        job.category_check = check
+        job.pending_draft = PendingDraft(questions=questions, generate=bool(generate))
+        ctx.registry.add(job)
+        return redirect(request, f"/jobs/{job.job_id}/category")
+    return _draft_and_go(request, job, questions=questions, generate=bool(generate))
+
+
+def _generation_adapter(ctx: WebContext) -> SurfaceAdapter | None:
+    """出题 / 列写法用的仪器:第一个支持引用(能联网)的。"""
+    return next((a for a in ctx.adapters.values() if a.meta().capabilities.supports_citations), None)
+
+
+@router.get("/jobs/{job_id}/category", response_class=HTMLResponse)
+async def category_page(request: Request, job_id: str, error: str = ""):
+    """品类核对页(S11.4):只在自动核对判「不是一类」时出现——你填的、官网原句、照官网更像什么,三选一,选完才出题。"""
+    ctx = ctx_of(request)
+    job = ctx.registry.get(job_id)
+    if job is None:
+        return not_found()
+    if job.pending_draft is None or job.category_check is None:
+        return redirect(request, f"/jobs/{job.job_id}/confirm")
+    return ctx.render(request, "category.html", job=job, check=job.category_check,
+                      error=error_text(request, error))
+
+
+@router.post("/jobs/{job_id}/category")
+async def category_decide(request: Request, job_id: str, choice: str = Form(""), custom_category: str = Form("")):
+    ctx = ctx_of(request)
+    job = ctx.registry.get(job_id)
+    if job is None:
+        return not_found()
+    pending = job.pending_draft
+    if pending is None:
+        return redirect(request, f"/jobs/{job.job_id}/confirm")
+    decided = category_choice(job, choice=choice, custom=custom_category)
+    if decided is None:
+        return redirect(request, f"/jobs/{job.job_id}/category?error=FORM_CATEGORY_EMPTY")
+    log.info("category_decided", job_id=job.job_id, choice=choice, before=job.category, after=decided)
+    job.category = decided
+    job.pending_draft = None
+    return _draft_and_go(request, job, questions=pending.questions, generate=pending.generate)
+
+
+def _draft_and_go(request: Request, job: DiagnosisJob, *, questions: str, generate: bool) -> Response:
+    """品类定下来之后:(勾了就)让 AI 出题、列写法,登记任务,去确认页。出题出错回首页说人话(S11.1)。"""
+    ctx = ctx_of(request)
+    locale = job.locale
+    brand, normalized, category = job.brand, job.website, job.category
     drafted: list[PromptCandidate] = []
-    generation_adapter = next(
-        (a for a in ctx.adapters.values() if a.meta().capabilities.supports_citations), None
-    )
+    generation_adapter = _generation_adapter(ctx)
     if generate and generation_adapter is not None:
         try:
             with Storage(ctx.dsn) as store:
@@ -101,7 +158,7 @@ async def create_job(
         return ctx.render(request, "index.html", jobs=ctx.registry.recent(), surfaces=sorted(ctx.adapters),
                           error=error_text(request, "FORM_NO_QUESTION"))
     job.preselected = preselect_candidates(job.candidates)
-    ctx.registry.add(job)
+    ctx.registry.add(job)  # 品类页来的已登记过;同一编号再登记一次是幂等的
     return redirect(request, f"/jobs/{job.job_id}/confirm")
 
 
@@ -113,6 +170,8 @@ async def confirm_page(request: Request, job_id: str, error: str = ""):
         return not_found()
     if job.state is not JobState.DRAFT:
         return redirect(request, f"/jobs/{job.job_id}")
+    if job.pending_draft is not None:  # 品类还没定(S11.4):先回品类页
+        return redirect(request, f"/jobs/{job.job_id}/category")
     prices = unit_prices(ctx.adapters, ctx.call_stats())
     target_groups = [  # 自定义区按 AI 分组列出全部型号;默认勾选跟默认档位(S9.1)
         (ctx.display_names[name], [Target(surface=name, model=m) for m in ctx.adapters[name].meta().models])
@@ -215,6 +274,8 @@ async def confirm(
         return not_found()
     if job.state is not JobState.DRAFT:
         return redirect(request, f"/jobs/{job.job_id}")
+    if job.pending_draft is not None:
+        return redirect(request, f"/jobs/{job.job_id}/category")
     choice = confirm_choice(
         job, ctx.adapters, ctx.tiers, prompts_selected=prompts_selected, custom=custom,
         competitors_selected=competitors_selected, targets_selected=targets_selected, tier=tier, runs=runs,
