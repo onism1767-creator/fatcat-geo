@@ -184,9 +184,18 @@ def test_detectors_translate_the_verdict_and_share_one_call():
 class ListStore:
     def __init__(self) -> None:
         self.rows: list = []
+        self.events: list[dict] = []
 
-    def insert_observation(self, observation) -> None:
+    def insert_observation(self, observation) -> bool:
         self.rows.append(observation)
+        return True
+
+    def max_detector_version(self, detector_name: str) -> int | None:
+        versions = [o.detector_version for o in self.rows if o.detector_name == detector_name]
+        return max(versions) if versions else None
+
+    def insert_recompute_event(self, **kw) -> None:
+        self.events.append(kw)
 
 
 def test_high_tier_observation_uses_the_judge_and_archives_every_detector():

@@ -49,9 +49,10 @@ def run_belongs_to(job: DiagnosisJob, run: SurfaceRun) -> bool:
 
 
 def latest_observation(observations: list[dict[str, Any]], detector_name: str) -> dict[str, Any] | None:
-    """库里这条回答某个判定器的最新一版观测行(没有 → None);单条回答页与结果文件打包共用。"""
+    """库里这条回答某个判定器的最新一行观测(版本最高、同版本里最后算出的——判据改了之后重算会追加同版本的新行;
+    没有 → None);单条回答页与结果文件打包共用。"""
     rows = [o for o in observations if o["detector_name"] == detector_name]
-    return max(rows, key=lambda o: o["detector_version"]) if rows else None
+    return max(rows, key=lambda o: (o["detector_version"], o["computed_at"])) if rows else None
 
 
 def _tier(domain_list: BrandDomainList | None, domain: str) -> str:

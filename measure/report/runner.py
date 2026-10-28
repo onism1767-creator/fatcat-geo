@@ -248,9 +248,9 @@ def _execute(
                 quotes=[SurfaceQuotes(surface=m.target.surface, model=m.target.model, quotes=m.quotes)
                         for m in measurements],
             ))
-        persist_observations(storage, [  # 存 observe() 算出的判定行,不重跑(裁判花钱)
+        persist_observations(storage, [  # 存 observe() 算出的判定行,不重跑(裁判花钱);判定器版本首次出现落审计
             o for key in runs_by for o in observations[key] + offline_observations[key]
-        ])
+        ], note=job.job_id)
         job.surface_verdicts = [
             surface_verdict(target.surface, target.model, inputs) for target, inputs in verdict_inputs.items()
         ]

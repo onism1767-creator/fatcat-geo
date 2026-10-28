@@ -55,6 +55,11 @@ class CallStat(FrozenModel):
     avg_latency_ms: float
 
 
+def _judgement(payload: dict[str, Any]) -> dict[str, Any]:
+    """判定行里「判定本身」的部分:去掉每次都不同的行编号与算出时间,剩下的一样就是同一个判定。"""
+    return {k: v for k, v in payload.items() if k not in ("observation_id", "computed_at")}
+
+
 def _observation_type(observation: DerivedObservation) -> str:
     name = type(observation).__name__.removesuffix("Observation")
     return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
@@ -132,14 +137,24 @@ class Storage:
             ),
         )
 
-    def insert_observation(self, observation: DerivedObservation) -> None:
-        """幂等写入:同 (run, 判定器, 版本) 已有观测时静默跳过(续跑重复评分不产生
-        重复行)。注意 recompute 审计的 rows_affected 因此是"尝试数"口径。"""
+    def insert_observation(self, observation: DerivedObservation) -> bool:
+        """派生行只追加、可重算:同 (run, 判定器, 版本) 的最新一行若判定结果一样(同样的输入算出同样的东西——
+        续跑、重新生成报告)就不再写;结果不一样(确认官网域名、加别名之后重算)就追加一行,读的一方取最新
+        (report/response_view.latest_observation)。原来的「同 (run, 判定器, 版本) 至多一行」让判据改了之后的
+        重算写不进库,单条回答页与结果文件和报告打架(审核 2026-10-27 黄 7)。返回这次有没有写。"""
+        payload = observation.model_dump(mode="json")
+        latest = self._conn.execute(
+            "SELECT payload FROM derived_observation "
+            "WHERE run_id = %s AND detector_name = %s AND detector_version = %s "
+            "ORDER BY computed_at DESC LIMIT 1",
+            (observation.run_id, observation.detector_name, observation.detector_version),
+        ).fetchone()
+        if latest is not None and _judgement(latest[0]) == _judgement(payload):
+            return False
         self._conn.execute(
             "INSERT INTO derived_observation (observation_id, run_id, observation_type, "
             "detector_name, detector_version, computed_at, payload) "
-            "VALUES (%s, %s, %s, %s, %s, %s, %s) "
-            "ON CONFLICT (run_id, detector_name, detector_version) DO NOTHING",
+            "VALUES (%s, %s, %s, %s, %s, %s, %s)",
             (
                 observation.observation_id,
                 observation.run_id,
@@ -147,9 +162,10 @@ class Storage:
                 observation.detector_name,
                 observation.detector_version,
                 observation.computed_at,
-                Jsonb(observation.model_dump(mode="json")),
+                Jsonb(payload),
             ),
         )
+        return True
 
     _PAGE_COLUMNS = ("check_id, url, normalized_url, fetched_at, status, http_status, final_url, title, text, "
                      "text_source, text_chars, truncated, error, fetcher_version, archive_url, archive_timestamp, "
@@ -274,6 +290,13 @@ class Storage:
         row = self._conn.execute("SELECT count(*) FROM cache_reuse WHERE job_id = %s", (job_id,)).fetchone()
         return int(row[0]) if row is not None else 0
 
+    def cache_copies(self, run_ids: list[str]) -> set[str]:
+        """这些运行里哪些是从缓存复制来的:找缓存时只拿原件(审核 2026-10-27 黄 6)。"""
+        if not run_ids:
+            return set()
+        rows = self._conn.execute("SELECT run_id FROM cache_reuse WHERE run_id = ANY(%s)", (run_ids,)).fetchall()
+        return {r[0] for r in rows}
+
     def load_job_snapshots(self) -> list[dict[str, Any]]:
         rows = self._conn.execute(
             "SELECT snapshot FROM diagnosis_job ORDER BY created_at"
@@ -362,9 +385,14 @@ class Storage:
         rows = self._conn.execute(sql, params).fetchall()
         return [_row_to_run(row) for row in rows]
 
-    def all_runs(self) -> list[SurfaceRun]:
+    def runs_for_brand(self, brand_name: str) -> list[SurfaceRun]:
+        """一个品牌全部任务里的全部运行(全量重算用,13.5):只重算这个品牌的——别的品牌的回答不能拿这家的
+        名单与别名去判(审核 2026-10-27 黄 8)。品牌只在任务快照里,先取它的题再取运行。"""
+        prompt_ids = sorted({pid for pid, _, _ in self.brand_prompts(brand_name, exclude_job_id="")})
+        if not prompt_ids:
+            return []
         rows = self._conn.execute(
-            f"SELECT {_RUN_COLUMNS} FROM surface_run ORDER BY run_timestamp"
+            f"SELECT {_RUN_COLUMNS} FROM surface_run WHERE prompt_id = ANY(%s) ORDER BY run_timestamp", (prompt_ids,)
         ).fetchall()
         return [_row_to_run(row) for row in rows]
 

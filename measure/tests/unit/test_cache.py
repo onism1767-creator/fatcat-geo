@@ -37,8 +37,9 @@ def make_run(prompt_id: str, run_id: str, *, hours_ago: float = 1, mode: SearchM
 
 
 class FakeStore:
-    def __init__(self, prompts, runs):
+    def __init__(self, prompts, runs, copies=()):
         self._prompts, self._runs = prompts, runs
+        self._copies = set(copies)  # 库里已有的「从缓存复制来的」运行
         self.inserted: list[SurfaceRun] = []
         self.reuses: list[dict] = []
 
@@ -53,6 +54,10 @@ class FakeStore:
 
     def insert_cache_reuse(self, **kw):
         self.reuses.append(kw)
+
+    def cache_copies(self, run_ids):
+        copied = self._copies | {r["run_id"] for r in self.reuses}
+        return {rid for rid in run_ids if rid in copied}
 
 
 def test_normalize_prompt_ignores_width_case_and_spacing():
@@ -94,6 +99,24 @@ def test_fill_from_cache_copies_into_empty_slots_with_zero_cost_and_records_reus
                            search_mode=SearchMode.DEFAULT, missing_indices=[], now=NOW) == []
 
 
+def test_copies_made_from_cache_are_not_served_again_as_a_second_answer():
+    """单 B 从缓存复制了单 A 的回答(时间戳、原文照旧);单 C 再找缓存只拿原件——
+    原件和复制件不能当成两条、填进同一道题的两个槽位(审核 2026-10-27 黄 6)。"""
+    prompts = [("极光CRM", "p-a", "中小团队用什么 CRM 好?", "zh-CN"),
+               ("极光CRM", "p-b", "中小团队用什么 CRM 好?", "zh-CN")]
+    original = make_run("p-a", "orig", hours_ago=2)
+    copy = original.model_copy(update={"run_id": "copy", "prompt_id": "p-b"})
+    store = FakeStore(prompts, [original, copy], copies={"copy"})
+    prompt = Prompt(prompt_id="p-c", text="中小团队用什么 CRM 好?", intent=PromptIntent.CATEGORY_DISCOVERY,
+                    origin=PromptOrigin.USER, locale="zh-CN")
+    hits = cached_answers(store, job_id="c", brand_name="极光CRM", prompt=prompt, target=TARGET,
+                          search_mode=SearchMode.DEFAULT, now=NOW)
+    assert [r.run_id for r in hits] == ["orig"]
+    filled = fill_from_cache(store, job_id="c", brand_name="极光CRM", prompt=prompt, target=TARGET,
+                             search_mode=SearchMode.DEFAULT, missing_indices=[1, 2], now=NOW)
+    assert [(c.run_index, c.raw_payload) for c in filled] == [(1, {"k": "orig"})]  # 第二个槽位空着,等真提问
+
+
 def test_cache_reuse_table_is_append_only_and_counted_per_job(storage):
     run = make_run("p-cache", "cache-src-1")
     copy = run.model_copy(update={"run_id": "cache-copy-1", "prompt_id": "p-cache-2"})
@@ -101,6 +124,8 @@ def test_cache_reuse_table_is_append_only_and_counted_per_job(storage):
     storage.insert_surface_run(copy)
     storage.insert_cache_reuse(job_id="job-cache", run_id="cache-copy-1", source_run_id="cache-src-1", cache_age_s=60)
     assert storage.cache_reuse_count("job-cache") == 1 and storage.cache_reuse_count("job-none") == 0
+    assert storage.cache_copies(["cache-copy-1", "cache-src-1", "nope"]) == {"cache-copy-1"}  # 复制件认得出来
+    assert storage.cache_copies([]) == set()
     with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
         storage._conn.execute("UPDATE cache_reuse SET cache_age_s = 0")
     with pytest.raises(psycopg.errors.RaiseException, match="append-only"):

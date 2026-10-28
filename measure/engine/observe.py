@@ -10,6 +10,7 @@
 
 from __future__ import annotations
 
+from collections import Counter
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
@@ -130,12 +131,28 @@ def observe(run: SurfaceRun, brand: BrandSpec, context: ObserveContext) -> RunOb
     )
 
 
-def persist_observations(storage: ObservationStore, observations: Iterable[RunObservations]) -> int:
-    """把 observe() 算出的判定行逐条存档(幂等:同 run × 判定器 × 版本至多一条)。判定只算一次——裁判是花钱的。
-    返回写入尝试的条数。"""
-    written = 0
+def persist_observations(
+    storage: ObservationStore, observations: Iterable[RunObservations], *,
+    trigger_kind: str = "job", note: str | None = None,
+) -> int:
+    """把 observe() 算出的判定行逐条存档(同样的判定不重复写;判据改了的追加,见 Storage.insert_observation)。
+    判定只算一次——裁判是花钱的。某个判定器的版本第一次出现在库里(新库,或判定器升级后的第一单)落一条
+    RecomputeEvent 审计(13.5;审核 2026-10-27 黄 8):指标变了,得分得清是世界变了还是判定器变了。
+    返回实际写入的条数。"""
+    written: Counter[tuple[str, int]] = Counter()
+    before: dict[tuple[str, int], int | None] = {}  # 写之前库里该判定器的最高版本
     for item in observations:
         for observation in item.archived:
-            storage.insert_observation(observation)
-            written += 1
-    return written
+            key = (observation.detector_name, observation.detector_version)
+            if key not in before:
+                before[key] = storage.max_detector_version(observation.detector_name)
+            if storage.insert_observation(observation):
+                written[key] += 1
+    for (name, version), count in written.items():
+        prior = before[(name, version)]
+        if prior is None or prior < version:
+            storage.insert_recompute_event(
+                detector_name=name, version_from=prior, version_to=version,
+                rows_affected=count, trigger_kind=trigger_kind, note=note,
+            )
+    return sum(written.values())

@@ -52,12 +52,12 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
     """,
     "CREATE INDEX IF NOT EXISTS derived_obs_run_idx ON derived_observation (run_id)",
     "CREATE INDEX IF NOT EXISTS derived_obs_detector_idx ON derived_observation (detector_name, detector_version)",
-    # exactly-once(v0.4.9):同 (run, 判定器, 版本) 至多一条观测——幂等续跑重复评分
-    # 不产生重复行;判定器升级以新版本追加,不受影响
-    """
-    CREATE UNIQUE INDEX IF NOT EXISTS derived_obs_exactly_once_idx
-        ON derived_observation (run_id, detector_name, detector_version)
-    """,
+    # 同 (run, 判定器, 版本) 可以有多行(审核 2026-10-27 黄 7):判据(官网名单、别名)改了之后重算要能追加,
+    # 读的一方取最新;「同样的判定不重复写」由 Storage.insert_observation 比对最新一行保证(v0.4.9 的幂等续跑照旧)。
+    # 原来的唯一索引会让同版本重算静默写不进去,撤掉(已建的库启动时一并撤)。
+    "DROP INDEX IF EXISTS derived_obs_exactly_once_idx",
+    "CREATE INDEX IF NOT EXISTS derived_obs_latest_idx "
+    "ON derived_observation (run_id, detector_name, detector_version, computed_at DESC)",
     # 任务快照(v0.4.9,16.3 修订):任务是运行状态而非观测,允许覆写;
     # 观测四表的只追加铁律不受影响
     """

@@ -120,9 +120,18 @@ def test_no_valid_answer_means_no_observation_and_absence_is_recorded():
 class ListStore:
     def __init__(self) -> None:
         self.rows: list = []
+        self.events: list[dict] = []
 
-    def insert_observation(self, observation) -> None:
+    def insert_observation(self, observation) -> bool:
         self.rows.append(observation)
+        return True
+
+    def max_detector_version(self, detector_name: str) -> int | None:
+        versions = [o.detector_version for o in self.rows if o.detector_name == detector_name]
+        return max(versions) if versions else None
+
+    def insert_recompute_event(self, **kw) -> None:
+        self.events.append(kw)
 
 
 def test_tier_method_picks_the_main_detector_and_sentiment_follows_it():
@@ -149,6 +158,12 @@ def test_both_mention_detectors_are_archived_side_by_side():
     assert mentions == {("brand_mention_rules", 2): False, ("brand_mention_fuzzy", 1): True}
     tones = [o for o in store.rows if o.detector_name == "sentiment_lexicon"]
     assert len(tones) == 1 and tones[0].detector_version == 3  # 情感随主判定器(模糊)找到了句子
+    # 判定器版本第一次出现在库里:落审计(13.5;审核 2026-10-27 黄 8);再存一遍版本都见过了,不再落
+    assert {(e["detector_name"], e["version_from"], e["version_to"], e["trigger_kind"]) for e in store.events} >= {
+        ("brand_mention_rules", None, 2, "job"), ("brand_mention_fuzzy", None, 1, "job")}
+    seen = len(store.events)
+    persist_observations(store, [observe(run, BRAND, context)], note="job-x")
+    assert len(store.events) == seen
 
 
 def test_sentiment_detector_needs_a_mention_detector():

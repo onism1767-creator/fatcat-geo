@@ -25,6 +25,7 @@ from engine.models import (
     SearchTrace,
     SurfaceRun,
 )
+from report.response_view import latest_observation  # 读的一方:同版本多行取最新
 
 BRAND = BrandSpec(name="极光CRM", domains=["aurora-crm.com"])
 # storage 夹具:tests/unit/conftest.py(会话级共享测试库)
@@ -202,13 +203,19 @@ def test_surface_run_truncate_rejected_by_database(storage):
 
 
 def test_observations_and_recompute_audit(storage):
+    brand = BrandSpec(name="极光CRM-重算", domains=["aurora-crm.com"])  # 独立品牌名:共享测试库里别的快照不掺和
     run_cited = make_run("run-obs-1")
     run_uncited = make_run("run-obs-2", cited=False)
-    storage.insert_surface_run(run_cited)
-    storage.insert_surface_run(run_uncited)
+    other_brand_run = make_run("run-obs-other").model_copy(update={"prompt_id": "need-other-brand"})
+    for run in (run_cited, run_uncited, other_brand_run):
+        storage.insert_surface_run(run)
+    storage.upsert_job_snapshot({  # 品牌只在任务快照里:全量重算按它找这个品牌的题与运行
+        "job_id": "job-obs", "created_at": "2026-08-20T12:00:00+00:00", "state": "DONE", "fingerprint": "obs",
+        "brand": {"name": brand.name}, "prompts": [{"prompt_id": "need-s1", "text": "q", "locale": "zh-CN"}],
+    })
 
     detector = CitationDetector()
-    written = observe_runs(storage, [run_cited, run_uncited], [detector], BRAND)
+    written = observe_runs(storage, [run_cited, run_uncited], [detector], brand)
     assert written == 2
     obs = storage.observations_for_run("run-obs-1")
     assert len(obs) == 1
@@ -216,16 +223,25 @@ def test_observations_and_recompute_audit(storage):
     assert obs[0]["cited"] is True and obs[0]["positions"] == [1]
     assert obs[0]["detector_version"] == detector.version
 
-    # 同版本重算:exactly-once,不产生重复观测行(v0.4.9);审计事件照落,
-    # rows_affected 为"尝试数"口径(见 insert_observation 注)
-    recomputed = recompute_all(storage, detector, BRAND, note="测试重算")
-    assert recomputed >= 2
+    # 同版本、同判据重算:同样的判定不重复写(v0.4.9 幂等续跑);审计事件照落,rows_affected 是实际写入数;
+    # 别的品牌的运行不在重算范围(审核 2026-10-27 黄 8)
+    recomputed = recompute_all(storage, detector, brand, note="测试重算")
+    assert recomputed == 0
     assert len(storage.observations_for_run("run-obs-1")) == 1
+    assert storage.observations_for_run("run-obs-other") == []
     event = storage._conn.execute(
         "SELECT detector_name, version_from, version_to, rows_affected, trigger_kind "
         "FROM recompute_event ORDER BY occurred_at DESC LIMIT 1"
     ).fetchone()
-    assert event == (detector.name, detector.version, detector.version, recomputed, "manual")
+    assert event == (detector.name, detector.version, detector.version, 0, "manual")
+
+    # 判据改了(官网名单换了)之后同版本重算:追加一行,旧行保留,读的一方取最新(审核 2026-10-27 黄 7)
+    renamed = brand.model_copy(update={"domains": ["elsewhere.example"]})
+    assert observe_runs(storage, [run_cited], [detector], renamed) == 1
+    rows = storage.observations_for_run("run-obs-1")
+    assert [r["cited"] for r in rows] == [True, False]  # 按算出时间序
+    assert latest_observation(rows, detector.name)["cited"] is False
+    assert observe_runs(storage, [run_cited], [detector], renamed) == 0  # 再算一遍一样:不写
 
     # 判定器升级重算:新版本追加,旧版本行保留(历史判定永不被覆盖)。
     # 用独立判定器名,避免污染共享测试库中真实判定器的版本序
@@ -233,10 +249,9 @@ def test_observations_and_recompute_audit(storage):
         name = "citation_domain_match_upgrade_probe"
         version = CitationDetector.version + 1
 
-    observe_runs(storage, [run_cited], [UpgradedCitationDetector()], BRAND)
+    observe_runs(storage, [run_cited], [UpgradedCitationDetector()], brand)
     types_and_versions = sorted(
-        (o["detector_name"], o["detector_version"])
-        for o in storage.observations_for_run("run-obs-1")
+        {(o["detector_name"], o["detector_version"]) for o in storage.observations_for_run("run-obs-1")}
     )
     assert types_and_versions == [
         ("citation_domain_match", detector.version),

@@ -39,6 +39,10 @@ class CacheStore(Protocol):
 
     def insert_cache_reuse(self, *, job_id: str, run_id: str, source_run_id: str, cache_age_s: int) -> None: ...
 
+    def cache_copies(self, run_ids: list[str]) -> set[str]:
+        """这些运行里哪些是从缓存复制来的(cache_reuse 里的 run_id)。"""
+        ...
+
 
 def cached_answers(
     store: CacheStore,
@@ -51,7 +55,8 @@ def cached_answers(
     now: datetime,
     hours: int = CACHE_HOURS,
 ) -> list[SurfaceRun]:
-    """别的检测里可复用的有效回答,新的在前;不含本单自己的题。"""
+    """别的检测里可复用的有效回答,新的在前;不含本单自己的题。只拿原件:别的单从缓存复制来的那条
+    (时间戳、原文都和原件一样)不再当成第二条回答,否则同一条回答会填进同一道题的两个槽位(审核 2026-10-27 黄 6)。"""
     wanted = normalize_prompt(prompt.text)
     since = now - timedelta(hours=hours)
     hits: list[SurfaceRun] = []
@@ -61,6 +66,8 @@ def cached_answers(
         for run in store.runs_for_prompt(prompt_id, surface=target.surface, model=target.model):
             if run.search_mode is search_mode and run.timestamp >= since and is_valid_answer(run):
                 hits.append(run)
+    copies = store.cache_copies([r.run_id for r in hits]) if hits else set()
+    hits = [r for r in hits if r.run_id not in copies]
     hits.sort(key=lambda r: r.timestamp, reverse=True)
     return hits
 
