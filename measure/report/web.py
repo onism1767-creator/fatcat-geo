@@ -164,4 +164,5 @@ def redirect(request: Request, path: str) -> RedirectResponse:
 
 
 def not_found() -> HTMLResponse:
-    return HTMLResponse("任务不存在", status_code=404)
+    """找不到任务:中英各一句(界面默认英文;用户 2026-10-28 定)。"""
+    return HTMLResponse("Job not found / 任务不存在", status_code=404)

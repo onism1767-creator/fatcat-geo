@@ -36,7 +36,7 @@
   <tr>
     <td>{{ j.brand.name }}<span class="muted"> · {{ j.category }} · {{ j.locale }}{% if j.fresh %} · {{ t["retest_tag"] }}{% endif %}</span></td>
     <td>{{ state_labels[j.state.value] }}</td>
-    <td>{{ t.get(j.phase, j.phase) }}</td>
+    <td>{{ t[j.phase] }}</td>
     <td>${{ "%.4f"|format(j.spent_usd) }}</td>
     <td>
       {% if j.state.value in ("INTERRUPTED", "FAILED") %}

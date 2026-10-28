@@ -121,7 +121,7 @@ def finished_job() -> DiagnosisJob:
                        locale="zh-CN", candidates=[], competitors_suggested=[])
     job.freeze(prompts=[prompt], competitors=[], targets=[Target(surface="s1", model="m1")], budget_usd=1.0, tier=LOW)
     job.state = JobState.DONE
-    job.phase = "完成"
+    job.phase = "phase_done"
     job.finished_at = datetime(2026, 8, 24, tzinfo=UTC)
     job.sampling = SamplingNote(  # S8.2:采样说明(实际发生的数字)
         n_prompts=1, n_targets=2, tier=LOW, n_runs=6, n_valid=5, n_offline_runs=3, n_cached=0, cache_hours=12,
@@ -166,7 +166,7 @@ def client_and_job():
     def stub_runner(*, job, adapters, dsn, evidence, replay):
         calls.append(job.job_id)
         job.state = JobState.DONE
-        job.phase = "完成"
+        job.phase = "phase_done"
 
     app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=stub_runner)

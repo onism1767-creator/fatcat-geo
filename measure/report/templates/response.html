@@ -10,7 +10,7 @@
   <p><b>{{ t["resp_question"] }}:</b>{{ view.prompt_text }}</p>
   <p class="kv">{{ t["resp_meta"].format(i=run.run_index, ai=target_name(run.surface, run.model), time=run.timestamp|utc_time) }}</p>
   <p><b>{{ t["resp_mentioned_word"] }}:</b>
-    {% if not view.valid %}{% set why = t["resp_blank"] if run.outcome.value == "SUCCESS" else t.get("outcome_" ~ run.outcome.value, run.outcome.value) %}{{ t["resp_invalid"].format(why=why) }}{% elif view.mentioned is none %}{{ t["resp_no_record"] }}{% elif view.mentioned %}{{ t["resp_yes"] }}{% else %}{{ t["resp_no"] }}{% endif %}</p>
+    {% if not view.valid %}{% set why = t["resp_blank"] if run.outcome.value == "SUCCESS" else t["outcome_" ~ run.outcome.value] %}{{ t["resp_invalid"].format(why=why) }}{% elif view.mentioned is none %}{{ t["resp_no_record"] }}{% elif view.mentioned %}{{ t["resp_yes"] }}{% else %}{{ t["resp_no"] }}{% endif %}</p>
   {% if view.excerpt %}<p><b>{{ t["resp_excerpt"] }}:</b>「{{ view.excerpt }}」</p>{% endif %}
   {#- 怎么认出来的(S9.2,模糊判定器起才记;规则判定器的记录没有这一行) -#}
   {% if view.match_kind %}<p class="kv">{{ t["resp_match_" ~ view.match_kind].format(text=view.matched_text, alias=view.matched_alias, d=view.edit_distance) }}</p>{% endif %}
@@ -26,7 +26,7 @@
     {% for c in view.citations %}
     <tr><td>{{ c.position }}</td>
       <td style="word-break:break-all">{{ c.url }}{% if c.final_url %}<br><span class="muted">{{ t["resp_col_final"] }}:{{ c.final_url }}</span>{% endif %}</td>
-      <td>{{ t["class_" ~ c.kind] }}{% if c.competitor %}({{ c.competitor }}){% endif %}{% if c.reason %}{% set code = "CITATION_UNRESOLVED" if c.reason == "UNRESOLVED" else "PAGE_" ~ c.reason %} <span class="muted">(<a href="/errors?lang={{ lang }}#{{ code }}">{{ t.get("reason_" ~ c.reason, c.reason) }}</a>)</span>{% endif %}</td></tr>
+      <td>{{ t["class_" ~ c.kind] }}{% if c.competitor %}({{ c.competitor }}){% endif %}{% if c.reason %}{% set code = "CITATION_UNRESOLVED" if c.reason == "UNRESOLVED" else "PAGE_" ~ c.reason %} <span class="muted">(<a href="/errors?lang={{ lang }}#{{ code }}">{{ t["reason_" ~ c.reason] }}</a>)</span>{% endif %}</td></tr>
     {% endfor %}
   </table>
   {% if view.unresolved %}<p class="muted">{{ t["resp_unresolved"].format(n=view.unresolved) }}</p>{% endif %}

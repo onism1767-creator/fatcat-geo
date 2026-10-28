@@ -430,10 +430,10 @@ class DiagnosisJob:
         job.fresh = snapshot["fresh"]
         job.parent_job_id = snapshot["parent_job_id"]
         job.fingerprint = snapshot["fingerprint"]
-        if snapshot.get("domain_list"):
+        if snapshot["domain_list"] is not None:
             job.domain_list = BrandDomainList.model_validate(snapshot["domain_list"])
-        error = snapshot.get("error") or {}  # 本键 v0.4.21 起才写;更早的快照没有 = 没有出错说明
-        job.error_code, job.error_params, job.error = error.get("code"), error.get("params") or {}, error.get("text")
+        error = snapshot["error"]  # 每份快照都写(没出错 = 三个值都空);旧格式兜底已删(用户 2026-10-28 定:不留冗余代码)
+        job.error_code, job.error_params, job.error = error["code"], error["params"], error["text"]
         job.phase = {
             JobState.DONE: "phase_done",
             JobState.PARTIAL: "phase_partial",

@@ -4,7 +4,7 @@
 {% if job.state.value in ("CONFIRMED", "RUNNING") %}<meta http-equiv="refresh" content="3">{% endif %}
 <h1>{{ t["job_title"] }} · {{ job.brand.name }}</h1>
 <div class="card">
-  {% set state = state_labels[job.state.value] %}{% set phase = t.get(job.phase, job.phase) %}
+  {% set state = state_labels[job.state.value] %}{% set phase = t[job.phase] %}
   <p><b>{{ state }}</b>{% if phase != state %} · {{ phase }}{% endif %}
      <span class="muted">{{ job.prompts|length }} {{ t["prompts_word"] }} × {{ runs_per_prompt }} {{ t["runs_word"] }} × {{ job.targets|length }} {{ t["surfaces_word"] }}
      · {{ t["fingerprint_word"] }} {{ job.fingerprint or "—" }}</span></p>
