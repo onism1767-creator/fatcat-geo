@@ -204,14 +204,15 @@ def test_surface_run_truncate_rejected_by_database(storage):
 
 def test_observations_and_recompute_audit(storage):
     brand = BrandSpec(name="极光CRM-重算", domains=["aurora-crm.com"])  # 独立品牌名:共享测试库里别的快照不掺和
-    run_cited = make_run("run-obs-1")
-    run_uncited = make_run("run-obs-2", cited=False)
+    # 本测试的题号独占:共享测试库里别的测试也用默认题号 need-s1,全量重算按品牌找题,混进来就数不准
+    run_cited = make_run("run-obs-1").model_copy(update={"prompt_id": "need-obs"})
+    run_uncited = make_run("run-obs-2", cited=False).model_copy(update={"prompt_id": "need-obs"})
     other_brand_run = make_run("run-obs-other").model_copy(update={"prompt_id": "need-other-brand"})
     for run in (run_cited, run_uncited, other_brand_run):
         storage.insert_surface_run(run)
     storage.upsert_job_snapshot({  # 品牌只在任务快照里:全量重算按它找这个品牌的题与运行
         "job_id": "job-obs", "created_at": "2026-08-20T12:00:00+00:00", "state": "DONE", "fingerprint": "obs",
-        "brand": {"name": brand.name}, "prompts": [{"prompt_id": "need-s1", "text": "q", "locale": "zh-CN"}],
+        "brand": {"name": brand.name}, "prompts": [{"prompt_id": "need-obs", "text": "q", "locale": "zh-CN"}],
     })
 
     detector = CitationDetector()

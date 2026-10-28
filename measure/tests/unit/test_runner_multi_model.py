@@ -105,7 +105,7 @@ class _StubResolver:
     def __init__(self, storage) -> None:
         pass
 
-    def resolve(self, urls: list[str]) -> dict[str, CitationResolution]:
+    def resolve(self, urls: list[str], *, heartbeat=None) -> dict[str, CitationResolution]:  # 心跳参数同真货
         result = {}
         for url in urls:
             final = self.destinations.get(url)

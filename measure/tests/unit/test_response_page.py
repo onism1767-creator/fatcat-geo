@@ -113,7 +113,7 @@ def test_response_page_explains_a_fuzzy_match(storage):
     persist_observations(storage, [observe(run, job.brand, context)])
     html = _client(job).get(f"/jobs/{job.job_id}/responses/fz1?lang=zh").text
     assert "提到了" in html and "尾巴多或少 1 个字母(模糊匹配)" in html and "auroracrms" in html
-    assert "brand_mention_fuzzy v1" in html and "brand_mention_rules v2" in html  # 两个判定器都存了
+    assert "brand_mention_fuzzy v2" in html and "brand_mention_rules v2" in html  # 两个判定器都存了
     assert "sentiment_lexicon v3" in html and "正面" in html  # 情感句跟主判定器定位
 
 
