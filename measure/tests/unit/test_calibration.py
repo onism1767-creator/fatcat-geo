@@ -71,7 +71,7 @@ def test_calibrate_counts_hits_false_alarms_disagreement_and_double_judge():
     assert rules["pos_n"] == fuzzy["pos_n"] > 0 and rules["pos_hit"] < fuzzy["pos_hit"]  # 模糊比规则多认出变体
     assert rules["neg_n"] == fuzzy["neg_n"] == 6  # 两个底本各塞一个竞品名 + 两个别名各一个「中间换一个字母」
     assert rules["neg_false"] == 0 and fuzzy["neg_false"] == 0  # 竞品名、中间换字的别的词都没被误认(黄 9 v2)
-    assert judge["neg_n"] == 2  # 裁判只判竞品名负例,不判「中间换一个字母」(按上下文会当拼错的品牌名)
+    assert judge["neg_n"] == 1  # 裁判只在它判过的底本(r1;r4 看不到)上判竞品名负例,不判「中间换一个字母」
     assert judge["pos_n"] > 0 and judge["pos_n"] < fuzzy["pos_n"]  # 裁判只在抽样且说没提到的底本上跑(r4 看不到)
     rf = report.pair("rules", "fuzzy")
     assert rf is not None and (rf.n, rf.disagree, rf.examples) == (4, 1, ["r2"])  # auroracrms:规则没认、模糊认了
