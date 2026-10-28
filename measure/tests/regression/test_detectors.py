@@ -102,6 +102,9 @@ SAMPLES = {
     "mention_cjk_name_then_cjk": make_run("r-m8", answer=answer_with("极光CRM系统很好用。")),
     "mention_cjk_name_latin_tail_rejected": make_run("r-m9", answer=answer_with("极光CRMPro 是另一款产品。")),
     "mention_name_with_punctuation": make_run("r-m10", answer=answer_with("Try AuroraCRM, it's cheap.")),
+    # 模糊判定器 v2(2026-10-27 黄 9):中间换一个字母是别的词,不认;尾巴多一个字母(所有格)认
+    "mention_other_word_rejected": make_run("r-m11", answer=answer_with("AuroxaCRM is a different tool.")),
+    "mention_possessive_tail": make_run("r-m12", answer=answer_with("I like AuroraCRM's pricing.")),
     "empty_answer_success": make_run("r-e1", answer=answer_with("  \n")),  # SUCCESS 但正文为空:v2 判不了
     "refused_run": make_run(
         "r-m5",
@@ -329,6 +332,15 @@ FUZZY_MENTION_EXPECTED = {
             matched_text="auroracrms", edit_distance=1,
         ),
     }
+}
+# 模糊判定器 v2(2026-10-27 黄 9,用户定):只认尾巴不同 + 去重音。v1 的样本行为不变,只新增边界样本
+FUZZY_MENTION_EXPECTED[2] = {
+    **FUZZY_MENTION_EXPECTED[1],
+    "mention_other_word_rejected": dict(mentioned=False, matched_alias=None, first_position=None),
+    "mention_possessive_tail": dict(  # 撇号本来就是词边界:精确那道关直接认,不用模糊
+        mentioned=True, matched_alias="AuroraCRM", first_position=7, match_kind="exact",
+        matched_text="AuroraCRM", edit_distance=0,
+    ),
 }
 
 

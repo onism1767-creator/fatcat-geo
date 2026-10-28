@@ -47,7 +47,7 @@ def test_exact_hits_match_the_rules_detector_and_say_so():
     assert obs is not None and rules is not None
     assert (obs.mentioned, obs.matched_alias, obs.first_position) == (True, "极光CRM", rules.first_position)
     assert (obs.match_kind, obs.matched_text, obs.edit_distance) == ("exact", "极光CRM", 0)
-    assert obs.detector_name == "brand_mention_fuzzy" and obs.detector_version == 1
+    assert obs.detector_name == "brand_mention_fuzzy" and obs.detector_version == 2
 
 
 @pytest.mark.parametrize("text, snippet", [
@@ -69,14 +69,41 @@ def test_normalized_pass_still_respects_word_boundaries():
 
 @pytest.mark.parametrize("text, snippet, distance", [
     ("The auroracrms plugin is popular.", "auroracrms", 1),  # 连写 + 复数(用户举的例子)
-    ("Many teams pick AuroraCRN for pricing.", "AuroraCRN", 1),  # 打错一个字母
     ("Many teams pick Aurora CRMs.", "Aurora CRMs", 1),  # 两个词拼起来再比
 ])
-def test_fuzzy_pass_catches_variants_within_the_budget(text: str, snippet: str, distance: int):
+def test_fuzzy_pass_catches_tail_variants_within_the_budget(text: str, snippet: str, distance: int):
     obs = detect(text)
     assert obs is not None and obs.mentioned and obs.match_kind == "fuzzy"
     assert (obs.matched_text, obs.edit_distance) == (snippet, distance)
     assert text[obs.first_position:].startswith(snippet)
+
+
+def test_a_letter_changed_in_the_middle_is_another_word():
+    """v2(用户 2026-10-27 定,审核黄 9):只认尾巴不同。中间换一个字母就是别的词——Colombia 不是 Columbia;
+    AI 回答几乎不会把品牌名中间拼错,AuroraCRN 这种也不再认。尾巴多一个字母(Patagonian)照认。"""
+    assert detect("Many teams pick AuroraCRN for pricing.").mentioned is False
+    assert detect("I tried AuroxaCRM once.").mentioned is False
+    columbia = BrandSpec(name="Columbia")
+    assert detect("Great coffee comes from Colombia.", columbia).mentioned is False
+    assert detect("Columbia jackets are warm.", columbia).mentioned is True
+    patagonia = BrandSpec(name="Patagonia")
+    tail = detect("Patagonian stores opened in Tokyo.", patagonia)
+    assert tail.mentioned and tail.match_kind == "fuzzy" and tail.edit_distance == 1
+    possessive = detect("I like AuroraCRM's pricing.")  # 所有格:撇号本来就是词边界,精确那道关直接认
+    assert possessive.mentioned and possessive.match_kind == "exact"
+    assert possessive.matched_text == "AuroraCRM"
+
+
+@pytest.mark.parametrize("brand_name, text, snippet", [
+    ("Citroën", "Citroen makes small cars.", "Citroen"),  # 回答里把重音写掉了
+    ("Citroen", "Citroën makes small cars.", "Citroën"),  # 反过来:登记名没重音、回答带重音
+    ("Moët", "A bottle of Moet, please.", "Moet"),  # 4 个字母:不走模糊,靠规整那道关
+    ("Hermès", "Hermès and Hermes are the same house.", "Hermès"),  # 原样在前:精确先命中
+])
+def test_accents_are_folded_in_the_normalized_pass(brand_name: str, text: str, snippet: str):
+    obs = detect(text, BrandSpec(name=brand_name))
+    assert obs is not None and obs.mentioned and obs.edit_distance == 0
+    assert obs.matched_text == snippet and text[obs.first_position:].startswith(snippet)
 
 
 def test_short_names_are_exact_only_and_prefix_must_match():
@@ -87,10 +114,11 @@ def test_short_names_are_exact_only_and_prefix_must_match():
     notion = BrandSpec(name="Notion")
     assert detect("motion sensors everywhere", notion).mentioned is False  # 差 1 但首字母不同:不算
     assert detect("All my notions live there", notion).mentioned is True  # 复数:算
-    long_name = BrandSpec(name="Salesforce Marketing Cloud")  # 规整后 24 个字符:允许差 2
-    obs = detect("I tried salesforce marketting cloud last year", long_name)
+    long_name = BrandSpec(name="Salesforce Marketing Cloud")  # 规整后 24 个字符:尾巴允许差 2
+    obs = detect("I tried salesforce marketing clouds last year", long_name)
     assert obs.mentioned and obs.match_kind == "fuzzy" and obs.edit_distance == 1
-    assert detect("I tried salesforse marketting clod last year", long_name).mentioned is False  # 差 3
+    assert detect("I tried salesforce marketting cloud last year", long_name).mentioned is False  # 中间多字母:别的词
+    assert detect("I tried salesforce marketing cloudiest last year", long_name).mentioned is False  # 尾巴差 4
 
 
 def test_cjk_names_are_substring_only_never_fuzzy():
@@ -155,12 +183,12 @@ def test_both_mention_detectors_are_archived_side_by_side():
     persist_observations(store, [observe(run, BRAND, context)])
     mentions = {(o.detector_name, o.detector_version): o.mentioned for o in store.rows
                 if o.detector_name.startswith("brand_mention")}
-    assert mentions == {("brand_mention_rules", 2): False, ("brand_mention_fuzzy", 1): True}
+    assert mentions == {("brand_mention_rules", 2): False, ("brand_mention_fuzzy", 2): True}
     tones = [o for o in store.rows if o.detector_name == "sentiment_lexicon"]
     assert len(tones) == 1 and tones[0].detector_version == 3  # 情感随主判定器(模糊)找到了句子
     # 判定器版本第一次出现在库里:落审计(13.5;审核 2026-10-27 黄 8);再存一遍版本都见过了,不再落
     assert {(e["detector_name"], e["version_from"], e["version_to"], e["trigger_kind"]) for e in store.events} >= {
-        ("brand_mention_rules", None, 2, "job"), ("brand_mention_fuzzy", None, 1, "job")}
+        ("brand_mention_rules", None, 2, "job"), ("brand_mention_fuzzy", None, 2, "job")}
     seen = len(store.events)
     persist_observations(store, [observe(run, BRAND, context)], note="job-x")
     assert len(store.events) == seen

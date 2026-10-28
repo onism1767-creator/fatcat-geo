@@ -34,10 +34,16 @@ def test_variants_cover_the_decided_spellings_and_near_misses():
     variants = variants_of(BRAND, ["竞品甲", "AuroraCRM", " "])
     kinds = {(v.kind, v.text, v.expected) for v in variants}
     assert ("原样", "极光CRM", True) in kinds and ("竞品名", "竞品甲", False) in kinds  # 中文只做原样;负例 = 竞品名
-    assert not any(v.expected is False and v.text != "竞品甲" for v in variants)  # 和别名撞名的竞品、空名不当负例
+    assert not any(v.expected is False and v.kind == "竞品名" and v.text != "竞品甲" for v in variants)  # 撞名 / 空名
     assert ("小写", "auroracrm", True) in kinds and ("复数", "AuroraCRMs", True) in kinds
-    assert ("错一个字母", "AuroxaCRM", True) in kinds
+    assert ("所有格", "AuroraCRM's", True) in kinds
+    # 黄 9 定稿(2026-10-27):中间换一个字母是别的词,规则 / 模糊都不该认;裁判不判这条(按上下文会当拼错的品牌名)
+    other = next(v for v in variants if v.kind == "中间换一个字母(别的词)")
+    assert (other.text, other.expected, other.judge) == ("AuroxaCRM", False, False)
+    assert all(v.judge for v in variants if v.kind != "中间换一个字母(别的词)")
     assert ("去空格", "AuroraCRM", True) not in kinds  # 与别名 AuroraCRM 重复:去重
+    accented = {(v.kind, v.text, v.expected) for v in variants_of(BrandSpec(name="Citroën"))}
+    assert ("去重音", "Citroen", True) in accented and ("原样", "Citroën", True) in accented
     assert ("连字符", "Aurora-CRM", True) in kinds and ("全角", "ＡｕｒｏｒａＣＲＭ", True) in kinds
     assert len({v.text for v in variants}) == len(variants)  # 按原样不重复(大小写、全角是要分开测的写法)
 
@@ -63,8 +69,9 @@ def test_calibrate_counts_hits_false_alarms_disagreement_and_double_judge():
     assert (report.n_answers, report.n_bases, report.judge_sample) == (4, 2, 4)  # 底本 = r1、r4(规则 / 模糊都没提到)
     rules, fuzzy, judge = report.totals("rules"), report.totals("fuzzy"), report.totals("judge")
     assert rules["pos_n"] == fuzzy["pos_n"] > 0 and rules["pos_hit"] < fuzzy["pos_hit"]  # 模糊比规则多认出变体
-    assert rules["neg_n"] == fuzzy["neg_n"] == 2  # 两个底本各塞一个竞品名
-    assert rules["neg_false"] == 0 and fuzzy["neg_false"] == 0  # 竞品名没被误认
+    assert rules["neg_n"] == fuzzy["neg_n"] == 6  # 两个底本各塞一个竞品名 + 两个别名各一个「中间换一个字母」
+    assert rules["neg_false"] == 0 and fuzzy["neg_false"] == 0  # 竞品名、中间换字的别的词都没被误认(黄 9 v2)
+    assert judge["neg_n"] == 2  # 裁判只判竞品名负例,不判「中间换一个字母」(按上下文会当拼错的品牌名)
     assert judge["pos_n"] > 0 and judge["pos_n"] < fuzzy["pos_n"]  # 裁判只在抽样且说没提到的底本上跑(r4 看不到)
     rf = report.pair("rules", "fuzzy")
     assert rf is not None and (rf.n, rf.disagree, rf.examples) == (4, 1, ["r2"])  # auroracrms:规则没认、模糊认了

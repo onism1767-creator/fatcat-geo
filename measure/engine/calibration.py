@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import random
 import re
+import unicodedata
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -39,9 +40,11 @@ class Sample(FrozenModel):
 
 
 class Variant(FrozenModel):
-    kind: str  # 写法种类(原样 / 小写 / 去空格 / 全角 / 复数 / 错一个字母 / 竞品名……)
+    kind: str  # 写法种类(原样 / 小写 / 去空格 / 全角 / 复数 / 所有格 / 去重音 / 中间换一个字母(别的词) / 竞品名……)
     text: str
     expected: bool  # 塞进去之后「提到了」的正确答案
+    # 裁判要不要判这条:中间换一个字母的「别的词」裁判按上下文会当拼错的品牌名(S9.4b),只对规则 / 模糊计分
+    judge: bool = True
 
 
 class KindScore(FrozenModel):
@@ -101,26 +104,31 @@ def _fullwidth(ch: str) -> str:
     return chr(code + 0xFEE0) if 0x21 <= code <= 0x7E else ch
 
 
-def _typo(name: str) -> str:
-    """中间换一个字母(编辑距离 1)。"""
+def _other_word(name: str) -> str:
+    """中间换一个字母:按 2026-10-27 定稿(黄 9)这是别的词(Colombia 不是 Columbia),规则 / 模糊都不该认。"""
     middle = [i for i, c in enumerate(name) if c.isalpha()][len(name) // 2]
     swap = "x" if name[middle].lower() != "x" else "q"
     return name[:middle] + swap + name[middle + 1:]
 
 
+def _strip_accents(name: str) -> str:
+    """去掉重音符号(Citroën → Citroen):回答里常这么写,规整那道关该认(v2)。"""
+    return "".join(c for c in unicodedata.normalize("NFKD", name) if not unicodedata.combining(c))
+
 
 def variants_of(brand: BrandSpec, competitors: Sequence[str] = ()) -> list[Variant]:
-    """一张品牌卡能生成的写法:拉丁名字的大小写 / 空格 / 连字符 / 全角 / 复数 / 错一个字母(都该认出来)
-    中文名字只做原样(中文不模糊,用户定);负例 = 竞品名(肯定不是你;首字母换掉的错名裁判会当成拼错的品牌名,
-    不算干净负例,10-21 换掉)。"""
+    """一张品牌卡能生成的写法:拉丁名字的大小写 / 空格 / 连字符 / 全角 / 复数 / 所有格 / 去重音(都该认出来);
+    中间换一个字母是别的词(黄 9 定稿 2026-10-27:只对规则 / 模糊计分,裁判按上下文会当拼错的品牌名,
+    S9.4b 已定不算干净负例);
+    中文名字只做原样(中文不模糊,用户定);负例还有竞品名(肯定不是你)。"""
     out: list[Variant] = []
     seen: set[tuple[str, bool]] = set()
 
-    def add(kind: str, text: str, expected: bool) -> None:
+    def add(kind: str, text: str, expected: bool, *, judge: bool = True) -> None:
         key = (text, expected)  # 按原样去重:大小写、全角都是要分开测的写法
         if text.strip() and key not in seen:
             seen.add(key)
-            out.append(Variant(kind=kind, text=text, expected=expected))
+            out.append(Variant(kind=kind, text=text, expected=expected, judge=judge))
 
     for raw in dict.fromkeys([brand.name, *brand.aliases]):
         name = raw.strip()
@@ -135,8 +143,11 @@ def variants_of(brand: BrandSpec, competitors: Sequence[str] = ()) -> list[Varia
             add("全角", "".join(_fullwidth(c) for c in name), True)
             if len(name) >= 4 and name[-1].isalpha():
                 add("复数", name + "s", True)
+                add("所有格", name + "'s", True)
+            if _strip_accents(name) != name:
+                add("去重音", _strip_accents(name), True)
             if len(name) >= 6:
-                add("错一个字母", _typo(name), True)
+                add("中间换一个字母(别的词)", _other_word(name), False, judge=False)
     known = {n.strip().lower() for n in [brand.name, *brand.aliases]}
     for competitor in competitors:
         if competitor.strip() and competitor.strip().lower() not in known:
@@ -238,7 +249,7 @@ def calibrate(
     scores: dict[tuple[str, str, bool], list[int]] = {}
     for base, variant, run in synthetic_runs:
         methods: list[tuple[str, Judge]] = [("rules", rules), ("fuzzy", fuzzy)]
-        if judge_a is not None and base.run.run_id in judged_ids:
+        if judge_a is not None and base.run.run_id in judged_ids and variant.judge:
             methods.append(("judge", judge_a))
         for method, says in methods:
             said = says(run, base.brand)
