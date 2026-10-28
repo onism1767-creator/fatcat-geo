@@ -28,7 +28,8 @@ HOMEPAGE = """<html><head>
 <link rel="alternate" hreflang="zh-CN" href="https://www.brand.com.cn/">
 <link rel="alternate" hreflang="en-US" href="https://www.brand.com/">
 <script type="application/ld+json">{"@context":"https://schema.org","@graph":[{"@type":"Organization",
- "url":"https://www.brand.com/","sameAs":["https://brand.tmall.com/","https://www.instagram.com/brandofficial","https://brand.co.jp/"]}]}</script>
+ "url":"https://www.brand.com/","sameAs":["https://brand.tmall.com/","https://www.instagram.com/brandofficial","https://brand.co.jp/",
+ "https://en.wikipedia.org/wiki/Brand","https://zh.wikipedia.org/wiki/Brand","https://www.crunchbase.com/organization/brand"]}]}</script>
 <script type="application/ld+json">{not valid json</script>
 </head><body>
 <a href="https://www.brand.co.uk/">UK</a>
@@ -76,7 +77,8 @@ def _discover() -> BrandDomainList:
 @respx.mock
 def test_primary_site_declarations_are_counted_with_evidence_and_channels_are_listed_apart():
     """T33 hreflang(HTML / 响应头 / sitemap)、T34 首页同名链接、A2 结构化数据 → 自动计入,每项附依据;
-    T38 sameAs 与首页链接里的平台页面 → 官方渠道,按主机名 + 路径前缀单列;投诉站主体不同,不列。"""
+    T38 sameAs 与首页链接里的平台页面 → 官方渠道,按主机名 + 路径前缀单列;投诉站主体不同,不列。
+    sameAs 里名字不同的参考页面(维基百科、企业名录)不是官网:不计入,只记一条说明(审核 2026-10-27 红 1)。"""
     _mock_brand_site()
     result = _discover()
     assert result.primary == "brand.com" and "tldextract" in result.public_suffix_list
@@ -102,7 +104,11 @@ def test_primary_site_declarations_are_counted_with_evidence_and_channels_are_li
     assert channels["brand.tmall.com/"].evidence.kind == "jsonld_sameas"
     assert channels["www.youtube.com/brandchannel"].evidence.kind == "homepage_link"
     assert result.channel_prefixes == list(channels)
-    assert result.candidate_fetches == 5 and result.notes == []
+    assert result.candidate_fetches == 5
+    assert result.notes == [  # 两个维基百科页面同一注册域名,只记一次
+        DomainEvidence(kind="schema_other_name", source="https://www.brand.com/", detail="wikipedia.org"),
+        DomainEvidence(kind="schema_other_name", source="https://www.brand.com/", detail="crunchbase.com"),
+    ]
 
 
 @respx.mock

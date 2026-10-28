@@ -6,7 +6,8 @@
 采样前读主站首页(HTML 与响应头)、robots.txt 声明的 sitemap(最多 MAX_SITEMAP_FILES 个文件)、候选域名首页
 (最多 MAX_CANDIDATE_HOMEPAGES 个,预算贯穿采样前后):
   A1 主站 hreflang 声明(HTML <link rel=alternate hreflang>、HTTP Link 头、sitemap 的 xhtml:link);对方也指回 → 注明双向
-  A2 主站 Organization / WebSite 结构化数据的 url / sameAs
+  A2 主站 Organization / WebSite 结构化数据的 url / sameAs,且网址名相同(sameAs 按 schema.org 的定义是「关于这家机构的
+     参考页面」,维基百科、企业名录也常写在里面;名字不同的不计入,只记一条说明——审核 2026-10-27 红 1)
   A3 主站首页直接链接到它,且网址名相同(注册域名主体相同、后缀不同)
 → 自动计入,每项附依据。采样后把回答里出现、清单外的同名域名再查一次:
   B1 主站没有任何依据指向它;B2 只有对方单方面声明(它指向主站,主站没指回)→ 只提示,用户确认才算。
@@ -219,8 +220,13 @@ class BrandDomainDiscovery:
         for lang, href in facts.hreflangs:
             builder.hreflang(href, lang, kind="hreflang", source=page_url)
         for field, url in facts.schema_urls:
-            if not builder.channel(url, kind="jsonld_sameas", source=page_url):
+            if builder.channel(url, kind="jsonld_sameas", source=page_url):
+                continue
+            label, domain = registrable(_host(url))
+            if label == primary_label:
                 builder.domain(url, DomainTier.A2, kind="jsonld", source=page_url, detail=field)
+            elif domain:  # 名字不同的 sameAs 目标(维基百科、企业名录……)不是官网:只记说明,不计入
+                builder.note("schema_other_name", source=page_url, detail=domain)
         for href in facts.links:
             if builder.channel(href, kind="homepage_link", source=page_url):
                 continue
@@ -370,7 +376,9 @@ class _ListBuilder:
         return True
 
     def note(self, kind: str, *, source: str | None = None, detail: str | None = None) -> None:
-        self._notes.append(DomainEvidence(kind=kind, source=source, detail=detail))
+        evidence = DomainEvidence(kind=kind, source=source, detail=detail)
+        if evidence not in self._notes:  # 同一说明只记一次(sameAs 常列好几个维基百科页面)
+            self._notes.append(evidence)
 
     def ordered_domains(self) -> list[BrandDomain]:
         return list(self._domains.values())
