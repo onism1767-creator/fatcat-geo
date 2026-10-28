@@ -120,6 +120,13 @@ async def category_decide(request: Request, job_id: str, choice: str = Form(""),
     return _draft_and_go(request, job, questions=pending.questions, generate=pending.generate)
 
 
+def _abandon_draft(request: Request, job: DiagnosisJob, path: str) -> Response:
+    """出题没成:把这单从登记处撤掉(品类页来的已登记过),历史表不留一条没题、点不开的空任务;
+    花掉的钱已按任务编号记在辅助调用账本里,不随之消失(审核 2026-10-27 红 2)。"""
+    ctx_of(request).registry.discard(job.job_id)
+    return redirect(request, path)
+
+
 def _draft_and_go(request: Request, job: DiagnosisJob, *, questions: str, generate: bool) -> Response:
     """品类定下来之后:(勾了就)让 AI 出题、列写法,登记任务,去确认页。出题出错回首页说人话(S11.1)。"""
     ctx = ctx_of(request)
@@ -136,7 +143,7 @@ def _draft_and_go(request: Request, job: DiagnosisJob, *, questions: str, genera
                         ledger=lambda run: store.insert_aux_call(job_id=job.job_id, task="出题", run=run),
                     )
                 except TaskFailed as exc:  # 出不好题:回首页说人话(S11.1),花掉的钱已记账
-                    return redirect(request, f"/?error=DRAFTING_FAILED&detail={quote(str(exc)[:200])}")
+                    return _abandon_draft(request, job, f"/?error=DRAFTING_FAILED&detail={quote(str(exc)[:200])}")
                 # 顺手让 AI 列品牌的常见写法,并在它搜到的网页 + 官网首页里数次数(S9.2b);网页同样落 page_check 表
                 opener = PageChecker(store, budget_s=SPELLING_PAGES_BUDGET_S)
                 try:
@@ -145,14 +152,14 @@ def _draft_and_go(request: Request, job: DiagnosisJob, *, questions: str, genera
                         ledger=lambda run: store.insert_aux_call(job_id=job.job_id, task="常见写法", run=run),
                     )
                 except TaskFailed as exc:
-                    return redirect(request, f"/?error=SPELLINGS_FAILED&detail={quote(str(exc)[:200])}")
+                    return _abandon_draft(request, job, f"/?error=SPELLINGS_FAILED&detail={quote(str(exc)[:200])}")
                 finally:
                     opener.close()
         except AccountProblem as exc:  # 出题时就撞上 key / 额度问题:同一套换 key / 充值的话,回首页说
             code = "ACCOUNT_AUTH" if exc.error_type is RunErrorType.ACCOUNT_AUTH else "ACCOUNT_CREDIT"
             display = ctx.display_names.get(exc.surface, exc.surface)
-            return redirect(request, f"/?error={code}&ai={quote(display)}&model={quote(exc.model)}"
-                                     f"&detail={quote(exc.message[:200])}")
+            return _abandon_draft(request, job, f"/?error={code}&ai={quote(display)}&model={quote(exc.model)}"
+                                                f"&detail={quote(exc.message[:200])}")
     job.candidates = drafted + manual_candidates(questions, brand)
     if not job.candidates:
         return ctx.render(request, "index.html", jobs=ctx.registry.recent(), surfaces=sorted(ctx.adapters),
@@ -369,6 +376,8 @@ async def job_status(request: Request, job_id: str):
     job = ctx.registry.get(job_id)
     if job is None:
         return not_found()
+    if job.state is JobState.DRAFT:  # 还没确认就没有档位参数:回到它该在的页(确认页;品类没定再转品类页)
+        return redirect(request, f"/jobs/{job.job_id}/confirm")
     now = datetime.now(UTC)
     lang = lang_of(request)
     # 有代码的出错说明从错误库按当前界面语言组句(S10.1);没代码的(旧快照)照原文

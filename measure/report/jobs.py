@@ -440,6 +440,11 @@ class JobRegistry:
         with self._lock:
             self._jobs[job.job_id] = job
 
+    def discard(self, job_id: str) -> None:
+        """撤掉一单(只用于还没确认、出题没成的草稿;确认过的任务有快照,不走这里)。"""
+        with self._lock:
+            self._jobs.pop(job_id, None)
+
     def get(self, job_id: str) -> DiagnosisJob | None:
         return self._jobs.get(job_id)
 

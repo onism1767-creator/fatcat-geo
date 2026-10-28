@@ -175,3 +175,56 @@ def test_default_checker_records_the_call_in_the_job_ledger(storage):
     out = check(job)
     assert out is not None and out.verdict is CategoryVerdict.SAME
     assert storage.aux_spent_usd(job.job_id) == pytest.approx(0.0002)
+
+
+# ── 还没确认的任务(审核 2026-10-27 红 2)────────────────────────────────────────────────
+
+
+def test_draft_job_page_and_history_link_lead_to_where_the_job_is():
+    """还没确认的任务没有档位参数:任务页不再 500,转到确认页;品类没定再转品类页;首页历史表直接链到确认页。"""
+    client, _ = _client(None)
+    resp = client.post("/jobs?lang=zh", data=FORM, follow_redirects=False)
+    job = _job_of(client, resp.headers["location"])
+    status = client.get(f"/jobs/{job.job_id}?lang=zh", follow_redirects=False)
+    assert status.status_code == 303 and status.headers["location"].endswith(f"/jobs/{job.job_id}/confirm?lang=zh")
+    followed = client.get(f"/jobs/{job.job_id}?lang=zh")
+    assert followed.status_code == 200 and followed.url.path.endswith("/confirm")
+    home = client.get("/?lang=zh").text
+    assert f"/jobs/{job.job_id}/confirm?lang=zh" in home and "继续确认" in home
+
+    client, _ = _client(DIFFERENT)
+    job = _blocked(client)
+    followed = client.get(f"/jobs/{job.job_id}?lang=zh")
+    assert followed.status_code == 200 and followed.url.path.endswith("/category")
+
+
+def test_a_draft_whose_drafting_failed_is_withdrawn_instead_of_lingering(monkeypatch):
+    """品类页之后出题失败:这单从历史表撤掉,不留一条没题、点开就出错的空任务(花掉的钱已按编号记账)。"""
+    from engine.ai_task import TaskFailed
+
+    class FakeStorage:
+        def __init__(self, dsn: str) -> None:
+            pass
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *exc) -> None:
+            pass
+
+        def insert_aux_call(self, **kwargs) -> None:
+            pass
+
+    def failing_draft(*args, **kwargs):
+        raise TaskFailed("三轮都不合格")
+
+    monkeypatch.setattr("report.routes.Storage", FakeStorage)
+    monkeypatch.setattr("report.routes.draft_prompt_candidates", failing_draft)
+    client, _ = _client(DIFFERENT, adapter=ScriptedAdapter([]))
+    resp = client.post("/jobs?lang=zh", data={**FORM, "questions": "", "generate": "1"}, follow_redirects=False)
+    job = _job_of(client, resp.headers["location"])
+    assert client.app.state.ctx.registry.get(job.job_id) is job
+    decided = client.post(f"/jobs/{job.job_id}/category?lang=zh", data={"choice": "mine"}, follow_redirects=False)
+    assert decided.status_code == 303 and "error=DRAFTING_FAILED" in decided.headers["location"]
+    assert client.app.state.ctx.registry.get(job.job_id) is None
+    assert job.job_id not in client.get("/?lang=zh").text

@@ -101,7 +101,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "submit_next": "下一步:看看这些问题,再决定测哪些",
         "history": "过去的检测",
         "th_brand": "品牌", "th_state": "状态", "th_phase": "进行到哪", "th_cost": "花费",
-        "view": "查看", "view_report": "看报告",
+        "view": "查看", "view_report": "看报告", "btn_continue_draft": "继续确认",
         # 品类核对页(S11.4,产品文档 D24;只在「不是一类」时出现)
         "category_title": "你填的品类和官网说的好像不是一回事",
         "category_intro": "出题前,我们看了一眼你的官网首页:它介绍自己的方式,和你填的品类好像不是一类。题目和竞品都是按品类出的,所以先确认一下,再往下走。",
@@ -458,7 +458,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "submit_next": "Next: review the questions and choose what to test",
         "history": "Past checks",
         "th_brand": "Brand", "th_state": "Status", "th_phase": "Stage", "th_cost": "Cost",
-        "view": "View", "view_report": "Report",
+        "view": "View", "view_report": "Report", "btn_continue_draft": "Continue",
         # Category check page (S11.4, product doc D24; only shown when the two look like different kinds of thing)
         "category_title": "Your category and your homepage don't seem to match",
         "category_intro": "Before drafting questions we glanced at your homepage. The way it describes itself does not look like the same kind of thing as the category you entered. Questions and competitors are drafted from the category, so please settle it first.",

@@ -52,6 +52,8 @@
       <form method="post" action="/jobs/{{ j.job_id }}/resume?lang={{ lang }}" style="display:inline">
         <button type="submit" style="margin:0;padding:4px 12px;font-weight:400">{{ t["btn_recompute"] }}</button>
       </form>
+      {% elif j.state.value == "DRAFT" %}
+      <a href="/jobs/{{ j.job_id }}/confirm?lang={{ lang }}">{{ t["btn_continue_draft"] }}</a>
       {% else %}
       <a href="/jobs/{{ j.job_id }}?lang={{ lang }}">{{ t["view"] }}</a>
       {% endif %}
