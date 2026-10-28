@@ -45,14 +45,28 @@ def test_account_error_refuses_non_account_type():
         AdapterAccountError("x", error_type=RunErrorType.TRANSIENT)
 
 
+RATE_LIMIT_BODIES = (  # 普通限流的真实措辞:提了 quota / billing,但不是欠费(审核 2026-10-27 红 3)
+    '{"error":{"message":"Quota exceeded for metric requests per minute. Retry later.","status":"RESOURCE_EXHAUSTED"}}',
+    '{"error":{"code":429,"message":"You exceeded your current quota, please check your plan and billing details. '
+    'For more information on this error, head to: https://example.test/docs/rate-limits.","status":"RESOURCE_EXHAUSTED"}}',
+    '{"error":{"message":"Rate limit reached for model-x on requests per min (RPM): Limit 3, Used 3, Requested 1. '
+    'Please try again in 20s. You can increase your rate limit by adding a payment method to your account at '
+    'https://example.test/account/billing.","type":"requests","code":"rate_limit_exceeded"}}',
+)
+
+
 def test_ordinary_errors_keep_their_classes_and_explain_themselves():
     with pytest.raises(AdapterPermanentError) as bad_request:
         _post(400, '{"error":{"message":"max_tokens must be at least 16"}}')
     assert not isinstance(bad_request.value, AdapterAccountError)
-    with pytest.raises(AdapterTransientError) as limited:  # 限流提示里的 quota 一词不算欠费
-        _post(429, '{"error":{"message":"Quota exceeded for metric requests per minute. Retry later.",'
-                   '"status":"RESOURCE_EXHAUSTED"}}')
-    assert "限流" in str(limited.value) and "重试" in str(limited.value)
+    with pytest.raises(AdapterPermanentError) as bad_field:  # 400 里提到 billing 不等于欠费
+        _post(400, '{"error":{"message":"Unknown parameter: billing_address"}}')
+    assert not isinstance(bad_field.value, AdapterAccountError)
+    for body in RATE_LIMIT_BODIES:  # 一次普通限流绝不能被当成欠费整单停:仍是瞬时错误,交给调度器退避重试
+        with pytest.raises(AdapterTransientError) as limited:
+            _post(429, body)
+        assert not isinstance(limited.value, AdapterAccountError)
+        assert "限流" in str(limited.value) and "重试" in str(limited.value)
     with pytest.raises(AdapterTransientError) as outage:
         _post(503, "upstream unavailable")
     assert "平台内部错误" in str(outage.value)
@@ -86,4 +100,6 @@ def test_classify_rule_is_reusable_on_stored_evidence():
     assert classify_account_problem(400, "... Your credit balance is too low ...") is RunErrorType.ACCOUNT_CREDIT
     assert classify_account_problem(401, None) is RunErrorType.ACCOUNT_AUTH
     assert classify_account_problem(400, "unknown field: foo") is None
-    assert classify_account_problem(None, "credit balance") is None  # 没有状态码的传输层错误不算
+    assert classify_account_problem(None, "credit balance is too low") is None  # 没有状态码的传输层错误不算
+    for body in RATE_LIMIT_BODIES:  # 历史错误行按同一条规则重读:旧规则按词误判成欠费的限流行,现在读出来是限流
+        assert classify_account_problem(429, body) is None
