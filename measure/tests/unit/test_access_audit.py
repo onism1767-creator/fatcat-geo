@@ -215,3 +215,30 @@ def test_bundled_crawler_config_loads():
     assert any(b.gating for b in bots)
     fetching = [b for b in bots if b.user_agent]
     assert all("compatible" in b.user_agent for b in fetching)
+
+
+@respx.mock
+def test_bot_shell_with_rich_browser_view_is_unknown_not_fail():
+    """浏览器视角有正文、冒充的爬虫 UA 拿到 200 空壳:分不清拦真爬虫还是拦假身份,只能 UNKNOWN、不判死
+    (铁律 7;审核 2026-10-27 黄 11)。两边都是空壳仍是 JS 白板 FAIL(见上面的测试)。"""
+    respx.get(f"{SITE}/robots.txt").mock(
+        return_value=httpx.Response(200, text=ROBOTS_ALLOW_ALL + f"Sitemap: {SITE}/s.xml\n")
+    )
+    respx.get(f"{SITE}/", headers={"User-Agent": BOTS[0].user_agent}).mock(
+        return_value=httpx.Response(200, html=SHELL_HTML)
+    )
+    respx.get(f"{SITE}/").mock(return_value=httpx.Response(200, html=RICH_HTML))
+    result = audit(SITE, BOTS)
+    content = check_by_name(result, "html_content")
+    assert content.status is CheckStatus.UNKNOWN and result.overall is not CheckStatus.FAIL
+    assert "看不到" in render_msg(content.detail, "zh") and "not observable" in render_msg(content.detail, "en")
+    assert not any(c.status is CheckStatus.FAIL for c in result.checks if c.gating)
+
+
+@respx.mock
+def test_robots_wildcard_disallow_is_respected():
+    """「Disallow: /*」是全站禁抓:标准库会当成放行,现在按 RFC 9309 判(审核 2026-10-27 黄 12)。"""
+    mock_site(robots="User-agent: TestSearchBot\nDisallow: /*\n")
+    respx.get(f"{SITE}/sitemap.xml").mock(return_value=httpx.Response(404))  # 没声明 sitemap 就探默认位置
+    result = audit(SITE, BOTS)
+    assert check_by_name(result, "robots_txt").status is CheckStatus.FAIL

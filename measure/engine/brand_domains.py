@@ -27,7 +27,6 @@ from html.parser import HTMLParser
 from importlib.metadata import version as _package_version
 from pathlib import Path
 from typing import Any, Final
-from urllib import robotparser
 from urllib.parse import urljoin, urlsplit
 from xml.etree import ElementTree
 
@@ -35,7 +34,7 @@ import httpx
 import structlog
 import yaml
 
-from crawler.fetch import MAX_PARSED_BYTES, get_as_browser, is_html, new_client
+from crawler.fetch import MAX_PARSED_BYTES, RobotsRules, get_as_browser, is_html, new_client
 from engine.detectors.matching import registrable
 from engine.models import (
     BrandDomain,
@@ -292,9 +291,7 @@ class BrandDomainDiscovery:
         robots = self._fetch(urljoin(page_url, "/robots.txt"))
         if robots is None or robots.status_code != 200:
             return
-        parser = robotparser.RobotFileParser()
-        parser.parse(robots.text.splitlines())
-        queue = list(parser.site_maps() or [])
+        queue = RobotsRules(robots.text).site_maps()
         read = 0
         while queue:
             if read >= MAX_SITEMAP_FILES:

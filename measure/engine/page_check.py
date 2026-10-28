@@ -30,7 +30,6 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from enum import Enum
 from typing import Final, Protocol
-from urllib import robotparser
 from urllib.parse import quote, urlsplit, urlunsplit
 from uuid import uuid4
 
@@ -41,6 +40,7 @@ from crawler.fetch import (
     FETCH_TIMEOUT,
     MAX_PAGE_BYTES,
     PROTECTION_SUSPECT_STATUSES,
+    RobotsRules,
     fetch_json,
     fetch_page,
     is_html,
@@ -140,7 +140,7 @@ class PageChecker:
         self._budget_s, self._concurrency, self._host_gap_s = budget_s, concurrency, host_gap_s
         self._reuse_days = reuse_days
         self._clock, self._sleep = clock, sleep
-        self._robots: dict[str, robotparser.RobotFileParser | None] = {}
+        self._robots: dict[str, RobotsRules | None] = {}
         self._robots_lock = threading.Lock()
 
     def _report(self, done: int, total: int, stage: str) -> None:

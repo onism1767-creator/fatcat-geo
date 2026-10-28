@@ -557,13 +557,17 @@ CATALOG: dict[str, dict[str, str]] = {
     },
     "access.content.fail": {
         "zh": "HTML 可见文本仅约 {chars} 字符({label}),低于 {threshold} 阈值,"
-              "内容疑似完全依赖 JS 渲染(JS 白板),不执行 JS 的爬虫拿不到正文{reverse}",
+              "内容疑似完全依赖 JS 渲染(JS 白板),不执行 JS 的爬虫拿不到正文",
         "en": "HTML visible text is only ~{chars} characters ({label}), below the {threshold} threshold — "
-              "content likely depends entirely on JS rendering (blank-shell); non-JS crawlers get no body{reverse}",
+              "content likely depends entirely on JS rendering (blank-shell); non-JS crawlers get no body",
     },
-    "access.content.reverse_note": {
-        "zh": ";浏览器视角内容充足而爬虫视角为空壳,疑似对爬虫差异化输出",
-        "en": "; the browser view has ample content while crawler views are shells — likely differential output to crawlers",
+    "access.content.bot_shell_unknown": {
+        "zh": "爬虫 UA 视角只拿到约 {chars} 字符的空壳({label}),低于 {threshold} 阈值,而浏览器视角有约 {browser_chars} 字符正文:"
+              "站点对不同身份给了不同页面;本工具用的是冒充的爬虫身份,分不清这是拦真爬虫还是拦假身份,记为看不到,不判定",
+        "en": "The crawler-UA view got only a ~{chars}-character shell ({label}), below the {threshold} threshold, while the "
+              "browser view has ~{browser_chars} characters of content: the site serves different pages to different identities; "
+              "this tool impersonates crawlers, so it cannot tell whether real crawlers or the impersonation are being blocked — "
+              "recorded as not observable, not a failure",
     },
     "access.sitemap.declared": {
         "zh": "robots.txt 声明了 sitemap:{urls}",

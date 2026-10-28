@@ -12,7 +12,7 @@ import re
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Final
-from urllib import robotparser
+from urllib.parse import urlsplit
 
 import httpx
 import trafilatura
@@ -35,18 +35,8 @@ def new_client(*, follow_redirects: bool = True, timeout: httpx.Timeout | float 
     return httpx.Client(timeout=timeout, follow_redirects=follow_redirects)
 
 
-def get_as_browser(client: httpx.Client, url: str) -> httpx.Response:
-    """以普通浏览器的身份请求(网络错误照常抛 httpx.HTTPError,由调用方按自己的口径处理)。"""
-    return client.get(url, headers={"User-Agent": BROWSER_UA})
-
-
-def fetch_page(client: httpx.Client, url: str, *, max_bytes: int = MAX_PAGE_BYTES) -> tuple[httpx.Response, str, bool]:
-    """以浏览器身份 GET,正文最多读 max_bytes(超出截断并告知);返回 (响应, 解码后的文本, 是否截断)。
-    网络错误照常抛 httpx.HTTPError。"""
-    request = client.build_request(
-        "GET", url, headers={"User-Agent": BROWSER_UA, "Accept-Language": "en-US,en;q=0.8"},
-    )
-    response = client.send(request, stream=True)
+def _read_capped(response: httpx.Response, max_bytes: int) -> tuple[bytes, bool]:
+    """流式读响应正文,最多 max_bytes(超出截断);读完关流。返回 (正文, 是否截断)。"""
     chunks: list[bytes] = []
     size, truncated = 0, False
     try:
@@ -58,7 +48,31 @@ def fetch_page(client: httpx.Client, url: str, *, max_bytes: int = MAX_PAGE_BYTE
                 break
     finally:
         response.close()
-    raw = b"".join(chunks)[:max_bytes]
+    return b"".join(chunks)[:max_bytes], truncated
+
+
+def get_as_browser(client: httpx.Client, url: str, *, max_bytes: int = MAX_PAGE_BYTES) -> httpx.Response:
+    """以普通浏览器的身份请求,正文最多读 max_bytes(超出截断,response.extensions["truncated"] 为 True);
+    状态码、响应头、最终网址、跳转链照旧。网络错误照常抛 httpx.HTTPError,由调用方按自己的口径处理。
+    原来整体读入没有上限,官网审计一页要抓十来次、网站地图整文件下载(审核 2026-10-27 黄 20)。"""
+    request = client.build_request("GET", url, headers={"User-Agent": BROWSER_UA})
+    streamed = client.send(request, stream=True)
+    raw, truncated = _read_capped(streamed, max_bytes)
+    kept = {k: v for k, v in streamed.extensions.items() if k in ("http_version", "reason_phrase")}
+    return httpx.Response(
+        streamed.status_code, headers=streamed.headers, content=raw, request=streamed.request,
+        history=streamed.history, extensions={**kept, "truncated": truncated},
+    )
+
+
+def fetch_page(client: httpx.Client, url: str, *, max_bytes: int = MAX_PAGE_BYTES) -> tuple[httpx.Response, str, bool]:
+    """以浏览器身份 GET,正文最多读 max_bytes(超出截断并告知);返回 (响应, 解码后的文本, 是否截断)。
+    网络错误照常抛 httpx.HTTPError。"""
+    request = client.build_request(
+        "GET", url, headers={"User-Agent": BROWSER_UA, "Accept-Language": "en-US,en;q=0.8"},
+    )
+    response = client.send(request, stream=True)
+    raw, truncated = _read_capped(response, max_bytes)
     try:
         text = raw.decode(response.encoding or "utf-8", errors="replace")
     except LookupError:
@@ -148,17 +162,83 @@ def extract_main_text(html: str, url: str | None = None) -> str | None:
     return text.strip() if text and text.strip() else None
 
 
-def robots_parser(client: httpx.Client, origin: str) -> robotparser.RobotFileParser | None:
+def _pattern_matches(pattern: str, path: str) -> bool:
+    """robots 规则的路径模式:* 匹配任意串,结尾的 $ 锚定到路径末尾,其余按前缀;大小写敏感(RFC 9309)。"""
+    anchored = pattern.endswith("$")
+    core = pattern[:-1] if anchored else pattern
+    regex = ".*".join(re.escape(piece) for piece in core.split("*"))
+    return re.fullmatch(regex + ("" if anchored else ".*"), path, re.DOTALL) is not None
+
+
+class RobotsRules:
+    """robots.txt 按 RFC 9309 的口径判放行:连续的 User-agent 行是一组,产品名大小写不敏感,有专门的组就用它、
+    没有才用 *;规则认 * 通配与结尾的 $,最长匹配优先、等长 Allow 赢;空 Disallow 等于放行;Sitemap 行随处收。
+    标准库 urllib.robotparser 不认通配符:「Disallow: /*」会被当成放行,「Disallow: /」后跟「Allow: /」先到先赢
+    (审核 2026-10-27 黄 12)。"""
+
+    def __init__(self, text: str) -> None:
+        self._groups: list[tuple[list[str], list[tuple[bool, str]]]] = []  # ([产品名], [(放行?, 模式)])
+        self._sitemaps: list[str] = []
+        agents: list[str] = []
+        rules: list[tuple[bool, str]] | None = None
+        for raw in text.splitlines():
+            line = raw.split("#", 1)[0].strip()
+            if ":" not in line:
+                continue
+            key, _, value = line.partition(":")
+            key, value = key.strip().lower(), value.strip()
+            if key == "user-agent":
+                if rules is not None:  # 上一组已经有规则:这行开新的一组
+                    self._groups.append((agents, rules))
+                    agents, rules = [], None
+                agents.append(value.lower())
+            elif key in ("allow", "disallow"):
+                if not agents:
+                    continue  # 不属于任何组的规则:忽略
+                if rules is None:
+                    rules = []
+                rules.append((key == "allow", value))
+            elif key == "sitemap" and value:
+                self._sitemaps.append(value)
+        if agents:
+            self._groups.append((agents, rules or []))
+
+    def site_maps(self) -> list[str]:
+        return list(self._sitemaps)
+
+    def _rules_for(self, token: str) -> list[tuple[bool, str]]:
+        wanted = token.lower()
+        for agents, rules in self._groups:
+            if any(agent != "*" and (agent == wanted or wanted.startswith(agent)) for agent in agents):
+                return rules
+        for agents, rules in self._groups:
+            if "*" in agents:
+                return rules
+        return []
+
+    def can_fetch(self, token: str, url: str) -> bool:
+        parts = urlsplit(url)
+        path = (parts.path or "/") + (f"?{parts.query}" if parts.query else "")
+        best: tuple[int, bool] | None = None  # (模式长度, 放行?)
+        for allow, pattern in self._rules_for(token):
+            if not pattern:
+                continue  # 空 Disallow = 放行;空 Allow 没有意义
+            if _pattern_matches(pattern, path) and (
+                best is None or len(pattern) > best[0] or (len(pattern) == best[0] and allow)
+            ):
+                best = (len(pattern), allow)
+        return True if best is None else best[1]
+
+
+def robots_parser(client: httpx.Client, origin: str) -> RobotsRules | None:
     """读一个站的 robots.txt(以浏览器身份);拿到 200 才解析,其余(没有 / 出错)当作没有规则,返回 None。"""
     try:
-        response = get_as_browser(client, f"{origin}/robots.txt")
+        response = get_as_browser(client, f"{origin}/robots.txt", max_bytes=512_000)
     except httpx.HTTPError:
         return None
     if response.status_code != 200:
         return None
-    parser = robotparser.RobotFileParser()
-    parser.parse(response.text[:512_000].splitlines())
-    return parser
+    return RobotsRules(response.text)
 
 
 def fetch_headers(client: httpx.Client, url: str) -> httpx.Response:

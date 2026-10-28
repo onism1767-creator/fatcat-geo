@@ -41,7 +41,6 @@ from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
 from typing import Final
-from urllib import robotparser
 from urllib.parse import urljoin, urlsplit
 
 import httpx
@@ -50,6 +49,7 @@ from pydantic import BaseModel, ConfigDict, JsonValue
 
 from crawler.fetch import (
     PROTECTION_SUSPECT_STATUSES,
+    RobotsRules,
     extract_visible_text,
     get_as_browser,
     is_html,
@@ -188,10 +188,8 @@ def _fetch_robots(
     except httpx.HTTPError as exc:
         return None, [], msg("access.robots.note.fetch_failed", error=type(exc).__name__)
     if resp.status_code == 200:
-        parser = robotparser.RobotFileParser()
-        parser.parse(resp.text.splitlines())
-        sitemaps = list(parser.site_maps() or [])
-        return (lambda token: parser.can_fetch(token, base_url)), sitemaps, msg("access.robots.note.parsed")
+        rules = RobotsRules(resp.text)  # 认通配符与 $(审核 2026-10-27 黄 12)
+        return (lambda token: rules.can_fetch(token, base_url)), rules.site_maps(), msg("access.robots.note.parsed")
     if 400 <= resp.status_code < 500:
         return (lambda token: True), [], msg("access.robots.note.no_restrictions", status=resp.status_code)
     return None, [], msg("access.robots.note.server_error", status=resp.status_code)
@@ -408,16 +406,20 @@ def _check_content(baseline: httpx.Response | None, probes: list[BotProbe]) -> t
             detail=msg("access.content.pass", chars=chars, label=label, prerender=prerender),
             evidence=evidence,
         ), fallback
-    reverse: Msg | str = (
-        msg("access.content.reverse_note")
-        if browser_chars is not None and browser_chars >= MIN_VISIBLE_TEXT_CHARS and bot_views
-        else ""
-    )
+    if browser_chars is not None and browser_chars >= MIN_VISIBLE_TEXT_CHARS and bot_views:
+        # 浏览器视角有正文、冒充的爬虫 UA 拿到 200 空壳:本工具用的是假身份,分不清「拦真爬虫」与「拦假身份」
+        # (与 UA 差异检查同一条理由),只能记看不到,不判死(铁律 7;审核 2026-10-27 黄 11)
+        return CheckResult(
+            check="html_content", layer=AccessLayer.GENERIC_FETCH,
+            status=CheckStatus.UNKNOWN, gating=True,
+            detail=msg("access.content.bot_shell_unknown", chars=chars, label=label,
+                       threshold=MIN_VISIBLE_TEXT_CHARS, browser_chars=browser_chars),
+            evidence=evidence,
+        ), fallback
     return CheckResult(
         check="html_content", layer=AccessLayer.GENERIC_FETCH,
         status=CheckStatus.FAIL, gating=True,
-        detail=msg("access.content.fail", chars=chars, label=label,
-                   threshold=MIN_VISIBLE_TEXT_CHARS, reverse=reverse),
+        detail=msg("access.content.fail", chars=chars, label=label, threshold=MIN_VISIBLE_TEXT_CHARS),
         evidence=evidence,
     ), fallback
 
