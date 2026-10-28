@@ -32,6 +32,7 @@ from report.forms import (
     manual_candidates,
     preselect_candidates,
     tier_choice,
+    website_host,
 )
 from report.i18n import MESSAGES
 from report.jobs import STALL_MINUTES, DiagnosisJob, JobState, PendingDraft
@@ -47,7 +48,7 @@ PSL_SNAPSHOT_VERSION = _package_version("tldextract")  # 注册域名用的公�
 
 
 @router.get("/", response_class=HTMLResponse)
-async def index(request: Request, error: str = ""):
+def index(request: Request, error: str = ""):
     ctx = ctx_of(request)
     params = {k: v for k, v in request.query_params.items() if k not in ("lang", "error")}  # 错误句子的占位符
     return ctx.render(request, "index.html", jobs=ctx.registry.recent(), surfaces=sorted(ctx.adapters),
@@ -55,7 +56,7 @@ async def index(request: Request, error: str = ""):
 
 
 @router.post("/jobs")
-async def create_job(
+def create_job(
     request: Request,
     brand_name: str = Form(...),
     aliases: str = Form(""),
@@ -67,6 +68,9 @@ async def create_job(
 ):
     ctx = ctx_of(request)
     locale = locale if locale in ("zh-CN", "en-US") else "zh-CN"
+    if website_host(website) is None:  # 不是网址就别往下走:否则官网名单为空、一单白花钱(审核 2026-10-27 黄 18)
+        return ctx.render(request, "index.html", jobs=ctx.registry.recent(), surfaces=sorted(ctx.adapters),
+                          error=error_text(request, "FORM_BAD_WEBSITE"))
     brand, normalized = brand_from_form(brand_name, aliases, website)
     # 先有任务编号再花钱:品类核对与出题的每次调用都当场记进辅助调用账本(哪怕最后没成,花掉的钱也有记录)
     job = DiagnosisJob(brand=brand, website=normalized, category=category.strip(), locale=locale,
@@ -90,7 +94,7 @@ def _generation_adapter(ctx: WebContext) -> SurfaceAdapter | None:
 
 
 @router.get("/jobs/{job_id}/category", response_class=HTMLResponse)
-async def category_page(request: Request, job_id: str, error: str = ""):
+def category_page(request: Request, job_id: str, error: str = ""):
     """品类核对页(S11.4):只在自动核对判「不是一类」时出现——你填的、官网原句、照官网更像什么,三选一,选完才出题。"""
     ctx = ctx_of(request)
     job = ctx.registry.get(job_id)
@@ -103,7 +107,7 @@ async def category_page(request: Request, job_id: str, error: str = ""):
 
 
 @router.post("/jobs/{job_id}/category")
-async def category_decide(request: Request, job_id: str, choice: str = Form(""), custom_category: str = Form("")):
+def category_decide(request: Request, job_id: str, choice: str = Form(""), custom_category: str = Form("")):
     ctx = ctx_of(request)
     job = ctx.registry.get(job_id)
     if job is None:
@@ -170,7 +174,7 @@ def _draft_and_go(request: Request, job: DiagnosisJob, *, questions: str, genera
 
 
 @router.get("/jobs/{job_id}/confirm", response_class=HTMLResponse)
-async def confirm_page(request: Request, job_id: str, error: str = ""):
+def confirm_page(request: Request, job_id: str, error: str = ""):
     ctx = ctx_of(request)
     job = ctx.registry.get(job_id)
     if job is None:
@@ -209,7 +213,7 @@ async def confirm_page(request: Request, job_id: str, error: str = ""):
 
 
 @router.post("/jobs/{job_id}/estimate")
-async def confirm_estimate(
+def confirm_estimate(
     request: Request,
     job_id: str,
     prompts_selected: list[int] = Form([]),
@@ -262,7 +266,7 @@ async def confirm_estimate(
 
 
 @router.post("/jobs/{job_id}/confirm")
-async def confirm(
+def confirm(
     request: Request,
     job_id: str,
     prompts_selected: list[int] = Form([]),
@@ -298,7 +302,7 @@ async def confirm(
 
 
 @router.post("/jobs/{job_id}/resume")
-async def resume(request: Request, job_id: str, budget: str = Form("")):
+def resume(request: Request, job_id: str, budget: str = Form("")):
     """幂等续跑(v0.4.9):中断 / 失败 / **部分完成(S10.3)** 的任务补缺口——只补空槽位,已花的钱不重花;
     部分完成的可顺手提高费用上限(预算截断的腿才有机会补齐)。全部完成的任务「重新生成报告」(v0.4.16:追加一版报告快照,
     旧版本留档)——只用已有样本重算,不向 AI 提问。"""
@@ -317,7 +321,7 @@ async def resume(request: Request, job_id: str, budget: str = Form("")):
 
 
 @router.post("/jobs/{job_id}/retest")
-async def retest(request: Request, job_id: str):
+def retest(request: Request, job_id: str):
     """「修好后再测」(S11.3):按这一单冻结的口径新开一单,一律重新提问、不走回答缓存,直接开跑(费用上限与上一单相同),
     跳到新单的任务页。没跑完的单不能再测;上一次再测还在跑就跳到它、不另开一单(连点两下不花两份钱);
     有 AI 没接入(缺 key)就不开,回首页说明。"""
@@ -340,7 +344,7 @@ async def retest(request: Request, job_id: str):
 
 
 @router.post("/jobs/{job_id}/official_domains")
-async def choose_official_domains(
+def choose_official_domains(
     request: Request, job_id: str, confirm: list[str] = Form([]), remove: list[str] = Form([]),
 ):
     """用户确认 B 类 / 去掉 A 类(S5,产品文档 D12):只认名单里列出的网址;名单改了就按新名单
@@ -371,7 +375,7 @@ def _relaunch(request: Request, job: DiagnosisJob, *, replay: bool):
 
 
 @router.get("/jobs/{job_id}", response_class=HTMLResponse)
-async def job_status(request: Request, job_id: str):
+def job_status(request: Request, job_id: str):
     ctx = ctx_of(request)
     job = ctx.registry.get(job_id)
     if job is None:
@@ -401,19 +405,19 @@ def stop_texts(ctx: WebContext, job: DiagnosisJob, lang: str) -> list[tuple[str,
 
 
 @router.get("/errors", response_class=HTMLResponse)
-async def error_codes(request: Request):
+def error_codes(request: Request):
     """错误码对照页(S10.1):config/errors.yaml 全部条目,给用户与客服对照。"""
     ctx = ctx_of(request)
     return ctx.render(request, "errors.html", groups=ctx.errors.by_scope())
 
 
 @router.get("/jobs/{job_id}/report", response_class=HTMLResponse)
-async def job_report(request: Request, job_id: str):
+def job_report(request: Request, job_id: str):
     ctx = ctx_of(request)
     job = ctx.registry.get(job_id)
     if job is None:
         return not_found()
-    if not job.finished:
+    if not job.finished or job.sampling is None:  # 没完成、或报告快照读不动(任务页给「重新生成报告」):回任务页
         return redirect(request, f"/jobs/{job.job_id}")
     # 报告写实际发生的每题次数(采样说明),不读当前策略:策略以后随档位变,旧报告不能跟着变
     return ctx.render(request, "report.html", job=job, runs_per_prompt=job.sampling_note().tier.runs_per_prompt,
@@ -426,7 +430,7 @@ async def job_report(request: Request, job_id: str):
 
 
 @router.get("/jobs/{job_id}/responses/{run_id}", response_class=HTMLResponse)
-async def response_page(request: Request, job_id: str, run_id: str):
+def response_page(request: Request, job_id: str, run_id: str):
     """单条回答页(S8.3):只读库里的原始记录与已存的判定行,不属于本单的回答 404。"""
     ctx = ctx_of(request)
     job = ctx.registry.get(job_id)
@@ -441,7 +445,7 @@ async def response_page(request: Request, job_id: str, run_id: str):
 
 
 @router.get("/jobs/{job_id}/responses/{run_id}/download")
-async def response_download(request: Request, job_id: str, run_id: str):
+def response_download(request: Request, job_id: str, run_id: str):
     """原始记录下载(S8.3):整条 SurfaceRun 的 JSON,含平台原始返回。"""
     ctx = ctx_of(request)
     job = ctx.registry.get(job_id)
@@ -456,13 +460,13 @@ async def response_download(request: Request, job_id: str, run_id: str):
 
 
 @router.get("/jobs/{job_id}/download")
-async def job_download(request: Request, job_id: str):
-    """下载结果文件(S8.4):从库里打包 zip;没完成的任务回任务页。"""
+def job_download(request: Request, job_id: str):
+    """下载结果文件(S8.4):从库里打包 zip;没完成的任务、报告快照读不动的任务回任务页。"""
     ctx = ctx_of(request)
     job = ctx.registry.get(job_id)
     if job is None:
         return not_found()
-    if not job.finished:
+    if not job.finished or job.sampling is None:
         return redirect(request, f"/jobs/{job.job_id}")
     summary = summarize(job.class_reports, ctx.target_name, ctx.api_name)
     with Storage(ctx.dsn) as store:

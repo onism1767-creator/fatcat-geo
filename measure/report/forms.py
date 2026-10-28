@@ -16,7 +16,7 @@ from report.jobs import DiagnosisJob
 MAX_PROMPTS = 40  # 产品文档默认 24 道;用户可增删,封顶 40
 # 表单校验会返回的错误码(S10.1):都在 config/errors.yaml 里(测试把守),文案从库里取
 FORM_CODES = ("FORM_PROMPTS_COUNT", "FORM_NO_TARGET", "FORM_BAD_TIER", "FORM_RUNS_RANGE", "FORM_BAD_BUDGET",
-              "FORM_NO_QUESTION", "FORM_CATEGORY_EMPTY", "RESUME_MISSING_AI")
+              "FORM_NO_QUESTION", "FORM_CATEGORY_EMPTY", "FORM_BAD_WEBSITE", "RESUME_MISSING_AI")
 
 
 def lines_of(text: str) -> list[str]:
@@ -30,13 +30,26 @@ def _comma_list(text: str) -> list[str]:
 
 
 def _host(url: str) -> str:
-    """网址 → 主机名(不带协议就补 https;大小写不敏感)。"""
-    return (urlsplit(url if "://" in url else f"https://{url}").hostname or "").lower()
+    """网址 → 主机名(不带协议就补 https;大小写不敏感)。拆不出来(空串、只有协议、带空格)返回空串。"""
+    try:
+        return (urlsplit(url if "://" in url else f"https://{url}").hostname or "").lower()
+    except ValueError:  # 比如网址里夹着 [ 之类拆不开的字符
+        return ""
+
+
+def website_host(website: str) -> str | None:
+    """官网地址校验(审核 2026-10-27 黄 18):拆得出主机名、主机名带点、没有空白,才算一个网址;
+    否则 None(路由给 FORM_BAD_WEBSITE)。只认是不是网址,不去访问——通不通是开跑后官网审计的事。"""
+    host = _host(website.strip())
+    if not host or "." not in host or any(c.isspace() for c in host):
+        return None
+    return host
 
 
 def brand_from_form(brand_name: str, aliases: str, website: str) -> tuple[BrandSpec, str]:
     """首页填的品牌 → (品牌, 规范化后的官网地址)。官网名单只填主站;地区站、官方渠道由工具开跑时
-    自动发现(S5,产品文档 D12),名单随任务快照冻结。"""
+    自动发现(S5,产品文档 D12),名单随任务快照冻结。调用方先过 website_host,这里不再校验。"""
+    website = website.strip()
     normalized = website if "://" in website else f"https://{website}"
     brand = BrandSpec(
         name=brand_name.strip(),

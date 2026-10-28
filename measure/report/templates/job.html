@@ -57,8 +57,13 @@
 
 {#- 底部动作(S10.3 统一):完成 → 看报告;部分完成 → 看报告 + 接着跑(可提高费用上限);中断 / 出错 → 接着跑;跑着 → 自动刷新 -#}
 {% if form_error %}<div class="err">{{ form_error }}</div>{% endif %}
-{% if job.finished %}
+{% if job.finished and job.sampling %}
 <p><a href="/jobs/{{ job.job_id }}/report?lang={{ lang }}"><button>{{ t["view_report_btn"] }}</button></a></p>
+{% elif job.finished %}
+{#- 报告快照读不动(结构随代码演进,v0.4.17 起是真实场景):不给「看报告」,给「重新生成报告」(不重新提问,不花钱) -#}
+<form method="post" action="/jobs/{{ job.job_id }}/resume?lang={{ lang }}" style="display:inline">
+  <button type="submit">{{ t["btn_recompute"] }}</button>
+</form>
 {% endif %}
 {% if job.state.value in ("PARTIAL", "INTERRUPTED", "FAILED") %}
 <form method="post" action="/jobs/{{ job.job_id }}/resume?lang={{ lang }}" class="card">

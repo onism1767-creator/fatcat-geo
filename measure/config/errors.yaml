@@ -44,6 +44,12 @@ errors:
     trigger: {zh: "首页既没手填问题也没勾「让系统帮我出题」", en: "No question typed on the home page and drafting not ticked"}
     message: {zh: "请至少手填一个问题,或者勾选「让系统帮我出题」。", en: "Enter at least one question, or tick “Draft questions for me”."}
     next_step: {zh: "补一个问题或勾上出题再提交。", en: "Add a question or tick drafting, then submit."}
+  - code: FORM_BAD_WEBSITE
+    scope: form
+    resumable: false
+    trigger: {zh: "首页填的官网地址不是一个网址(拆不出主机名、没有点、带空格)", en: "The website typed on the home page is not a web address (no host name, no dot, or contains spaces)"}
+    message: {zh: "官网地址看着不像一个网址,请检查后再填。", en: "The website does not look like a web address — please check it."}
+    next_step: {zh: "填成 aurora-crm.com 或 https://www.aurora-crm.com 这样。", en: "Enter it like aurora-crm.com or https://www.aurora-crm.com."}
   - code: FORM_CATEGORY_EMPTY
     scope: form
     resumable: false

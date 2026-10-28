@@ -7,9 +7,10 @@ v1 单租户自用:无登录,仅本机访问。确认页是采样花钱前的唯
 from __future__ import annotations
 
 import os
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
+from fastapi.responses import PlainTextResponse
 
 from adapters.base import SurfaceAdapter
 from diagnosis.recommender import EvidenceEntry, load_evidence_registry
@@ -59,6 +60,21 @@ def create_app(
             return store.call_stats()
 
     app = FastAPI(title="GEO 诊断")
+
+    @app.middleware("http")
+    async def reject_cross_site_posts(request: Request,
+                                      call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        """本机工具没有登录,POST 只认本站页面发来的:浏览器跨站提交必带 Origin 头,和本站来源对不上就拒绝。
+        建任务那条 POST 不要任务编号,用户浏览器里打开的任意网页都能替他花钱出题(审核 2026-10-27 黄 19)。"""
+        origin = request.headers.get("origin")
+        if request.method == "POST" and origin is not None:
+            own = f"{request.url.scheme}://{request.headers.get('host', '')}"
+            if origin.lower() != own.lower():
+                return PlainTextResponse("这个请求来自别的网站,本工具只接受自己页面发来的操作。\n"
+                                         "This request came from another site; only this tool's own pages may act.",
+                                         status_code=403)
+        return await call_next(request)
+
     app.state.ctx = WebContext(
         adapters=adapters,
         dsn=resolved_dsn,
