@@ -130,3 +130,19 @@ def test_cache_reuse_table_is_append_only_and_counted_per_job(storage):
         storage._conn.execute("UPDATE cache_reuse SET cache_age_s = 0")
     with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
         storage._conn.execute("DELETE FROM cache_reuse")
+
+
+def test_region_is_part_of_the_cache_key():
+    """地区是键的一部分(用户 2026-10-28 定):指定了国家的回答不给没指定的用,反过来也不行;
+    今天调度不指定地区,None 对 None 照旧复用。"""
+    prompts = [("极光CRM", "p-a", "中小团队用什么 CRM 好?", "zh-CN")]
+    plain = make_run("p-a", "plain", hours_ago=1)
+    japan = make_run("p-a", "japan", hours_ago=1).model_copy(update={"region": "JP"})
+    store = FakeStore(prompts, [plain, japan])
+    prompt = Prompt(prompt_id="p-c", text="中小团队用什么 CRM 好?", intent=PromptIntent.CATEGORY_DISCOVERY,
+                    origin=PromptOrigin.USER, locale="zh-CN")
+    common = dict(job_id="c", brand_name="极光CRM", prompt=prompt, target=TARGET, search_mode=SearchMode.DEFAULT,
+                  now=NOW)
+    assert [r.run_id for r in cached_answers(store, **common)] == ["plain"]
+    assert [r.run_id for r in cached_answers(store, region="JP", **common)] == ["japan"]
+    assert cached_answers(store, region="US", **common) == []

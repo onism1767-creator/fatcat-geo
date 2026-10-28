@@ -1,7 +1,8 @@
 # Surface 注册表(架构书 6.6)。
 # 新 surface = 一个适配器文件 + 本文件一行,L2/L3 零改动。
 # provider/surface 名字符串只允许存在于本文件与 adapters/ 内;
-# tests/unit/test_no_provider_strings.py 从这里读名单去扫描 engine/ 与 diagnosis/。
+# tests/unit/test_no_provider_strings.py 从这里读名单(provider / name / aliases)和 config/crawlers.yaml 的爬虫名去扫描
+# engine/ 与 diagnosis/(用户 2026-10-28 定:禁用词扩到别名与爬虫名)。
 #
 # capabilities 当前为按公开文档的暂定值,每个适配器落地时逐项核对修订。
 # enabled: 适配器落地并通过契约测试后才置 true。
@@ -11,6 +12,7 @@ surfaces:
   # 检索词与候选结果,supports_query_trace 改 true;引用 = 正文 [n] / [web:n] 标记指到的结果(平台自己的标记,机械解析)。
   - name: perplexity_agent
     provider: perplexity
+    aliases: [sonar, pplx]
     adapter: adapters.perplexity_agent.PerplexityAgentAdapter
     api_key_env: PERPLEXITY_API_KEY
     enabled: true
@@ -25,6 +27,7 @@ surfaces:
   # 平台的 external_web_access 仅缓存模式存在但无消费方,不虚报)。
   - name: openai_web_search
     provider: openai
+    aliases: [gpt, chatgpt, oai]
     adapter: adapters.openai_web_search.OpenAIWebSearchAdapter
     api_key_env: OPENAI_API_KEY
     enabled: true
@@ -41,6 +44,7 @@ surfaces:
   # 记 NOT_OBSERVABLE;引用 URL 为平台跳转链,真实域名在 title 字段(见适配器注)。
   - name: gemini_grounding
     provider: gemini
+    aliases: [google, bard, vertexai]
     adapter: adapters.gemini_grounding.GeminiGroundingAdapter
     api_key_env: GOOGLE_API_KEY
     enabled: true
@@ -57,6 +61,7 @@ surfaces:
   # 能力语义,不虚报;候选集可观测(进 retrieved_sources 存档),走生成端检索链路口径,收敛判据仍是引用。
   - name: claude_web_search
     provider: anthropic
+    aliases: [claude]
     adapter: adapters.claude_web_search.ClaudeWebSearchAdapter
     api_key_env: ANTHROPIC_API_KEY
     enabled: true

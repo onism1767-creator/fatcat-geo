@@ -29,6 +29,9 @@ class SurfaceEntry(FrozenModel):
     name: str
     provider: str
     adapter: str  # 适配器类的点路径
+    # 这家厂商 / 仪器的别名(产品名、型号系列的常用叫法):只给禁厂商名测试当禁用词(用户 2026-10-28 定扩名单);
+    # 名字本身只许写在 config/ 与 adapters/,这里连例子都不能举(硬边界 2)
+    aliases: list[str] = []
     api_key_env: str
     enabled: bool
     capabilities: dict[str, bool]
