@@ -56,3 +56,15 @@ def test_missing_scenarios_are_stated_not_guessed():
     assert nothing.missing == ["verdict.missing.probe", "verdict.missing.organic", "verdict.missing.site",
                                "verdict.missing.thirdparty"]
     assert "本次没测" in render_msg(msg("verdict.missing.probe"), "zh")
+
+
+def test_low_confidence_inputs_are_left_out_and_said_so():
+    """失败 / 拒答太多的题型不许下定论(7.3):不进档位、句尾说明——而不是把降权后的「有时」说成
+    「它不够了解你」那种最重的定论(审核 2026-10-27 黄 13)。"""
+    shaky = VerdictInput(intent=P, mention=Band.SOMETIMES, site_used=True, low_confidence=True)
+    verdict = surface_verdict("s", "m", [shaky, vi(D, Band.OFTEN, True)])
+    assert verdict.code == "verdict.unnamed_often_site_used"  # 直接问起的那组没算,只说不点名的
+    assert verdict.missing == ["verdict.missing.probe", "verdict.missing.thirdparty", "verdict.missing.low_confidence"]
+    assert "说不准" in render_msg(msg("verdict.missing.low_confidence"), "zh")
+    steady = surface_verdict("s", "m", [vi(P, Band.SOMETIMES, True), vi(D, Band.OFTEN, True)])
+    assert steady.code == "verdict.barely_known" and "low_confidence" not in "".join(steady.missing)

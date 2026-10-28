@@ -37,7 +37,7 @@ def _compare_line(focal: Rate, name: str, competitor: Rate, gap: float) -> Msg:
         1: "citation.compare.ahead",
         0: "citation.compare.close",
     }[compare_rates(focal, competitor, gap)]
-    return msg(code, name=name, gap=gap, **rate_params(competitor))
+    return msg(code, name=name, pts=round(gap * 100), **rate_params(competitor))  # 差距按「个百分点」说
 
 
 class VerificationSummary(FrozenModel):

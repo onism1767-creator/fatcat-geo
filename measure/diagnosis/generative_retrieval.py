@@ -81,10 +81,11 @@ def diagnose_generative_retrieval(
     if cited_rate is not None:
         evidence.append(msg("genret.funnel.pair", **_prefixed("presence", r), **_prefixed("cited", cited_rate)))
         # 同仪器漏斗:被引比例明显低于在场比例 → 资料递到了却常落选(内容竞争力)
+        pts = round(thresholds.rate_gap * 100)  # 差距按「个百分点」说
         if compare_rates(r, cited_rate, thresholds.rate_gap) > 0:
-            evidence.append(msg("genret.funnel.gap", gap=thresholds.rate_gap))
+            evidence.append(msg("genret.funnel.gap", pts=pts))
         else:
-            evidence.append(msg("genret.funnel.aligned", gap=thresholds.rate_gap))
+            evidence.append(msg("genret.funnel.aligned", pts=pts))
     if triggered_rate is not None:
         evidence.append(msg("genret.triggered", **rate_params(triggered_rate)))
     evidence.append(caliber_msg(presence_metric))

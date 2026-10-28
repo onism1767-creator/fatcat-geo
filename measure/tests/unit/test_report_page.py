@@ -465,7 +465,7 @@ def test_report_shows_upstream_caution_and_competitor_gap(client_and_job):
     client, job, _ = client_and_job
     html = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
     assert "不建议】进行全页" in html
-    assert "落后竞品 竞品甲 20% 个百分点以上" in html
+    assert "落后竞品 竞品甲 20 个百分点以上" in html
 
 
 # ── 页面流 ───────────────────────────────────────────────────────────

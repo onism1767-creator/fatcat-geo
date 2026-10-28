@@ -132,11 +132,11 @@ def test_citation_competitor_comparison_lines():
     focal = make_metric(3, 30)  # 10%
     finding = diagnose_citation(focal, [("竞品甲", rate(20, 30)), ("竞品乙", rate(6, 30)), ("竞品丙", rate(0, 30))])
     lines = "\n".join(zh_lines(finding))
-    assert "落后竞品 竞品甲 20% 个百分点以上(其被引 20/30 = 67%)" in lines
+    assert "落后竞品 竞品甲 20 个百分点以上(其被引 20/30 = 67%)" in lines
     assert "与竞品 竞品乙 相差不足 20%,分不出高低" in lines
     assert "与竞品 竞品丙 相差不足 20%,分不出高低" in lines  # 10% vs 0%:差 10,不够
     ahead = "\n".join(zh_lines(diagnose_citation(make_metric(20, 30), [("竞品丁", rate(0, 30))])))
-    assert "领先竞品 竞品丁 20% 个百分点以上" in ahead
+    assert "领先竞品 竞品丁 20 个百分点以上" in ahead
 
 
 # ── REPRESENTATION ───────────────────────────────────────────────────
@@ -174,3 +174,16 @@ def test_representation_brand_fact_judged_by_sentiment_only():
 def test_representation_claims_note_always_present():
     finding = diagnose_representation(PromptIntent.CATEGORY_DISCOVERY, make_metric(27, 30), {})
     assert any("品牌事实清单" in line for line in zh_lines(finding))
+
+
+def test_representation_brand_fact_low_confidence_is_downgraded_to_weak():
+    """点名品牌的题 5 次里 4 次失败、剩下 1 次有 1 句负面:不许判「以负面为主」,降 WEAK 并写明
+    (7.3;审核 2026-10-27 黄 13)。"""
+    shaky = make_metric(1, 1, failed=4)
+    assert shaky.accounting.low_confidence is True
+    finding = diagnose_representation(PromptIntent.BRAND_FACT, shaky, {Sentiment.NEGATIVE: 1})
+    assert finding.status is StageStatus.WEAK and finding.low_confidence is True
+    assert finding.headline.code == "repr.headline.probe_weak"
+    assert any("WEAK" in line for line in zh_lines(finding))
+    steady = diagnose_representation(PromptIntent.BRAND_FACT, make_metric(5, 5), {Sentiment.NEGATIVE: 1})
+    assert steady.status is StageStatus.FAIL  # 样本靠得住时照旧按负面占比判

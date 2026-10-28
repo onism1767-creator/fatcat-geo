@@ -88,8 +88,11 @@ def diagnose_retrieval_dependency(
             headline=msg("dependency.headline.inconclusive"),
             evidence_lines=[msg("dependency.note.absent_online"), pair, meaning, rule_line, *calibers],
         )
-    if on.share - off.share < thresholds.rate_gap:
+    diff = round(on.share - off.share, 9)  # 先四舍五入,免得 0.19999… 把正好差 20 个百分点判成分不出(同 compare_rates)
+    if abs(diff) < thresholds.rate_gap:
         level, headline = DependencyLevel.LOW, msg("dependency.headline.low")
+    elif diff < 0:  # 闭卷比开卷还高:不是「接近、未观测到差异」,要照实说(审核 2026-10-27 黄 15)
+        level, headline = DependencyLevel.LOW, msg("dependency.headline.offline_higher")
     elif off.share < on.share * thresholds.dependency_high_ratio:
         level, headline = DependencyLevel.HIGH, msg("dependency.headline.high")
     else:

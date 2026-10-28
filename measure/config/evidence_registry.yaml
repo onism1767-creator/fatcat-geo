@@ -18,6 +18,7 @@ entries:
   # ── ACCESS ──────────────────────────────────────────────────────────
   - id: EVIDENCE_ACCESS_ROBOTS_V1
     stage: ACCESS
+    access_checks: [robots_txt]  # 只在这几项检查 FAIL 时给出(审核 2026-10-27 黄 14)
     hypothesis:
       zh: 在 robots.txt 中放行检索类与用户触发类 AI 爬虫,是进入 AI 检索链路的前提
       en: Allowing retrieval and user-triggered AI crawlers in robots.txt is a precondition for entering AI retrieval pipelines
@@ -44,6 +45,7 @@ entries:
 
   - id: EVIDENCE_ACCESS_CDN_VERIFY_V1
     stage: ACCESS
+    access_checks: [reachability, path_fetch, ua_differential, waf_evidence]
     hypothesis:
       zh: CDN/WAF 侧按官方 IP 段核验放行真实爬虫,而非按 UA 一刀切封禁
       en: Verify real crawlers by official IP ranges at the CDN/WAF instead of blanket UA blocking
@@ -70,6 +72,7 @@ entries:
 
   - id: EVIDENCE_ACCESS_SSR_V1
     stage: ACCESS
+    access_checks: [html_content, rendered_fetch]
     hypothesis:
       zh: 关键内容以服务端渲染/预渲染提供,不依赖客户端 JS 执行
       en: Serve key content via server-side rendering / prerendering rather than client-side JS
@@ -96,6 +99,7 @@ entries:
 
   - id: EVIDENCE_ACCESS_SITEMAP_V1
     stage: ACCESS
+    access_checks: [sitemap]
     hypothesis:
       zh: 提供 sitemap 与规范链接可能有助于收录完整性
       en: Providing a sitemap and canonical links may help indexing completeness

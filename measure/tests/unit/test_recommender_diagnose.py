@@ -209,3 +209,27 @@ def test_access_finding_mapping():
     unknown = access_finding(make_audit(CheckStatus.UNKNOWN))
     assert unknown.status is StageStatus.NOT_OBSERVABLE
     assert access_finding(None).status is StageStatus.NOT_OBSERVABLE
+
+
+def test_access_recommendations_follow_the_failing_checks():
+    """只是 robots 挂了,不该把 CDN、预渲染的建议整批端上(审核 2026-10-27 黄 14);不给检查项时照旧全给。"""
+    ids = lambda recs: [r.evidence_id for r in recs]  # noqa: E731
+    everything = recommend(REGISTRY, stage=Stage.ACCESS, intent=PromptIntent.CATEGORY_DISCOVERY)
+    assert len(everything) == 4
+    only_robots = recommend(REGISTRY, stage=Stage.ACCESS, intent=PromptIntent.CATEGORY_DISCOVERY,
+                            access_checks=frozenset({"robots_txt"}))
+    assert ids(only_robots) == ["EVIDENCE_ACCESS_ROBOTS_V1"]
+    shell = recommend(REGISTRY, stage=Stage.ACCESS, intent=PromptIntent.CATEGORY_DISCOVERY,
+                      access_checks=frozenset({"html_content", "robots_txt"}))
+    assert set(ids(shell)) == {"EVIDENCE_ACCESS_ROBOTS_V1", "EVIDENCE_ACCESS_SSR_V1"}
+    assert recommend(REGISTRY, stage=Stage.ACCESS, intent=PromptIntent.CATEGORY_DISCOVERY,
+                     access_checks=frozenset({"redirects"})) == []  # 挂的项没有对应条目:不硬凑
+    access = StageFinding(stage=Stage.ACCESS, status=StageStatus.FAIL, headline=Msg(code="test.headline", params={}),
+                          failed_checks=["robots_txt"])
+    diagnosis = diagnose_surface(
+        provider="p", surface="s1", model="m1", intent=PromptIntent.CATEGORY_DISCOVERY, registry=REGISTRY,
+        access=access, retrieval=make_finding(Stage.RETRIEVAL, StageStatus.FAIL),
+        citation=make_finding(Stage.CITATION, StageStatus.PASS),
+        representation=make_finding(Stage.REPRESENTATION, StageStatus.PASS),
+    )
+    assert diagnosis.primary_failure is Stage.ACCESS and ids(diagnosis.recommendations) == ["EVIDENCE_ACCESS_ROBOTS_V1"]

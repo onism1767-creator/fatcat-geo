@@ -39,6 +39,9 @@ class EvidenceEntry(FrozenModel):
     id: str
     stage: Stage
     channel: str = "own"  # own = 官网线 / third_party = 第三方线 / answer = 回答文字(架构书附录 v0.4.24 D9)
+    # ACCESS 条目对应官网审计里的哪几项检查(check 名):只在那几项 FAIL 时给出——只是 robots 挂了,
+    # 不该把 CDN、预渲染的建议整批端上(审核 2026-10-27 黄 14);空 = 不按检查项过滤
+    access_checks: list[str] = []
     hypothesis: dict[str, str]
     plain: dict[str, str]  # 人话版(v0.4.14)
     verify: dict[str, str]  # 做完之后怎么检查效果(v0.4.17)
@@ -97,9 +100,11 @@ def recommend(
     stage: Stage,
     intent: PromptIntent,
     channel: str = "own",
+    access_checks: frozenset[str] | None = None,
 ) -> list[Recommendation]:
     """给定【已定位的失败阶段】、需求意图与线(官网 / 第三方),产出建议。
-    调用方只允许传该线的 primary_failure 阶段——这是"上游 FAIL 禁下游药方"的执行点。"""
+    调用方只允许传该线的 primary_failure 阶段——这是"上游 FAIL 禁下游药方"的执行点。
+    access_checks:官网审计里 FAIL 的检查项名;给了就只出对应这些检查项的 ACCESS 条目(None = 不按检查项过滤)。"""
     out = [
         Recommendation(
             evidence_id=entry.id,
@@ -118,6 +123,7 @@ def recommend(
         and entry.channel == channel
         and entry.evidence_level in _OUTPUT_LEVELS
         and intent in entry.supported_intents
+        and (access_checks is None or not entry.access_checks or set(entry.access_checks) & access_checks)
     ]
     out.sort(key=lambda rec: rec.evidence_level)  # 证据强的排前面
     return out

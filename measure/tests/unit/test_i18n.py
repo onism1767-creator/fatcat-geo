@@ -128,3 +128,12 @@ def test_all_diagnosis_output_renders_in_both_languages():
     for lang in ("zh", "en"):
         for message in messages:
             assert render_msg(message, lang).strip()
+
+
+def test_message_lists_are_joined_per_language():
+    """英文输出里不能出现中文顿号(审核 2026-10-27 黄 22)。"""
+    from diagnosis.messages import msg, render_msg
+
+    nested = msg("caution.unobservable", stages=[msg("stage.ACCESS"), msg("stage.RETRIEVAL")])
+    assert render_msg(nested, "zh").endswith("ACCESS、RETRIEVAL")
+    assert render_msg(nested, "en").endswith("ACCESS, RETRIEVAL") and "、" not in render_msg(nested, "en")

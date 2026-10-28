@@ -132,12 +132,12 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "Same-instrument funnel: candidate presence {presence_k}/{presence_n} = {presence_share:.0%} vs cited {cited_k}/{cited_n} = {cited_share:.0%}",
     },
     "genret.funnel.gap": {
-        "zh": "被引比例比在场比例低 {gap:.0%} 个百分点以上——资料递到了模型手上却常落选,缺席主因偏向内容竞争力而非检索可见度(同一批运行内部对比,零跨仪器混淆)",
-        "en": "The cited rate is at least {gap:.0%} points below the presence rate — material reaches the model but often loses out; the absence leans toward content competitiveness rather than retrieval visibility (same-run comparison, no cross-instrument confound)",
+        "zh": "被引比例比在场比例低 {pts} 个百分点以上——资料递到了模型手上却常落选,缺席主因偏向内容竞争力而非检索可见度(同一批运行内部对比,零跨仪器混淆)",
+        "en": "The cited rate is at least {pts} points below the presence rate — material reaches the model but often loses out; the absence leans toward content competitiveness rather than retrieval visibility (same-run comparison, no cross-instrument confound)",
     },
     "genret.funnel.aligned": {
-        "zh": "在场与被引比例相差不足 {gap:.0%}——递上来的资料被采用的程度与在场程度无法区分",
-        "en": "Presence and cited rates differ by less than {gap:.0%} — adoption of delivered material is indistinguishable from its presence",
+        "zh": "在场与被引比例相差不足 {pts} 个百分点——递上来的资料被采用的程度与在场程度无法区分",
+        "en": "Presence and cited rates differ by less than {pts} points — adoption of delivered material is indistinguishable from its presence",
     },
     "genret.triggered": {
         "zh": f"检索触发率:{_RATE};未触发检索的运行计入各分母——不检索本身就是自然行为的一部分",
@@ -215,16 +215,16 @@ CATALOG: dict[str, dict[str, str]] = {
               "low coverage reflects this tool's verifier vantage, not a platform citation problem",
     },
     "citation.compare.behind": {
-        "zh": f"落后竞品 {{name}} {{gap:.0%}} 个百分点以上(其被引 {_RATE})",
-        "en": f"At least {{gap:.0%}} points behind competitor {{name}} (their citation rate: {_RATE_EN})",
+        "zh": f"落后竞品 {{name}} {{pts}} 个百分点以上(其被引 {_RATE})",
+        "en": f"At least {{pts}} points behind competitor {{name}} (their citation rate: {_RATE_EN})",
     },
     "citation.compare.ahead": {
-        "zh": f"领先竞品 {{name}} {{gap:.0%}} 个百分点以上(其被引 {_RATE})",
-        "en": f"At least {{gap:.0%}} points ahead of competitor {{name}} (their citation rate: {_RATE_EN})",
+        "zh": f"领先竞品 {{name}} {{pts}} 个百分点以上(其被引 {_RATE})",
+        "en": f"At least {{pts}} points ahead of competitor {{name}} (their citation rate: {_RATE_EN})",
     },
     "citation.compare.close": {
-        "zh": f"与竞品 {{name}} 相差不足 {{gap:.0%}},分不出高低(其被引 {_RATE})",
-        "en": f"Within {{gap:.0%}} of competitor {{name}} — not distinguishable (their citation rate: {_RATE_EN})",
+        "zh": f"与竞品 {{name}} 相差不足 {{pts}} 个百分点,分不出高低(其被引 {_RATE})",
+        "en": f"Within {{pts}} points of competitor {{name}} — not distinguishable (their citation rate: {_RATE_EN})",
     },
     # ── 第三方线(S6.1,v0.4.24 D2 / D3):搜到 → 引用写到你的第三方网页 ────────
     "thirdparty.retrieved.headline.fail": {
@@ -643,10 +643,15 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "The search-on or search-off leg has no valid samples; comparison is not possible",
     },
     "dependency.thresholds": {
-        "zh": "判定规则(看比例):开卷与闭卷相差不足 {gap:.0%} → LOW;闭卷 < 开卷×{ratio:.0%} → HIGH;其余 → MEDIUM;"
-              "开卷 < {absent:.0%} 或任一腿缺样本 → 无法判定",
-        "en": "Verdict rule (rates): search-on and search-off within {gap:.0%} → LOW; search-off < search-on ×{ratio:.0%} → HIGH; "
+        "zh": "判定规则(看比例):开卷与闭卷相差不足 {gap:.0%} → LOW;闭卷反而比开卷高出 {gap:.0%} 以上 → LOW 并写明;"
+              "闭卷 < 开卷×{ratio:.0%} → HIGH;其余 → MEDIUM;开卷 < {absent:.0%} 或任一腿缺样本 → 无法判定",
+        "en": "Verdict rule (rates): search-on and search-off within {gap:.0%} → LOW; search-off higher than search-on by "
+              "{gap:.0%} or more → LOW, stated as such; search-off < search-on ×{ratio:.0%} → HIGH; "
               "otherwise MEDIUM; search-on below {absent:.0%} or a missing leg → INCONCLUSIVE",
+    },
+    "dependency.headline.offline_higher": {
+        "zh": "闭卷提及比例比开卷还高:它不靠检索也认识你,开了检索反而提得少",
+        "en": "Search-off mentions you more often than search-on: it knows you without retrieval, and retrieval makes it mention you less",
     },
     "dependency.leg_caliber": {
         "zh": "{leg},{caliber}",
@@ -767,6 +772,10 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": "官网有没有被用上这一项本次看不到",
         "en": "whether your site was used could not be observed this time",
     },
+    "verdict.missing.low_confidence": {
+        "zh": "有的题型失败或拒答太多,说不准,先不算",
+        "en": "some question types had too many failures or refusals to tell, so they were left out",
+    },
     # 第三方线一句(S6.1;措辞用户 2026-10-13 拍板:口语版,v0.4.24 D10)
     "verdict.thirdparty.often": {
         "zh": "它常常拿别人提到你的文章当参考",
@@ -867,7 +876,8 @@ def render_msg(message: Msg | str, lang: str, register: str | None = None) -> st
         if isinstance(value, Msg):
             rendered[key] = render_msg(value, lang, register)
         elif isinstance(value, list) and value and all(isinstance(v, Msg) for v in value):
-            rendered[key] = "、".join(render_msg(v, lang, register) for v in value)
+            joiner = "、" if lang == "zh" else ", "  # 列表按语言拼:英文里不能出现中文顿号(审核 2026-10-27 黄 22)
+            rendered[key] = joiner.join(render_msg(v, lang, register) for v in value)
         else:
             rendered[key] = value
     return template.format(**rendered)

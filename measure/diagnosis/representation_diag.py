@@ -132,11 +132,21 @@ def diagnose_representation(
                 ],
             )
         if negative_share >= thresholds.negative_share_fail:
-            status, headline = StageStatus.FAIL, "repr.headline.probe_fail"
+            status = StageStatus.FAIL
         elif negative_share > thresholds.negative_share_weak:
-            status, headline = StageStatus.WEAK, "repr.headline.probe_weak"
+            status = StageStatus.WEAK
         else:
-            status, headline = StageStatus.PASS, "repr.headline.probe_pass"
+            status = StageStatus.PASS
+        notes: list[Msg] = []
+        if accounting.low_confidence and status is not StageStatus.WEAK:
+            # 失败 / 拒答太多:不许下确定性结论,一律降 WEAK(7.3;不点名的题走 rate_status 早有此规,
+            # 点名的题原来漏了——5 次里 4 次失败、剩下 1 句负面就判「以负面为主」;审核 2026-10-27 黄 13)
+            status, notes = StageStatus.WEAK, [msg("common.low_confidence_downgrade")]
+        headline = {
+            StageStatus.FAIL: "repr.headline.probe_fail",
+            StageStatus.WEAK: "repr.headline.probe_weak",
+            StageStatus.PASS: "repr.headline.probe_pass",
+        }[status]
         return StageFinding(
             stage=Stage.REPRESENTATION,
             status=status,
@@ -144,6 +154,7 @@ def diagnose_representation(
             rate=r,
             evidence_lines=[
                 sentiment_line,
+                *notes,
                 *compare,
                 msg("repr.thresholds.probe",
                     weak=thresholds.negative_share_weak, fail=thresholds.negative_share_fail),

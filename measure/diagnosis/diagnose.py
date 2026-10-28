@@ -82,7 +82,8 @@ def access_finding(audit: AccessAuditResult | None) -> StageFinding:
     }[status]
     notes = [msg("access.unknown_note")] if audit.overall is AccessCheckStatus.UNKNOWN else []
     return StageFinding(
-        stage=Stage.ACCESS, status=status, headline=msg(headline_code), evidence_lines=notes
+        stage=Stage.ACCESS, status=status, headline=msg(headline_code), evidence_lines=notes,
+        failed_checks=[c.check for c in audit.checks if c.gating and c.status is AccessCheckStatus.FAIL],
     )
 
 
@@ -144,8 +145,10 @@ def diagnose_surface(
     if primary is None:
         cautions.append(msg("caution.none"))
 
-    recommendations = (
-        recommend(registry, stage=primary, intent=intent) if primary is not None else []
+    recommendations = (  # ACCESS 的建议只针对挂了的检查项(审核 2026-10-27 黄 14);没记检查项就不过滤
+        recommend(registry, stage=primary, intent=intent,
+                  access_checks=frozenset(access.failed_checks) if access.failed_checks else None)
+        if primary is not None else []
     )
     # 第三方线单独定位:同一套「第一个 FAIL,否则第一个 WEAK」,同样有通道分歧防线;建议只从第三方线的条目里取
     tp_findings = list(third_party or [])

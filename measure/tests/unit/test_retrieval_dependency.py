@@ -96,3 +96,12 @@ def test_rates_always_shown_side_by_side_and_bilingual():
     assert any(line.code == "dependency.thresholds" for line in paired.evidence_lines)
     pair = next(line for line in paired.evidence_lines if line.code == "dependency.pair")
     assert "8/10 = 80%" in render_msg(pair, "zh")
+
+
+def test_offline_higher_than_online_is_low_but_said_plainly():
+    """闭卷 90% 比开卷 30% 还高:依赖度 LOW,但标题不能说「接近、未观测到差异」(审核 2026-10-27 黄 15)。"""
+    finding = diagnose_retrieval_dependency(metric(3), metric(9))
+    assert finding.level is DependencyLevel.LOW
+    assert finding.headline.code == "dependency.headline.offline_higher"
+    assert "闭卷" in render_msg(finding.headline, "zh") and "Search-off" in render_msg(finding.headline, "en")
+    assert diagnose_retrieval_dependency(metric(8), metric(9)).headline.code == "dependency.headline.low"  # 差 10:接近
