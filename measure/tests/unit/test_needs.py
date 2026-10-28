@@ -125,6 +125,16 @@ def test_brand_collisions_scans_name_alias_domain():
     assert brand_collisions(texts, BRAND) == ["AURORACRM 好用吗", "见 aurora-crm.com 官网"]
 
 
+def test_brand_collisions_respect_word_boundaries_for_short_latin_names():
+    """品牌叫 On:含 "on" 的题不是撞车,点名 "On" 的才是(审核 2026-10-27 黄 10);中文名照旧按子串。"""
+    on = BrandSpec(name="On", aliases=["On Running"], domains=["on.com"])
+    texts = ["What should I look for in a marathon shoe?", "Is On a good running brand?",
+             "Compare on-running shoes", "see on.com for details"]  # on-running:连字符是词边界,这是点名了
+    assert brand_collisions(texts, on) == ["Is On a good running brand?", "Compare on-running shoes",
+                                           "see on.com for details"]
+    assert brand_collisions(["极光CRM系统怎么样", "极光好看吗"], BRAND) == ["极光CRM系统怎么样"]
+
+
 def test_json_tolerates_markdown_fences():
     adapter = RecordingAdapter([BLIND_OK, COMPETITORS_OK, COMPARISON_OK, FACTS_OK])
     original_ask = adapter.ask

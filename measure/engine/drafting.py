@@ -209,11 +209,6 @@ def _str_list(value: Any) -> list[str]:
 # ── 质检原语(17.4)───────────────────────────────────────────────────
 
 
-def _brand_tokens(brand: BrandSpec) -> list[str]:
-    tokens = [brand.name, *brand.aliases, *brand.domains]
-    return [t.strip().lower() for t in tokens if t.strip()]
-
-
 def manual_intent(text: str, brand: BrandSpec) -> PromptIntent:
     """用户手填的题归哪个题型:点了品牌名或别名的就是「品牌事实」,否则按「品类发现」。
     点名的题里品牌提及率天然接近 100%,混进不点名的题型会把「AI 会主动推荐你」的结论虚高。"""
@@ -221,9 +216,14 @@ def manual_intent(text: str, brand: BrandSpec) -> PromptIntent:
 
 
 def brand_collisions(texts: list[str], brand: BrandSpec) -> list[str]:
-    """别名撞车扫描:返回含焦点品牌名/别名/域名的文本(不点名的题命中即违规)。"""
-    tokens = _brand_tokens(brand)
-    return [text for text in texts if any(token in text.lower() for token in tokens)]
+    """别名撞车扫描:返回含焦点品牌名/别名/域名的文本(不点名的题命中即违规)。名字按判定器同一套词边界规则认
+    (拉丁字母按词、中文按子串):品牌叫 On,含 "on" 的题不算撞车——按子串会让这种品牌三轮都出不了题
+    (审核 2026-10-27 黄 10);域名本身够特定,按子串。"""
+    domains = [d.strip().lower() for d in brand.domains if d.strip()]
+    return [
+        text for text in texts
+        if find_first_alias(text, brand) is not None or any(domain in text.lower() for domain in domains)
+    ]
 
 
 def _dedupe(texts: list[str]) -> list[str]:
