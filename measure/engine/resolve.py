@@ -10,7 +10,7 @@ citation_resolution(原链接、终点链接、跳数、状态、还原器版本
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
@@ -67,9 +67,12 @@ class UrlResolver:
         if self._own_client:
             self._client.close()
 
-    def resolve(self, urls: list[str]) -> dict[str, CitationResolution]:
+    def resolve(
+        self, urls: list[str], *, heartbeat: Callable[[], None] | None = None,
+    ) -> dict[str, CitationResolution]:
         """一批链接 → {原链接: 还原记录}。按链接去重;库里时效内还原成功的记录直接复用,失败的重试;
-        每次新还原(含失败)都落一条,失败不蒸发。"""
+        每次新还原(含失败)都落一条,失败不蒸发。heartbeat:每还原完一条叫一下,让任务页知道还在动
+        (链接多、对方慢时这一段能跑很久,没心跳会被当成「卡住了」;审核 2026-10-27 黄 17)。"""
         wanted = list(dict.fromkeys(urls))
         result: dict[str, CitationResolution] = {}
         cutoff = datetime.now(UTC) - self._max_age
@@ -82,6 +85,8 @@ class UrlResolver:
             resolution = self._follow(url)
             self._storage.insert_citation_resolution(resolution)
             result[url] = resolution
+            if heartbeat is not None:
+                heartbeat()
         return result
 
     def _follow(self, url: str) -> CitationResolution:

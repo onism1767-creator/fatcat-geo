@@ -551,11 +551,11 @@ def test_confirm_estimate_prefers_measured_history():
     page, est = run([stat(12)])
     assert "预估按过去实测的平均费用和耗时算:S1" in page
     assert est["calls"] == 3  # 1 道题 × 3 次
-    assert est["cost_usd"] == pytest.approx(3 * 0.02) and est["minutes"] == pytest.approx(3 * 15 / 60 / 3)
+    assert est["cost_usd"] == pytest.approx(3 * 0.02) and est["minutes"] == pytest.approx(3 * 15 / 60)  # 1 条腿:串行
     assert est["breakdown"] == [{"display": "S1 · m1", "cost_usd": pytest.approx(3 * 0.02)}]
     page, est = run([stat(3)])  # 历史不足:声明单价 + 兜底时长
     assert "S1 · m1 还没有足够的历史记录" in page  # 确认页也用「接口 · 型号」
-    assert est["cost_usd"] == pytest.approx(3 * 0.005) and est["minutes"] == pytest.approx(3 * 20 / 60 / 3)
+    assert est["cost_usd"] == pytest.approx(3 * 0.005) and est["minutes"] == pytest.approx(3 * 20 / 60)
 
 
 def test_estimate_job_arithmetic():
@@ -581,6 +581,15 @@ def test_estimate_job_arithmetic():
     assert judged.cost_usd == pytest.approx(est_dep.cost_usd + 0.027)
     assert judged.minutes == pytest.approx((27 * 20 + 27 * 4) / 60 / 3)
     assert est_dep.judge_calls == 0 and est_dep.judge_cost_usd == 0.0
+    # 时长按真实并发算(审核 2026-10-27 黄 16):并发按腿分、一条腿内部串行——1 条腿全程串行,4 条腿要跑两轮
+    one_leg = estimate_job(n_prompts=3, runs_per_prompt=3, targets=[cheap], dependency=False, prices=prices)
+    assert one_leg.minutes == pytest.approx(9 * 20 / 60)
+    third = Target(surface="c", model="z")
+    wide = UnitPrices(default={cheap.key: 0.005, pricey.key: 0.17, third.key: 0.01}, search_disabled={pricey.key: 0.04},
+                      seconds_per_call=20.0, measured=[], declared=[cheap, pricey, third])
+    four_legs = estimate_job(n_prompts=3, runs_per_prompt=3, targets=[cheap, pricey, third], dependency=True,
+                             prices=wide)
+    assert four_legs.calls == 36 and four_legs.minutes == pytest.approx(2 * 9 * 20 / 60)
 
 
 def test_job_snapshot_round_trip():

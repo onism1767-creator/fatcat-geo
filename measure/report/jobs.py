@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import subprocess
 import threading
 from datetime import UTC, datetime
@@ -42,9 +43,19 @@ from engine.tiers import TierChoice
 log = structlog.get_logger("report.jobs")
 
 PLAN_CONCURRENCY = 3  # 采样计划并发路数(16.1)
-# 多少分钟没有任何新样本就在任务页报 JOB_STALLED(v0.4.22):一次采样最坏 = 3 次尝试 × 180 s 超时 + 退避 ≈ 10 分钟
-STALL_MINUTES = 10
 POLICY = SamplingPolicy()  # 重试 / 熔断参数(13.2);每题次数由档位给(S9.1,DiagnosisJob.policy()),预算上限按单另加
+STALL_MARGIN_MINUTES = 5
+
+
+def stall_minutes(policy: SamplingPolicy) -> int:
+    """多少分钟没有任何新样本就在任务页报 JOB_STALLED(v0.4.22)。从策略常数算出来并留余量:一次采样合法的最坏耗时
+    = 最多尝试数 × 单次超时 + 中间每次等待(不超过单次等待上限),再加余量。原来写死 10 分钟,正好等于合法最坏耗时,
+    健康但慢的一条腿会被提示「重启」(审核 2026-10-27 黄 17)。"""
+    worst_s = policy.max_attempts * policy.timeout_s + (policy.max_attempts - 1) * policy.max_wait_s
+    return math.ceil(worst_s / 60) + STALL_MARGIN_MINUTES
+
+
+STALL_MINUTES = stall_minutes(POLICY)
 
 
 class JobState(StrEnum):

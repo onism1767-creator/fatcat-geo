@@ -213,7 +213,8 @@ def _execute(
 
         job.phase = "phase_verify"
         runs_by, offline_runs_by = _load_runs(job, storage)
-        resolution = _resolve_redirects(storage, adapters, [*runs_by.values(), *offline_runs_by.values()])
+        resolution = _resolve_redirects(storage, adapters, [*runs_by.values(), *offline_runs_by.values()],
+                                        heartbeat=lambda: setattr(job, "last_result_at", datetime.now(UTC)))
         all_runs = [run for runs in runs_by.values() for run in runs]
         pages = _check_pages(job, storage, all_runs, resolution)
         judge = _judge_for(job, adapters, storage, all_runs, judges)  # 高档:装配裁判、装回库里的判定、并行预判(S9.3)
@@ -499,9 +500,11 @@ def _load_runs(
 
 def _resolve_redirects(
     storage: Storage, adapters: dict[str, SurfaceAdapter], run_batches: list[list[SurfaceRun]],
+    *, heartbeat: Callable[[], None] | None = None,
 ) -> ResolutionContext:
     """跳转仪器(能力 citation_urls_redirect)的引用链接先还原终点(v0.4.26 S4,C2):按链接去重、库里复用,
-    经 crawler/ 只取响应头。判定一律用终点;还原失败的那条引用记看不到。"""
+    经 crawler/ 只取响应头。判定一律用终点;还原失败的那条引用记看不到。heartbeat 每还原一条叫一下,
+    任务页的「卡住了」判断据此知道还在动(审核 2026-10-27 黄 17)。"""
     redirect_surfaces = frozenset(
         surface for surface, adapter in adapters.items() if adapter.meta().capabilities.citation_urls_redirect
     )
@@ -515,7 +518,7 @@ def _resolve_redirects(
         return ResolutionContext(redirect_surfaces, {})
     resolver = UrlResolver(storage)
     try:
-        resolutions = resolver.resolve(urls)
+        resolutions = resolver.resolve(urls, heartbeat=heartbeat)
     finally:
         resolver.close()
     log.info("citations_resolved", urls=len(urls),

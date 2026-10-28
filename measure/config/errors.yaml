@@ -100,7 +100,7 @@ errors:
     scope: job
     resumable: true
     trigger: {zh: "运行中 {minutes} 分钟没有任何新结果(网络断了、某家 AI 长时间不响应、或数据库出了问题)", en: "No new result for {minutes} minutes while running (network down, an AI not responding, or a database problem)"}
-    causes: {zh: "网络断了;某家 AI 长时间不响应(一次提问最多等 3 分钟、重试 3 次,所以一条腿最坏约 10 分钟才会报);数据库中途掉线。", en: "Network down; an AI not responding (one ask waits up to 3 minutes, retried 3 times, so a leg can take ~10 minutes to show); database dropped mid-run."}
+    causes: {zh: "网络断了;某家 AI 长时间不响应(一次提问最多等 3 分钟、重试 3 次、中间最多各等 2 分钟,所以一条腿正常情况下最坏也要约 13 分钟;阈值在这之上再留了余量);数据库中途掉线。", en: "Network down; an AI not responding (one ask waits up to 3 minutes, retried 3 times with up to 2 minutes between, so a healthy leg can legitimately take ~13 minutes; the threshold adds a margin on top); database dropped mid-run."}
     message: {zh: "已经 {minutes} 分钟没有收到任何新结果,检测可能卡住了。", en: "No new result for {minutes} minutes; the run may be stuck."}
     next_step: {zh: "重启服务后点「接着跑」,已经采集的结果不会丢。", en: "Restart the service and press Resume; results already collected are kept."}
   - code: JOB_CRASHED

@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import math
+
 from adapters.base import SurfaceAdapter
 from engine.models import FrozenModel, SearchMode, Target
 from engine.storage import CallStat
@@ -91,10 +93,15 @@ def estimate_job(
     calls = per_leg_calls * legs
     judge_calls = calls if judge_cost_per_call is not None else 0
     judge_cost = judge_calls * (judge_cost_per_call or 0.0)
+    # 时长按真实的并发方式算:并发是按腿分的,一条腿内部严格串行,所以是「几轮腿 × 每腿时长」,不是总调用数 ÷ 3——
+    # 只选 1 个型号时原公式会把时长少报到三分之一(审核 2026-10-27 黄 16);裁判是把全部回答摊到 3 路并发上判
+    rounds = math.ceil(legs / PLAN_CONCURRENCY)
+    sampling_s = rounds * per_leg_calls * prices.seconds_per_call
+    judging_s = judge_calls * JUDGE_SECONDS_PER_CALL / PLAN_CONCURRENCY
     return Estimate(
         calls=calls,
         cost_usd=sum(cost for _, cost in per_target) + judge_cost,
-        minutes=(calls * prices.seconds_per_call + judge_calls * JUDGE_SECONDS_PER_CALL) / 60 / PLAN_CONCURRENCY,
+        minutes=(sampling_s + judging_s) / 60,
         per_target=per_target,
         judge_calls=judge_calls,
         judge_cost_usd=judge_cost,

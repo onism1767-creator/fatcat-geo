@@ -69,8 +69,11 @@ def test_running_job_reports_quiet_minutes_and_stall_code():
     """v0.4.22:任务页显示「最近一次新结果在几分钟前」;超过 STALL_MINUTES 没有新样本就给 JOB_STALLED。"""
     from datetime import UTC, datetime, timedelta
 
-    from report.jobs import STALL_MINUTES
+    from report.jobs import POLICY, STALL_MINUTES
 
+    # 阈值必须高过一次采样合法的最坏耗时(3 次尝试 × 超时 + 中间等待),否则健康但慢的腿会被提示重启(审核 2026-10-27 黄 17)
+    worst_minutes = (POLICY.max_attempts * POLICY.timeout_s + (POLICY.max_attempts - 1) * POLICY.max_wait_s) / 60
+    assert STALL_MINUTES > worst_minutes
     job = _failed_job(None)
     job.state, job.phase = JobState.RUNNING, "phase_sampling"
     job.started_at = datetime.now(UTC) - timedelta(minutes=30)

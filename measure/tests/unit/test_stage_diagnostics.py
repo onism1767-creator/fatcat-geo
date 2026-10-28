@@ -133,8 +133,8 @@ def test_citation_competitor_comparison_lines():
     finding = diagnose_citation(focal, [("竞品甲", rate(20, 30)), ("竞品乙", rate(6, 30)), ("竞品丙", rate(0, 30))])
     lines = "\n".join(zh_lines(finding))
     assert "落后竞品 竞品甲 20 个百分点以上(其被引 20/30 = 67%)" in lines
-    assert "与竞品 竞品乙 相差不足 20%,分不出高低" in lines
-    assert "与竞品 竞品丙 相差不足 20%,分不出高低" in lines  # 10% vs 0%:差 10,不够
+    assert "与竞品 竞品乙 相差不足 20 个百分点,分不出高低" in lines
+    assert "与竞品 竞品丙 相差不足 20 个百分点,分不出高低" in lines  # 10% vs 0%:差 10,不够
     ahead = "\n".join(zh_lines(diagnose_citation(make_metric(20, 30), [("竞品丁", rate(0, 30))])))
     assert "领先竞品 竞品丁 20 个百分点以上" in ahead
 
