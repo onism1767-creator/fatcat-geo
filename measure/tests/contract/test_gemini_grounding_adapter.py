@@ -156,8 +156,9 @@ def test_failed_status_raises_transient():
 @respx.mock
 def test_search_result_error_flag_raises_transient():
     respx.post(API_URL).mock(return_value=httpx.Response(200, json=golden("search_result_error.json")))
-    with pytest.raises(AdapterTransientError, match="is_error"):
+    with pytest.raises(AdapterTransientError, match="is_error") as exc_info:
         GeminiGroundingAdapter(api_key="test-key").ask(make_request())
+    assert '"is_error": true' in (exc_info.value.response_body or "")  # 失败的证据随失败行存档
 
 
 @respx.mock

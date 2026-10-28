@@ -54,7 +54,7 @@ from adapters.base import (
     SurfaceAdapter,
     SurfaceMeta,
 )
-from adapters.http_support import contract_post, domain_of
+from adapters.http_support import body_excerpt, contract_post, domain_of
 from engine.models import (
     NOT_OBSERVABLE,
     Answer,
@@ -200,11 +200,13 @@ def _translate(
                             )
                     else:  # HTTP 200 + 错误块(平台的工具级错误通道)
                         tool_error = (content or {}).get("error_code") or "unknown"
-    except (KeyError, TypeError) as exc:
-        raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}") from exc
+    except (KeyError, TypeError, AttributeError, ValueError) as exc:  # 列表项不是 dict、字段类型怪:也算结构不符
+        raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}",
+                                    response_body=body_excerpt({"responses": responses})) from exc
 
     if tool_error is not None and tool_error != "max_uses_exceeded":
-        raise AdapterTransientError(f"web_search 工具错误块: {tool_error}")
+        raise AdapterTransientError(f"web_search 工具错误块: {tool_error}",
+                                    response_body=body_excerpt({"responses": responses}))
 
     answer_text = "".join(answer_parts)
     run_fields: dict[str, Any] = dict(
@@ -341,7 +343,8 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
             total_latency += latency_ms
             continuations += 1
         if data.get("stop_reason") == "pause_turn":
-            raise AdapterTransientError(f"pause_turn 续传 {_MAX_CONTINUATIONS} 次后仍未完成")
+            raise AdapterTransientError(f"pause_turn 续传 {_MAX_CONTINUATIONS} 次后仍未完成",
+                                        response_body=body_excerpt({"responses": responses}))
         return responses, total_latency, started_at
 
     def healthcheck(self) -> bool:

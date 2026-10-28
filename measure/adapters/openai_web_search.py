@@ -49,7 +49,7 @@ from adapters.base import (
     SurfaceAdapter,
     SurfaceMeta,
 )
-from adapters.http_support import contract_post, domain_of
+from adapters.http_support import body_excerpt, contract_post, domain_of
 from engine.models import (
     Answer,
     AskRequest,
@@ -143,7 +143,7 @@ def _translate(
             f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 output 列表"
         )
     if data.get("status") == "failed":
-        raise AdapterTransientError(f"响应 status=failed: {data.get('error')}")
+        raise AdapterTransientError(f"响应 status=failed: {data.get('error')}", response_body=body_excerpt(data))
 
     # ── 翻译 output 项 ──────────────────────────────────────────────
     answer_parts: list[str] = []
@@ -199,8 +199,8 @@ def _translate(
                             )
                     elif part_type == "refusal":
                         refusal_text = part.get("refusal") or "refusal"
-    except (KeyError, TypeError) as exc:
-        raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}") from exc
+    except (KeyError, TypeError, AttributeError, ValueError) as exc:  # 列表项不是 dict、字段类型怪:也算结构不符
+        raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}", response_body=body_excerpt(data)) from exc
 
     answer_text = "".join(answer_parts)
     run_fields: dict[str, Any] = dict(

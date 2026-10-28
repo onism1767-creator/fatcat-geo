@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import json
 import time
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
@@ -29,6 +30,12 @@ _ACCOUNT_CREDIT_MARKERS = (
 def domain_of(url: str) -> str:
     """URL 的主机名(平台给的 URL 原样翻译,不做归属判定)。"""
     return urlsplit(url).hostname or ""
+
+
+def body_excerpt(data: Any) -> str:
+    """HTTP 200 却在响应体里报失败(status=failed、工具错误块……)时,把响应体(截断)带进异常,随失败行进
+    raw_payload 存档——失败的证据也不蒸发(13.1;审核 2026-10-27 黄 21)。"""
+    return json.dumps(data, ensure_ascii=False, default=str)[:2000]
 
 
 def classify_account_problem(http_status: int | None, body: str | None) -> RunErrorType | None:

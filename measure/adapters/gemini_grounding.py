@@ -48,7 +48,7 @@ from adapters.base import (
     SurfaceAdapter,
     SurfaceMeta,
 )
-from adapters.http_support import contract_post, domain_of
+from adapters.http_support import body_excerpt, contract_post, domain_of
 from engine.models import (
     NOT_OBSERVABLE,
     Answer,
@@ -130,7 +130,7 @@ def _translate(
         )
     status = data.get("status")
     if status not in _SUCCESS_STATUSES:
-        raise AdapterTransientError(f"互动终态异常 status={status!r}")
+        raise AdapterTransientError(f"互动终态异常 status={status!r}", response_body=body_excerpt(data))
 
     # ── 翻译 steps ─────────────────────────────────────────────────
     answer_parts: list[str] = []
@@ -149,7 +149,7 @@ def _translate(
             elif step_type == "google_search_result":
                 search_observed = True
                 if step.get("is_error"):
-                    raise AdapterTransientError("google_search_result 标记 is_error")
+                    raise AdapterTransientError("google_search_result 标记 is_error", response_body=body_excerpt(data))
             elif step_type == "model_output":
                 for block in step.get("content") or []:
                     if block.get("type") != "text":
@@ -169,8 +169,8 @@ def _translate(
                                 position=len(citations) + 1,
                             )
                         )
-    except (KeyError, TypeError) as exc:
-        raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}") from exc
+    except (KeyError, TypeError, AttributeError, ValueError) as exc:  # 列表项不是 dict、字段类型怪:也算结构不符
+        raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}", response_body=body_excerpt(data)) from exc
 
     answer_text = "".join(answer_parts)
     run = SurfaceRun(

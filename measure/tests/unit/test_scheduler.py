@@ -356,3 +356,16 @@ def test_result_carries_failure_counts_by_code_and_the_last_platform_message():
     mixed = make_sampler(MemoryStorage()).run_plan(ScriptedAdapter(["refuse", "ok"]), [P1], policy=SamplingPolicy())
     assert mixed.stop_reason is StopReason.COMPLETED and mixed.failure_counts == {"AI_RESPONSE_INVALID": 1}
     assert mixed.last_failure_message == "filtered" and StopDetail.from_result(mixed).truncated is False
+
+
+def test_non_contract_exception_is_recorded_as_permanent_failure_not_a_crash():
+    """适配器抛了三类契约之外的异常(平台返回了没见过的结构,翻译代码炸了):当永久失败落库、整单不崩、
+    这次尝试不蒸发(审核 2026-10-27 黄 4);CapabilityNotSupportedError 仍直接上抛(见上一个测试)。"""
+    storage = MemoryStorage()
+    sleeps = []
+    result = make_sampler(storage, sleeps).run_plan(
+        ScriptedAdapter([AttributeError("'str' object has no attribute 'get'")]), [P1, P2],
+    )
+    assert result.stop_reason is StopReason.FAILURE_RATE_EXCEEDED and sleeps == []  # 不重试不退避
+    assert storage.runs and all(r.outcome is Outcome.PERMANENT_FAILURE and r.error.attempts == 1 for r in storage.runs)
+    assert all("AttributeError" in r.error.message and "契约之外" in r.error.message for r in storage.runs)

@@ -210,8 +210,9 @@ def test_incomplete_status_is_success_with_truncated_answer():
 @respx.mock
 def test_failed_status_raises_transient():
     respx.post(RESP_URL).mock(return_value=httpx.Response(200, json=golden("failed_status.json")))
-    with pytest.raises(AdapterTransientError, match="status=failed"):
+    with pytest.raises(AdapterTransientError, match="status=failed") as exc_info:
         OpenAIWebSearchAdapter(api_key="test-key").ask(make_request())
+    assert '"status": "failed"' in (exc_info.value.response_body or "")  # 失败的证据随失败行存档
 
 
 # ── 错误翻译与能力边界 ────────────────────────────────────────────────

@@ -189,8 +189,9 @@ def test_refusal_stop_reason_translates_to_refused():
 def test_search_tool_error_block_raises_transient():
     """检索基础设施故障污染本次采样 → 交引擎重采,不当作「没搜到」入库。"""
     respx.post(MSG_URL).mock(return_value=httpx.Response(200, json=golden("tool_error_unavailable.json")))
-    with pytest.raises(AdapterTransientError, match="unavailable"):
+    with pytest.raises(AdapterTransientError, match="unavailable") as exc_info:
         ClaudeWebSearchAdapter(api_key="test-key").ask(make_request())
+    assert "unavailable" in (exc_info.value.response_body or "")  # 失败的证据随失败行存档
 
 
 @respx.mock
@@ -240,10 +241,11 @@ def test_pause_turn_continues_and_aggregates_across_segments():
 @respx.mock
 def test_pause_turn_exhaustion_raises_transient_after_bounded_continuations():
     respx.post(MSG_URL).mock(return_value=httpx.Response(200, json=golden("pause_turn_first.json")))
-    with pytest.raises(AdapterTransientError, match="pause_turn"):
+    with pytest.raises(AdapterTransientError, match="pause_turn") as exc_info:
         ClaudeWebSearchAdapter(api_key="test-key").ask(make_request())
     # 1 次首发 + 3 次续传后放弃:有界完成,不无限深搜
     assert respx.calls.call_count == 4
+    assert "pause_turn" in (exc_info.value.response_body or "")  # 已拿到的段随失败行存档
 
 
 # ── 错误翻译与能力边界 ────────────────────────────────────────────────

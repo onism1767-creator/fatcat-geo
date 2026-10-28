@@ -33,7 +33,7 @@ from adapters.base import (
     SurfaceAdapter,
     SurfaceMeta,
 )
-from adapters.http_support import contract_post, domain_of
+from adapters.http_support import body_excerpt, contract_post, domain_of
 from engine.models import (
     NOT_OBSERVABLE,
     Answer,
@@ -179,7 +179,8 @@ class PerplexityAgentAdapter(SurfaceAdapter):
         status = data.get("status")
         if status not in _SUCCESS_STATUSES:
             error = data.get("error") if isinstance(data.get("error"), dict) else {}
-            raise AdapterPermanentError(f"平台返回 status={status!r}: {error.get('message') or '无说明'}")
+            raise AdapterPermanentError(f"平台返回 status={status!r}: {error.get('message') or '无说明'}",
+                                        response_body=body_excerpt(data))
         parts = _text_parts(items)
         text = "".join(part["text"] for part in parts)
         searched = _search_results(items)

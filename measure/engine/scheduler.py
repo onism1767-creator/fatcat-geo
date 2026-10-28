@@ -31,6 +31,7 @@ from adapters.base import (
     AdapterAccountError,
     AdapterPermanentError,
     AdapterTransientError,
+    CapabilityNotSupportedError,
     SurfaceAdapter,
 )
 from adapters.http_support import classify_account_problem
@@ -361,7 +362,22 @@ def ask_with_retries(
                 ),
                 response_body=exc.response_body,
             )
-        # CapabilityNotSupportedError 故意不捕获:编程错误直接上抛(13.1)
+        except CapabilityNotSupportedError:
+            raise  # 编程错误直接上抛,不落 SurfaceRun(13.1)
+        except Exception as exc:  # 三类契约之外的异常 = 适配器契约违规(13.4 记 ERROR):当永久失败落库,整单不崩
+            # 平台返回了适配器没见过的结构时,翻译代码可能抛 AttributeError / 校验错之类;这次尝试照样要有失败行
+            # (失败不蒸发),要修的是适配器,不该让一次怪返回把整单撂倒(审核 2026-10-27 黄 4)
+            log.error("adapter_contract_violation", run_id=request.run_id, surface=adapter.meta().surface,
+                      error=f"{type(exc).__name__}: {exc}")
+            return _failure_run(
+                adapter, request, started_at, t0,
+                outcome=Outcome.PERMANENT_FAILURE,
+                error=RunError(
+                    error_type=RunErrorType.PERMANENT,
+                    message=f"适配器抛出契约之外的异常(平台返回了没见过的结构,要修适配器): {type(exc).__name__}: {exc}",
+                    attempts=attempts,
+                ),
+            )
 
 
 def _failure_run(

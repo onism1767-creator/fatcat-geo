@@ -122,8 +122,9 @@ def test_agent_no_search_is_recorded_as_not_triggered():
 def test_agent_failed_status_raises_permanent_with_platform_message():
     body = golden("perplexity_agent", "failed_status.json")
     respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json=body))
-    with pytest.raises(AdapterPermanentError, match="status='failed'"):
+    with pytest.raises(AdapterPermanentError, match="status='failed'") as exc_info:
         PerplexityAgentAdapter(api_key="test-key").ask(make_request())
+    assert '"status": "failed"' in (exc_info.value.response_body or "")  # 失败的证据随失败行存档
 
 
 @respx.mock
