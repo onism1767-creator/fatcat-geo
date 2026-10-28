@@ -243,7 +243,10 @@ def _summary_md(
         lines += [f"## {t['first_word']}", ""]
         for a in summary.actions:
             rec = a.recommendation
-            tag = f"({t['needs_experiment']})" if rec.needs_experiment else ""
+            if rec.kind == "geo_method":  # GEO 方法一律实验卡;技术修复只在证据弱时标实验(硬边界 9)
+                tag = f"({t['kind_geo_method']})"
+            else:
+                tag = f"({t['needs_experiment']})" if rec.needs_experiment else ""
             lines.append(f"- {rec.plain[lang]}{tag} · {t['evidence_id_word']} {rec.evidence_id}")
         lines.append("")
     lines += [f"## {t['bundle_files_title']}", ""] + [f"- {t['bundle_file_' + name]}" for name in FILES] + [""]

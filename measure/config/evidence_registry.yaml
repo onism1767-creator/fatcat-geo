@@ -14,10 +14,13 @@
 # 主要来源:KDD2024(arXiv:2311.09735)、C-SEO-Bench(arXiv:2506.11097)、
 # SAGEO-Arena(arXiv:2602.12187)、各平台官方爬虫文档。详见架构书 5.3。
 
+# kind(硬边界 9,2026-10-28 落地):technical_fix = 修网站的技术活,注明出处直接建议;
+# geo_method = GEO 优化方法,报告一律写成实验卡(猜想 / 依据 / 怎么验证),不得称有效。
 entries:
   # ── ACCESS ──────────────────────────────────────────────────────────
   - id: EVIDENCE_ACCESS_ROBOTS_V1
     stage: ACCESS
+    kind: technical_fix
     access_checks: [robots_txt]  # 只在这几项检查 FAIL 时给出(审核 2026-10-27 黄 14)
     hypothesis:
       zh: 在 robots.txt 中放行检索类与用户触发类 AI 爬虫,是进入 AI 检索链路的前提
@@ -45,6 +48,7 @@ entries:
 
   - id: EVIDENCE_ACCESS_CDN_VERIFY_V1
     stage: ACCESS
+    kind: technical_fix
     access_checks: [reachability, path_fetch, ua_differential, waf_evidence]
     hypothesis:
       zh: CDN/WAF 侧按官方 IP 段核验放行真实爬虫,而非按 UA 一刀切封禁
@@ -72,6 +76,7 @@ entries:
 
   - id: EVIDENCE_ACCESS_SSR_V1
     stage: ACCESS
+    kind: technical_fix
     access_checks: [html_content, rendered_fetch]
     hypothesis:
       zh: 关键内容以服务端渲染/预渲染提供,不依赖客户端 JS 执行
@@ -99,6 +104,7 @@ entries:
 
   - id: EVIDENCE_ACCESS_SITEMAP_V1
     stage: ACCESS
+    kind: technical_fix
     access_checks: [sitemap]
     hypothesis:
       zh: 提供 sitemap 与规范链接可能有助于收录完整性
@@ -127,6 +133,7 @@ entries:
   # ── RETRIEVAL ───────────────────────────────────────────────────────
   - id: EVIDENCE_STRUCT_V1
     stage: RETRIEVAL
+    kind: geo_method
     hypothesis:
       zh: 标题/heading/schema 等结构信号与目标需求语义对齐,有利于检索阶段存活
       en: Aligning structural signals (title/headings/schema) with the target need helps survival at the retrieval stage
@@ -153,6 +160,7 @@ entries:
 
   - id: EVIDENCE_COVERAGE_PAGE_V1
     stage: RETRIEVAL
+    kind: geo_method
     hypothesis:
       zh: 为目标需求创建直接作答的专门页面(提高语义覆盖)可能改善进入候选的概率
       en: Creating dedicated pages that directly answer the target need (better semantic coverage) may improve candidate entry
@@ -179,6 +187,7 @@ entries:
 
   - id: EVIDENCE_THIRDPARTY_RETRIEVAL_V1
     stage: RETRIEVAL
+    kind: geo_method
     channel: third_party   # 第三方线「搜不到写你的第三方网页」时出(架构书附录 v0.4.24 D9;S6.1 从官网线挪来)
     hypothesis:
       zh: 进入检索存在感高的第三方内容(测评/榜单/对比文)可为品牌获得检索层在场
@@ -207,6 +216,7 @@ entries:
   # ── CITATION ────────────────────────────────────────────────────────
   - id: EVIDENCE_STATS_V1
     stage: CITATION
+    kind: geo_method
     hypothesis:
       zh: 增加可核验的量化证据可能提高生成阶段被引用概率
       en: Adding verifiable quantitative evidence may increase citation probability at the generation stage
@@ -233,6 +243,7 @@ entries:
 
   - id: EVIDENCE_QUOTABLE_V1
     stage: CITATION
+    kind: geo_method
     hypothesis:
       zh: 提供清晰、可直接引述的结论句/定义句可能提高被引用概率
       en: Providing clear, directly quotable conclusion/definition sentences may increase citation probability
@@ -259,6 +270,7 @@ entries:
 
   - id: EVIDENCE_FAQ_V1
     stage: CITATION
+    kind: geo_method
     hypothesis:
       zh: FAQ 化组织内容,在需求意图为问答式时可能利于被选为引用
       en: Organizing content as FAQs may help citation selection when the need intent is question-answering
@@ -286,6 +298,7 @@ entries:
   # ── REPRESENTATION ─────────────────────────────────────────────────
   - id: EVIDENCE_FACT_PAGE_V1
     stage: REPRESENTATION
+    kind: geo_method
     hypothesis:
       zh: 官网维护清晰稳定的品牌事实陈述(定位/定价/差异点),便于模型正确描述品牌
       en: Maintaining clear, stable brand fact statements on the official site (positioning/pricing/differentiators) helps models describe the brand correctly
@@ -312,6 +325,7 @@ entries:
 
   - id: EVIDENCE_CORRECT_SOURCES_V1
     stage: REPRESENTATION
+    kind: geo_method
     hypothesis:
       zh: 修正高被引第三方来源中的过时/错误信息,可能减少 AI 对品牌的错误描述
       en: Correcting outdated/incorrect information in highly-cited third-party sources may reduce AI misdescriptions of the brand
@@ -339,6 +353,7 @@ entries:
   # ── E 级存档(永不作为建议输出)──────────────────────────────────────
   - id: EVIDENCE_LLMSTXT_V1
     stage: RETRIEVAL
+    kind: geo_method
     hypothesis:
       zh: 部署 llms.txt 能改善 AI 可见度
       en: Deploying llms.txt improves AI visibility
@@ -365,6 +380,7 @@ entries:
 
   - id: EVIDENCE_KEYWORD_STUFFING_V1
     stage: RETRIEVAL
+    kind: geo_method
     hypothesis:
       zh: 关键词堆砌能提升 AI 检索可见度
       en: Keyword stuffing improves AI retrieval visibility

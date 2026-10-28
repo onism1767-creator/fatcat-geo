@@ -55,7 +55,7 @@
   </ul>
   {% endif %}
   <p><b>{{ t["first_word"] }}:</b>
-    {% if summary.actions %}{% for a in summary.actions[:3] %}{{ a.recommendation.plain[lang] }}{% if a.recommendation.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}{% if not loop.last %};{% endif %}{% endfor %}{% else %}{{ t["no_actions"] }}{% endif %}</p>
+    {% if summary.actions %}{% for a in summary.actions[:3] %}{{ a.recommendation.plain[lang] }}{% if a.recommendation.kind == "geo_method" %}({{ t["kind_geo_method"] }}){% elif a.recommendation.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}{% if not loop.last %};{% endif %}{% endfor %}{% else %}{{ t["no_actions"] }}{% endif %}</p>
 </div>
 
 {% macro ev(e) %}{{ t["ev_" ~ e.kind].format(detail=e.detail or "", source=e.source or "") }}{% endmacro %}
@@ -196,7 +196,12 @@
     {% set rec = a.recommendation %}
     <tr class="rec">
       <td>{{ loop.index }}</td>
-      <td><b>{{ rec.plain[lang] }}</b>{% if rec.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}<br>
+      <td><span class="muted">[{{ t["kind_geo_method"] if rec.kind == "geo_method" else t["kind_technical_fix"] }}]</span>
+        <b>{{ rec.plain[lang] }}</b>{% if rec.kind != "geo_method" and rec.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}<br>
+        {#- 实验卡 = 猜想(上面那句人话)/ 依据(这一行)/ 怎么验证(右边那列);技术修复 = 直接建议 + 出处(硬边界 9) -#}
+        {% if rec.kind == "geo_method" %}<span class="kv">{{ t["card_basis"] }}:{{ level_labels[rec.evidence_level] }} · {{ "; ".join(rec.sources[lang]) }}</span><br>
+        <span class="muted">{{ t["card_disclaimer"] }}</span><br>
+        {% else %}<span class="kv">{{ t["card_sources"] }}:{{ "; ".join(rec.sources[lang]) }}</span><br>{% endif %}
         <span class="muted">{{ t["supported_by"].format(n=a.support_count) }}</span>
         <details><summary>{{ t["why_summary"] }}</summary>
           <div class="kv">{{ level_labels[rec.evidence_level] }} · {{ t["evidence_id_word"] }} <span class="id">{{ rec.evidence_id }}</span><br>
@@ -307,7 +312,7 @@
     <h4 style="margin:10px 0 2px">{{ t["recs_title"] }}</h4>
     <ul class="ev">{% for rec in sd.recommendations %}
       <li><span class="id">{{ rec.evidence_id }}</span> · {{ t["level_word"] }} {{ rec.evidence_level }} ·
-        {{ rec.hypothesis[lang] }}{% if rec.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}</li>
+        [{{ t["kind_geo_method"] if rec.kind == "geo_method" else t["kind_technical_fix"] }}] {{ rec.hypothesis[lang] }}{% if rec.kind != "geo_method" and rec.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}</li>
     {% endfor %}</ul>
     {% endif %}
     {% endfor %}

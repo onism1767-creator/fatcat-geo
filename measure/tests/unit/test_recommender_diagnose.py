@@ -110,7 +110,7 @@ def test_recommend_marks_experiment_for_c_and_below():
     recs = recommend(REGISTRY, stage=Stage.CITATION, intent=PromptIntent.CATEGORY_DISCOVERY)
     assert recs
     for rec in recs:
-        assert rec.needs_experiment is (rec.evidence_level in ("C", "D"))
+        assert rec.needs_experiment is (rec.kind == "geo_method" or rec.evidence_level in ("C", "D"))
         assert {"zh", "en"} <= set(rec.hypothesis)  # 双语齐备
 
 
@@ -233,3 +233,19 @@ def test_access_recommendations_follow_the_failing_checks():
         representation=make_finding(Stage.REPRESENTATION, StageStatus.PASS),
     )
     assert diagnosis.primary_failure is Stage.ACCESS and ids(diagnosis.recommendations) == ["EVIDENCE_ACCESS_ROBOTS_V1"]
+
+
+def test_every_entry_declares_a_kind_and_geo_methods_are_experiment_cards_that_never_claim_effect():
+    """硬边界 9(2026-10-28 落地):技术修复注明出处直接建议;GEO 优化方法一律实验卡(B 级也不例外),文案不得称有效。"""
+    assert {e.kind for e in REGISTRY} == {"technical_fix", "geo_method"}
+    assert all(e.kind == "technical_fix" for e in REGISTRY if e.stage is Stage.ACCESS)
+    retrieval = recommend(REGISTRY, stage=Stage.RETRIEVAL, intent=PromptIntent.CATEGORY_DISCOVERY)
+    struct = next(r for r in retrieval if r.evidence_id == "EVIDENCE_STRUCT_V1")
+    assert struct.kind == "geo_method" and struct.evidence_level == "B" and struct.needs_experiment is True
+    banned = {"zh": ("保证", "一定能", "必然", "已证明"), "en": ("guarantee", "proven", "will boost", "will increase")}
+    for entry in REGISTRY:
+        if entry.kind != "geo_method":
+            continue
+        for lang, words in banned.items():
+            text = (entry.plain[lang] + " " + entry.hypothesis[lang]).lower()
+            assert not any(word in text for word in words), (entry.id, lang)

@@ -3,8 +3,9 @@
 - 只能输出注册表中存在的条目;注册表没有的建议不允许存在;
 - 只针对定位到的失败阶段出建议(上游 FAIL 禁下游药方由 diagnose 层
   保证:它只会拿 primary_failure 这一个阶段来要建议);
-- C 级及以下 needs_experiment=True,渲染层必须随文标注「建议实验验证」
-  (12.2 报告口径测试把守);E 级永不输出;
+- 每条必带 kind(硬边界 9,2026-10-28 落地):technical_fix = 修网站的技术活,注明出处直接建议;
+  geo_method = GEO 优化方法,一律写成实验卡(猜想 / 依据 / 怎么验证),不得称有效——needs_experiment 对它恒为 True;
+  技术修复类只在 C 级及以下才标「建议实验验证」;E 级永不输出;
 - v1.1 起注册表的展示字段(hypothesis/guardrail/contraindications/sources)
   为 zh/en 双语字典,语言选择发生在渲染层;
 - v0.4.14 起每条必带 plain(人话版,只换说法不换主张):用户视图读 plain,
@@ -15,6 +16,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Literal
 
 import yaml
 from pydantic import field_validator
@@ -26,7 +28,8 @@ DEFAULT_REGISTRY_PATH = Path(__file__).resolve().parents[1] / "config" / "eviden
 
 _LEVELS = ("A", "B", "C", "D", "E")
 _OUTPUT_LEVELS = ("A", "B", "C", "D")  # E 级永不作为建议输出
-_EXPERIMENT_LEVELS = ("C", "D")  # C 级及以下必须带实验标注
+_EXPERIMENT_LEVELS = ("C", "D")  # 技术修复类 C 级及以下必须带实验标注;GEO 方法不看等级,一律实验卡
+GEO_METHOD = "geo_method"
 _REQUIRED_LANGS = {"zh", "en"}
 
 
@@ -38,6 +41,7 @@ def _require_langs(value: dict, field: str) -> None:
 class EvidenceEntry(FrozenModel):
     id: str
     stage: Stage
+    kind: Literal["technical_fix", "geo_method"]  # 技术修复:直接建议;GEO 方法:实验卡(硬边界 9)
     channel: str = "own"  # own = 官网线 / third_party = 第三方线 / answer = 回答文字(架构书附录 v0.4.24 D9)
     # ACCESS 条目对应官网审计里的哪几项检查(check 名):只在那几项 FAIL 时给出——只是 robots 挂了,
     # 不该把 CDN、预渲染的建议整批端上(审核 2026-10-27 黄 14);空 = 不按检查项过滤
@@ -71,6 +75,7 @@ class EvidenceEntry(FrozenModel):
 class Recommendation(FrozenModel):
     evidence_id: str
     stage: Stage
+    kind: str  # technical_fix / geo_method:渲染层据此选「直接建议」或「实验卡」
     evidence_level: str
     hypothesis: dict[str, str]
     plain: dict[str, str]
@@ -109,6 +114,7 @@ def recommend(
         Recommendation(
             evidence_id=entry.id,
             stage=entry.stage,
+            kind=entry.kind,
             evidence_level=entry.evidence_level,
             hypothesis=entry.hypothesis,
             plain=entry.plain,
@@ -116,7 +122,7 @@ def recommend(
             sources=entry.sources,
             contraindications=entry.contraindications,
             guardrail=entry.guardrail,
-            needs_experiment=entry.evidence_level in _EXPERIMENT_LEVELS,
+            needs_experiment=entry.kind == GEO_METHOD or entry.evidence_level in _EXPERIMENT_LEVELS,
         )
         for entry in entries
         if entry.stage is stage

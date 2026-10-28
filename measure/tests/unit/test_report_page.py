@@ -199,7 +199,7 @@ def test_report_recommendations_carry_evidence_ids(client_and_job):
     client, job, _ = client_and_job
     html = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
     assert "EVIDENCE_STRUCT_V1" in html  # RETRIEVAL FAIL → 结构信号建议(B 级)
-    assert "建议实验验证" in html  # C 级以下强制标注
+    assert "实验卡" in html and "依据" in html  # GEO 方法一律实验卡:猜想 / 依据 / 怎么验证(硬边界 9,2026-10-28 落地)
     assert "证据等级" in html
 
 
