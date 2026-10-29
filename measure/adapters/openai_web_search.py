@@ -49,7 +49,7 @@ from adapters.base import (
     SurfaceAdapter,
     SurfaceMeta,
 )
-from adapters.http_support import body_excerpt, contract_post, domain_of
+from adapters.http_support import contract_post, domain_of, full_body, spent_on
 from engine.models import (
     Answer,
     AskRequest,
@@ -99,7 +99,16 @@ _CAPABILITIES = CapabilityRegistry(
 
 
 
-def _cost_usd(data: dict[str, Any], model: str, search_calls: int) -> float:
+def _search_calls(output: list[Any]) -> int:
+    """计费的检索动作数:仅 web_search_call 里 action.type == search 的算(官方口径;open_page 等不收费)。"""
+    return sum(
+        1 for item in output
+        if isinstance(item, dict) and item.get("type") == "web_search_call"
+        and isinstance(item.get("action"), dict) and item["action"].get("type") == "search"
+    )
+
+
+def _cost_usd(data: dict[str, Any], model: str) -> float:
     """官方价目确定性折算:token 费(检索内容 token 已计入 input_tokens)+ 检索次数费。"""
     in_price, out_price = _TOKEN_PRICES_PER_MTOK[model]
     usage = data.get("usage") or {}
@@ -107,7 +116,7 @@ def _cost_usd(data: dict[str, Any], model: str, search_calls: int) -> float:
         (usage.get("input_tokens") or 0) / 1e6 * in_price
         + (usage.get("output_tokens") or 0) / 1e6 * out_price
     )
-    return token_cost + search_calls * _SEARCH_USD_PER_CALL
+    return token_cost + _search_calls(data["output"]) * _SEARCH_USD_PER_CALL
 
 
 def _payload(request: AskRequest, model: str, search_disabled: bool) -> dict[str, Any]:
@@ -140,10 +149,11 @@ def _translate(
     """平台返回 → SurfaceRun。只翻译,不判定;结构不对按 Permanent 上抛(平台改格式须显式暴露)。"""
     if not isinstance(data, dict) or not isinstance(data.get("output"), list):
         raise AdapterPermanentError(
-            f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 output 列表"
+            f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 output 列表", response_body=full_body(data),
         )
-    if data.get("status") == "failed":
-        raise AdapterTransientError(f"响应 status=failed: {data.get('error')}", response_body=body_excerpt(data))
+    if data.get("status") == "failed":  # 平台回了话、钱照计,却报失败:花费随失败行落(第二轮审核 26)
+        raise AdapterTransientError(f"响应 status=failed: {data.get('error')}", response_body=full_body(data),
+                                    cost_usd=spent_on(lambda: _cost_usd(data, model)))
 
     # ── 翻译 output 项 ──────────────────────────────────────────────
     answer_parts: list[str] = []
@@ -152,7 +162,6 @@ def _translate(
     opened: list[str] = []
     citations: list[Citation] = []
     cited_urls: set[str] = set()
-    search_calls = 0
     search_observed = False
     refusal_text: str | None = None
     try:
@@ -163,7 +172,6 @@ def _translate(
                 action = item.get("action") or {}
                 action_type = action.get("type")
                 if action_type == "search":
-                    search_calls += 1  # 仅 search 动作计费(官方口径)
                     queries += action.get("queries") or (
                         [action["query"]] if action.get("query") else []
                     )
@@ -200,7 +208,8 @@ def _translate(
                     elif part_type == "refusal":
                         refusal_text = part.get("refusal") or "refusal"
     except (KeyError, TypeError, AttributeError, ValueError) as exc:  # 列表项不是 dict、字段类型怪:也算结构不符
-        raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}", response_body=body_excerpt(data)) from exc
+        raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}", response_body=full_body(data),
+                                    cost_usd=spent_on(lambda: _cost_usd(data, model))) from exc
 
     answer_text = "".join(answer_parts)
     run_fields: dict[str, Any] = dict(
@@ -232,7 +241,7 @@ def _translate(
         raw_payload=data,
         timestamp=started_at,
         latency_ms=latency_ms,
-        cost_usd=_cost_usd(data, model, search_calls),
+        cost_usd=_cost_usd(data, model),
     )
     if refusal_text is not None:
         return SurfaceRun(

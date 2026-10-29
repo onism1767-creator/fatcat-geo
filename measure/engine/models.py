@@ -66,7 +66,7 @@ class RunErrorType(StrEnum):
     REFUSAL = "REFUSAL"
     # v0.4.21:我方账户问题——不是对 surface 的观测,是观测没发出去。两种,处理不同:
     ACCOUNT_AUTH = "ACCOUNT_AUTH"  # key 无效 / 没权限(HTTP 401 / 403):换 key
-    ACCOUNT_CREDIT = "ACCOUNT_CREDIT"  # 额度不足 / 欠费(HTTP 402,或 400 / 429 带欠费原话):充值
+    ACCOUNT_CREDIT = "ACCOUNT_CREDIT"  # 额度不足 / 欠费 / 到了花费上限(402,或 400 / 429 带对应错误码):充值或调高上限
 
 
 ACCOUNT_ERROR_TYPES = frozenset({RunErrorType.ACCOUNT_AUTH, RunErrorType.ACCOUNT_CREDIT})

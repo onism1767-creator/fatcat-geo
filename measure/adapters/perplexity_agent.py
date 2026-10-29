@@ -21,6 +21,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime
 from typing import Any
 
 import httpx
@@ -33,7 +34,7 @@ from adapters.base import (
     SurfaceAdapter,
     SurfaceMeta,
 )
-from adapters.http_support import body_excerpt, contract_post, domain_of
+from adapters.http_support import contract_post, domain_of, full_body, spent_on
 from engine.models import (
     NOT_OBSERVABLE,
     Answer,
@@ -72,7 +73,8 @@ _MARKER = re.compile(r"\[(?:web:)?(\d+)\]")  # 正文里的引用标记:[3] 或 
 def _output_items(data: Any) -> list[dict[str, Any]]:
     """取 output 项列表;形状不对按 Permanent 上抛(平台改格式须显式暴露)。"""
     if not isinstance(data, dict) or not isinstance(data.get("output"), list):
-        raise AdapterPermanentError(f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 output 列表")
+        raise AdapterPermanentError(f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 output 列表",
+                                    response_body=full_body(data))
     return [item for item in data["output"] if isinstance(item, dict)]
 
 
@@ -129,6 +131,55 @@ def _cost_usd(data: dict[str, Any]) -> float:
     return 0.0  # 平台未报成本时不臆造
 
 
+def _translate(
+    request: AskRequest,
+    model: str,
+    items: list[dict[str, Any]],
+    data: dict[str, Any],
+    latency_ms: int,
+    started_at: datetime,
+) -> SurfaceRun:
+    """平台返回 → SurfaceRun。只翻译,不判定;字段类型不对由调用方按结构不符上抛。"""
+    parts = _text_parts(items)
+    text = "".join(part["text"] for part in parts)
+    searched = _search_results(items)
+    if searched is None:
+        trace = SearchTrace(search_triggered=False, generated_queries=[], retrieved_sources=[],
+                            opened_sources=NOT_OBSERVABLE)
+        citations: list[Citation] = []
+        citations_available = True  # 没搜就没有来源可引:「没引」是真实观测
+    else:
+        queries, results = searched
+        trace = SearchTrace(
+            search_triggered=True,
+            generated_queries=queries,
+            retrieved_sources=[RetrievedSource(url=r["url"], domain=domain_of(r["url"]), rank=i + 1)
+                               for i, r in enumerate(results)],
+            opened_sources=NOT_OBSERVABLE,
+        )
+        citations = _citations(parts, results)
+        citations_available = bool(citations)  # 搜了却一条都没对上:平台没给回答与来源的对应,看不到(不记 0 条)
+    return SurfaceRun(
+        run_id=request.run_id,
+        prompt_id=request.prompt_id,
+        run_index=request.run_index,
+        provider="perplexity",
+        surface="perplexity_agent",
+        model=model,
+        search_mode=request.search_mode,
+        locale=request.locale,
+        region=request.region,
+        outcome=Outcome.SUCCESS,
+        search_trace=trace,
+        answer=(Answer(answer_text=text, citations_available=citations_available, citations=citations)
+                if text else None),
+        raw_payload=data,
+        timestamp=started_at,
+        latency_ms=latency_ms,
+        cost_usd=_cost_usd(data),
+    )
+
+
 class PerplexityAgentAdapter(SurfaceAdapter):
     def __init__(self, api_key: str, client: httpx.Client | None = None) -> None:
         self._client = client or httpx.Client()
@@ -177,48 +228,17 @@ class PerplexityAgentAdapter(SurfaceAdapter):
         )
         items = _output_items(data)
         status = data.get("status")
-        if status not in _SUCCESS_STATUSES:
+        if status not in _SUCCESS_STATUSES:  # 平台回了话、钱照计,却报失败:花费随失败行落(第二轮审核 26)
             error = data.get("error") if isinstance(data.get("error"), dict) else {}
             raise AdapterPermanentError(f"平台返回 status={status!r}: {error.get('message') or '无说明'}",
-                                        response_body=body_excerpt(data))
-        parts = _text_parts(items)
-        text = "".join(part["text"] for part in parts)
-        searched = _search_results(items)
-        if searched is None:
-            trace = SearchTrace(search_triggered=False, generated_queries=[], retrieved_sources=[],
-                                opened_sources=NOT_OBSERVABLE)
-            citations: list[Citation] = []
-            citations_available = True  # 没搜就没有来源可引:「没引」是真实观测
-        else:
-            queries, results = searched
-            trace = SearchTrace(
-                search_triggered=True,
-                generated_queries=queries,
-                retrieved_sources=[RetrievedSource(url=r["url"], domain=domain_of(r["url"]), rank=i + 1)
-                                   for i, r in enumerate(results)],
-                opened_sources=NOT_OBSERVABLE,
-            )
-            citations = _citations(parts, results)
-            citations_available = bool(citations)  # 搜了却一条都没对上:平台没给回答与来源的对应,看不到(不记 0 条)
-        return SurfaceRun(
-            run_id=request.run_id,
-            prompt_id=request.prompt_id,
-            run_index=request.run_index,
-            provider="perplexity",
-            surface="perplexity_agent",
-            model=model,
-            search_mode=request.search_mode,
-            locale=request.locale,
-            region=request.region,
-            outcome=Outcome.SUCCESS,
-            search_trace=trace,
-            answer=(Answer(answer_text=text, citations_available=citations_available, citations=citations)
-                    if text else None),
-            raw_payload=data,
-            timestamp=started_at,
-            latency_ms=latency_ms,
-            cost_usd=_cost_usd(data),
-        )
+                                        response_body=full_body(data), cost_usd=spent_on(lambda: _cost_usd(data)))
+        try:
+            return _translate(request, model, items, data, latency_ms, started_at)
+        except (KeyError, TypeError, AttributeError, ValueError) as exc:
+            # 结构防线(第二轮审核 26:原来这家没有):字段类型怪(标题不是字符串、位置不是数字、成本不是数……)也算
+            # 结构不符,带整份响应按 Permanent 上抛——不让原始异常冒出去成了「契约之外的异常」、连响应都没存
+            raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}", response_body=full_body(data),
+                                        cost_usd=spent_on(lambda: _cost_usd(data))) from exc
 
     def healthcheck(self) -> bool:
         try:

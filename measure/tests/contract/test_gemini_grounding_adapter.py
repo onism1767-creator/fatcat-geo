@@ -227,3 +227,23 @@ def test_healthcheck_minimal_request_without_tools():
     respx.post(API_URL).mock(return_value=httpx.Response(403, json=bad))
     with pytest.raises(AdapterAccountError):  # 账户问题不吞:开跑前预检靠它停单并说清换 key / 充值(S11.1)
         GeminiGroundingAdapter(api_key="bad-key").healthcheck()
+
+
+@respx.mock
+def test_reported_failures_carry_the_money_already_spent():
+    """互动终态 failed、检索结果标 is_error:token 与检索费照计,花费随异常上交(第二轮审核 26)。"""
+    from adapters.gemini_grounding import _cost_usd
+
+    adapter = GeminiGroundingAdapter(api_key="test-key")
+    model = adapter.meta().default_model
+    for name in ("failed_status.json", "search_result_error.json"):
+        body = golden(name)
+        respx.post(API_URL).mock(return_value=httpx.Response(200, json=body))
+        with pytest.raises(AdapterTransientError) as exc_info:
+            adapter.ask(make_request())
+        assert exc_info.value.cost_usd == pytest.approx(_cost_usd(body, model)) and exc_info.value.cost_usd > 0
+        assert json.loads(exc_info.value.response_body or "") == body
+    respx.post(API_URL).mock(return_value=httpx.Response(200, json={"unexpected": "shape"}))
+    with pytest.raises(AdapterPermanentError) as top_info:
+        adapter.ask(make_request())
+    assert "unexpected" in (top_info.value.response_body or "")

@@ -292,16 +292,21 @@ def ask_with_retries(
 ) -> SurfaceRun:
     """一次调用 = 最多 max_attempts 次尝试(仅 Transient 重试,指数退避+抖动;限流时等 max(退避, Retry-After),
     单次等待不超过 max_wait_s——平台要求等得更久就不等、这次直接记失败)。耗尽 / 永久失败 →
-    构造失败 SurfaceRun 返回(失败不蒸发)。采样与辅助 AI 调用(engine/ai_task.py)共用这一套(13.2)。"""
+    构造失败 SurfaceRun 返回(失败不蒸发)。采样与辅助 AI 调用(engine/ai_task.py)共用这一套(13.2)。
+
+    花费也不蒸发(第二轮审核 26):平台回了话却报失败的尝试照样计费,适配器把那笔钱带在异常上;一次调用的
+    cost_usd = 各次尝试花费之和——失败收场记在失败行上,重试后成功就加到成功那一行(预算与实测均值都按真花的算)。"""
     rng = rng or random.Random()
     started_at = datetime.now(UTC)
     t0 = time.perf_counter()
     attempts = 0
+    spent = 0.0  # 之前几次失败尝试已经花掉的钱
     while True:
         attempts += 1
         try:
-            return adapter.ask(request)
+            run = adapter.ask(request)
         except AdapterTransientError as exc:
+            spent += exc.cost_usd
             if attempts >= policy.max_attempts:
                 log.warning("adapter_retries_exhausted", run_id=request.run_id, surface=adapter.meta().surface,
                             attempt=attempts, http_status=exc.http_status, error=str(exc))
@@ -313,6 +318,7 @@ def ask_with_retries(
                         http_status=exc.http_status, attempts=attempts,
                     ),
                     response_body=exc.response_body,
+                    cost_usd=spent,
                 )
             cap = min(policy.backoff_max_s, policy.backoff_base_s * (2 ** (attempts - 1)))
             wait_s = rng.uniform(0, cap)
@@ -332,12 +338,14 @@ def ask_with_retries(
                         http_status=exc.http_status, attempts=attempts,
                     ),
                     response_body=exc.response_body,
+                    cost_usd=spent,
                 )
             log.warning("adapter_retry", run_id=request.run_id, surface=adapter.meta().surface,
                         attempt=attempts, http_status=exc.http_status, retry_after_s=exc.retry_after_s,
                         wait_s=round(wait_s, 1), error=str(exc))
             sleep(wait_s)
         except AdapterAccountError as exc:  # 子类须先于 AdapterPermanentError 捕获
+            spent += exc.cost_usd
             meta = adapter.meta()
             log.error("adapter_account_problem", run_id=request.run_id, surface=meta.surface,
                       model=request.model or meta.default_model, http_status=exc.http_status, error=str(exc))
@@ -349,8 +357,10 @@ def ask_with_retries(
                     http_status=exc.http_status, attempts=attempts,
                 ),
                 response_body=exc.response_body,
+                cost_usd=spent,
             )
         except AdapterPermanentError as exc:
+            spent += exc.cost_usd
             log.error("adapter_permanent_failure", run_id=request.run_id,
                       surface=adapter.meta().surface, http_status=exc.http_status, error=str(exc))
             return _failure_run(
@@ -361,6 +371,7 @@ def ask_with_retries(
                     http_status=exc.http_status, attempts=attempts,
                 ),
                 response_body=exc.response_body,
+                cost_usd=spent,
             )
         except CapabilityNotSupportedError:
             raise  # 编程错误直接上抛,不落 SurfaceRun(13.1)
@@ -377,7 +388,14 @@ def ask_with_retries(
                     message=f"适配器抛出契约之外的异常(平台返回了没见过的结构,要修适配器): {type(exc).__name__}: {exc}",
                     attempts=attempts,
                 ),
+                cost_usd=spent,  # 这次花了多少看不出,之前几次失败尝试花掉的照记
             )
+        else:
+            if spent:
+                log.info("charged_failed_attempts", run_id=request.run_id, surface=adapter.meta().surface,
+                         attempts=attempts, spent_usd=round(spent, 6))
+                return run.model_copy(update={"cost_usd": run.cost_usd + spent})
+            return run
 
 
 def _failure_run(
@@ -389,6 +407,7 @@ def _failure_run(
     outcome: Outcome,
     error: RunError,
     response_body: str | None = None,
+    cost_usd: float = 0.0,
 ) -> SurfaceRun:
     meta = adapter.meta()  # 只在失败时取:构造失败记录要知道是哪台仪器、哪个型号
     return SurfaceRun(
@@ -403,12 +422,12 @@ def _failure_run(
         region=request.region,
         outcome=outcome,
         error=error,
-        # SearchTrace 默认全 UNKNOWN/NOT_OBSERVABLE;失败时无回答、无成本数据
-        # 平台错误响应体(截断)存档:失败的证据也不蒸发(13.1)
+        # SearchTrace 默认全 UNKNOWN/NOT_OBSERVABLE;失败时无回答
+        # 平台响应体存档:失败的证据也不蒸发(13.1)
         raw_payload=(
             {"error_response_text": response_body} if response_body is not None else None
         ),
         timestamp=started_at,
         latency_ms=int((time.perf_counter() - t0) * 1000),  # 含重试与退避的真实耗时
-        cost_usd=0.0,
+        cost_usd=cost_usd,  # 各次尝试里平台回了话却报失败时照样计的费(第二轮审核 26)
     )

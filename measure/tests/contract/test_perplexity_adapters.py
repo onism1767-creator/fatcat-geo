@@ -188,3 +188,33 @@ def test_close_releases_http_client():
     client = httpx.Client()
     PerplexityAgentAdapter(api_key="test-key", client=client).close()
     assert client.is_closed
+
+
+@respx.mock
+def test_agent_reported_failure_carries_the_cost_the_platform_reported():
+    """status=failed 时平台在 usage.cost 里报了多少就记多少(第二轮审核 26:原来失败行一律记 0 元)。"""
+    body = golden("perplexity_agent", "failed_status.json")
+    body["usage"]["cost"]["total_cost"] = 0.004
+    respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json=body))
+    with pytest.raises(AdapterPermanentError) as exc_info:
+        PerplexityAgentAdapter(api_key="test-key").ask(make_request())
+    assert exc_info.value.cost_usd == pytest.approx(0.004)
+
+
+@respx.mock
+def test_agent_odd_field_types_are_a_structure_error_with_the_response_kept():
+    """这家原来没有结构防线:字段类型怪(位置不是数字、标题不是字符串)直接冒原始异常,响应也没存(第二轮审核 26)。"""
+    for note in ({"type": "url_citation", "url": "https://a.test/x", "start_index": "abc"},
+                 {"type": "url_citation", "url": "https://a.test/x", "title": {"not": "a string"}}):
+        odd = {"status": "completed", "output": [
+            {"type": "search_results", "queries": ["q"], "results": [{"id": 1, "url": "https://a.test/x"}]},
+            {"type": "message", "content": [{"type": "output_text", "text": "答 [1]", "annotations": [note]}]},
+        ], "usage": {"cost": {"total_cost": 0.003}}}
+        respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json=odd))
+        with pytest.raises(AdapterPermanentError, match="响应结构") as exc_info:
+            PerplexityAgentAdapter(api_key="test-key").ask(make_request())
+        assert json.loads(exc_info.value.response_body or "") == odd and exc_info.value.cost_usd == pytest.approx(0.003)
+    respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json=["not", "an", "object"]))
+    with pytest.raises(AdapterPermanentError) as top_info:
+        PerplexityAgentAdapter(api_key="test-key").ask(make_request())
+    assert "not" in (top_info.value.response_body or "")

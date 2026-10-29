@@ -21,8 +21,11 @@ from engine.models import ACCOUNT_ERROR_TYPES, AskRequest, FrozenModel, RunError
 class AdapterError(Exception):
     """Transient/Permanent 的公共基类,便于引擎统一捕获。
 
-    response_body:平台错误响应体(截断),随失败 SurfaceRun 进 raw_payload
-    存档——失败不蒸发也包括失败的证据(13.1 增补)。"""
+    response_body:平台响应体,随失败 SurfaceRun 进 raw_payload 存档——失败不蒸发也包括失败的证据(13.1 增补)。
+    2xx 却报失败的整份存(与成功回答一样全量);HTTP 错误页只留头尾(防代理吐巨型网页)。
+
+    cost_usd:这次尝试已经花掉的钱(第二轮审核 26)。平台正常回了话、却在响应里报失败时,token 与检索费照样计了;
+    适配器按该家价目从响应里折算后带上,调度器记进失败行(或加到重试后成功的那一行),不让花费蒸发。"""
 
     def __init__(
         self,
@@ -30,10 +33,12 @@ class AdapterError(Exception):
         *,
         http_status: int | None = None,
         response_body: str | None = None,
+        cost_usd: float = 0.0,
     ) -> None:
         super().__init__(message)
         self.http_status = http_status
         self.response_body = response_body
+        self.cost_usd = cost_usd
 
 
 class AdapterTransientError(AdapterError):
@@ -49,8 +54,9 @@ class AdapterTransientError(AdapterError):
         http_status: int | None = None,
         response_body: str | None = None,
         retry_after_s: float | None = None,
+        cost_usd: float = 0.0,
     ) -> None:
-        super().__init__(message, http_status=http_status, response_body=response_body)
+        super().__init__(message, http_status=http_status, response_body=response_body, cost_usd=cost_usd)
         self.retry_after_s = retry_after_s
 
 
@@ -59,10 +65,10 @@ class AdapterPermanentError(AdapterError):
 
 
 class AdapterAccountError(AdapterPermanentError):
-    """账户问题(v0.4.21):key 无效 / 没权限(ACCOUNT_AUTH)或额度不足 / 欠费(ACCOUNT_CREDIT)。
+    """账户问题(v0.4.21):key 无效 / 没权限(ACCOUNT_AUTH)或额度不足 / 欠费 / 到了花费上限(ACCOUNT_CREDIT)。
     仍是永久类(不重试),但它不是对 surface 的观测——是我们这边没能发出观测。引擎另作处理:
     照常落库(error_type 取 error_type 参数),不计入尝试数 / 失败率 / 熔断窗口,并立即停止整个
-    任务;任务页按两种代码分别解释(换 key / 充值)。"""
+    任务;任务页按两种代码分别解释(换 key / 充值或调高花费上限)。"""
 
     def __init__(
         self,

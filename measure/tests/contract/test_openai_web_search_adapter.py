@@ -282,3 +282,27 @@ def test_healthcheck_minimal_request_without_tools():
     respx.post(RESP_URL).mock(return_value=httpx.Response(401, json=bad))
     with pytest.raises(AdapterAccountError):  # 账户问题不吞:开跑前预检靠它停单并说清换 key / 充值(S11.1)
         OpenAIWebSearchAdapter(api_key="bad-key").healthcheck()
+
+
+@respx.mock
+def test_reported_failure_and_odd_structure_carry_the_money_already_spent():
+    """平台回了话、token 照计,却报 status=failed:花费与整份响应随异常上交,失败行不再记 0 元(第二轮审核 26)。"""
+    from adapters.openai_web_search import _cost_usd
+
+    body = golden("failed_status.json")
+    respx.post(RESP_URL).mock(return_value=httpx.Response(200, json=body))
+    adapter = OpenAIWebSearchAdapter(api_key="test-key")
+    with pytest.raises(AdapterTransientError) as exc_info:
+        adapter.ask(make_request())
+    assert exc_info.value.cost_usd == pytest.approx(_cost_usd(body, adapter.meta().default_model))
+    assert exc_info.value.cost_usd > 0 and json.loads(exc_info.value.response_body or "") == body
+
+    odd = {"output": [{"type": "message", "content": [{"type": "output_text"}]}], "usage": {"input_tokens": 1000}}
+    respx.post(RESP_URL).mock(return_value=httpx.Response(200, json=odd))
+    with pytest.raises(AdapterPermanentError, match="响应结构") as odd_info:
+        adapter.ask(make_request())
+    assert odd_info.value.cost_usd > 0 and json.loads(odd_info.value.response_body or "") == odd
+    respx.post(RESP_URL).mock(return_value=httpx.Response(200, json={"unexpected": "shape"}))
+    with pytest.raises(AdapterPermanentError) as top_info:  # 顶层就不对:也带响应(原来不带)
+        adapter.ask(make_request())
+    assert "unexpected" in (top_info.value.response_body or "")

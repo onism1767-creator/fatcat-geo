@@ -313,3 +313,29 @@ def test_close_releases_http_client():
     client = httpx.Client()
     ClaudeWebSearchAdapter(api_key="test-key", client=client).close()
     assert client.is_closed
+
+
+@respx.mock
+def test_failures_after_paid_segments_carry_the_money_already_spent():
+    """工具错误块、续传用尽、续传途中平台报错:已经回来的段都计了费,花费随异常上交(第二轮审核 26)。"""
+    from adapters.claude_web_search import _cost_usd
+
+    adapter = ClaudeWebSearchAdapter(api_key="test-key")
+    model = adapter.meta().default_model
+    tool_error = golden("tool_error_unavailable.json")
+    respx.post(MSG_URL).mock(return_value=httpx.Response(200, json=tool_error))
+    with pytest.raises(AdapterTransientError) as exc_info:
+        adapter.ask(make_request())
+    assert exc_info.value.cost_usd == pytest.approx(_cost_usd([tool_error], model)) and exc_info.value.cost_usd > 0
+
+    first = golden("pause_turn_first.json")
+    respx.post(MSG_URL).mock(return_value=httpx.Response(200, json=first))
+    with pytest.raises(AdapterTransientError, match="pause_turn") as exhausted:
+        adapter.ask(make_request())
+    assert exhausted.value.cost_usd == pytest.approx(_cost_usd([first] * 4, model))
+
+    respx.post(MSG_URL).mock(side_effect=[httpx.Response(200, json=first),
+                                          httpx.Response(500, json={"type": "error", "error": {"type": "api_error"}})])
+    with pytest.raises(AdapterTransientError, match="平台内部错误") as mid_way:
+        adapter.ask(make_request())
+    assert mid_way.value.http_status == 500 and mid_way.value.cost_usd == pytest.approx(_cost_usd([first], model))

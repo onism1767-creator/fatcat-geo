@@ -8,7 +8,7 @@ import pytest
 import respx
 
 from adapters.base import AdapterAccountError, AdapterPermanentError, AdapterTransientError
-from adapters.http_support import classify_account_problem, contract_post, retry_after_seconds
+from adapters.http_support import classify_account_problem, clipped, contract_post, retry_after_seconds, spent_on
 from engine.models import RunErrorType
 
 URL = "https://example.test/v1/x"
@@ -52,7 +52,38 @@ RATE_LIMIT_BODIES = (  # 普通限流的真实措辞:提了 quota / billing,但�
     '{"error":{"message":"Rate limit reached for model-x on requests per min (RPM): Limit 3, Used 3, Requested 1. '
     'Please try again in 20s. You can increase your rate limit by adding a payment method to your account at '
     'https://example.test/account/billing.","type":"requests","code":"rate_limit_exceeded"}}',
+    '{"type":"error","error":{"type":"rate_limit_error","message":"This request would exceed the rate limit for your '
+    'organization of 50 requests per minute. Please reduce the prompt length or try again later."}}',
 )
+
+# 花费上限 / 用量上限 / 预付用完:官方文档写明的结构化错误码或原话(第二轮审核 25;2026-10-29 核对两家官方文档)
+SPEND_CAP_BODIES = (
+    (429, '{"type":"error","error":{"type":"rate_limit_error","message":"You have reached your API usage limits: '
+          "your organization has crossed its monthly API usage threshold, set based on your organization's API tier. "
+          'You will regain access on 2026-11-01 at 00:00 UTC.",'
+          '"details":{"error_code":"enforced_spend_limit_reached"}}}'),
+    (400, '{"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified API '
+          'usage limits. You will regain access on 2026-11-01 at 00:00 UTC."}}'),
+    (400, '{"type":"error","error":{"type":"invalid_request_error","message":"You have reached your specified '
+          'workspace API usage limits. You will regain access on 2026-11-01 at 00:00 UTC."}}'),
+    (429, '{"error":{"message":"Your organization has no prepaid credits remaining.",'
+          '"code":"credit_balance_exhausted"}}'),
+    (429, '{"error":{"message":"Your organization reached its enforced spend limit.",'
+          '"code":"organization_spend_limit_exceeded"}}'),
+    (429, '{"error":{"message":"Your project reached its enforced spend limit.",'
+          '"code":"project_spend_limit_exceeded"}}'),
+    (429, '{"error":{"message":"Your organization reached its assigned usage limit.",'
+          '"code":"organization_usage_limit_exceeded"}}'),
+)
+
+
+@pytest.mark.parametrize("status, body", SPEND_CAP_BODIES)
+def test_spend_caps_stop_the_job_instead_of_being_retried_or_called_a_bad_request(status, body):
+    """月度封顶的 429 原来被当限流重试到耗尽、自设上限的 400 被当非法请求:重试不会恢复,要停单说清(第二轮 25)。"""
+    with pytest.raises(AdapterAccountError) as exc_info:
+        _post(status, body)
+    assert exc_info.value.error_type is RunErrorType.ACCOUNT_CREDIT and "花费上限" in str(exc_info.value)
+    assert classify_account_problem(status, body) is RunErrorType.ACCOUNT_CREDIT  # 历史错误行按同一条规则重读
 
 
 def test_ordinary_errors_keep_their_classes_and_explain_themselves():
@@ -103,3 +134,23 @@ def test_classify_rule_is_reusable_on_stored_evidence():
     assert classify_account_problem(None, "credit balance is too low") is None  # 没有状态码的传输层错误不算
     for body in RATE_LIMIT_BODIES:  # 历史错误行按同一条规则重读:旧规则按词误判成欠费的限流行,现在读出来是限流
         assert classify_account_problem(429, body) is None
+
+
+def test_error_pages_keep_head_and_tail_and_non_json_2xx_keeps_its_body():
+    """错误页原来只存前 2000 字;2xx 却不是 JSON 时连回包都不存(第二轮审核 26)。"""
+    page = "<html>HEAD-MARK " + "x" * 100_000 + " TAIL-MARK</html>"
+    with pytest.raises(AdapterTransientError) as outage:
+        _post(502, page)
+    body = outage.value.response_body
+    assert body is not None and "HEAD-MARK" in body and "TAIL-MARK" in body and "中间省略" in body
+    assert len(body) < 17_000
+    assert clipped("short") == "short"
+    with pytest.raises(AdapterTransientError) as polluted:
+        _post(200, "<html>captive portal</html>")
+    assert polluted.value.http_status == 200 and polluted.value.response_body == "<html>captive portal</html>"
+
+
+def test_spent_on_never_guesses_when_usage_fields_are_odd():
+    assert spent_on(lambda: 0.25) == 0.25
+    assert spent_on(lambda: {}["usage"]) == 0.0
+    assert spent_on(lambda: float("not a number")) == 0.0

@@ -43,7 +43,7 @@ def test_every_code_the_program_can_raise_is_in_the_library():
 def test_text_fills_placeholders_and_refuses_missing_ones():
     entry = LIBRARY["ACCOUNT_CREDIT"]
     text = entry.text("zh", with_next_step=True, ai="OpenAI", model="gpt-6-luna", detail="credit balance too low")
-    assert "OpenAI(型号 gpt-6-luna)" in text and "充值后点「接着跑」" in text and "credit balance too low" in text
+    assert "OpenAI(型号 gpt-6-luna)" in text and "调高 / 取消花费上限" in text and "credit balance too low" in text
     assert "Top up" in entry.text("en", with_next_step=True, ai="OpenAI", model="m", detail="x")
     assert "充值" not in entry.text("zh", with_next_step=False, ai="a", model="m", detail="d")
     with pytest.raises(KeyError):

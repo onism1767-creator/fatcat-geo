@@ -369,3 +369,27 @@ def test_non_contract_exception_is_recorded_as_permanent_failure_not_a_crash():
     assert result.stop_reason is StopReason.FAILURE_RATE_EXCEEDED and sleeps == []  # 不重试不退避
     assert storage.runs and all(r.outcome is Outcome.PERMANENT_FAILURE and r.error.attempts == 1 for r in storage.runs)
     assert all("AttributeError" in r.error.message and "契约之外" in r.error.message for r in storage.runs)
+
+
+def test_money_spent_on_failed_attempts_is_recorded_not_lost():
+    """平台回了话却报失败的尝试照样计费(第二轮审核 26:原来失败行一律记 0 元)。
+    失败收场 → 各次尝试的花费记在失败行上;重试后成功 → 加到成功那一行;预算按真花的算。"""
+    def charged():
+        return AdapterTransientError("响应 status=failed", response_body="{}", cost_usd=0.02)
+
+    storage = MemoryStorage()
+    result = make_sampler(storage).run_plan(
+        ScriptedAdapter([charged(), charged(), charged(), charged(), "ok"]), [P1],
+        policy=SamplingPolicy(max_attempts=3),
+    )
+    failed, retried, clean = storage.runs
+    assert failed.outcome is Outcome.TRANSIENT_FAILURE and failed.cost_usd == pytest.approx(0.06)
+    assert retried.outcome is Outcome.SUCCESS and retried.cost_usd == pytest.approx(0.005 + 0.02)
+    assert clean.cost_usd == pytest.approx(0.005)
+    assert result.total_cost_usd == pytest.approx(0.06 + 0.025 + 0.005)
+
+    storage2 = MemoryStorage()
+    make_sampler(storage2).run_plan(
+        ScriptedAdapter([AdapterPermanentError("平台返回 status='failed'", cost_usd=0.01), "ok"]), [P1],
+    )
+    assert storage2.runs[0].outcome is Outcome.PERMANENT_FAILURE and storage2.runs[0].cost_usd == pytest.approx(0.01)

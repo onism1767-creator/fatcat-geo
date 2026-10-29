@@ -7,9 +7,10 @@ from __future__ import annotations
 
 import json
 import time
+from collections.abc import Callable
 from datetime import UTC, datetime
 from email.utils import parsedate_to_datetime
-from typing import Any
+from typing import Any, Final
 from urllib.parse import urlsplit
 
 import httpx
@@ -21,10 +22,26 @@ from engine.models import RunErrorType
 # 整句,不按单词:普通限流的提示也会提 quota / billing(某家限流 429 的原话就是 "You exceeded your current quota,
 # please check your plan and billing details",另一家免费档限流提示带 billing 链接),按词会把一次限流当成欠费、
 # 整单立停让用户充值(审核 2026-10-27 红 3)。"payment required" 由 HTTP 402 状态码本身覆盖,不再按词认。
+# 花费上限与欠费同类:重试不会恢复,只能充值、调高上限或等到下个计费周期(第二轮审核 25;2026-10-29 核对官方文档)。
 _ACCOUNT_CREDIT_MARKERS = (
-    "insufficient_quota",            # 官方文档:欠费时 HTTP 429 error.code=insufficient_quota(限流用的是别的 code)
-    "credit balance is too low",     # 2026-09-21 真实撞到:HTTP 400 "Your credit balance is too low to access the API"
+    # OpenAI 错误码页:欠费 / 花费上限 / 用量上限都是 HTTP 429,靠 error.code 与限流区分;error.type 仍可能是
+    # insufficient_quota(原来注释写成 error.code,已过时)
+    "insufficient_quota",
+    "credit_balance_exhausted",            # 预付额度用完
+    "organization_spend_limit_exceeded",   # 组织到了自己设的花费上限
+    "project_spend_limit_exceeded",        # 项目到了自己设的花费上限
+    "organization_usage_limit_exceeded",   # 组织到了平台分配的用量上限
+    # Anthropic 限额页:用量档的月度封顶是 429 rate_limit_error、没有 retry-after,只能靠 details.error_code 认;
+    # 用户自己设的花费上限是 400 invalid_request_error,原话以下面两句开头(组织级 / 工作区级)
+    "enforced_spend_limit_reached",
+    "you have reached your specified api usage limits",
+    "you have reached your specified workspace api usage limits",
+    # 2026-09-21 真实撞到:HTTP 400 "Your credit balance is too low to access the API"
+    "credit balance is too low",
 )
+
+# HTTP 错误页只留头尾各这么多字:代理 / 网关可能吐一整张网页,平台的错误说明常在开头,结尾常是请求号(第二轮审核 26)
+_ERROR_BODY_KEEP: Final = 8000
 
 
 def domain_of(url: str) -> str:
@@ -32,10 +49,28 @@ def domain_of(url: str) -> str:
     return urlsplit(url).hostname or ""
 
 
-def body_excerpt(data: Any) -> str:
-    """HTTP 200 却在响应体里报失败(status=failed、工具错误块……)时,把响应体(截断)带进异常,随失败行进
-    raw_payload 存档——失败的证据也不蒸发(13.1;审核 2026-10-27 黄 21)。"""
-    return json.dumps(data, ensure_ascii=False, default=str)[:2000]
+def full_body(data: Any) -> str:
+    """HTTP 2xx 却报失败(status=failed、工具错误块、结构不对……)时,把整份响应带进异常,随失败行进 raw_payload
+    存档——失败的证据也不蒸发(13.1;审核 2026-10-27 黄 21)。和成功回答一样全量存(硬边界 6):原来只存前 2000 字,
+    错误说明在后面的(工具错误块常在长正文之后)就丢了(第二轮审核 26)。"""
+    return json.dumps(data, ensure_ascii=False, default=str)
+
+
+def clipped(text: str) -> str:
+    """HTTP 错误页 / 非 JSON 回包:留头尾各 _ERROR_BODY_KEEP 字,中间注明省了多少。"""
+    if len(text) <= 2 * _ERROR_BODY_KEEP:
+        return text
+    dropped = len(text) - 2 * _ERROR_BODY_KEEP
+    return f"{text[:_ERROR_BODY_KEEP]}\n…[中间省略 {dropped} 字]…\n{text[-_ERROR_BODY_KEEP:]}"
+
+
+def spent_on(compute: Callable[[], float]) -> float:
+    """平台回了话却报失败时,这次已经花掉的钱:调用方按该家价目从响应里折算。响应里的用量字段本身也怪 → 0
+    (看不出花了多少就不臆造;失败行照样落,原始响应在 raw_payload 里,以后能重算)。"""
+    try:
+        return float(compute())
+    except (KeyError, TypeError, AttributeError, ValueError):
+        return 0.0
 
 
 def classify_account_problem(http_status: int | None, body: str | None) -> RunErrorType | None:
@@ -92,11 +127,11 @@ def contract_post(
     错误翻译规则(每类消息都带一句人话解释,进 RunError.message 随失败行落库):
     - 超时/连接失败等传输层错误 → AdapterTransientError
     - 账户问题 → AdapterAccountError:401 / 403 = key 无效或没权限(ACCOUNT_AUTH);
-      402,或 400 / 429 且响应体是欠费措辞 = 额度不足或欠费(ACCOUNT_CREDIT)
+      402,或 400 / 429 且响应体带欠费 / 花费上限的错误码或官方原话 = 额度不足、欠费或到了上限(ACCOUNT_CREDIT)
     - 其余 HTTP 429(限流)/ 5xx(平台内部错误)→ AdapterTransientError(带 http_status;
       429 / 503 的 Retry-After 头翻译成 retry_after_s,v0.4.26 C5——只翻译,不在这里等)
     - 其余 4xx → AdapterPermanentError(非法请求)
-    - 2xx 但响应体非 JSON → AdapterTransientError(疑似网关/代理污染)
+    - 2xx 但响应体非 JSON → AdapterTransientError(疑似网关/代理污染;回包头尾带进异常存档)
     """
     started_at = datetime.now(UTC)
     t0 = time.perf_counter()
@@ -109,10 +144,10 @@ def contract_post(
     latency_ms = int((time.perf_counter() - t0) * 1000)
 
     status = response.status_code
-    body = response.text[:2000] if status >= 400 else None  # 错误证据存档,截断防巨响应
+    body = clipped(response.text) if status >= 400 else None  # 错误证据存档,留头尾防巨响应
     account_kind = classify_account_problem(status, body)
     if account_kind is not None:
-        explanation = _ACCOUNT_MESSAGES.get(status, f"账户额度不足或欠费(HTTP {status})")
+        explanation = _ACCOUNT_MESSAGES.get(status, f"账户额度不足、欠费或到了花费上限(HTTP {status})")
         raise AdapterAccountError(
             f"{explanation}: {response.text[:200]}", error_type=account_kind,
             http_status=status, response_body=body,
@@ -137,4 +172,7 @@ def contract_post(
     try:
         return response.json(), latency_ms, started_at
     except ValueError as exc:
-        raise AdapterTransientError("2xx 响应体不是合法 JSON") from exc
+        raise AdapterTransientError(
+            f"HTTP {status} 响应体不是合法 JSON(疑似网关或代理插了一张网页,引擎会重试)",
+            http_status=status, response_body=clipped(response.text),
+        ) from exc

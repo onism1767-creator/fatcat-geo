@@ -48,7 +48,7 @@ from adapters.base import (
     SurfaceAdapter,
     SurfaceMeta,
 )
-from adapters.http_support import body_excerpt, contract_post, domain_of
+from adapters.http_support import contract_post, domain_of, full_body, spent_on
 from engine.models import (
     NOT_OBSERVABLE,
     Answer,
@@ -91,7 +91,16 @@ _CAPABILITIES = CapabilityRegistry(
 )
 
 
-def _cost_usd(data: dict[str, Any], model: str, queries: list[str]) -> float:
+def _queries(steps: list[Any]) -> list[str]:
+    """全部 google_search_call 步里的非空检索词,按出现顺序(计费与检索轨迹共用)。"""
+    return [
+        q
+        for step in steps if step.get("type") == "google_search_call"
+        for q in (step.get("arguments") or {}).get("queries") or [] if q
+    ]
+
+
+def _cost_usd(data: dict[str, Any], model: str) -> float:
     """官方价目确定性折算:token 费(思考按输出价)+ 唯一非空查询数 × 检索单价。"""
     in_price, out_price = _TOKEN_PRICES_PER_MTOK[model]
     usage = data.get("usage") or {}
@@ -100,7 +109,7 @@ def _cost_usd(data: dict[str, Any], model: str, queries: list[str]) -> float:
         + ((usage.get("total_output_tokens") or 0) + (usage.get("total_thought_tokens") or 0))
         / 1e6 * out_price
     )
-    return token_cost + len(set(queries)) * _SEARCH_USD_PER_QUERY
+    return token_cost + len(set(_queries(data["steps"]))) * _SEARCH_USD_PER_QUERY
 
 
 def _payload(request: AskRequest, model: str, search_disabled: bool) -> dict[str, Any]:
@@ -126,30 +135,29 @@ def _translate(
     """平台返回 → SurfaceRun。只翻译,不判定;结构不对按 Permanent 上抛(平台改格式须显式暴露)。"""
     if not isinstance(data, dict) or not isinstance(data.get("steps"), list):
         raise AdapterPermanentError(
-            f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 steps 列表"
+            f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 steps 列表", response_body=full_body(data),
         )
     status = data.get("status")
-    if status not in _SUCCESS_STATUSES:
-        raise AdapterTransientError(f"互动终态异常 status={status!r}", response_body=body_excerpt(data))
+    if status not in _SUCCESS_STATUSES:  # 平台回了话、钱照计,却报失败:花费随失败行落(第二轮审核 26)
+        raise AdapterTransientError(f"互动终态异常 status={status!r}", response_body=full_body(data),
+                                    cost_usd=spent_on(lambda: _cost_usd(data, model)))
 
     # ── 翻译 steps ─────────────────────────────────────────────────
     answer_parts: list[str] = []
-    queries: list[str] = []
     citations: list[Citation] = []
     cited_urls: set[str] = set()
     search_observed = False
     try:
+        queries = _queries(data["steps"])
         for step in data["steps"]:
             step_type = step.get("type")
             if step_type == "google_search_call":
                 search_observed = True
-                queries += [
-                    q for q in (step.get("arguments") or {}).get("queries") or [] if q
-                ]
             elif step_type == "google_search_result":
                 search_observed = True
                 if step.get("is_error"):
-                    raise AdapterTransientError("google_search_result 标记 is_error", response_body=body_excerpt(data))
+                    raise AdapterTransientError("google_search_result 标记 is_error", response_body=full_body(data),
+                                                cost_usd=spent_on(lambda: _cost_usd(data, model)))
             elif step_type == "model_output":
                 for block in step.get("content") or []:
                     if block.get("type") != "text":
@@ -170,7 +178,8 @@ def _translate(
                             )
                         )
     except (KeyError, TypeError, AttributeError, ValueError) as exc:  # 列表项不是 dict、字段类型怪:也算结构不符
-        raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}", response_body=body_excerpt(data)) from exc
+        raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}", response_body=full_body(data),
+                                    cost_usd=spent_on(lambda: _cost_usd(data, model))) from exc
 
     answer_text = "".join(answer_parts)
     run = SurfaceRun(
@@ -203,7 +212,7 @@ def _translate(
         raw_payload=data,
         timestamp=started_at,
         latency_ms=latency_ms,
-        cost_usd=_cost_usd(data, model, queries),
+        cost_usd=_cost_usd(data, model),
     )
     return run
 

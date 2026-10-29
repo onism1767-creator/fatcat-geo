@@ -21,7 +21,7 @@ class PublicErrorCode(StrEnum):
     AI_PROVIDER_RATE_LIMITED = "AI_PROVIDER_RATE_LIMITED"  # 模型服务限流(HTTP 429)后仍失败
     AI_RESPONSE_INVALID = "AI_RESPONSE_INVALID"  # 拒答或空回答:不计入分母,单独显示数量
     ACCOUNT_AUTH = "ACCOUNT_AUTH"  # 我方 key 无效 / 没权限:换 key(产品文档没有这一类)
-    ACCOUNT_CREDIT = "ACCOUNT_CREDIT"  # 我方额度不足 / 欠费:充值
+    ACCOUNT_CREDIT = "ACCOUNT_CREDIT"  # 我方额度不足 / 欠费 / 到了花费上限:充值或调高上限
 
 
 def is_empty_answer(run: SurfaceRun) -> bool:

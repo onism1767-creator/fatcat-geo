@@ -54,7 +54,7 @@ from adapters.base import (
     SurfaceAdapter,
     SurfaceMeta,
 )
-from adapters.http_support import body_excerpt, contract_post, domain_of
+from adapters.http_support import contract_post, domain_of, full_body, spent_on
 from engine.models import (
     NOT_OBSERVABLE,
     Answer,
@@ -106,7 +106,8 @@ _CAPABILITIES = CapabilityRegistry(
 def _blocks(data: Any) -> list[Any]:
     """取响应的 content 块列表;形状不对按 Permanent 上抛(平台改格式须显式暴露)。"""
     if not isinstance(data, dict) or not isinstance(data.get("content"), list):
-        raise AdapterPermanentError(f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 content 列表")
+        raise AdapterPermanentError(f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 content 列表",
+                                    response_body=full_body(data))
     return data["content"]
 
 
@@ -202,11 +203,13 @@ def _translate(
                         tool_error = (content or {}).get("error_code") or "unknown"
     except (KeyError, TypeError, AttributeError, ValueError) as exc:  # 列表项不是 dict、字段类型怪:也算结构不符
         raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}",
-                                    response_body=body_excerpt({"responses": responses})) from exc
+                                    response_body=full_body({"responses": responses}),
+                                    cost_usd=spent_on(lambda: _cost_usd(responses, model))) from exc
 
-    if tool_error is not None and tool_error != "max_uses_exceeded":
+    if tool_error is not None and tool_error != "max_uses_exceeded":  # 平台回了话、钱照计:花费随失败行落(第二轮 26)
         raise AdapterTransientError(f"web_search 工具错误块: {tool_error}",
-                                    response_body=body_excerpt({"responses": responses}))
+                                    response_body=full_body({"responses": responses}),
+                                    cost_usd=_cost_usd(responses, model))
 
     answer_text = "".join(answer_parts)
     run_fields: dict[str, Any] = dict(
@@ -309,7 +312,9 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
     def _converse(
         self, request: AskRequest, payload: dict[str, Any]
     ) -> tuple[list[dict[str, Any]], int, datetime]:
-        """发请求;遇 pause_turn 按协议续传(有界),返回全部响应段、总耗时、开始时刻。"""
+        """发请求;遇 pause_turn 按协议续传(有界),返回全部响应段、总耗时、开始时刻。
+        续传途中失败(续传请求报错、或续传回包结构不对):前几段已经计费,花费带在异常上随失败行落(第二轮审核 26)。"""
+        model = payload["model"]
         data, latency_ms, started_at = contract_post(
             self._client,
             f"{BASE_URL}/v1/messages",
@@ -317,34 +322,39 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
             payload=payload,
             timeout_s=request.timeout_s,
         )
-        responses: list[dict[str, Any]] = [data]
         _blocks(data)  # 结构防线:每段响应必须有 content 列表
+        responses: list[dict[str, Any]] = [data]
         total_latency = latency_ms
 
         continuations = 0
-        while data.get("stop_reason") == "pause_turn" and continuations < _MAX_CONTINUATIONS:
-            # 协议续传:原始提问 + 迄今全部 content 块作为同一 assistant 轮回传
-            continuation = dict(
-                payload,
-                messages=[
-                    {"role": "user", "content": request.prompt_text},
-                    {"role": "assistant", "content": [b for r in responses for b in _blocks(r)]},
-                ],
-            )
-            data, latency_ms, _ = contract_post(
-                self._client,
-                f"{BASE_URL}/v1/messages",
-                headers=self._headers,
-                payload=continuation,
-                timeout_s=request.timeout_s,
-            )
-            responses.append(data)
-            _blocks(data)
-            total_latency += latency_ms
-            continuations += 1
+        try:
+            while data.get("stop_reason") == "pause_turn" and continuations < _MAX_CONTINUATIONS:
+                # 协议续传:原始提问 + 迄今全部 content 块作为同一 assistant 轮回传
+                continuation = dict(
+                    payload,
+                    messages=[
+                        {"role": "user", "content": request.prompt_text},
+                        {"role": "assistant", "content": [b for r in responses for b in _blocks(r)]},
+                    ],
+                )
+                data, latency_ms, _ = contract_post(
+                    self._client,
+                    f"{BASE_URL}/v1/messages",
+                    headers=self._headers,
+                    payload=continuation,
+                    timeout_s=request.timeout_s,
+                )
+                _blocks(data)
+                responses.append(data)
+                total_latency += latency_ms
+                continuations += 1
+        except AdapterError as exc:
+            exc.cost_usd += spent_on(lambda: _cost_usd(responses, model))
+            raise
         if data.get("stop_reason") == "pause_turn":
             raise AdapterTransientError(f"pause_turn 续传 {_MAX_CONTINUATIONS} 次后仍未完成",
-                                        response_body=body_excerpt({"responses": responses}))
+                                        response_body=full_body({"responses": responses}),
+                                        cost_usd=spent_on(lambda: _cost_usd(responses, model)))
         return responses, total_latency, started_at
 
     def healthcheck(self) -> bool:

@@ -981,7 +981,7 @@ def test_drafting_account_problem_sends_the_user_back_home_with_the_credit_sente
                        follow_redirects=False)
     assert resp.status_code == 303 and "error=ACCOUNT_CREDIT" in resp.headers["location"]
     page = client.get(resp.headers["location"]).text
-    assert "S1(型号 m1)的 API 账户额度不足或欠费" in page and "Your credit balance is too low" in page
+    assert "S1(型号 m1)的 API 账户额度不足、欠费或到了花费上限" in page and "Your credit balance is too low" in page
 
 
 def test_main_view_does_not_claim_it_can_describe_you_when_answers_mostly_failed():

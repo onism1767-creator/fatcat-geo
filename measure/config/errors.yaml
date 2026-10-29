@@ -74,10 +74,10 @@ errors:
   - code: ACCOUNT_CREDIT
     scope: account
     resumable: true
-    trigger: {zh: "某家 AI 返回额度不足 / 欠费(402,或 400 / 429 带欠费原话);整单立刻停", en: "An AI reported insufficient credit (402, or 400 / 429 with a billing message); the whole run stops"}
-    causes: {zh: "预付额度用完、月度上限到了,或绑定的卡扣款失败。", en: "Prepaid credit used up, the monthly cap reached, or the card on file was declined."}
-    message: {zh: "{ai}(型号 {model})的 API 账户额度不足或欠费,检测已经停下,不会再花钱。平台原话:{detail}", en: "The API account for {ai} (model {model}) is out of credit. The run has stopped and will spend nothing more. Platform said: {detail}"}
-    next_step: {zh: "充值后点「接着跑」,已经采集的结果不会重跑。", en: "Top up, then press Resume; results already collected are kept."}
+    trigger: {zh: "某家 AI 返回额度不足 / 欠费 / 到了花费上限(402,或 400 / 429 带官方文档写明的错误码或原话);整单立刻停", en: "An AI reported no credit left or a spend limit reached (402, or 400 / 429 with an error code or wording its docs define); the whole run stops"}
+    causes: {zh: "预付额度用完、到了你在平台上自己设的花费上限、到了平台给这个账户的月度上限,或绑定的卡扣款失败。", en: "Prepaid credit used up, a spend limit you set on the platform reached, the platform's monthly cap for the account reached, or the card on file was declined."}
+    message: {zh: "{ai}(型号 {model})的 API 账户额度不足、欠费或到了花费上限,检测已经停下,不会再花钱。平台原话:{detail}", en: "The API account for {ai} (model {model}) is out of credit or has hit a spend limit. The run has stopped and will spend nothing more. Platform said: {detail}"}
+    next_step: {zh: "充值,或在这家平台的控制台调高 / 取消花费上限(平台给的月度上限要申请提额,或等到下个月),然后点「接着跑」;已经采集的结果不会重跑。", en: "Top up, or raise or remove the spend limit in that platform's console (a monthly cap set by the platform needs a limit increase, or wait for next month), then press Resume; results already collected are kept."}
 
   # ── 本机数据库 ──
   - code: DB_UNREACHABLE
