@@ -50,6 +50,7 @@
       <a href="/jobs/{{ j.job_id }}/report?lang={{ lang }}">{{ t["view_report"] }}</a>
       {% elif j.finished %}
       <form method="post" action="/jobs/{{ j.job_id }}/resume?lang={{ lang }}" style="display:inline">
+        <input type="hidden" name="regenerate" value="1">
         <button type="submit" style="margin:0;padding:4px 12px;font-weight:400">{{ t["btn_recompute"] }}</button>
       </form>
       {% elif j.state.value == "DRAFT" %}

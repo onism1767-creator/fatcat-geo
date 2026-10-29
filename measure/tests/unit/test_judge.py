@@ -218,3 +218,12 @@ def test_high_tier_observation_uses_the_judge_and_archives_every_detector():
     assert persist_observations(store, [obs]) == len(obs.archived) and store.rows == obs.archived
     with pytest.raises(ValueError, match="裁判"):
         mention_detector(MentionMethod.RULES_FUZZY_JUDGE)  # 没装配裁判就明确报错
+
+
+def test_offline_judge_reuses_stored_verdicts_and_never_asks():
+    """重新生成报告承诺不花钱:只用装回的判定,上次没判出来的照记「看不到」,一次都不问(第二轮)。"""
+    ads = adapters()
+    judge = MentionJudge(CONFIG, ads, ledger=lambda r: None, locale="zh-CN", offline=True)
+    run = run_with("我们推荐 AuroraCRM。")
+    assert judge.judge(run, BRAND) is None
+    assert all(len(getattr(a, "requests", [])) == 0 for a in ads.values())

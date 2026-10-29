@@ -184,8 +184,11 @@ class MentionJudge:
         ledger: Ledger,
         locale: str,
         competitors: Iterable[str] = (),
+        offline: bool = False,
     ) -> None:
+        """offline=True:只用装回的已存判定,不再向裁判提问(重新生成报告承诺不花钱;第二轮)。"""
         self.config = config
+        self._offline = offline
         self._ledger, self._locale, self._competitors = ledger, locale, list(competitors)
         self._judges: list[tuple[SurfaceAdapter, JudgeModel, str]] = []
         for spec in (config.primary, config.backup):
@@ -232,6 +235,8 @@ class MentionJudge:
 
     def _ask(self, run: SurfaceRun, brand: BrandSpec) -> JudgeVerdict | None:
         if not is_valid_answer(run):
+            return None
+        if self._offline:  # 只重算:上次没判出来的照旧记「裁判看不到」,不花钱
             return None
         assert run.answer is not None
         picked = self.pick(run)

@@ -20,8 +20,8 @@ class JobLauncher:
         self._run, self._adapters, self._dsn, self._evidence = run, adapters, dsn, evidence
 
     def launch(self, job: DiagnosisJob, *, replay: bool) -> None:
-        """起执行器前先同步把任务标成「排队中」:查状态与改状态之间不让出控制权,连点两下也不会让
-        同一单同时有两个执行器(不靠执行器线程抢先改状态)。replay=True = 只重算、不向 AI 提问。"""
+        """起执行器前先同步把任务标成「排队中」。调用方必须在 job.lock 里做「查状态 → launch」:路由跑在线程池里,
+        不在一把锁里做完,连点两下会让同一单同时有两个执行器、花双份钱(第二轮)。replay=True = 只重算、不向 AI 提问。"""
         job.state = JobState.CONFIRMED
         threading.Thread(
             target=self._run,

@@ -171,6 +171,9 @@ class DiagnosisJob:
         # 品类自动核对(S11.4):判「不是一类」才留下结果渲染品类页;出题输入先存着,品类定下来再出题;都不进快照
         self.category_check: CategoryCheck | None = None
         self.pending_draft: PendingDraft | None = None
+        self.drafting = False  # 品类页之后 AI 正在出题(1–2 分钟):确认页显示「正在出题」,不显示空的候选题(第二轮)
+        # 同一单「查状态 + 改状态」必须一步做完:路由跑在线程池里,两个几乎同时到的请求都能过检查、起两个执行器(第二轮)
+        self.lock = threading.Lock()
 
         self.state = JobState.DRAFT
         self.phase = "phase_draft"
@@ -459,10 +462,15 @@ class JobRegistry:
     def get(self, job_id: str) -> DiagnosisJob | None:
         return self._jobs.get(job_id)
 
+    def _snapshot(self) -> list[DiagnosisJob]:
+        """先在锁里拷一份再遍历:别的请求同时登记或撤单时不会「dictionary changed size during iteration」(第二轮)。"""
+        with self._lock:
+            return list(self._jobs.values())
+
     def retests_of(self, job_id: str) -> list[DiagnosisJob]:
         """这一单的全部再测(S11.3),旧的在前。"""
-        return sorted((j for j in self._jobs.values() if j.parent_job_id == job_id), key=lambda j: j.created_at)
+        return sorted((j for j in self._snapshot() if j.parent_job_id == job_id), key=lambda j: j.created_at)
 
     def recent(self, limit: int = 20) -> list[DiagnosisJob]:
-        jobs = sorted(self._jobs.values(), key=lambda j: j.created_at, reverse=True)
+        jobs = sorted(self._snapshot(), key=lambda j: j.created_at, reverse=True)
         return jobs[:limit]

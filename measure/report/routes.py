@@ -112,33 +112,50 @@ def category_decide(request: Request, job_id: str, choice: str = Form(""), custo
     job = ctx.registry.get(job_id)
     if job is None:
         return not_found()
-    pending = job.pending_draft
-    if pending is None:
-        return redirect(request, f"/jobs/{job.job_id}/confirm")
-    decided = category_choice(job, choice=choice, custom=custom_category)
-    if decided is None:
-        return redirect(request, f"/jobs/{job.job_id}/category?error=FORM_CATEGORY_EMPTY")
-    log.info("category_decided", job_id=job.job_id, choice=choice, before=job.category, after=decided)
-    job.category = decided
-    job.pending_draft = None
+    with job.lock:  # 连点两下:第二个请求看到品类已定 → 去确认页(正在出题就显示等待)
+        pending = job.pending_draft
+        if pending is None:
+            return redirect(request, f"/jobs/{job.job_id}/confirm")
+        decided = category_choice(job, choice=choice, custom=custom_category)
+        if decided is None:
+            return redirect(request, f"/jobs/{job.job_id}/category?error=FORM_CATEGORY_EMPTY")
+        log.info("category_decided", job_id=job.job_id, choice=choice, before=job.category, after=decided)
+        job.category = decided
+        job.pending_draft = None
+        job.drafting = pending.generate
     return _draft_and_go(request, job, questions=pending.questions, generate=pending.generate)
 
 
 def _abandon_draft(request: Request, job: DiagnosisJob, path: str) -> Response:
     """出题没成:把这单从登记处撤掉(品类页来的已登记过),历史表不留一条没题、点不开的空任务;
-    花掉的钱已按任务编号记在辅助调用账本里,不随之消失(审核 2026-10-27 红 2)。"""
-    ctx_of(request).registry.discard(job.job_id)
+    花掉的钱已按任务编号记在辅助调用账本里,不随之消失(审核 2026-10-27 红 2)。只撤仍是草稿的——
+    出题期间用户若已在别处确认开跑,这单在花钱,不能撤(第二轮)。"""
+    with job.lock:
+        if job.state is JobState.DRAFT:
+            ctx_of(request).registry.discard(job.job_id)
     return redirect(request, path)
 
 
 def _draft_and_go(request: Request, job: DiagnosisJob, *, questions: str, generate: bool) -> Response:
-    """品类定下来之后:(勾了就)让 AI 出题、列写法,登记任务,去确认页。出题出错回首页说人话(S11.1)。"""
+    """品类定下来之后:(勾了就)让 AI 出题、列写法,登记任务,去确认页。出题出错回首页说人话(S11.1)。
+    出题期间 job.drafting 为真(确认页显示等待),出完或出错都放下。"""
+    generation_adapter = _generation_adapter(ctx_of(request))
+    try:
+        return _draft_then_register(request, job, questions=questions, generate=generate,
+                                    generation_adapter=generation_adapter)
+    finally:
+        job.drafting = False
+
+
+def _draft_then_register(
+    request: Request, job: DiagnosisJob, *, questions: str, generate: bool, generation_adapter: SurfaceAdapter | None,
+) -> Response:
     ctx = ctx_of(request)
     locale = job.locale
     brand, normalized, category = job.brand, job.website, job.category
     drafted: list[PromptCandidate] = []
-    generation_adapter = _generation_adapter(ctx)
     if generate and generation_adapter is not None:
+        job.drafting = True
         try:
             with Storage(ctx.dsn) as store:
                 try:
@@ -183,6 +200,8 @@ def confirm_page(request: Request, job_id: str, error: str = ""):
         return redirect(request, f"/jobs/{job.job_id}")
     if job.pending_draft is not None:  # 品类还没定(S11.4):先回品类页
         return redirect(request, f"/jobs/{job.job_id}/category")
+    if job.drafting:  # AI 正在出题:显示等待页(自动刷新),不显示空的候选题(第二轮)
+        return ctx.render(request, "drafting.html", job=job)
     prices = unit_prices(ctx.adapters, ctx.call_stats())
     target_groups = [  # 自定义区按 AI 分组列出全部型号;默认勾选跟默认档位(S9.1)
         (ctx.display_names[name], [Target(surface=name, model=m) for m in ctx.adapters[name].meta().models])
@@ -283,41 +302,48 @@ def confirm(
     job = ctx.registry.get(job_id)
     if job is None:
         return not_found()
-    if job.state is not JobState.DRAFT:
-        return redirect(request, f"/jobs/{job.job_id}")
-    if job.pending_draft is not None:
-        return redirect(request, f"/jobs/{job.job_id}/category")
-    choice = confirm_choice(
-        job, ctx.adapters, ctx.tiers, prompts_selected=prompts_selected, custom=custom,
-        competitors_selected=competitors_selected, targets_selected=targets_selected, tier=tier, runs=runs,
-        budget=budget, dependency=dependency, spellings_selected=spellings_selected,
-    )
-    if isinstance(choice, str):
-        return redirect(request, f"/jobs/{job.job_id}/confirm?error={choice}")
-    job.brand = job.brand.model_copy(update={"aliases": choice.aliases})  # 勾上的常见写法进别名表(S9.2b),随冻结进指纹
-    job.freeze(prompts=choice.prompts, competitors=choice.competitors, targets=choice.targets, tier=choice.tier,
-               budget_usd=choice.budget_usd, dependency_enabled=choice.dependency_enabled)
-    ctx.launcher.launch(job, replay=False)
+    with job.lock:  # 查状态 → 冻结 → 起执行器一步做完:连点两下只起一个执行器(第二轮)
+        if job.state is not JobState.DRAFT:
+            return redirect(request, f"/jobs/{job.job_id}")
+        if job.pending_draft is not None:
+            return redirect(request, f"/jobs/{job.job_id}/category")
+        if job.drafting:
+            return redirect(request, f"/jobs/{job.job_id}/confirm")
+        choice = confirm_choice(
+            job, ctx.adapters, ctx.tiers, prompts_selected=prompts_selected, custom=custom,
+            competitors_selected=competitors_selected, targets_selected=targets_selected, tier=tier, runs=runs,
+            budget=budget, dependency=dependency, spellings_selected=spellings_selected,
+        )
+        if isinstance(choice, str):
+            return redirect(request, f"/jobs/{job.job_id}/confirm?error={choice}")
+        # 勾上的常见写法进别名表(S9.2b),随冻结进指纹
+        job.brand = job.brand.model_copy(update={"aliases": choice.aliases})
+        job.freeze(prompts=choice.prompts, competitors=choice.competitors, targets=choice.targets, tier=choice.tier,
+                   budget_usd=choice.budget_usd, dependency_enabled=choice.dependency_enabled)
+        ctx.launcher.launch(job, replay=False)
     return redirect(request, f"/jobs/{job.job_id}")
 
 
 @router.post("/jobs/{job_id}/resume")
-def resume(request: Request, job_id: str, budget: str = Form("")):
+def resume(request: Request, job_id: str, budget: str = Form(""), regenerate: str = Form("")):
     """幂等续跑(v0.4.9):中断 / 失败 / **部分完成(S10.3)** 的任务补缺口——只补空槽位,已花的钱不重花;
-    部分完成的可顺手提高费用上限(预算截断的腿才有机会补齐)。全部完成的任务「重新生成报告」(v0.4.16:追加一版报告快照,
-    旧版本留档)——只用已有样本重算,不向 AI 提问。"""
+    部分完成的可顺手提高费用上限(预算截断的腿才有机会补齐)。「重新生成报告」按钮带 regenerate=1(或全部完成的任务):
+    v0.4.16 追加一版报告快照、旧版本留档——只用已有样本重算,不向 AI 提问。原来部分完成的单点「重新生成报告」
+    会接着问 AI 花钱,按钮旁却写着不花钱(第二轮)。"""
     ctx = ctx_of(request)
     job = ctx.registry.get(job_id)
     if job is None:
         return not_found()
-    if not (job.state in (JobState.INTERRUPTED, JobState.FAILED) or job.finished):
-        return redirect(request, f"/jobs/{job.job_id}")
-    if budget.strip():
-        try:
-            job.raise_budget(float(budget))
-        except ValueError:
-            return redirect(request, f"/jobs/{job.job_id}?error=FORM_BAD_BUDGET")
-    return _relaunch(request, job, replay=job.state is JobState.DONE)
+    with job.lock:  # 查状态 → 起执行器一步做完(第二轮)
+        if not (job.state in (JobState.INTERRUPTED, JobState.FAILED) or job.finished):
+            return redirect(request, f"/jobs/{job.job_id}")
+        if budget.strip():
+            try:
+                job.raise_budget(float(budget))
+            except ValueError:
+                return redirect(request, f"/jobs/{job.job_id}?error=FORM_BAD_BUDGET")
+        only_recompute = job.state is JobState.DONE or (bool(regenerate) and job.finished)
+        return _relaunch(request, job, replay=only_recompute)
 
 
 @router.post("/jobs/{job_id}/retest")
@@ -329,17 +355,18 @@ def retest(request: Request, job_id: str):
     job = ctx.registry.get(job_id)
     if job is None:
         return not_found()
-    if not job.finished:
-        return redirect(request, f"/jobs/{job.job_id}")
-    running = next((r for r in ctx.registry.retests_of(job.job_id)
-                    if r.state in (JobState.CONFIRMED, JobState.RUNNING)), None)
-    if running is not None:
-        return redirect(request, f"/jobs/{running.job_id}")
-    if missing := _missing_adapters(ctx, job):
-        return redirect(request, f"/?error=RESUME_MISSING_AI&names={','.join(missing)}")
-    new = job.retest()
-    ctx.registry.add(new)
-    ctx.launcher.launch(new, replay=False)
+    with job.lock:  # 「找在跑的再测 → 开新单 → 起执行器」一步做完:连点两下只开一张新单(第二轮)
+        if not job.finished:
+            return redirect(request, f"/jobs/{job.job_id}")
+        running = next((r for r in ctx.registry.retests_of(job.job_id)
+                        if r.state in (JobState.CONFIRMED, JobState.RUNNING)), None)
+        if running is not None:
+            return redirect(request, f"/jobs/{running.job_id}")
+        if missing := _missing_adapters(ctx, job):
+            return redirect(request, f"/?error=RESUME_MISSING_AI&names={','.join(missing)}")
+        new = job.retest()
+        ctx.registry.add(new)
+        ctx.launcher.launch(new, replay=False)
     return redirect(request, f"/jobs/{new.job_id}")
 
 
@@ -353,11 +380,12 @@ def choose_official_domains(
     job = ctx.registry.get(job_id)
     if job is None:
         return not_found()
-    if not job.finished:
-        return redirect(request, f"/jobs/{job.job_id}")
-    if not job.apply_domain_choice(confirm=confirm, remove=remove):
-        return redirect(request, f"/jobs/{job.job_id}/report")
-    return _relaunch(request, job, replay=True)
+    with job.lock:  # 改名单 → 只重算,一步做完(第二轮)
+        if not job.finished:
+            return redirect(request, f"/jobs/{job.job_id}")
+        if not job.apply_domain_choice(confirm=confirm, remove=remove):
+            return redirect(request, f"/jobs/{job.job_id}/report")
+        return _relaunch(request, job, replay=True)
 
 
 def _missing_adapters(ctx: WebContext, job: DiagnosisJob) -> list[str]:

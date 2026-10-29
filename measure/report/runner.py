@@ -217,7 +217,8 @@ def _execute(
                                         heartbeat=lambda: setattr(job, "last_result_at", datetime.now(UTC)))
         all_runs = [run for runs in runs_by.values() for run in runs]
         pages = _check_pages(job, storage, all_runs, resolution)
-        judge = _judge_for(job, adapters, storage, all_runs, judges)  # 高档:装配裁判、装回库里的判定、并行预判(S9.3)
+        judge = _judge_for(job, adapters, storage, all_runs, judges,  # 高档:装配裁判、装回库里的判定、并行预判(S9.3)
+                           offline=replay)  # 只重算时不再请裁判(第二轮)
         context = ObserveContext(competitors=job.competitors, resolution=resolution, pages=pages,
                                  mention_method=job.frozen_tier().mention_method, judge=judge)
         observations = {
@@ -345,6 +346,8 @@ def _sampling_note(
 def _judge_for(
     job: DiagnosisJob, adapters: dict[str, SurfaceAdapter], storage: Storage, runs: list[SurfaceRun],
     judges: JudgeConfig | None,
+    *,
+    offline: bool = False,
 ) -> MentionJudge | None:
     """高档才有(S9.3):按 config/judges.yaml 装配裁判(型号没加载就明确报错);库里已有的裁判判定先装回(续跑 / 重算不花钱);
     其余有效回答并行预判,进度给任务页;裁判花费记进辅助调用账本(主线程落库:psycopg 连接非线程安全)。"""
@@ -360,7 +363,7 @@ def _judge_for(
             job.last_result_at = datetime.now(UTC)
 
     judge = MentionJudge(judges or load_judges(), adapters, ledger=ledger, locale=job.locale,
-                         competitors=[c.name for c in job.competitors])
+                         competitors=[c.name for c in job.competitors], offline=offline)
     judge.preload(_stored_verdicts(storage, runs))
     pending = [run for run in runs if is_valid_answer(run) and not judge.has(run.run_id)]
     job.phase = "phase_judging"

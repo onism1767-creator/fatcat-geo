@@ -62,6 +62,7 @@
 {% elif job.finished %}
 {#- 报告快照读不动(结构随代码演进,v0.4.17 起是真实场景):不给「看报告」,给「重新生成报告」(不重新提问,不花钱) -#}
 <form method="post" action="/jobs/{{ job.job_id }}/resume?lang={{ lang }}" style="display:inline">
+  <input type="hidden" name="regenerate" value="1">
   <button type="submit">{{ t["btn_recompute"] }}</button>
 </form>
 {% endif %}
