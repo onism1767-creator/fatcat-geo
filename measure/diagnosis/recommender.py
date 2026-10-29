@@ -21,6 +21,7 @@ from typing import Literal
 import yaml
 from pydantic import field_validator
 
+from diagnosis.access_audit import CHECK_NAMES as ACCESS_CHECK_NAMES
 from diagnosis.findings import Stage
 from engine.models import FrozenModel, PromptIntent
 
@@ -101,6 +102,9 @@ def load_evidence_registry(path: Path = DEFAULT_REGISTRY_PATH) -> list[EvidenceE
     for entry in entries:
         if entry.evidence_level not in _LEVELS:
             raise ValueError(f"{entry.id}: 非法证据等级 {entry.evidence_level!r}")
+        bad_checks = set(entry.access_checks) - ACCESS_CHECK_NAMES
+        if bad_checks:
+            raise ValueError(f"{entry.id}: 未知的官网检查项 {sorted(bad_checks)}(可用:{sorted(ACCESS_CHECK_NAMES)})")
         unknown = set(entry.requires_data) - DATA_CONDITIONS
         if unknown:
             raise ValueError(f"{entry.id}: 未知的数据条件 {sorted(unknown)}(可用:{sorted(DATA_CONDITIONS)})")

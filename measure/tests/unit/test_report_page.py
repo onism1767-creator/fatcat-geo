@@ -995,3 +995,25 @@ def test_main_view_does_not_claim_it_can_describe_you_when_answers_mostly_failed
     text = api_line_text(mixed, "zh")
     assert "能介绍你" in text and "另 1 个型号" in text and "说不准" in text
     assert "to tell" in api_line_text(unsure_only, "en")
+
+
+def test_result_file_cards_are_complete_in_both_languages():
+    """结果文件(summary.md)里的卡要完整:实验卡带依据、怎么验证、免责句;技术修复带出处(第二轮:原来只剩一句)。"""
+    from diagnosis.findings import Stage
+    from diagnosis.recommender import load_evidence_registry, recommend
+    from engine.models import PromptIntent
+    from report.i18n import MESSAGES
+    from report.narrative import action_card_lines
+
+    registry = load_evidence_registry()
+    struct = next(r for r in recommend(registry, stage=Stage.RETRIEVAL, intent=PromptIntent.CATEGORY_DISCOVERY)
+                  if r.evidence_id == "EVIDENCE_STRUCT_V1")
+    robots = recommend(registry, stage=Stage.ACCESS, intent=PromptIntent.CATEGORY_DISCOVERY,
+                       access_checks=frozenset({"robots_txt"}))[0]
+    for lang in ("zh", "en"):
+        t = MESSAGES[lang]
+        card = "\n".join(action_card_lines(struct, lang))
+        for piece in (struct.plain[lang], struct.verify[lang], t["card_disclaimer"], struct.sources[lang][0]):
+            assert piece in card, (lang, piece)
+        fix = "\n".join(action_card_lines(robots, lang))
+        assert robots.plain[lang] in fix and robots.sources[lang][0] in fix and t["card_disclaimer"] not in fix

@@ -87,6 +87,7 @@ def access_finding(audit: AccessAuditResult | None) -> StageFinding:
     return StageFinding(
         stage=Stage.ACCESS, status=status, headline=msg(headline_code), evidence_lines=notes,
         failed_checks=[c.check for c in audit.checks if c.gating and c.status is AccessCheckStatus.FAIL],
+        hint_checks=[c.check for c in audit.checks if not c.gating and c.status is AccessCheckStatus.FAIL],
     )
 
 
@@ -157,6 +158,12 @@ def diagnose_surface(
                   data_available=data)
         if primary is not None else []
     )
+    # 提示项没过(网站地图没找到):对应的实验卡不管卡在哪一步都出——它在最上游,不违反「上游 FAIL 禁下游药方」
+    if access.hint_checks:
+        have = {r.evidence_id for r in recommendations}
+        recommendations += [r for r in recommend(registry, stage=Stage.ACCESS, intent=intent,
+                                                 access_checks=frozenset(access.hint_checks), data_available=data)
+                            if r.evidence_id not in have]
     # 第三方线单独定位:同一套「第一个 FAIL,否则第一个 WEAK」,同样有通道分歧防线;建议只从第三方线的条目里取
     tp_findings = list(third_party or [])
     tp_cautions: list[Msg] = []

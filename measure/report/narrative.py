@@ -7,12 +7,13 @@
 from __future__ import annotations
 
 from diagnosis.messages import msg, render_msg
+from diagnosis.recommender import Recommendation
 from diagnosis.verdict import SurfaceVerdict
 from engine.calibration import CalibrationReport
 from engine.models import SearchMode
 from engine.scheduler import StopDetail
 from report.errors import ErrorLibrary
-from report.i18n import INTENT_LABELS, MESSAGES
+from report.i18n import INTENT_LABELS, LEVEL_LABELS, MESSAGES
 from report.summary import ApiLine, WrapUp
 
 _STATUS_ORDER = ("PASS", "WEAK", "FAIL", "NOT_OBSERVABLE")
@@ -91,6 +92,29 @@ def wrap_up_text(w: WrapUp, lang: str, reps: int, first_action: str | None) -> s
         parts.append(t["wrap_action"].format(action=first_action))
     parts.append(t["wrap_note"])
     return t["wrap_join"].join(parts)
+
+
+def action_text(rec: Recommendation, lang: str) -> str:
+    """一条建议的一句话 + 类别标签:GEO 方法标「实验卡」,技术修复证据弱时标「建议实验验证」(硬边界 9)。"""
+    t = MESSAGES[lang]
+    if rec.kind == "geo_method":
+        return f"{rec.plain[lang]}({t['kind_geo_method']})"
+    return f"{rec.plain[lang]}({t['needs_experiment']})" if rec.needs_experiment else rec.plain[lang]
+
+
+def action_card_lines(rec: Recommendation, lang: str) -> list[str]:
+    """结果文件里一条建议的完整写法:实验卡 = 猜想 / 依据 / 怎么验证 / 免责句;技术修复 = 直接建议 + 出处。"""
+    t = MESSAGES[lang]
+    level = LEVEL_LABELS[lang][rec.evidence_level]
+    sources = "; ".join(rec.sources[lang])
+    if rec.kind == "geo_method":
+        return [f"- [{t['kind_geo_method']}] {rec.plain[lang]}",
+                f"  - {t['card_basis']}:{level} · {sources}",
+                f"  - {t['col_verify']}:{rec.verify[lang]}",
+                f"  - {t['card_disclaimer']} · {t['evidence_id_word']} {rec.evidence_id}"]
+    tag = f"({t['needs_experiment']})" if rec.needs_experiment else ""
+    return [f"- [{t['kind_technical_fix']}] {rec.plain[lang]}{tag}",
+            f"  - {t['card_sources']}:{level} · {sources} · {t['evidence_id_word']} {rec.evidence_id}"]
 
 
 def verdict_text(verdict: SurfaceVerdict, display: str, lang: str) -> str:

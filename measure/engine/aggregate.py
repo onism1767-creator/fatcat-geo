@@ -183,7 +183,9 @@ def cited_elsewhere(observations: Iterable[RunObservations]) -> CitedElsewhere |
         for entry in obs.attribution.cited:
             if entry.source_class is not SourceClass.OTHER or not _live(entry):
                 continue
-            key = entry.final_url or entry.url
+            if entry.text_source in SUMMARY_SOURCES:  # 只读到标题 + 简介:正文深处可能写了你,看不到就不算(铁律 7;第二轮)
+                continue
+            key = (entry.final_url or entry.url).split("#", 1)[0]  # 同一篇文章带不同 # 片段算一篇(第二轮)
             if key in seen:
                 continue
             seen.add(key)

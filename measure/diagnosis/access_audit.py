@@ -58,6 +58,11 @@ from crawler.fetch import (
 )
 from diagnosis.messages import Msg, msg, render_msg
 
+# 官网审计全部检查项的名字(证据注册表 access_checks 只能写这些;写错加载即报错,第二轮)
+CHECK_NAMES: Final = frozenset({
+    "reachability", "redirects", "robots_txt", "ua_differential", "html_content", "sitemap", "path_fetch",
+    "rendered_fetch", "official_identity", "waf_evidence",
+})
 MIN_VISIBLE_TEXT_CHARS: Final = 200  # 低于此值视为 JS 白板嫌疑
 DEFAULT_CRAWLERS_PATH: Final = Path(__file__).resolve().parents[1] / "config" / "crawlers.yaml"
 

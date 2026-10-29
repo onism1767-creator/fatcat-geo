@@ -91,8 +91,9 @@ def test_c1_only_comes_out_when_the_list_exists():
                           channel="third_party", data_available=frozenset({"third_party_cited_elsewhere"}))
     without = recommend(REGISTRY, stage=Stage.CITATION, intent=PromptIntent.CATEGORY_DISCOVERY,
                         channel="third_party", data_available=frozenset())
-    assert C1 in ids(with_list) and C1 not in ids(without)
-    assert ids(with_list) - {C1} == ids(without)  # 别的条目不受影响
+    listed = {C1, "EVIDENCE_THIRDPARTY_PUBLISHER_V1", "EVIDENCE_THIRDPARTY_REVIEW_PROFILE_V1"}  # 卡上都说「看名单」
+    assert listed <= ids(with_list) and not listed & ids(without)
+    assert ids(with_list) - listed == ids(without)  # 别的条目不受影响
 
 
 def test_unknown_data_condition_in_the_registry_fails_loudly(tmp_path):
@@ -158,3 +159,16 @@ def test_report_lists_the_pages_in_both_languages_and_links_only_web_addresses()
     en = client.get(f"/jobs/{job.job_id}/report?lang=en").text
     assert "Other people&#39;s articles the AI cited that don&#39;t mention you (4)" in en
     assert "cited in 3 answer(s)" in en and "2 more not listed" in en
+
+
+def test_summary_only_pages_and_url_fragments_are_not_counted_twice_or_at_all():
+    """只读到标题 + 简介的网页不进名单(正文可能写了你,铁律 7);同一篇带不同 # 片段算一篇(第二轮)。"""
+    page = "https://review.test/best-crm"
+    obs = [_obs("r1", [(page + "#:~:text=a", OTHER, None)]), _obs("r2", [(page + "#top", OTHER, None)])]
+    result = cited_elsewhere(obs)
+    assert result is not None and result.total == 1 and result.pages[0].answers == 2
+    summary_only = _obs("r3", [("https://meta.test/x", OTHER, None)])
+    entry = summary_only.attribution.cited[0].model_copy(update={"text_source": "meta"})
+    summary_only = RunObservations(**{**summary_only.__dict__, "attribution": summary_only.attribution.model_copy(
+        update={"cited": [entry]})})
+    assert cited_elsewhere([summary_only]) is None

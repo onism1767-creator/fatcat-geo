@@ -33,7 +33,7 @@ from report.i18n import (
 )
 from report.jobs import DiagnosisJob, JobRegistry
 from report.launcher import JobLauncher
-from report.narrative import api_line_text, count_models, verdict_text, wrap_up_text
+from report.narrative import action_text, api_line_text, count_models, verdict_text, wrap_up_text
 
 log = structlog.get_logger("report.web")
 
@@ -95,6 +95,7 @@ def _templates(target_name: TargetNamer) -> Jinja2Templates:
     env.globals["api_line_text"] = api_line_text
     env.globals["count_models"] = count_models
     env.globals["wrap_up_text"] = wrap_up_text
+    env.globals["action_text"] = action_text
     env.globals["verdict_text"] = verdict_text
     return templates
 

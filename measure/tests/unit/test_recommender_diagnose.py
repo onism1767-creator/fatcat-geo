@@ -215,7 +215,7 @@ def test_access_recommendations_follow_the_failing_checks():
     """只是 robots 挂了,不该把 CDN、预渲染的建议整批端上(审核 2026-10-27 黄 14);不给检查项时照旧全给。"""
     ids = lambda recs: [r.evidence_id for r in recs]  # noqa: E731
     everything = recommend(REGISTRY, stage=Stage.ACCESS, intent=PromptIntent.CATEGORY_DISCOVERY)
-    assert len(everything) == 4
+    assert len(everything) == 5  # 含「首页打不开」那条(第二轮)
     only_robots = recommend(REGISTRY, stage=Stage.ACCESS, intent=PromptIntent.CATEGORY_DISCOVERY,
                             access_checks=frozenset({"robots_txt"}))
     assert ids(only_robots) == ["EVIDENCE_ACCESS_ROBOTS_V1"]
@@ -223,7 +223,7 @@ def test_access_recommendations_follow_the_failing_checks():
                       access_checks=frozenset({"html_content", "robots_txt"}))
     assert set(ids(shell)) == {"EVIDENCE_ACCESS_ROBOTS_V1", "EVIDENCE_ACCESS_SSR_V1"}
     assert recommend(REGISTRY, stage=Stage.ACCESS, intent=PromptIntent.CATEGORY_DISCOVERY,
-                     access_checks=frozenset({"redirects"})) == []  # 挂的项没有对应条目:不硬凑
+                     access_checks=frozenset({"official_identity"})) == []  # 挂的项没有对应条目:不硬凑
     access = StageFinding(stage=Stage.ACCESS, status=StageStatus.FAIL, headline=Msg(code="test.headline", params={}),
                           failed_checks=["robots_txt"])
     diagnosis = diagnose_surface(
@@ -238,7 +238,8 @@ def test_access_recommendations_follow_the_failing_checks():
 def test_every_entry_declares_a_kind_and_geo_methods_are_experiment_cards_that_never_claim_effect():
     """硬边界 9(2026-10-28 落地):技术修复注明出处直接建议;GEO 优化方法一律实验卡(B 级也不例外),文案不得称有效。"""
     assert {e.kind for e in REGISTRY} == {"technical_fix", "geo_method"}
-    assert all(e.kind == "technical_fix" for e in REGISTRY if e.stage is Stage.ACCESS)
+    assert all(e.kind == "technical_fix" for e in REGISTRY
+               if e.stage is Stage.ACCESS and e.id != "EVIDENCE_ACCESS_SITEMAP_V1")  # 网站地图证据只 D 级:实验卡
     retrieval = recommend(REGISTRY, stage=Stage.RETRIEVAL, intent=PromptIntent.CATEGORY_DISCOVERY)
     struct = next(r for r in retrieval if r.evidence_id == "EVIDENCE_STRUCT_V1")
     assert struct.kind == "geo_method" and struct.evidence_level == "B" and struct.needs_experiment is True
@@ -248,4 +249,54 @@ def test_every_entry_declares_a_kind_and_geo_methods_are_experiment_cards_that_n
             continue
         for lang, words in banned.items():
             text = (entry.plain[lang] + " " + entry.hypothesis[lang]).lower()
+            text = text.replace("not proven", "")  # 「还没被证明」正是该有的话
             assert not any(word in text for word in words), (entry.id, lang)
+
+
+def test_homepage_unreachable_gets_its_own_fix_not_the_cdn_card():
+    """首页 404 / 500 或跳转绕圈:给「先让首页能正常打开」,不是「让 CDN 放行爬虫」那条错药(第二轮)。"""
+    ids = lambda recs: [r.evidence_id for r in recs]  # noqa: E731
+    for check in ("reachability", "redirects"):
+        recs = recommend(REGISTRY, stage=Stage.ACCESS, intent=PromptIntent.CATEGORY_DISCOVERY,
+                         access_checks=frozenset({check}))
+        assert ids(recs) == ["EVIDENCE_ACCESS_REACHABLE_V1"], check
+
+
+def test_unknown_access_check_name_in_the_registry_fails_loudly(tmp_path):
+    entry = next(e for e in REGISTRY if e.id == "EVIDENCE_ACCESS_ROBOTS_V1")
+    bad = tmp_path / "registry.yaml"
+    bad.write_text(yaml.safe_dump({"entries": [entry.model_dump(mode="json") | {"access_checks": ["robot_txt"]}]},
+                                  allow_unicode=True), encoding="utf-8")
+    with pytest.raises(ValueError, match="未知的官网检查项"):
+        load_evidence_registry(bad)
+
+
+def test_missing_sitemap_card_appears_whatever_stage_is_stuck():
+    """网站地图没找到(提示项,不进资格门):实验卡照样出,不管主要卡在哪一步(用户 2026-10-28 定「改」)。"""
+    access = StageFinding(stage=Stage.ACCESS, status=StageStatus.PASS, headline=Msg(code="test.headline", params={}),
+                          hint_checks=["sitemap"])
+    diagnosis = diagnose_surface(
+        provider="p", surface="s1", model="m1", intent=PromptIntent.CATEGORY_DISCOVERY, registry=REGISTRY,
+        access=access, retrieval=make_finding(Stage.RETRIEVAL, StageStatus.FAIL),
+        citation=make_finding(Stage.CITATION, StageStatus.WEAK),
+        representation=make_finding(Stage.REPRESENTATION, StageStatus.PASS),
+    )
+    assert diagnosis.primary_failure is Stage.RETRIEVAL
+    sitemap = [r for r in diagnosis.recommendations if r.evidence_id == "EVIDENCE_ACCESS_SITEMAP_V1"]
+    assert sitemap and sitemap[0].kind == "geo_method" and sitemap[0].needs_experiment
+    assert any(r.stage is Stage.RETRIEVAL for r in diagnosis.recommendations)
+
+
+USER_VISIBLE_FORBIDDEN = (
+    "候选", "检索层", "检索阶段", "生成阶段", "语义对齐", "语义覆盖", "口径", "资格门", "R²", "EVIDENCE_",
+)
+
+
+def test_registry_texts_shown_in_the_main_view_carry_no_jargon():
+    """主视图会显示的:人话句与怎么验证(两种语言);技术修复还显示出处(第二轮:原来把研究来源原文搬进主视图)。"""
+    for entry in REGISTRY:
+        if entry.evidence_level == "E":
+            continue
+        shown = [entry.plain["zh"], entry.verify["zh"], entry.plain["en"], entry.verify["en"]]
+        for text in shown:
+            assert not any(word in text for word in USER_VISIBLE_FORBIDDEN), (entry.id, text)

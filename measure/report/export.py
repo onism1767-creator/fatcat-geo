@@ -27,7 +27,7 @@ from engine.storage import Storage
 from engine.tiers import TierChoice
 from report.i18n import INTENT_LABELS, MESSAGES, STATUS_LABELS
 from report.jobs import DiagnosisJob
-from report.narrative import api_line_text, wrap_up_text
+from report.narrative import action_card_lines, action_text, api_line_text, wrap_up_text
 from report.response_view import citation_rows, latest_observation
 from report.summary import ReportSummary, TargetNamer
 
@@ -232,7 +232,7 @@ def _summary_md(
                 lines.append(f"  - {t['sentiment_title']}:" + t["sentiment_line"].format(n=st.total, items=joined))
         lines.append("")
     if summary.wrap_up is not None:
-        first_action = summary.actions[0].recommendation.plain[lang] if summary.actions else None
+        first_action = action_text(summary.actions[0].recommendation, lang) if summary.actions else None
         wrap = wrap_up_text(summary.wrap_up, lang, sn.tier.runs_per_prompt, first_action)
         lines += [f"## {t['wrapup_title']}", "", wrap, ""]
     if job.spellings:  # S9.2b:AI 回答里写你的名字的写法
@@ -243,13 +243,8 @@ def _summary_md(
         lines.append("")
     if summary.actions:
         lines += [f"## {t['first_word']}", ""]
-        for a in summary.actions:
-            rec = a.recommendation
-            if rec.kind == "geo_method":  # GEO 方法一律实验卡;技术修复只在证据弱时标实验(硬边界 9)
-                tag = f"({t['kind_geo_method']})"
-            else:
-                tag = f"({t['needs_experiment']})" if rec.needs_experiment else ""
-            lines.append(f"- {rec.plain[lang]}{tag} · {t['evidence_id_word']} {rec.evidence_id}")
+        for a in summary.actions:  # GEO 方法写全实验卡(猜想 / 依据 / 怎么验证);技术修复写出处(硬边界 9;第二轮)
+            lines.extend(action_card_lines(a.recommendation, lang))
         lines.append("")
     lines += [f"## {t['bundle_files_title']}", ""] + [f"- {t['bundle_file_' + name]}" for name in FILES] + [""]
     return "\n".join(lines)

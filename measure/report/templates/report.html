@@ -55,7 +55,7 @@
   </ul>
   {% endif %}
   <p><b>{{ t["first_word"] }}:</b>
-    {% if summary.actions %}{% for a in summary.actions[:3] %}{{ a.recommendation.plain[lang] }}{% if a.recommendation.kind == "geo_method" %}({{ t["kind_geo_method"] }}){% elif a.recommendation.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}{% if not loop.last %};{% endif %}{% endfor %}{% else %}{{ t["no_actions"] }}{% endif %}</p>
+    {% if summary.actions %}{% for a in summary.actions[:3] %}{{ action_text(a.recommendation, lang) }}{% if not loop.last %};{% endif %}{% endfor %}{% else %}{{ t["no_actions"] }}{% endif %}</p>
 </div>
 
 {% macro ev(e) %}{{ t["ev_" ~ e.kind].format(detail=e.detail or "", source=e.source or "") }}{% endmacro %}
@@ -169,7 +169,7 @@
 {% if summary.wrap_up %}
 <div class="card exec">
   <h2 style="margin-top:0">{{ t["wrapup_title"] }}</h2>
-  <p>{{ wrap_up_text(summary.wrap_up, lang, runs_per_prompt, summary.actions[0].recommendation.plain[lang] if summary.actions else none) }}</p>
+  <p>{{ wrap_up_text(summary.wrap_up, lang, runs_per_prompt, action_text(summary.actions[0].recommendation, lang) if summary.actions else none) }}</p>
 </div>
 {% endif %}
 
@@ -199,9 +199,10 @@
       <td><span class="muted">[{{ t["kind_geo_method"] if rec.kind == "geo_method" else t["kind_technical_fix"] }}]</span>
         <b>{{ rec.plain[lang] }}</b>{% if rec.kind != "geo_method" and rec.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}<br>
         {#- 实验卡 = 猜想(上面那句人话)/ 依据(这一行)/ 怎么验证(右边那列);技术修复 = 直接建议 + 出处(硬边界 9) -#}
-        {% if rec.kind == "geo_method" %}<span class="kv">{{ t["card_basis"] }}:{{ level_labels[rec.evidence_level] }} · {{ "; ".join(rec.sources[lang]) }}</span><br>
+        {#- 主视图只放证据强弱的人话;来源原文(研究名、数字、术语)在下面「为什么这么建议」里(第二轮:原来把来源原文搬进主视图) -#}
+        {% if rec.kind == "geo_method" %}<span class="kv">{{ t["card_basis"] }}:{{ level_labels[rec.evidence_level] }}{{ t["card_sources_below"] }}</span><br>
         <span class="muted">{{ t["card_disclaimer"] }}</span><br>
-        {% else %}<span class="kv">{{ t["card_sources"] }}:{{ "; ".join(rec.sources[lang]) }}</span><br>{% endif %}
+        {% else %}<span class="kv">{{ t["card_sources"] }}:{{ level_labels[rec.evidence_level] }}{{ t["card_sources_below"] }}</span><br>{% endif %}
         <span class="muted">{{ t["supported_by"].format(n=a.support_count) }}</span>
         <details><summary>{{ t["why_summary"] }}</summary>
           <div class="kv">{{ level_labels[rec.evidence_level] }} · {{ t["evidence_id_word"] }} <span class="id">{{ rec.evidence_id }}</span><br>

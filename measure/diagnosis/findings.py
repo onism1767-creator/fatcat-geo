@@ -71,6 +71,7 @@ class StageFinding(FrozenModel):
     low_confidence: bool = False
     rate: Rate | None = None  # 这一步的主指标 k/n(S8.7:主视图的格子直接用;看不到 → None)
     failed_checks: list[str] = []  # ACCESS:官网审计里 FAIL 的检查项名,建议按它过滤(审核 2026-10-27 黄 14)
+    hint_checks: list[str] = []  # ACCESS:不进资格门、但没过的提示项(网站地图没找到):对应的实验卡照样出(第二轮)
 
 
 class SentimentTally(FrozenModel):
