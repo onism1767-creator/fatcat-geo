@@ -40,6 +40,23 @@ _ACCOUNT_CREDIT_MARKERS = (
     "credit balance is too low",
 )
 
+# 401 / 403 不一定是 key 的事(用户 2026-10-29 定:分不清是致命的——原来一律叫人换 key)。同样只认官方写明的错误码或原话
+# (2026-10-29 核对各家官方文档;Anthropic、Perplexity 的地区 / 欠费没查到官方写法,不猜,落到下面的状态码兜底):
+_ACCOUNT_REGION_MARKERS = (  # 不对请求所在的国家或地区开放:和 key、账户无关
+    "unsupported_country_region_territory",          # OpenAI 403 的 error.code
+    "country, region, or territory not supported",   # OpenAI 错误码页原话
+)
+_ACCOUNT_KEY_MARKERS = (  # 确实是 key 的事:换 key 有用
+    "your api key was reported as leaked",           # Gemini 403(故障排除页原话)
+)
+_ACCOUNT_RESTRICTED_MARKERS = (  # 账户或项目被限制:没开通付费、免费额度不对项目开放、有欠款、被暂停
+    "your project has been denied access",           # Gemini 403(故障排除页原话)
+    "failed_precondition",                           # Gemini 400(错误码页:前置条件不满足,比如没开通计费)
+)
+_ACCOUNT_QUOTA_MARKERS = (  # 这个周期的额度用完:重试没用,等重置或申请提额
+    "quota_exceeded",                                # Gemini 429(错误码页:超过每日额度;按分钟的限流是别的码)
+)
+
 # HTTP 错误页只留头尾各这么多字:代理 / 网关可能吐一整张网页,平台的错误说明常在开头,结尾常是请求号(第二轮审核 26)
 _ERROR_BODY_KEEP: Final = 8000
 
@@ -78,23 +95,44 @@ def spent_on(compute: Callable[[], float]) -> float:
 
 
 def classify_account_problem(http_status: int | None, body: str | None) -> RunErrorType | None:
-    """这次 HTTP 错误是不是账户问题;是的话是哪一种(换 key 还是充值)。同一条规则也用于解读
-    已落库的历史错误行(原始层不可改,读出时按现行规则重新翻译)。"""
+    """这次 HTTP 错误是不是账户问题;是的话是哪一种——各自要用户做的事不同(换 key / 充值 / 地区不支持 / 账户受限 /
+    额度到期)。先认官方写明的错误码或原话,认不出才按状态码兜底(401 / 403 → AUTH,402 → CREDIT)。
+    同一条规则也用于解读已落库的历史错误行(原始层不可改,读出时按现行规则重新翻译)。"""
+    lowered = (body or "").lower()
+
+    def says(markers: tuple[str, ...]) -> bool:
+        return any(marker in lowered for marker in markers)
+
+    if http_status in (400, 403) and says(_ACCOUNT_REGION_MARKERS):
+        return RunErrorType.ACCOUNT_REGION
+    if http_status == 403 and says(_ACCOUNT_KEY_MARKERS):
+        return RunErrorType.ACCOUNT_AUTH
+    if http_status in (400, 403) and says(_ACCOUNT_RESTRICTED_MARKERS):
+        return RunErrorType.ACCOUNT_RESTRICTED
+    if http_status == 429 and says(_ACCOUNT_QUOTA_MARKERS):
+        return RunErrorType.ACCOUNT_QUOTA
+    if http_status in (400, 429) and says(_ACCOUNT_CREDIT_MARKERS):
+        return RunErrorType.ACCOUNT_CREDIT
     if http_status in (401, 403):
         return RunErrorType.ACCOUNT_AUTH
     if http_status == 402:
         return RunErrorType.ACCOUNT_CREDIT
-    if http_status in (400, 429) and body:
-        lowered = body.lower()
-        if any(marker in lowered for marker in _ACCOUNT_CREDIT_MARKERS):
-            return RunErrorType.ACCOUNT_CREDIT
     return None
 
 
-_ACCOUNT_MESSAGES = {
-    401: "API key 无效或已失效(HTTP 401)",
-    403: "API key 没有使用权限(HTTP 403,可能是该型号或功能未对这把 key 开放)",
-}
+def _account_explanation(kind: RunErrorType, status: int) -> str:
+    """账户问题的一句人话解释(进 RunError.message,任务页的「平台原话」前面那句)。"""
+    if kind is RunErrorType.ACCOUNT_AUTH:
+        if status == 401:
+            return "API key 无效或已失效(HTTP 401)"
+        return "API key 没有使用权限,或者账户被平台限制(HTTP 403,平台没写明是哪种,先看平台原话)"
+    return {
+        RunErrorType.ACCOUNT_CREDIT: f"账户额度不足、欠费或到了花费上限(HTTP {status})",
+        RunErrorType.ACCOUNT_REGION: f"这家不对当前网络所在的国家或地区开放接口,换 key 没用(HTTP {status})",
+        RunErrorType.ACCOUNT_RESTRICTED: f"账户或项目被平台限制了(没开通付费、有欠款或被暂停),换 key 没用"
+                                         f"(HTTP {status})",
+        RunErrorType.ACCOUNT_QUOTA: f"这个周期的调用额度用完了,重试没用,要等额度重置(HTTP {status})",
+    }[kind]
 
 
 def retry_after_seconds(headers: httpx.Headers, *, now: datetime | None = None) -> float | None:
@@ -130,8 +168,9 @@ def contract_post(
 
     错误翻译规则(每类消息都带一句人话解释,进 RunError.message 随失败行落库):
     - 超时/连接失败等传输层错误 → AdapterTransientError
-    - 账户问题 → AdapterAccountError:401 / 403 = key 无效或没权限(ACCOUNT_AUTH);
-      402,或 400 / 429 且响应体带欠费 / 花费上限的错误码或官方原话 = 额度不足、欠费或到了上限(ACCOUNT_CREDIT)
+    - 账户问题 → AdapterAccountError,分五种(classify_account_problem):先按官方写明的错误码或原话认地区不支持(REGION)、
+      key 泄露(AUTH)、账户受限(RESTRICTED)、周期额度用完(QUOTA)、欠费 / 花费上限(CREDIT);认不出的 401 / 403 → AUTH、
+      402 → CREDIT
     - 其余 HTTP 429(限流)/ 5xx(平台内部错误)→ AdapterTransientError(带 http_status;
       429 / 503 的 Retry-After 头翻译成 retry_after_s,v0.4.26 C5——只翻译,不在这里等)
     - 其余 4xx → AdapterPermanentError(非法请求)
@@ -151,7 +190,7 @@ def contract_post(
     body = clipped(response.text) if status >= 400 else None  # 错误证据存档,留头尾防巨响应
     account_kind = classify_account_problem(status, body)
     if account_kind is not None:
-        explanation = _ACCOUNT_MESSAGES.get(status, f"账户额度不足、欠费或到了花费上限(HTTP {status})")
+        explanation = _account_explanation(account_kind, status)
         raise AdapterAccountError(
             f"{explanation}: {response.text[:200]}", error_type=account_kind,
             http_status=status, response_body=body,

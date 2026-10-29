@@ -14,7 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 from adapters.base import SurfaceAdapter
 from engine.ai_task import TaskFailed
 from engine.drafting import PromptCandidate, draft_prompt_candidates
-from engine.models import RunErrorType, Target
+from engine.models import Target
 from engine.page_check import BUDGET_S as VERIFY_BUDGET_S
 from engine.page_check import PageChecker
 from engine.scheduler import AccountProblem
@@ -176,8 +176,8 @@ def _draft_then_register(
                     return _abandon_draft(request, job, f"/?error=SPELLINGS_FAILED&detail={quote(str(exc)[:200])}")
                 finally:
                     opener.close()
-        except AccountProblem as exc:  # 出题时就撞上 key / 额度问题:同一套换 key / 充值的话,回首页说
-            code = "ACCOUNT_AUTH" if exc.error_type is RunErrorType.ACCOUNT_AUTH else "ACCOUNT_CREDIT"
+        except AccountProblem as exc:  # 出题时就撞上账户问题:同一套话(错误库的码与账户类 error_type 同名),回首页说
+            code = exc.error_type.value
             display = ctx.display_names.get(exc.surface, exc.surface)
             return _abandon_draft(request, job, f"/?error={code}&ai={quote(display)}&model={quote(exc.model)}"
                                                 f"&detail={quote(exc.message[:200])}")

@@ -17,6 +17,7 @@ from adapters.base import (
     SurfaceMeta,
 )
 from engine.models import (
+    ACCOUNT_ERROR_TYPES,
     Answer,
     AskRequest,
     Outcome,
@@ -393,3 +394,17 @@ def test_money_spent_on_failed_attempts_is_recorded_not_lost():
         ScriptedAdapter([AdapterPermanentError("平台返回 status='failed'", cost_usd=0.01), "ok"]), [P1],
     )
     assert storage2.runs[0].outcome is Outcome.PERMANENT_FAILURE and storage2.runs[0].cost_usd == pytest.approx(0.01)
+
+
+@pytest.mark.parametrize("kind", sorted(ACCOUNT_ERROR_TYPES))
+def test_every_kind_of_account_problem_stops_the_plan_without_retry(kind):
+    """五种账户问题(换 key / 充值 / 地区不支持 / 账户受限 / 额度用完)都不重试、照常落库、整单停下,带上是哪一种。"""
+    storage = MemoryStorage()
+    sleeps: list[float] = []
+    with pytest.raises(AccountProblem) as exc_info:
+        make_sampler(storage, sleeps).run_plan(
+            ScriptedAdapter([AdapterAccountError("账户问题", error_type=kind, http_status=403), "ok"]), [P1],
+        )
+    assert sleeps == [] and exc_info.value.error_type is kind
+    [run] = storage.runs
+    assert run.error.error_type is kind

@@ -163,3 +163,38 @@ def test_a_malformed_citation_url_gives_an_empty_domain_instead_of_failing_the_a
     assert domain_of("http://[bad/x") == ""
     assert domain_of("https://a.test:abc/x") == "a.test"  # 端口坏了主机名还取得到
     assert domain_of("https://Example.COM/p") == "example.com"
+
+
+# 401 / 403 / 400 / 429 背后是哪种账户问题(用户 2026-10-29 定:分不清是致命的;原来 401 / 403 一律「换 key」)。
+# 样本都用官方文档写明的错误码或原话(2026-10-29 核对),各自要用户做的事不同:
+OFFICIAL_ACCOUNT_BODIES = (
+    (403, '{"error":{"code":"unsupported_country_region_territory","message":"Country, region, or territory not '
+          'supported","param":null,"type":"request_forbidden"}}', RunErrorType.ACCOUNT_REGION, "换 key 没用"),
+    (403, '{"error":{"code":403,"message":"Your API key was reported as leaked. Please use another API key.",'
+          '"status":"PERMISSION_DENIED"}}', RunErrorType.ACCOUNT_AUTH, "没有使用权限"),
+    (403, '{"error":{"code":403,"message":"Your project has been denied access. Please contact support.",'
+          '"status":"PERMISSION_DENIED"}}', RunErrorType.ACCOUNT_RESTRICTED, "换 key 没用"),
+    (400, '{"error":{"code":"failed_precondition","message":"The request cannot be processed because a prerequisite '
+          'is not met (for example, disabled billing)."}}', RunErrorType.ACCOUNT_RESTRICTED, "没开通付费"),
+    (429, '{"error":{"code":"quota_exceeded","message":"You have exceeded your daily quota."}}',
+     RunErrorType.ACCOUNT_QUOTA, "等额度重置"),
+)
+
+
+@pytest.mark.parametrize("status, body, kind, words", OFFICIAL_ACCOUNT_BODIES)
+def test_each_account_problem_is_told_apart_by_the_platforms_own_words(status, body, kind, words):
+    with pytest.raises(AdapterAccountError) as exc_info:
+        _post(status, body)
+    assert exc_info.value.error_type is kind and words in str(exc_info.value)
+    assert classify_account_problem(status, body) is kind  # 历史错误行按同一条规则重读
+
+
+def test_an_unexplained_403_is_still_a_key_problem_but_says_it_may_be_the_account():
+    """平台没写明原因的 403(Claude、Perplexity 的地区 / 欠费没查到官方写法,不猜):仍按 key 处理,
+    但话说全——先看平台原话。"""
+    with pytest.raises(AdapterAccountError) as exc_info:
+        _post(403, '{"type":"error","error":{"type":"permission_error","message":"Request not allowed"}}')
+    assert exc_info.value.error_type is RunErrorType.ACCOUNT_AUTH
+    assert "账户被平台限制" in str(exc_info.value) and "先看平台原话" in str(exc_info.value)
+    assert classify_account_problem(429, '{"error":{"message":"Quota exceeded for metric requests per minute",'
+                                         '"status":"RESOURCE_EXHAUSTED"}}') is None  # 按分钟的限流仍是限流

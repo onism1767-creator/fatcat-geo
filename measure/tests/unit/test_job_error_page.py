@@ -85,3 +85,18 @@ def test_running_job_reports_quiet_minutes_and_stall_code():
     assert "JOB_STALLED" in stalled and "卡住" in stalled and "接着跑" in stalled
     job.last_result_at = None  # 一条都没回来过:从本次开始时刻算
     assert "JOB_STALLED" in _page(job, "en") and "stuck" in _page(job, "en")
+
+
+def test_every_account_problem_says_what_to_do_in_both_languages():
+    """五种账户问题各一句话、一个下一步(用户 2026-10-29 定:分不清是致命的);地区不支持与账户受限明说换 key 没用。"""
+    expected = {
+        "ACCOUNT_REGION": ("国家或地区", "换 key 没有用", "country or region", "A new key will not help"),
+        "ACCOUNT_RESTRICTED": ("被平台限制了", "换 key 没有用", "restricted by the platform",
+                               "A new key will not help"),
+        "ACCOUNT_QUOTA": ("额度用完了", "等额度重置", "used up its quota", "Wait for the quota to reset"),
+        "ACCOUNT_AUTH": ("也可能是账户被平台限制", "先看平台原话", "may be restricted", "Read what the platform said"),
+    }
+    for code, (zh_a, zh_b, en_a, en_b) in expected.items():
+        zh, en = _page(_failed_job(code), "zh"), _page(_failed_job(code), "en")
+        assert zh_a in zh and zh_b in zh, code
+        assert en_a in en and en_b in en, code

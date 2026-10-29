@@ -47,7 +47,6 @@ from engine.models import (
     BrandSpec,
     Prompt,
     PromptIntent,
-    RunErrorType,
     SearchMode,
     Sentiment,
     SourceClass,
@@ -108,8 +107,8 @@ class _ProgressSink:
 
 
 # 执行器会写进 job.error_code 的码(S10.1):都在 config/errors.yaml 里(测试把守),文案由任务页从库里取
-RUNNER_CODES = ("ACCOUNT_AUTH", "ACCOUNT_CREDIT", "DB_UNREACHABLE", "JUDGE_UNAVAILABLE", "JOB_CRASHED",
-                "PRECHECK_FAILED")
+RUNNER_CODES = ("ACCOUNT_AUTH", "ACCOUNT_CREDIT", "ACCOUNT_REGION", "ACCOUNT_RESTRICTED", "ACCOUNT_QUOTA",
+                "DB_UNREACHABLE", "JUDGE_UNAVAILABLE", "JOB_CRASHED", "PRECHECK_FAILED")
 
 
 class PrecheckFailed(Exception):
@@ -137,10 +136,9 @@ def execute_job(
                   model=exc.model, error=exc.message)
         display = adapters[exc.surface].meta().display_name if exc.surface in adapters else exc.surface
         job.state = JobState.FAILED
-        job.error_code = {  # 两种账户问题两句话:换 key / 充值(文案在 config/errors.yaml,随界面语言渲染)
-            RunErrorType.ACCOUNT_AUTH: "ACCOUNT_AUTH",
-            RunErrorType.ACCOUNT_CREDIT: "ACCOUNT_CREDIT",
-        }[exc.error_type]
+        # 每种账户问题一句话、一个下一步(换 key / 充值 / 地区不支持 / 账户受限 / 额度到期);错误库的码与账户类
+        # error_type 同名,文案在 config/errors.yaml,随界面语言渲染
+        job.error_code = exc.error_type.value
         job.error_params = {"ai": display, "model": exc.model, "detail": exc.message}
         job.error = None
         job.phase = "phase_failed"

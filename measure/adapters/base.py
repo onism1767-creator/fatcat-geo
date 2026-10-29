@@ -65,10 +65,11 @@ class AdapterPermanentError(AdapterError):
 
 
 class AdapterAccountError(AdapterPermanentError):
-    """账户问题(v0.4.21):key 无效 / 没权限(ACCOUNT_AUTH)或额度不足 / 欠费 / 到了花费上限(ACCOUNT_CREDIT)。
+    """账户问题(v0.4.21;2026-10-29 细分五种):换 key(AUTH)、充值或调高上限(CREDIT)、地区不支持(REGION)、
+    账户或项目受限(RESTRICTED)、周期额度用完(QUOTA),见 engine.models.RunErrorType。
     仍是永久类(不重试),但它不是对 surface 的观测——是我们这边没能发出观测。引擎另作处理:
     照常落库(error_type 取 error_type 参数),不计入尝试数 / 失败率 / 熔断窗口,并立即停止整个
-    任务;任务页按两种代码分别解释(换 key / 充值或调高花费上限)。"""
+    任务;任务页按五种代码分别解释(每种一句话、一个下一步,文案在 config/errors.yaml)。"""
 
     def __init__(
         self,

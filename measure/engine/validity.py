@@ -11,17 +11,21 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from engine.models import Outcome, RunErrorType, SurfaceRun
+from engine.models import ACCOUNT_ERROR_TYPES, Outcome, SurfaceRun
 
 
 class PublicErrorCode(StrEnum):
-    """面向用户 / 导出文件的错误码(产品文档 15.2 错误码表 + 我方账户两类)。"""
+    """面向用户 / 导出文件的错误码(产品文档 15.2 错误码表 + 我方账户五类)。"""
 
     AI_PROVIDER_ERROR = "AI_PROVIDER_ERROR"  # 模型服务返回错误:重试耗尽或永久失败
     AI_PROVIDER_RATE_LIMITED = "AI_PROVIDER_RATE_LIMITED"  # 模型服务限流(HTTP 429)后仍失败
     AI_RESPONSE_INVALID = "AI_RESPONSE_INVALID"  # 拒答或空回答:不计入分母,单独显示数量
-    ACCOUNT_AUTH = "ACCOUNT_AUTH"  # 我方 key 无效 / 没权限:换 key(产品文档没有这一类)
-    ACCOUNT_CREDIT = "ACCOUNT_CREDIT"  # 我方额度不足 / 欠费 / 到了花费上限:充值或调高上限
+    # 我方账户问题(产品文档没有这一类),与 RunErrorType 里的账户类同名一一对应,各自要用户做的事不同:
+    ACCOUNT_AUTH = "ACCOUNT_AUTH"  # key 无效 / 没权限:换 key
+    ACCOUNT_CREDIT = "ACCOUNT_CREDIT"  # 额度不足 / 欠费 / 到了花费上限:充值或调高上限
+    ACCOUNT_REGION = "ACCOUNT_REGION"  # 不对所在国家或地区开放:换 key 没用
+    ACCOUNT_RESTRICTED = "ACCOUNT_RESTRICTED"  # 账户或项目被平台限制:去控制台处理
+    ACCOUNT_QUOTA = "ACCOUNT_QUOTA"  # 这个周期的额度用完:等重置或申请提额
 
 
 def is_empty_answer(run: SurfaceRun) -> bool:
@@ -42,10 +46,8 @@ def public_error_code(run: SurfaceRun) -> PublicErrorCode | None:
         return PublicErrorCode.AI_RESPONSE_INVALID
     error = run.error
     assert error is not None  # SurfaceRun 校验保证:非 SUCCESS 必带 error
-    if error.error_type is RunErrorType.ACCOUNT_AUTH:
-        return PublicErrorCode.ACCOUNT_AUTH
-    if error.error_type is RunErrorType.ACCOUNT_CREDIT:
-        return PublicErrorCode.ACCOUNT_CREDIT
+    if error.error_type in ACCOUNT_ERROR_TYPES:  # 账户类同名一一对应
+        return PublicErrorCode(error.error_type.value)
     if error.http_status == 429:
         return PublicErrorCode.AI_PROVIDER_RATE_LIMITED
     return PublicErrorCode.AI_PROVIDER_ERROR

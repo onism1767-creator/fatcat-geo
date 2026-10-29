@@ -67,10 +67,10 @@ errors:
   - code: ACCOUNT_AUTH
     scope: account
     resumable: true
-    trigger: {zh: "某家 AI 返回 401 / 403:我方 key 无效或没权限;整单立刻停,不再花钱", en: "An AI returned 401 / 403: our key is invalid or lacks permission; the whole run stops at once"}
-    causes: {zh: "key 被换过、被吊销、复制时带了空格,或这家账户没开这个型号的权限。", en: "The key was rotated or revoked, copied with stray whitespace, or the account lacks access to this model."}
-    message: {zh: "{ai}(型号 {model})的 API key 无效或没有使用权限,检测已经停下,不会再花钱。平台原话:{detail}", en: "The API key for {ai} (model {model}) is invalid or lacks permission. The run has stopped and will spend nothing more. Platform said: {detail}"}
-    next_step: {zh: "检查 .env 里这家的 key,换好后重启服务,再点「接着跑」;已经采集的结果不会重跑。", en: "Check that key in .env, restart the service, then press Resume; results already collected are kept."}
+    trigger: {zh: "某家 AI 返回 401 / 403,而平台原话没写明是地区、账户受限或额度的问题:按 key 无效或没权限处理;整单立刻停,不再花钱", en: "An AI returned 401 / 403 and its message does not say it is about region, account restrictions or quota: treated as an invalid key or missing permission; the whole run stops at once"}
+    causes: {zh: "key 被换过、被吊销、被报告泄露、复制时带了空格,或这家账户没开这个型号的权限。平台没写明原因的 403 也归这里:也可能是账户被平台限制,这时换 key 没用。", en: "The key was rotated, revoked or reported as leaked, copied with stray whitespace, or the account lacks access to this model. A 403 whose reason the platform does not state also lands here: it may be an account restriction, in which case a new key will not help."}
+    message: {zh: "{ai}(型号 {model})的 API key 无效或没有使用权限,也可能是账户被平台限制。检测已经停下,不会再花钱。平台原话:{detail}", en: "The API key for {ai} (model {model}) is invalid or lacks permission, or the account may be restricted by the platform. The run has stopped and will spend nothing more. Platform said: {detail}"}
+    next_step: {zh: "先看平台原话:说 key 不对,就检查 .env 里这家的 key,换好后重启服务再点「接着跑」;说账户受限,就去这家的控制台看账户状态。已经采集的结果不会重跑。", en: "Read what the platform said first: if it is about the key, check that key in .env, restart the service and press Resume; if it is about the account, check the account status in that platform's console. Results already collected are kept."}
   - code: ACCOUNT_CREDIT
     scope: account
     resumable: true
@@ -78,6 +78,27 @@ errors:
     causes: {zh: "预付额度用完、到了你在平台上自己设的花费上限、到了平台给这个账户的月度上限,或绑定的卡扣款失败。", en: "Prepaid credit used up, a spend limit you set on the platform reached, the platform's monthly cap for the account reached, or the card on file was declined."}
     message: {zh: "{ai}(型号 {model})的 API 账户额度不足、欠费或到了花费上限,检测已经停下,不会再花钱。平台原话:{detail}", en: "The API account for {ai} (model {model}) is out of credit or has hit a spend limit. The run has stopped and will spend nothing more. Platform said: {detail}"}
     next_step: {zh: "充值,或在这家平台的控制台调高 / 取消花费上限(平台给的月度上限要申请提额,或等到下个月),然后点「接着跑」;已经采集的结果不会重跑。", en: "Top up, or raise or remove the spend limit in that platform's console (a monthly cap set by the platform needs a limit increase, or wait for next month), then press Resume; results already collected are kept."}
+  - code: ACCOUNT_REGION
+    scope: account
+    resumable: true
+    trigger: {zh: "某家 AI 返回「所在国家或地区不支持」(官方写明的错误码或原话);整单立刻停,不再花钱", en: "An AI said the country, region or territory is not supported (an error code or wording its docs define); the whole run stops at once"}
+    causes: {zh: "这家按请求是从哪个国家或地区发出的来决定给不给用,和 key、账户都无关。电脑联网时所在的地区不在它的支持名单里,就会这样;换哪把 key 都没用。", en: "That platform decides by the country or region a request comes from, not by the key or the account. If this computer's network is in a region outside its supported list, this happens; no key will help."}
+    message: {zh: "{ai}(型号 {model})不对你当前网络所在的国家或地区开放接口,检测已经停下,不会再花钱。换 key 没有用。平台原话:{detail}", en: "{ai} (model {model}) does not offer its API to the country or region your network is in. The run has stopped and will spend nothing more. A new key will not help. Platform said: {detail}"}
+    next_step: {zh: "去这家官方的「支持的国家和地区」名单核对你当前网络所在的地区;确认在支持范围内后再点「接着跑」,已经采集的结果不会重跑。", en: "Check that platform's official list of supported countries and regions against where your network is; once it is within the supported list, press Resume. Results already collected are kept."}
+  - code: ACCOUNT_RESTRICTED
+    scope: account
+    resumable: true
+    trigger: {zh: "某家 AI 返回账户或项目被限制(官方写明的原话,比如 Gemini 的「项目被拒绝访问」、没开通计费);整单立刻停,不再花钱", en: "An AI said the account or project is restricted (wording its docs define, such as Gemini's \"project has been denied access\" or billing not enabled); the whole run stops at once"}
+    causes: {zh: "平台按账户或项目的状态决定给不给用:没开通付费、免费额度不对这个项目开放、有欠款,或者被暂停。这些都和 key 无关,换 key 没用。", en: "The platform decides by the account or project status: billing not enabled, free tier not available to this project, an unpaid balance, or a suspension. None of these is about the key, so a new key will not help."}
+    message: {zh: "{ai}(型号 {model})的账户或项目被平台限制了,检测已经停下,不会再花钱。换 key 没有用。平台原话:{detail}", en: "The account or project for {ai} (model {model}) is restricted by the platform. The run has stopped and will spend nothing more. A new key will not help. Platform said: {detail}"}
+    next_step: {zh: "去这家的控制台看账户或项目状态:按提示开通付费、补上欠款,或者处理暂停通知;处理好后点「接着跑」,已经采集的结果不会重跑。", en: "Check the account or project status in that platform's console: enable billing, settle the balance, or deal with the suspension notice as it says; then press Resume. Results already collected are kept."}
+  - code: ACCOUNT_QUOTA
+    scope: account
+    resumable: true
+    trigger: {zh: "某家 AI 返回这个周期的调用额度用完了(官方写明的错误码,比如 Gemini 的每日额度);整单立刻停,不再白白重试", en: "An AI said the quota for this period is used up (an error code its docs define, such as Gemini's daily quota); the whole run stops instead of retrying in vain"}
+    causes: {zh: "平台给账户每天(或每个周期)的调用量设了上限,用完了要等它重置;在这之前重试都不会成功。", en: "The platform caps how much the account can call per day (or per period); once used up it must reset, and retrying before then will not succeed."}
+    message: {zh: "{ai}(型号 {model})这个周期的调用额度用完了,检测已经停下,不会再花钱。平台原话:{detail}", en: "{ai} (model {model}) has used up its quota for this period. The run has stopped and will spend nothing more. Platform said: {detail}"}
+    next_step: {zh: "等额度重置(通常是第二天)后点「接着跑」,或者去这家的控制台申请提高额度;已经采集的结果不会重跑。", en: "Wait for the quota to reset (usually the next day) and press Resume, or request a higher quota in that platform's console. Results already collected are kept."}
 
   # ── 本机数据库 ──
   - code: DB_UNREACHABLE

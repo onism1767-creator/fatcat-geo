@@ -64,12 +64,20 @@ class RunErrorType(StrEnum):
     TRANSIENT = "TRANSIENT"
     PERMANENT = "PERMANENT"
     REFUSAL = "REFUSAL"
-    # v0.4.21:我方账户问题——不是对 surface 的观测,是观测没发出去。两种,处理不同:
-    ACCOUNT_AUTH = "ACCOUNT_AUTH"  # key 无效 / 没权限(HTTP 401 / 403):换 key
+    # v0.4.21:我方账户问题——不是对 surface 的观测,是观测没发出去。各自要用户做的事不同
+    # (用户 2026-10-29 定:分不清是致命的,原来 401 / 403 一律叫人换 key)。能认出的都靠官方写明的错误码或原话
+    # (adapters/http_support.py);认不出原因的 401 / 403 归 AUTH,提示先看平台原话。
+    ACCOUNT_AUTH = "ACCOUNT_AUTH"  # key 无效 / 没权限 / 被报告泄露:换 key
     ACCOUNT_CREDIT = "ACCOUNT_CREDIT"  # 额度不足 / 欠费 / 到了花费上限(402,或 400 / 429 带对应错误码):充值或调高上限
+    ACCOUNT_REGION = "ACCOUNT_REGION"  # 不对请求所在的国家或地区开放:和 key、账户无关,换 key 没用
+    ACCOUNT_RESTRICTED = "ACCOUNT_RESTRICTED"  # 账户或项目被限制(没开通付费、有欠款、被暂停):去控制台处理
+    ACCOUNT_QUOTA = "ACCOUNT_QUOTA"  # 这个周期(通常一天)的调用额度用完:等重置或申请提额,重试没用
 
 
-ACCOUNT_ERROR_TYPES = frozenset({RunErrorType.ACCOUNT_AUTH, RunErrorType.ACCOUNT_CREDIT})
+ACCOUNT_ERROR_TYPES = frozenset({
+    RunErrorType.ACCOUNT_AUTH, RunErrorType.ACCOUNT_CREDIT, RunErrorType.ACCOUNT_REGION,
+    RunErrorType.ACCOUNT_RESTRICTED, RunErrorType.ACCOUNT_QUOTA,
+})
 
 
 class PromptOrigin(StrEnum):
