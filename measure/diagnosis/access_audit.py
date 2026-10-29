@@ -8,8 +8,9 @@
 因此每条检查都标注所属证据层:
 - POLICY:robots.txt / sitemap,站点单方声明;
 - GENERIC_FETCH:本工具探针可达性(首页 + 引用核验重抓的按路径结果);
-- RENDERED_FETCH / OFFICIAL_IDENTITY / WAF_EVIDENCE:v1 一律 NOT_OBSERVABLE 占位,
-  分别待 Playwright(v2)、站长日志、CDN 后台证据。
+- RENDERED_FETCH:首页原始网页字太少、分不清被拦还是靠脚本加载时,用真浏览器打开一次首页对照(用户 2026-10-29 定),
+  其余情况记「不需要对照」;本机没装浏览器内核记「没能对照」;
+- OFFICIAL_IDENTITY / WAF_EVIDENCE:一律 NOT_OBSERVABLE 占位,分别待站长日志、CDN 后台证据。
 资格门只由 POLICY 显式禁止与 GENERIC_FETCH 的非防护类硬失败触发;报告措辞是
 「站点侧证据」,不称「AI 爬虫可达 PASS/FAIL」。
 
@@ -56,6 +57,8 @@ from crawler.fetch import (
     is_html,
     new_client,
 )
+from crawler.render import Renderer
+from crawler.signatures import protection_marks, shell_marks
 from diagnosis.messages import Msg, msg, render_msg
 
 # 官网审计全部检查项的名字(证据注册表 access_checks 只能写这些;写错加载即报错,第二轮)
@@ -100,6 +103,7 @@ class PathProbe(FrozenModel):
     url: str
     http_status: int | None = None  # None = 网络层失败
     error: str | None = None
+    text_chars: int | None = None  # 打开后抽出的正文字数(核对首页那条用:AI 引用的官网页面读不读得到正文)
 
 
 class CrawlerBot(FrozenModel):
@@ -127,6 +131,9 @@ class BotProbe(FrozenModel):
     fetch_status: int | None = None  # None = 未发请求(仅 robots 令牌)或网络错误
     fetch_error: str | None = None
     visible_text_chars: int | None = None
+    # 拿到的页面字很少(或被拒)时才看的指纹(crawler/signatures.py):像哪家防护的拦截页 / 哪种只靠脚本的空壳框架
+    protection: list[str] = []
+    shell: list[str] = []
 
 
 class AccessAuditResult(FrozenModel):
@@ -150,15 +157,22 @@ def with_path_probes(result: AccessAuditResult, probes: list[PathProbe]) -> Acce
     ok = sum(1 for p in probes if p.http_status is not None and 200 <= p.http_status < 300)
     blocked = sum(1 for p in probes if p.http_status in PROTECTION_SUSPECT_STATUSES)
     other = len(probes) - ok - blocked
+    with_text = sum(1 for p in probes if p.text_chars is not None and p.text_chars >= MIN_VISIBLE_TEXT_CHARS)
     check = CheckResult(
         check="path_fetch", layer=AccessLayer.GENERIC_FETCH,
         status=CheckStatus.PASS if ok == len(probes) else CheckStatus.UNKNOWN, gating=False,
         detail=msg("access.path.summary", total=len(probes), ok=ok, blocked=blocked, other=other),
-        evidence={"ok": ok, "blocked": blocked, "other": other},
+        evidence={"ok": ok, "blocked": blocked, "other": other, "with_text": with_text},
     )
-    return result.model_copy(update={
-        "checks": [*result.checks, check], "path_probes": [*result.path_probes, *probes],
-    })
+    # ③ 首页那条判挂了或看不到时,把「AI 引用的官网页面我们打开时读不读得到正文、有没有被拦」补进它的说明
+    # (用户 2026-10-29 定的核对证据):只补说明,不改结论——首页靠脚本加载时,内页有正文也不改变首页的事实
+    checks = [
+        c.model_copy(update={"detail": msg("access.content.crosscheck", base=c.detail, total=len(probes),
+                                           with_text=with_text, blocked=blocked)})
+        if c.check == "html_content" and c.status is not CheckStatus.PASS else c
+        for c in [*result.checks, check]
+    ]
+    return result.model_copy(update={"checks": checks, "path_probes": [*result.path_probes, *probes]})
 
 
 # ── HTML 可见文本 ──────────────────────────────────────────────────────
@@ -205,35 +219,40 @@ def audit(
     site_url: str,
     crawlers: list[CrawlerBot] | None = None,
     client: httpx.Client | None = None,
+    renderer: Renderer | None = None,
 ) -> AccessAuditResult:
+    """renderer:真浏览器(用户 2026-10-29 定):首页原始网页字太少、分不清被拦还是靠脚本加载时打开一次首页对照;
+    不给(本机没装浏览器内核)就不对照,照实记看不到。调用方负责关闭。"""
     crawlers = crawlers if crawlers is not None else load_crawlers()
     url = _normalize_url(site_url)
     own_client = client is None
     client = client or new_client()
     try:
-        return _audit(url, crawlers, client)
+        return _audit(url, crawlers, client, renderer)
     finally:
         if own_client:
             client.close()
 
 
-def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> AccessAuditResult:
-    """逐项检查后按资格门聚合。网络请求顺序:基准 → robots.txt → 各爬虫 UA → sitemap。"""
+def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client, renderer: Renderer | None) -> AccessAuditResult:
+    """逐项检查后按资格门聚合。网络请求顺序:基准 → robots.txt → 各爬虫 UA →(需要时)真浏览器 → sitemap。"""
     caveats = list(STANDARD_CAVEATS)
     reach, baseline, final_url, redirect_chain = _check_reachability(client, url)
+    ok_baseline = baseline if baseline is not None and baseline.is_success else None
     robots_base = final_url or url  # robots.txt / sitemap 按最终主机
     allowed_fn, sitemap_urls, robots_note = _fetch_robots(client, robots_base)
     probes = _probe_bots(client, url, crawlers, allowed_fn)
-    content, browser_view_fallback = _check_content(baseline, probes)
+    content, browser_view_fallback, rendered = _check_content(final_url or url, baseline, probes, renderer)
     if browser_view_fallback:
         caveats.append(msg("access.caveat.browser_view_fallback"))
     checks = [
         reach,
         _check_redirects(url, final_url, redirect_chain),
         _check_robots(allowed_fn, robots_note, probes),
-        _check_ua_differential(baseline is not None, probes),
+        _check_ua_differential(ok_baseline is not None, probes),
         content,
         _check_sitemap(client, robots_base, sitemap_urls),
+        rendered,
         *_unobservable_layers(),
     ]
     return AccessAuditResult(
@@ -245,7 +264,8 @@ def _audit(url: str, crawlers: list[CrawlerBot], client: httpx.Client) -> Access
 def _check_reachability(
     client: httpx.Client, url: str
 ) -> tuple[CheckResult, httpx.Response | None, str | None, list[str]]:
-    """1. 可达性基准(浏览器 UA)+ 重定向链。返回 (检查结果, 成功的基准响应 | None, 最终地址, 重定向链)。"""
+    """1. 可达性基准(浏览器 UA)+ 重定向链。返回 (检查结果, 基准响应 | None, 最终地址, 重定向链)。
+    基准响应被拒(403 之类)也交回:内容检查要看它是不是防护的拦截页(用户 2026-10-29 定的指纹证据)。"""
     try:
         baseline = get_as_browser(client, url)
     except httpx.TooManyRedirects:
@@ -275,7 +295,7 @@ def _check_reachability(
         status, detail = CheckStatus.FAIL, msg("access.reach.bad", status=baseline.status_code)
     reach = CheckResult(check="reachability", layer=AccessLayer.GENERIC_FETCH,
                         status=status, gating=True, detail=detail, evidence=evidence)
-    return reach, baseline if baseline.is_success else None, final_url, redirect_chain
+    return reach, baseline, final_url, redirect_chain
 
 
 def _check_redirects(url: str, final_url: str | None, redirect_chain: list[str]) -> CheckResult:
@@ -309,18 +329,24 @@ def _probe_bots(
         fetch_status: int | None = None
         fetch_error: str | None = None
         chars: int | None = None
+        protection: list[str] = []
+        shell: list[str] = []
         if bot.user_agent:
             try:
                 resp = get_as(client, url, bot.user_agent)  # 正文封顶(审核 2026-10-28 第二轮)
                 fetch_status = resp.status_code
                 if resp.is_success and is_html(resp):
                     chars = visible_text_length(resp.text)
+                if chars is None or chars < MIN_VISIBLE_TEXT_CHARS:  # 只在拿到的页面字很少或被拒时看指纹
+                    protection = protection_marks(resp.headers, resp.text)
+                    shell = shell_marks(resp.text) if resp.is_success else []
             except httpx.HTTPError as exc:
                 fetch_error = type(exc).__name__
         probes.append(BotProbe(
             bot=bot.name, gating=bot.gating,
             robots_allowed=allowed_fn(bot.robots_token) if allowed_fn else None,
             fetch_status=fetch_status, fetch_error=fetch_error, visible_text_chars=chars,
+            protection=protection, shell=shell,
         ))
     return probes
 
@@ -381,10 +407,39 @@ def _check_ua_differential(baseline_ok: bool, probes: list[BotProbe]) -> CheckRe
     )
 
 
-def _check_content(baseline: httpx.Response | None, probes: list[BotProbe]) -> tuple[CheckResult, bool]:
-    """6. HTML 内容(JS 白板):优先以爬虫视角判定;没有爬虫视角才退用浏览器视角(返回的布尔值 = 退用了)。"""
-    browser_chars = visible_text_length(baseline.text) if baseline is not None and is_html(baseline) else None
+def _content(status: CheckStatus, detail: Msg, evidence: dict[str, JsonValue] | None = None) -> CheckResult:
+    return CheckResult(check="html_content", layer=AccessLayer.GENERIC_FETCH, status=status, gating=True,
+                       detail=detail, evidence=evidence)
+
+
+def _rendered(status: CheckStatus, detail: Msg) -> CheckResult:
+    """真浏览器那一层(RENDERED_FETCH,只作提示、不进资格门):对照做没做、看到了什么。"""
+    return CheckResult(check="rendered_fetch", layer=AccessLayer.RENDERED_FETCH, status=status, gating=False,
+                       detail=detail)
+
+
+def _names(names: list[str]) -> str:
+    return ", ".join(dict.fromkeys(names))
+
+
+def _check_content(
+    url: str, baseline: httpx.Response | None, probes: list[BotProbe], renderer: Renderer | None,
+) -> tuple[CheckResult, bool, CheckResult]:
+    """6. HTML 内容(JS 白板):优先以爬虫视角判定;没有爬虫视角才退用浏览器视角(返回的布尔值 = 退用了)。
+    第三个返回值是真浏览器那一层的结果。
+
+    各个原始视角都只拿到很少的字时,原来一律判「内容全靠脚本加载」挂了,其实分不清是被网站拦了还是真白板。
+    用户 2026-10-29 定:不用用户动手,叠加证据自动分清——
+    ① 指纹:拿到的页面(含被拒的基准页)带防护公司的拦截标记 → 「我们被防护拦了」,记看不到;
+    ② 真浏览器打开一次首页对照:也被拦 → 同上;它收到的原始网页本来就有正文 → 网站对不同身份给了不同页面,记看不到;
+       原始网页也空、运行脚本后才有内容 → 确认「内容主要靠脚本加载」,判挂了(主要 AI 爬虫不运行脚本,Vercel 2024 统计);
+       运行脚本后也没几个字 → 可能首页本来字少、也可能加载得慢,分不清,记看不到;
+    ③ 采样后 AI 引用的官网页面读不读得到正文,由 with_path_probes 补进说明。
+    空壳框架的标记只作佐证写进说明,不单凭它判挂。"""
+    ok_baseline = baseline if baseline is not None and baseline.is_success else None
+    browser_chars = visible_text_length(ok_baseline.text) if ok_baseline is not None and is_html(ok_baseline) else None
     bot_views = [(p.bot, p.visible_text_chars) for p in probes if p.visible_text_chars is not None]
+    skipped = _rendered(CheckStatus.UNKNOWN, msg("access.rendered.skipped"))
     label: Msg | str = ""
     fallback = False
     if bot_views:
@@ -394,11 +449,7 @@ def _check_content(baseline: httpx.Response | None, probes: list[BotProbe]) -> t
         label, chars = msg("access.content.label.browser"), browser_chars
         fallback = True
     else:
-        return CheckResult(
-            check="html_content", layer=AccessLayer.GENERIC_FETCH,
-            status=CheckStatus.UNKNOWN, gating=True,
-            detail=msg("access.content.none"),
-        ), fallback
+        return _content(CheckStatus.UNKNOWN, msg("access.content.none")), fallback, skipped
     evidence: dict[str, JsonValue] = {"visible_chars": chars, "browser_chars": browser_chars}
     if chars >= MIN_VISIBLE_TEXT_CHARS:
         prerender: Msg | str = (
@@ -406,28 +457,64 @@ def _check_content(baseline: httpx.Response | None, probes: list[BotProbe]) -> t
             if browser_chars is not None and browser_chars < MIN_VISIBLE_TEXT_CHARS and bot_views
             else ""
         )
-        return CheckResult(
-            check="html_content", layer=AccessLayer.GENERIC_FETCH,
-            status=CheckStatus.PASS, gating=True,
-            detail=msg("access.content.pass", chars=chars, label=label, prerender=prerender),
-            evidence=evidence,
-        ), fallback
+        return _content(CheckStatus.PASS, msg("access.content.pass", chars=chars, label=label, prerender=prerender),
+                        evidence), fallback, skipped
+    small_baseline = baseline is not None and (ok_baseline is None or (browser_chars or 0) < MIN_VISIBLE_TEXT_CHARS)
+    protection = [name for p in probes for name in p.protection]
+    if small_baseline and baseline is not None:
+        protection += protection_marks(baseline.headers, baseline.text)
+    evidence["protection"] = list(dict.fromkeys(protection))
     if browser_chars is not None and browser_chars >= MIN_VISIBLE_TEXT_CHARS and bot_views:
         # 浏览器视角有正文、冒充的爬虫 UA 拿到 200 空壳:本工具用的是假身份,分不清「拦真爬虫」与「拦假身份」
         # (与 UA 差异检查同一条理由),只能记看不到,不判死(铁律 7;审核 2026-10-27 黄 11)
-        return CheckResult(
-            check="html_content", layer=AccessLayer.GENERIC_FETCH,
-            status=CheckStatus.UNKNOWN, gating=True,
-            detail=msg("access.content.bot_shell_unknown", chars=chars, label=label,
-                       threshold=MIN_VISIBLE_TEXT_CHARS, browser_chars=browser_chars),
-            evidence=evidence,
-        ), fallback
-    return CheckResult(
-        check="html_content", layer=AccessLayer.GENERIC_FETCH,
-        status=CheckStatus.FAIL, gating=True,
-        detail=msg("access.content.fail", chars=chars, label=label, threshold=MIN_VISIBLE_TEXT_CHARS),
-        evidence=evidence,
-    ), fallback
+        detail = msg("access.content.bot_shell_unknown", chars=chars, label=label,
+                     threshold=MIN_VISIBLE_TEXT_CHARS, browser_chars=browser_chars)
+        if protection:
+            detail = msg("access.content.hinted", base=detail,
+                         hint=msg("access.content.protection_hint", vendors=_names(protection)))
+        return _content(CheckStatus.UNKNOWN, detail, evidence), fallback, skipped
+    # 走到这:各个原始视角都只拿到很少的字
+    shells = [name for p in probes for name in p.shell]
+    if ok_baseline is not None and is_html(ok_baseline):
+        shells += shell_marks(ok_baseline.text)
+    shell_hint: Msg | str = msg("access.content.shell_hint", framework=_names(shells)) if shells else ""
+    evidence["shell"] = list(dict.fromkeys(shells))
+    if protection:  # ① 指纹:防护的拦截页
+        return _content(CheckStatus.UNKNOWN, msg("access.content.protected", chars=chars, label=label,
+                                                 vendors=_names(protection)), evidence), fallback, skipped
+    if renderer is None:
+        return _content(CheckStatus.UNKNOWN, msg("access.content.unconfirmed", chars=chars, label=label,
+                                                 threshold=MIN_VISIBLE_TEXT_CHARS,
+                                                 why=msg("access.content.why.no_renderer"), shell=shell_hint),
+                        evidence), fallback, _rendered(CheckStatus.UNKNOWN, msg("access.rendered.unavailable"))
+    page = renderer.render(url)  # ② 真浏览器打开一次首页对照
+    if page is None:
+        return _content(CheckStatus.UNKNOWN, msg("access.content.unconfirmed", chars=chars, label=label,
+                                                 threshold=MIN_VISIBLE_TEXT_CHARS,
+                                                 why=msg("access.content.why.render_failed"), shell=shell_hint),
+                        evidence), fallback, _rendered(CheckStatus.UNKNOWN, msg("access.rendered.failed"))
+    rendered_chars = visible_text_length(page.html)
+    document_chars = visible_text_length(page.document_html) if page.document_html is not None else None
+    evidence.update(rendered_chars=rendered_chars, document_chars=document_chars)
+    browser_protection = protection_marks(None, page.html)
+    if page.document_html is not None:
+        browser_protection += protection_marks(None, page.document_html)
+    if page.http_status in PROTECTION_SUSPECT_STATUSES or browser_protection:
+        blocked_by = _names(browser_protection) or f"HTTP {page.http_status}"
+        return (_content(CheckStatus.UNKNOWN, msg("access.content.protected", chars=chars, label=label,
+                                                  vendors=blocked_by), evidence), fallback,
+                _rendered(CheckStatus.UNKNOWN, msg("access.rendered.blocked", vendors=blocked_by)))
+    seen = _rendered(CheckStatus.PASS if rendered_chars >= MIN_VISIBLE_TEXT_CHARS else CheckStatus.UNKNOWN,
+                     msg("access.rendered.seen", chars=rendered_chars,
+                         document=document_chars if document_chars is not None else "—"))
+    if document_chars is not None and document_chars >= MIN_VISIBLE_TEXT_CHARS:
+        return _content(CheckStatus.UNKNOWN, msg("access.content.served_differently", chars=chars, label=label,
+                                                 document=document_chars), evidence), fallback, seen
+    if rendered_chars >= MIN_VISIBLE_TEXT_CHARS:
+        return _content(CheckStatus.FAIL, msg("access.content.script_only", chars=chars, label=label,
+                                              rendered=rendered_chars, shell=shell_hint), evidence), fallback, seen
+    return _content(CheckStatus.UNKNOWN, msg("access.content.thin_or_slow", chars=chars, label=label,
+                                             rendered=rendered_chars), evidence), fallback, seen
 
 
 def _check_sitemap(client: httpx.Client, robots_base: str, sitemap_urls: list[str]) -> CheckResult:
@@ -462,11 +549,9 @@ def _check_sitemap(client: httpx.Client, robots_base: str, sitemap_urls: list[st
 
 
 def _unobservable_layers() -> list[CheckResult]:
-    """7b. v1 不可观测的证据层显式占位(铁律 7:不可观测就记下来,不留空白让人脑补)。"""
+    """7b. 不可观测的证据层显式占位(铁律 7:不可观测就记下来,不留空白让人脑补)。真浏览器那一层 2026-10-29 起
+    由 _check_content 给出实际结果(做没做对照、看到了什么),不在这里占位。"""
     return [
-        CheckResult(check="rendered_fetch", layer=AccessLayer.RENDERED_FETCH,
-                    status=CheckStatus.UNKNOWN, gating=False,
-                    detail=msg("access.rendered.not_observable")),
         CheckResult(check="official_identity", layer=AccessLayer.OFFICIAL_IDENTITY,
                     status=CheckStatus.UNKNOWN, gating=False,
                     detail=msg("access.official.not_observable")),
@@ -526,7 +611,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--config", type=Path, default=DEFAULT_CRAWLERS_PATH, help="爬虫名单配置")
     args = parser.parse_args(argv)
 
-    result = audit(args.url, load_crawlers(args.config))
+    from crawler.render import PlaywrightRenderer, playwright_available
+
+    renderer = PlaywrightRenderer() if playwright_available() else None
+    try:
+        result = audit(args.url, load_crawlers(args.config), renderer=renderer)
+    finally:
+        if renderer is not None:
+            renderer.close()
     print(result.model_dump_json(indent=2) if args.json else render_text(result))
     return {CheckStatus.PASS: 0, CheckStatus.FAIL: 1, CheckStatus.UNKNOWN: 2}[result.overall]
 

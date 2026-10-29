@@ -138,7 +138,7 @@ class _StubDiscovery:
 
 @pytest.fixture()
 def offline(monkeypatch):
-    monkeypatch.setattr(runner.access_audit, "audit", lambda website: None)
+    monkeypatch.setattr(runner.access_audit, "audit", lambda website, **kwargs: None)
     monkeypatch.setattr(runner, "PageChecker", _NoNetworkChecker)
     monkeypatch.setattr(runner, "UrlResolver", _StubResolver)
     monkeypatch.setattr(runner, "BrandDomainDiscovery", _StubDiscovery)

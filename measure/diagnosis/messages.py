@@ -404,8 +404,9 @@ CATALOG: dict[str, dict[str, str]] = {
               "identity; whether real crawlers are admitted needs site-owner verification)",
     },
     "access.headline.fail": {
-        "zh": "站点侧证据存在准入阻断(robots 显式禁止或探针硬失败)",
-        "en": "Site-side evidence shows an access block (explicit robots disallow or a hard probe failure)",
+        "zh": "站点侧证据存在准入阻断(robots 显式禁止、探针硬失败,或真浏览器对照确认内容主要靠脚本加载)",
+        "en": "Site-side evidence shows an access block (explicit robots disallow, a hard probe failure, or content "
+              "a real-browser comparison confirmed is mostly loaded by scripts)",
     },
     "access.headline.unknown": {
         "zh": "站点侧证据有无法判定项,资格门不可观测",
@@ -579,6 +580,87 @@ CATALOG: dict[str, dict[str, str]] = {
               "browser view has ~{browser_chars} characters of content: the site serves different pages to different identities; "
               "this tool impersonates crawlers, so it cannot tell whether real crawlers or the impersonation are being blocked — "
               "recorded as not observable, not a failure",
+    },
+    # 各个原始视角都只拿到很少的字时怎么分清(用户 2026-10-29 定:指纹 + 真浏览器对照 + 本次数据核对,不用用户动手)
+    "access.content.hinted": {"zh": "{base}{hint}", "en": "{base}{hint}"},
+    "access.content.protection_hint": {
+        "zh": ";冒充爬虫拿到的页面带 {vendors} 的拦截标记,多半是防护拦了冒充的身份",
+        "en": "; the pages the impersonated crawlers got carry {vendors} blocking marks — most likely the protection "
+              "blocked the impersonation",
+    },
+    "access.content.shell_hint": {
+        "zh": ";页面带 {framework} 只靠脚本加载的空壳框架标记(只作佐证)",
+        "en": "; the page carries {framework} script-only shell markers (supporting evidence only)",
+    },
+    "access.content.protected": {
+        "zh": "只拿到约 {chars} 字符({label}),拿到的是 {vendors} 的拦截 / 验证页:我们的检测被网站安全系统拦了;"
+              "真的 AI 爬虫被不被拦,只有网站后台的拦截记录说得清,记为看不到,不判定",
+        "en": "Only ~{chars} characters were obtained ({label}) and they are a {vendors} block / challenge page: our probe "
+              "was stopped by the site's security layer; whether real AI crawlers are blocked only the site's own logs can "
+              "tell — recorded as not observable, not a failure",
+    },
+    "access.content.served_differently": {
+        "zh": "我们拿到的首页只有约 {chars} 字符({label}),而真浏览器收到的原始网页(运行脚本之前)就有约 {document} 字符正文:"
+              "网站对不同身份给了不同页面,多半是拦了我们的检测身份;真的 AI 爬虫拿到哪一种看不到,记为看不到,不判定",
+        "en": "The homepage we got has only ~{chars} characters ({label}), while the raw page a real browser received (before "
+              "running scripts) already has ~{document} characters: the site serves different pages to different identities, "
+              "most likely blocking our probe; which one real AI crawlers get is not observable — not a failure",
+    },
+    "access.content.script_only": {
+        "zh": "原始网页只有约 {chars} 字符可见文本({label}),真浏览器运行脚本后有约 {rendered} 字符:大部分内容靠脚本加载,"
+              "不运行脚本的 AI 爬虫读不到这部分{shell}",
+        "en": "The raw page has only ~{chars} visible characters ({label}), while a real browser shows ~{rendered} after "
+              "running scripts: most of the content is loaded by scripts, so AI crawlers that do not run scripts miss it"
+              "{shell}",
+    },
+    "access.content.unconfirmed": {
+        "zh": "原始网页只有约 {chars} 字符可见文本({label}),低于 {threshold} 阈值;{why}:分不清是被网站拦了还是内容靠脚本加载,"
+              "记为看不到,不判定{shell}",
+        "en": "The raw page has only ~{chars} visible characters ({label}), below the {threshold} threshold; {why}: cannot "
+              "tell whether the site blocked us or the content depends on scripts — recorded as not observable, not a "
+              "failure{shell}",
+    },
+    "access.content.why.no_renderer": {
+        "zh": "本机没装真浏览器内核,没能打开首页对照",
+        "en": "no real-browser engine is installed on this machine, so the homepage could not be compared",
+    },
+    "access.content.why.render_failed": {
+        "zh": "真浏览器没能打开首页(超时或出错)",
+        "en": "the real browser could not open the homepage (timeout or error)",
+    },
+    "access.content.thin_or_slow": {
+        "zh": "原始网页只有约 {chars} 字符可见文本({label}),真浏览器运行脚本后也只有约 {rendered} 字符:可能首页本来字就少,"
+              "也可能内容加载得慢,分不清,记为看不到,不判定",
+        "en": "The raw page has only ~{chars} visible characters ({label}) and a real browser shows only ~{rendered} after "
+              "running scripts: the homepage may simply have little text, or its content may load slowly — cannot tell, "
+              "recorded as not observable, not a failure",
+    },
+    "access.content.crosscheck": {
+        "zh": "{base};对照这次的数据:AI 引用过的 {total} 个官网页面,我们打开时 {with_text} 个有完整正文、{blocked} 个被拦",
+        "en": "{base}; checked against this run: of {total} site page(s) the AI cited, {with_text} opened with full text and "
+              "{blocked} were blocked",
+    },
+    "access.rendered.skipped": {
+        "zh": "首页原始网页已有正文,或已认出防护的拦截页,不需要用真浏览器对照",
+        "en": "The raw homepage already has content, or a protection block page was recognised, so no real-browser comparison "
+              "was needed",
+    },
+    "access.rendered.unavailable": {
+        "zh": "本机没装真浏览器内核,没能用真浏览器打开首页对照",
+        "en": "No real-browser engine is installed on this machine; the homepage could not be compared in a real browser",
+    },
+    "access.rendered.failed": {
+        "zh": "真浏览器没能打开首页(超时或出错)",
+        "en": "The real browser could not open the homepage (timeout or error)",
+    },
+    "access.rendered.blocked": {
+        "zh": "真浏览器打开首页也被拦了({vendors})",
+        "en": "The real browser was blocked on the homepage too ({vendors})",
+    },
+    "access.rendered.seen": {
+        "zh": "真浏览器打开首页:运行脚本后约 {chars} 字符可见文本,收到的原始网页约 {document} 字符",
+        "en": "Real browser on the homepage: ~{chars} visible characters after running scripts; the raw page it received "
+              "has ~{document}",
     },
     "access.sitemap.declared": {
         "zh": "robots.txt 声明了 sitemap:{urls}",
@@ -857,8 +939,8 @@ PLAIN: dict[str, dict[str, str]] = {
     "repr.headline.neutral_weak": {"zh": "用户没提到你时,AI 有时会提到你,不稳定", "en": "When users do not name you, the AI sometimes mentions you, not reliably"},
     "repr.headline.neutral_pass": {"zh": "用户没提到你时,AI 经常主动提到你,评价以中性或正面为主", "en": "When users do not name you, the AI often mentions you, mostly neutral or positive"},
     "access.headline.pass": {"zh": "没有发现阻碍爬虫进入官网的设置(这是我们自己的检测工具看到的;真实 AI 爬虫是否顺利,还需要网站技术团队确认)", "en": "No setting was found that blocks crawlers from your site (as seen by our own probe; whether real AI crawlers get through still needs your web team to confirm)"},
-    "access.headline.fail": {"zh": "发现了阻碍爬虫进入官网的设置(robots.txt 明确禁止,或我们的检测完全无法访问)", "en": "A setting that blocks crawlers from your site was found (an explicit robots.txt disallow, or our probe could not access the site at all)"},
-    "access.headline.unknown": {"zh": "目前无法确认真实 AI 爬虫能否正常访问官网:我们的自动检测有请求被网站安全系统拦截,建议由网站技术团队查看 CDN 或服务器日志", "en": "We cannot confirm whether real AI crawlers can access your site: some of our automated requests were blocked by the site's security layer — ask your web team to check the CDN or server logs"},
+    "access.headline.fail": {"zh": "发现了妨碍 AI 读到官网内容的问题(robots.txt 明确禁止、首页打不开,或内容主要靠脚本加载),具体看下面的检查明细", "en": "A problem that keeps AI from reading your site was found (an explicit robots.txt disallow, a homepage that does not open, or content that is mostly loaded by scripts) — see the checks below"},
+    "access.headline.unknown": {"zh": "目前无法确认真实 AI 爬虫能否正常读到官网内容:有的检查我们看不清(比如被网站安全系统拦了,或拿到的页面分不清是什么情况),具体看下面的检查明细;最终要网站技术团队查看 CDN 或服务器日志", "en": "We cannot confirm whether real AI crawlers can read your site: some checks were not observable (for example our probe was blocked by the site's security layer, or the page we got was ambiguous) — see the checks below; your web team can confirm in the CDN or server logs"},
     "access.headline.missing": {"zh": "本次没有检测官网抓取情况", "en": "Site crawlability was not checked this time"},
     "dependency.headline.high": {"zh": "不用联网搜索时,AI 几乎不提你:目前的曝光主要靠联网搜索撑着", "en": "Without web search the AI barely mentions you: your current exposure relies mainly on live search"},
     "dependency.headline.medium": {"zh": "不用联网搜索时,AI 提到你的次数明显变少", "en": "Without web search the AI mentions you noticeably less"},

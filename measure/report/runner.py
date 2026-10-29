@@ -189,7 +189,7 @@ def _execute(
     judges: JudgeConfig | None = None,
 ) -> None:
     _reset_progress(job)
-    job.access_result = access_audit.audit(job.website)
+    job.access_result = _audit_site(job.website)
     with Storage(dsn) as storage:
         storage.ensure_schema()
         storage.upsert_job_snapshot(job.to_snapshot())
@@ -549,6 +549,17 @@ def _look_alikes(job: DiagnosisJob, runs: list[SurfaceRun], context: ResolutionC
         discovery.close()
 
 
+def _audit_site(website: str) -> access_audit.AccessAuditResult:
+    """官网审计;首页原始网页字太少、分不清被拦还是靠脚本加载时,用真浏览器打开一次首页对照(用户 2026-10-29 定)。
+    本机没装浏览器内核就不对照,审计照实记看不到。"""
+    renderer = PlaywrightRenderer() if playwright_available() else None
+    try:
+        return access_audit.audit(website, renderer=renderer)
+    finally:
+        if renderer is not None:
+            renderer.close()
+
+
 def _page_checker(storage: Storage, progress: Callable[[int, int, str], None] | None = None) -> PageChecker:
     """网页核实器的装配点(S6.2–S6.4):四条退路在这里挑实现,核实器只认协议——渲染 = Playwright(装了才用);
     平台公开嵌入接口来自 config/platforms.yaml;配了 key 的平台官方接口来自环境变量(.env);公开存档 = 互联网档案馆。"""
@@ -614,7 +625,7 @@ def _check_pages(
         checker.close()
     if job.access_result is not None:
         job.access_result = with_path_probes(job.access_result, [
-            PathProbe(url=normalized, http_status=check.http_status, error=check.error)
+            PathProbe(url=normalized, http_status=check.http_status, error=check.error, text_chars=check.text_chars)
             for normalized, check in pages.checks.items() if normalized in own
         ])
     return pages
