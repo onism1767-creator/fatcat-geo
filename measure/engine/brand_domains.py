@@ -7,9 +7,12 @@
 (最多 MAX_CANDIDATE_HOMEPAGES 个,预算贯穿采样前后):
   A1 主站 hreflang 声明(HTML <link rel=alternate hreflang>、HTTP Link 头、sitemap 的 xhtml:link);对方也指回 → 注明双向
   A2 主站 Organization / WebSite 结构化数据的 url / sameAs,且网址名相同(sameAs 按 schema.org 的定义是「关于这家机构的
-     参考页面」,维基百科、企业名录也常写在里面;名字不同的不计入,只记一条说明——审核 2026-10-27 红 1)
+     参考页面」,维基百科、企业名录也常写在里面——这类站登记在 platforms.yaml 的 kind: reference,直接跳过、只记说明)
   A3 主站首页直接链接到它,且网址名相同(注册域名主体相同、后缀不同)
-→ 自动计入,每项附依据。采样后把回答里出现、清单外的同名域名再查一次:
+  A4 主站结构化数据列出、网址名不同,打开对方首页它也指回主站(双向声明)
+→ 自动计入,每项附依据。名字不同、对方没指回或首页打不开的记 B3,只提示(用户 2026-10-28 定:名字不同的真官网要能进名单,
+  靠双向声明自动算,不做手动加;只看主站结构化数据——首页随手链接的外站太多,逐个打开会吃掉抓取额度)。
+采样后把回答里出现、清单外的同名域名再查一次:
   B1 主站没有任何依据指向它;B2 只有对方单方面声明(它指向主站,主站没指回)→ 只提示,用户确认才算。
 官方渠道(电商旗舰店、官方社交账号)只认主站 sameAs 或首页链接指向、且主机在 config/platforms.yaml 上的页面,
 按「主机名 + 路径前缀」单列,不按注册域名(否则整个 tmall.com 都算进去)。
@@ -54,7 +57,9 @@ MAX_CANDIDATE_HOMEPAGES: Final = 20
 DEFAULT_PLATFORMS_PATH: Final = Path(__file__).resolve().parents[1] / "config" / "platforms.yaml"
 _PUBLIC_SUFFIX_LIST: Final = f"snapshot bundled with tldextract {_package_version('tldextract')}"
 _SCHEMA_TYPES: Final = frozenset({"Organization", "Corporation", "WebSite"})
-_TIER_ORDER: Final = (DomainTier.A1, DomainTier.A2, DomainTier.A3)
+_TIER_ORDER: Final = (DomainTier.A1, DomainTier.A2, DomainTier.A3, DomainTier.A4)
+_ANNOTATED_TIERS: Final = (DomainTier.A1, DomainTier.A2, DomainTier.A3)  # 这几档自动计入后再看对方指不指回(只作注明)
+REFERENCE_KIND: Final = "reference"  # platforms.yaml 里百科 / 企业名录这类参考页:不是官网,也不是官方渠道
 
 
 class Platform(FrozenModel):
@@ -218,14 +223,18 @@ class BrandDomainDiscovery:
         facts = parse_page(response.text, page_url)
         for lang, href in facts.hreflangs:
             builder.hreflang(href, lang, kind="hreflang", source=page_url)
+        other_names: dict[str, tuple[str, str]] = {}  # 名字不同的结构化数据目标:域名 → (字段, 网址),去查对方指不指回
         for field, url in facts.schema_urls:
+            label, domain = registrable(_host(url))
+            if builder.reference(url):  # 百科 / 企业名录:介绍这家机构的参考页,不是官网,只记说明
+                builder.note("schema_other_name", source=page_url, detail=domain)
+                continue
             if builder.channel(url, kind="jsonld_sameas", source=page_url):
                 continue
-            label, domain = registrable(_host(url))
             if label == primary_label:
                 builder.domain(url, DomainTier.A2, kind="jsonld", source=page_url, detail=field)
-            elif domain:  # 名字不同的 sameAs 目标(维基百科、企业名录……)不是官网:只记说明,不计入
-                builder.note("schema_other_name", source=page_url, detail=domain)
+            elif domain:
+                other_names.setdefault(domain, (field, url))
         for href in facts.links:
             if builder.channel(href, kind="homepage_link", source=page_url):
                 continue
@@ -233,7 +242,11 @@ class BrandDomainDiscovery:
             if label == primary_label and domain != primary_domain:
                 builder.domain(href, DomainTier.A3, kind="homepage_link", source=page_url)
         self._read_sitemaps(page_url, builder)
-        for entry in builder.ordered_domains():  # 对方指不指回主站:注明双向 / 单向
+        # 先查名字不同的(决定进不进名单),再给已计入的注明双向 / 单向(只是注明);两者共用首页抓取额度
+        self._check_other_names(other_names, builder, primary_domain, page_url)
+        for entry in builder.ordered_domains():
+            if entry.tier not in _ANNOTATED_TIERS:
+                continue
             if not self._homepage_budget_left(builder):
                 builder.note("homepage_limit")
                 break
@@ -311,6 +324,31 @@ class BrandDomainDiscovery:
             for lang, href in hreflangs:
                 builder.hreflang(href, lang, kind="sitemap_hreflang", source=url)
 
+    def _check_other_names(
+        self, other_names: dict[str, tuple[str, str]], builder: _ListBuilder, primary_domain: str, source: str,
+    ) -> None:
+        """主站结构化数据列出、网址名不同的站:打开对方首页看它指不指回主站(hreflang 或结构化数据)。
+        指回 = 双向声明 → A4 自动计入;没指回 / 打不开 → B3 只提示(报告里勾选确认才算)。
+        名单里已经有的(比如 hreflang 已经声明过)不再查;额度用完的照列 B3,只带「主站列了它」这一条依据。"""
+        for domain, (field, url) in other_names.items():
+            if builder.has(domain):
+                continue
+            declared = DomainEvidence(kind="jsonld_other_name", source=source, detail=field)
+            if not self._homepage_budget_left(builder):
+                builder.note("homepage_limit")
+                builder.unconfirmed(url, DomainTier.B3, [declared])
+                continue
+            builder.fetches += 1
+            facts = self._facts_of(_homepage(url))
+            if facts is None:
+                builder.unconfirmed(url, DomainTier.B3, [declared, DomainEvidence(kind="other_name_unreachable")])
+            elif _points_to_domain(facts, primary_domain):
+                builder.domain(url, DomainTier.A4, kind="jsonld_other_name", source=source, detail=field)
+                builder.annotate(builder.get(domain), True)
+            else:
+                builder.unconfirmed(url, DomainTier.B3,
+                                    [declared, DomainEvidence(kind="other_name_no_back", source=facts.url)])
+
     def _homepage_budget_left(self, builder: _ListBuilder) -> bool:
         return builder.fetches < MAX_CANDIDATE_HOMEPAGES
 
@@ -318,6 +356,12 @@ class BrandDomainDiscovery:
         builder.fetches += 1
         facts = self._facts_of(builder.homepage_of(entry.domain))
         return None if facts is None else _points_to_domain(facts, primary_domain)
+
+
+def _homepage(url: str) -> str:
+    """一个网址所在主机的首页(对方指不指回主站,就看它)。"""
+    parts = urlsplit(url)
+    return f"{parts.scheme or 'https'}://{parts.hostname}/"
 
 
 def _points_to_domain(facts: PageFacts, primary_domain: str) -> bool:
@@ -343,8 +387,7 @@ class _ListBuilder:
         if not label or not domain or domain == self.primary_domain:
             return
         evidence = DomainEvidence(kind=kind, source=source, detail=detail)
-        parts = urlsplit(url)
-        self._homepages.setdefault(domain, f"{parts.scheme or 'https'}://{parts.hostname}/")
+        self._homepages.setdefault(domain, _homepage(url))
         existing = self._domains.get(domain)
         if existing is None:
             self._domains[domain] = BrandDomain(
@@ -358,10 +401,31 @@ class _ListBuilder:
             update={"tier": strongest, "evidence": [*existing.evidence, evidence]},
         )
 
-    def channel(self, url: str, *, kind: str, source: str) -> bool:
-        """主机在平台清单上 → 记官方渠道并返回 True;否则 False(交给域名规则)。"""
+    def unconfirmed(self, url: str, tier: DomainTier, evidence: list[DomainEvidence]) -> None:
+        """只提示、用户确认才算的一项(B3)。"""
+        _, domain = registrable(_host(url))
+        if domain and domain != self.primary_domain and domain not in self._domains:
+            self._domains[domain] = BrandDomain(domain=domain, tier=tier, status=DomainStatus.UNCONFIRMED,
+                                                evidence=evidence)
+
+    def has(self, domain: str) -> bool:
+        return domain in self._domains
+
+    def get(self, domain: str) -> BrandDomain:
+        return self._domains[domain]
+
+    def _platform_of(self, url: str, *, reference: bool) -> Platform | None:
         host = _host(url)
-        platform = next((p for p in self._platforms if any(host == h or host.endswith("." + h) for h in p.hosts)), None)
+        return next((p for p in self._platforms if (p.kind == REFERENCE_KIND) is reference
+                     and any(host == h or host.endswith("." + h) for h in p.hosts)), None)
+
+    def reference(self, url: str) -> bool:
+        """主机是百科 / 企业名录这类参考页(platforms.yaml 的 kind: reference)。"""
+        return self._platform_of(url, reference=True) is not None
+
+    def channel(self, url: str, *, kind: str, source: str) -> bool:
+        """主机在平台清单上(参考页除外)→ 记官方渠道并返回 True;否则 False(交给域名规则)。"""
+        platform = self._platform_of(url, reference=False)
         if platform is None:
             return False
         match = channel_match(url)

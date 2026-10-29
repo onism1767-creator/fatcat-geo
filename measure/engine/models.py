@@ -405,8 +405,10 @@ class DomainTier(StrEnum):
     A1 = "A1"  # 主站 hreflang 声明(HTML link / HTTP Link 头 / sitemap)
     A2 = "A2"  # 主站 Organization / WebSite 结构化数据的 url / sameAs
     A3 = "A3"  # 主站首页直接链接且网址名相同
+    A4 = "A4"  # 主站结构化数据列出、网址名不同,对方首页也指回主站(双向声明;用户 2026-10-28 定)
     B1 = "B1"  # 回答里出现的同名域名,主站没有任何依据指向它
     B2 = "B2"  # 只有对方单方面声明与主站的关系
+    B3 = "B3"  # 主站结构化数据列出、网址名不同,对方没指回或首页打不开(只提示,用户确认才算)
 
 
 class DomainStatus(StrEnum):

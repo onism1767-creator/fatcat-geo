@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import os
 from collections.abc import Awaitable, Callable
+from typing import Final
+from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import PlainTextResponse
@@ -33,6 +35,10 @@ class _Unset:
 
 
 _UNSET = _Unset()
+
+# 只认这两个主机名(本机工具,入口只绑 127.0.0.1;第二轮审核 24)。测试的 TestClient 发的是 testserver,
+# 由 tests/unit/conftest.py 在测试期间补进来,正式运行不认。
+ALLOWED_HOSTS: Final = ("127.0.0.1", "localhost")
 
 
 def create_app(
@@ -73,6 +79,20 @@ def create_app(
                 return PlainTextResponse("这个请求来自别的网站,本工具只接受自己页面发来的操作。\n"
                                          "This request came from another site; only this tool's own pages may act.",
                                          status_code=403)
+        return await call_next(request)
+
+    @app.middleware("http")
+    async def reject_foreign_hosts(request: Request,
+                                   call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        """DNS 重绑定:别的网站把自己的域名解析到 127.0.0.1,浏览器就把那个域名当主机名发来,来源头也是它——上面的跨站检查
+        看来源与主机名一致就放行了(第二轮审核 24)。主机名只认本机的两个名字,别的一律拒绝;放在最外层,先于跨站检查。"""
+        host = (urlsplit("//" + request.headers.get("host", "")).hostname or "").lower()
+        if host not in ALLOWED_HOSTS:
+            return PlainTextResponse("这个网址不是本工具的地址。"
+                                     "请在本机用 http://127.0.0.1 或 http://localhost 打开。\n"
+                                     "This address is not this tool's. "
+                                     "Open it on this computer via http://127.0.0.1 or http://localhost.",
+                                     status_code=400)
         return await call_next(request)
 
     app.state.ctx = WebContext(

@@ -33,3 +33,12 @@ def storage():
     st.ensure_schema()
     yield st
     st.close()
+
+
+@pytest.fixture(autouse=True)
+def _test_client_host(monkeypatch):
+    """网页测试的 TestClient 发的主机名是 testserver;正式运行只认本机两个名字(report/app.py 的 ALLOWED_HOSTS,
+    第二轮审核 24)。测试期间补上 testserver,别的照旧拒绝——tests/unit/test_web_guards.py 用真主机名验证白名单本身。"""
+    import report.app
+
+    monkeypatch.setattr(report.app, "ALLOWED_HOSTS", (*report.app.ALLOWED_HOSTS, "testserver"))

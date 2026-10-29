@@ -7,7 +7,10 @@
 # 新增平台 = 本文件加一条,engine/ 零代码改动。匹配规则:主机名等于 host,或是它的子域(brand.tmall.com 命中 tmall.com)。
 # 核对日期:2026-10-13(平台域名按各平台当时的主站域名记,需定期核对)。
 #
-# kind:marketplace_store 电商店铺 / social_account 社交账号 / app_store 应用商店页 / developer_platform 开发者平台主页
+# kind:marketplace_store 电商店铺 / social_account 社交账号 / app_store 应用商店页 / developer_platform 开发者平台主页 /
+#   reference 百科与企业名录(介绍这家机构的参考页):主站结构化数据的 sameAs 常列它们,但它们既不是官网也不是官方渠道——
+#   发现官网名单时直接跳过、只记一条说明,免得每个大品牌都冒出「维基百科可能是你的官网」
+#   (用户 2026-10-28 定「名字不同的官网要能进名单」;这份清单是 Claude 拟的,2026-10-29 核对)
 # oembed:平台公开的嵌入接口(不要 key,返回标题;S6.3):网页本身打不开或抽不出正文时退一步拿标题。{url} 替换成被引链接。
 
 platforms:
@@ -106,3 +109,37 @@ platforms:
   - name: GitHub
     kind: developer_platform
     hosts: [github.com]
+  # ── 参考页(kind: reference):不算官网、不算官方渠道,只记说明 ──
+  - name: 维基百科
+    kind: reference
+    hosts: [wikipedia.org]
+  - name: 维基数据
+    kind: reference
+    hosts: [wikidata.org]
+  - name: 维基媒体
+    kind: reference
+    hosts: [wikimedia.org]
+  - name: DBpedia
+    kind: reference
+    hosts: [dbpedia.org]
+  - name: Crunchbase
+    kind: reference
+    hosts: [crunchbase.com]
+  - name: OpenCorporates
+    kind: reference
+    hosts: [opencorporates.com]
+  - name: Bloomberg
+    kind: reference
+    hosts: [bloomberg.com]
+  - name: ZoomInfo
+    kind: reference
+    hosts: [zoominfo.com]
+  - name: Glassdoor
+    kind: reference
+    hosts: [glassdoor.com]
+  - name: 百度百科
+    kind: reference
+    hosts: [baike.baidu.com]
+  - name: 快懂百科
+    kind: reference
+    hosts: [baike.com]

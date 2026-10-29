@@ -205,3 +205,66 @@ def test_parsers_and_channel_match():
     with pytest.raises(ElementTree.ParseError):
         parse_sitemap("<not xml")
     assert any("tmall.com" in p.hosts for p in PLATFORMS)
+
+
+# ── 名字不同的官网(用户 2026-10-28 定:双向声明自动算 A4,没指回 / 打不开列 B3 只提示;百科 / 企业名录直接跳过)──
+
+OTHER_NAME_HOME = """<html><head>
+<script type="application/ld+json">{"@type":"Organization","url":"https://brand.com/","sameAs":[
+ "https://www.brandgroup.com/about","https://shop-brand.net/","https://brand-outlet.org/",
+ "https://en.wikipedia.org/wiki/Brand","https://www.bloomberg.com/profile/company/BRD"]}</script>
+</head><body><a href="https://zh.wikipedia.org/wiki/Brand">wiki</a><a href="https://partner-site.com/">partner</a>
+</body></html>"""
+GROUP_POINTS_BACK = ('<html><head><script type="application/ld+json">{"@type":"Organization",'
+                     '"sameAs":["https://brand.com/"]}</script></head><body>group</body></html>')
+
+
+def _mock_other_name_site() -> None:
+    respx.get("https://brand.com/").mock(return_value=_html(OTHER_NAME_HOME))
+    respx.get("https://brand.com/robots.txt").mock(return_value=httpx.Response(404))
+
+
+@respx.mock
+def test_other_name_sites_count_only_when_both_sides_declare_each_other():
+    """主站结构化数据列出、名字不同的站:对方首页也指回 → A4 自动计入;没指回 → B3;打不开 → B3(都只提示)。
+    百科 / 企业名录(platforms.yaml 的 reference)不查、不列,只记说明;首页链到百科也不算官方渠道;
+    首页随手链接的外站(partner-site.com)不打开——只看主站结构化数据。"""
+    _mock_other_name_site()
+    respx.get("https://www.brandgroup.com/").mock(return_value=_html(GROUP_POINTS_BACK))
+    respx.get("https://shop-brand.net/").mock(return_value=_html(NO_BACK))
+    respx.get("https://brand-outlet.org/").mock(side_effect=httpx.ConnectError("down"))
+    result = _discover()
+    by_domain = {d.domain: d for d in result.domains}
+    assert set(by_domain) == {"brandgroup.com", "shop-brand.net", "brand-outlet.org"}
+    group = by_domain["brandgroup.com"]
+    assert (group.tier, group.status, group.bidirectional) == (DomainTier.A4, DomainStatus.CONFIRMED, True)
+    assert [(e.kind, e.detail) for e in group.evidence] == [("jsonld_other_name", "sameAs"), ("back_link", None)]
+    shop, outlet = by_domain["shop-brand.net"], by_domain["brand-outlet.org"]
+    assert (shop.tier, shop.status) == (DomainTier.B3, DomainStatus.UNCONFIRMED)
+    assert [e.kind for e in shop.evidence] == ["jsonld_other_name", "other_name_no_back"]
+    assert shop.evidence[1].source == "https://shop-brand.net/"
+    assert (outlet.tier, outlet.status) == (DomainTier.B3, DomainStatus.UNCONFIRMED)
+    assert [e.kind for e in outlet.evidence] == ["jsonld_other_name", "other_name_unreachable"]
+    assert result.confirmed_domains == ["brand.com", "brandgroup.com"]
+    assert result.official_channels == []
+    assert [(n.kind, n.detail) for n in result.notes] == [
+        ("schema_other_name", "wikipedia.org"), ("schema_other_name", "bloomberg.com")]
+    assert result.candidate_fetches == 3
+    confirmed = apply_user_choice(result, confirm=["shop-brand.net"], remove=[])  # 报告里勾上就算(沿用现有确认)
+    assert "shop-brand.net" in confirmed.confirmed_domains
+
+
+@respx.mock
+def test_other_name_sites_beyond_the_fetch_budget_are_listed_as_hints(monkeypatch):
+    """首页抓取额度用完:照列 B3,只带「主站列了它」这一条依据,另记一条「只核对了前 N 个」。"""
+    monkeypatch.setattr(brand_domains, "MAX_CANDIDATE_HOMEPAGES", 1)
+    _mock_other_name_site()
+    respx.get("https://www.brandgroup.com/").mock(return_value=_html(GROUP_POINTS_BACK))
+    result = _discover()
+    tiers = {d.domain: (d.tier, [e.kind for e in d.evidence]) for d in result.domains}
+    assert tiers == {
+        "brandgroup.com": (DomainTier.A4, ["jsonld_other_name", "back_link"]),
+        "shop-brand.net": (DomainTier.B3, ["jsonld_other_name"]),
+        "brand-outlet.org": (DomainTier.B3, ["jsonld_other_name"]),
+    }
+    assert [n.kind for n in result.notes].count("homepage_limit") == 1

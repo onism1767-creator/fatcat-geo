@@ -1017,3 +1017,42 @@ def test_result_file_cards_are_complete_in_both_languages():
             assert piece in card, (lang, piece)
         fix = "\n".join(action_card_lines(robots, lang))
         assert robots.plain[lang] in fix and robots.sources[lang][0] in fix and t["card_disclaimer"] not in fix
+
+
+def test_other_name_official_sites_show_their_evidence_in_both_languages(monkeypatch):
+    """名字不同的官网(第二轮,用户 10-28 定):A4 双向声明自动算、B3 只提示待勾选;百科只记说明。中英两版都写得出依据。"""
+    from datetime import UTC, datetime
+
+    from engine.models import BrandDomain, BrandDomainList, DomainEvidence, DomainStatus, DomainTier
+
+    app = _sync_app(monkeypatch, [])
+    job = finished_job()
+    src = "https://aurora-crm.com/"
+    job.adopt_domain_list(BrandDomainList(
+        primary="aurora-crm.com", discovered_at=datetime(2026, 10, 29, tzinfo=UTC), public_suffix_list="test",
+        domains=[
+            BrandDomain(domain="aurora-group.com", tier=DomainTier.A4, status=DomainStatus.CONFIRMED,
+                        bidirectional=True,
+                        evidence=[DomainEvidence(kind="jsonld_other_name", source=src, detail="sameAs"),
+                                  DomainEvidence(kind="back_link")]),
+            BrandDomain(domain="aurora-shop.net", tier=DomainTier.B3, status=DomainStatus.UNCONFIRMED,
+                        evidence=[DomainEvidence(kind="jsonld_other_name", source=src, detail="sameAs"),
+                                  DomainEvidence(kind="other_name_no_back", source="https://aurora-shop.net/")]),
+            BrandDomain(domain="aurora-outlet.org", tier=DomainTier.B3, status=DomainStatus.UNCONFIRMED,
+                        evidence=[DomainEvidence(kind="jsonld_other_name", source=src, detail="sameAs"),
+                                  DomainEvidence(kind="other_name_unreachable")]),
+        ],
+        notes=[DomainEvidence(kind="schema_other_name", source=src, detail="wikipedia.org")],
+    ))
+    app.state.ctx.registry.add(job)
+    client = TestClient(app)
+    zh = user_view_of(client.get(f"/jobs/{job.job_id}/report?lang=zh").text)
+    for piece in ("aurora-group.com", "网址名和主站不同", "双向声明", "aurora-shop.net", "没有指回主站",
+                  "aurora-outlet.org", "首页没打开", "两边互相承认", "百科、企业名录"):
+        assert piece in zh, piece
+    assert not any(token in zh for token in USER_VIEW_FORBIDDEN)
+    en = user_view_of(client.get(f"/jobs/{job.job_id}/report?lang=en").text)
+    for piece in ("different site name", "does not point back", "could not be opened", "both declare each other",
+                  "encyclopedia or company directory"):
+        assert piece in en, piece
+    assert not any(token in en for token in USER_VIEW_FORBIDDEN_EN)

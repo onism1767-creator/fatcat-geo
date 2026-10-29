@@ -71,3 +71,19 @@ def test_finished_job_with_unreadable_report_offers_regenerate_not_view():
     for path in ("report", "download"):
         resp = client.get(f"/jobs/{job.job_id}/{path}?lang=zh", follow_redirects=False)
         assert resp.status_code == 303 and resp.headers["location"].endswith(f"/jobs/{job.job_id}?lang=zh")
+
+
+def test_only_this_computers_host_names_are_served():
+    """DNS 重绑定:别的网站把域名解析到 127.0.0.1,来源头与主机名一致,跨站检查放行——所以主机名本身要把关(第二轮 24)。"""
+    from report.app import ALLOWED_HOSTS
+
+    assert {"127.0.0.1", "localhost"} <= set(ALLOWED_HOSTS)
+    app = _client().app
+    for base in ("http://127.0.0.1:8600", "http://localhost:8600", "http://localhost"):
+        assert TestClient(app, base_url=base).get("/").status_code == 200, base
+    rebound = TestClient(app, base_url="http://attacker.test:8600")
+    page = rebound.get("/")
+    assert page.status_code == 400 and "本机" in page.text and "this computer" in page.text
+    post = rebound.post("/jobs?lang=zh", data=FORM, headers={"origin": "http://attacker.test:8600"},
+                        follow_redirects=False)
+    assert post.status_code == 400 and app.state.ctx.registry.recent() == []  # 来源与主机名一致也不放行
