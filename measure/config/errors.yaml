@@ -47,7 +47,7 @@ errors:
   - code: FORM_BAD_WEBSITE
     scope: form
     resumable: false
-    trigger: {zh: "首页填的官网地址不是一个网址(拆不出主机名、没有点、带空格)", en: "The website typed on the home page is not a web address (no host name, no dot, or contains spaces)"}
+    trigger: {zh: "首页填的官网地址不是一个网址(拆不出主机名、没有点、有空段或空格等不许用的字符、不是 http / https)", en: "The website typed on the home page is not a web address (no host name, no dot, an empty part, a character not allowed in addresses such as a space, or not http / https)"}
     message: {zh: "官网地址看着不像一个网址,请检查后再填。", en: "The website does not look like a web address — please check it."}
     next_step: {zh: "填成 aurora-crm.com 或 https://www.aurora-crm.com 这样。", en: "Enter it like aurora-crm.com or https://www.aurora-crm.com."}
   - code: FORM_CATEGORY_EMPTY
@@ -108,6 +108,13 @@ errors:
     causes: {zh: "最常见是电脑休眠 / 重启后 PostgreSQL 没起来(本项目已发生四次);其次是端口被占或数据库僵死(端口在听、不接连接)。", en: "Most often PostgreSQL did not come back after sleep / reboot (happened four times here); otherwise the port is taken or the server is a zombie (listening, not accepting)."}
     message: {zh: "连不上本机数据库(端口 5433),检测已经停下。原话:{detail}", en: "Cannot reach the local database (port 5433); the run has stopped. Detail: {detail}"}
     next_step: {zh: "运行 scripts/pgdev.ps1 status:显示 STOPPED 就 start,显示 PG_ZOMBIE 就 restart;数据库起好后点「接着跑」,已经采集的结果不会丢。", en: "Run scripts/pgdev.ps1 status: STOPPED means start it, PG_ZOMBIE means restart it; then press Resume. Results already collected are kept."}
+  - code: WEB_DB_UNREACHABLE
+    scope: db
+    resumable: false
+    trigger: {zh: "打开页面、出题、查单价或下载结果时连不上本机 PostgreSQL(端口 5433),或者查到一半断了", en: "The local PostgreSQL (port 5433) could not be reached, or dropped mid-query, while opening a page, drafting questions, looking up prices or downloading results"}
+    causes: {zh: "最常见是电脑休眠 / 重启后 PostgreSQL 没起来;其次是端口被占或数据库僵死(端口在听、不接连接)。", en: "Most often PostgreSQL did not come back after sleep / reboot; otherwise the port is taken or the server is a zombie (listening, not accepting)."}
+    message: {zh: "连不上本机数据库(端口 5433),这一页暂时打不开。原话:{detail}", en: "Cannot reach the local database (port 5433), so this page cannot open right now. Detail: {detail}"}
+    next_step: {zh: "运行 scripts/pgdev.ps1 status:显示 STOPPED 就 start,显示 PG_ZOMBIE 就 restart;数据库起好后刷新这一页。", en: "Run scripts/pgdev.ps1 status: STOPPED means start it, PG_ZOMBIE means restart it; once the database is up, reload this page."}
 
   # ── 整单 ──
   - code: PRECHECK_FAILED
@@ -121,7 +128,7 @@ errors:
     scope: job
     resumable: true
     trigger: {zh: "运行中 {minutes} 分钟没有任何新结果(网络断了、某家 AI 长时间不响应、或数据库出了问题)", en: "No new result for {minutes} minutes while running (network down, an AI not responding, or a database problem)"}
-    causes: {zh: "网络断了;某家 AI 长时间不响应(一次提问最多等 3 分钟、重试 3 次、中间最多各等 2 分钟,所以一条腿正常情况下最坏也要约 13 分钟;阈值在这之上再留了余量);数据库中途掉线。", en: "Network down; an AI not responding (one ask waits up to 3 minutes, retried 3 times with up to 2 minutes between, so a healthy leg can legitimately take ~13 minutes; the threshold adds a margin on top); database dropped mid-run."}
+    causes: {zh: "网络断了;某家 AI 长时间不响应(一次提问最多等 3 分钟、重试 3 次、中间最多各等 2 分钟,所以一次提问正常情况下最坏也要约 13 分钟;阈值在这之上再留了余量);数据库中途掉线。", en: "Network down; an AI not responding (one ask waits up to 3 minutes, retried 3 times with up to 2 minutes between, so one healthy question can legitimately take ~13 minutes; the threshold adds a margin on top); database dropped mid-run."}
     message: {zh: "已经 {minutes} 分钟没有收到任何新结果,检测可能卡住了。", en: "No new result for {minutes} minutes; the run may be stuck."}
     next_step: {zh: "重启服务后点「接着跑」,已经采集的结果不会丢。", en: "Restart the service and press Resume; results already collected are kept."}
   - code: JOB_CRASHED
@@ -196,8 +203,8 @@ errors:
   - code: BUDGET_EXHAUSTED
     scope: breaker
     resumable: true
-    trigger: {zh: "这条腿的花费到了你设的费用上限", en: "This leg reached the spending cap you set"}
-    causes: {zh: "你设的费用上限按腿平摊,旗舰型号单价高,分到的份额先用完;或题数 × 次数 × 型号数本身超过了上限。", en: "Your cap is split evenly across legs; flagship models cost more per ask and use their share first; or questions × repeats × models simply exceed the cap."}
+    trigger: {zh: "某家 AI 的某个型号花费到了你设的费用上限", en: "A model reached the spending cap you set"}
+    causes: {zh: "你设的费用上限按「每家 AI 的每个型号」平摊,旗舰型号单价高,分到的份额先用完;或题数 × 次数 × 型号数本身超过了上限。", en: "Your cap is split evenly across each AI's models; flagship models cost more per ask and use their share first; or questions × repeats × models simply exceed the cap."}
     message: {zh: "{ai} 的 {model} 提前停了:到了费用上限。", en: "{ai}'s {model} stopped early: the spending cap was reached."}
     next_step: {zh: "在任务页填一个更高的上限再点「接着跑」补齐(只补空槽位);或就按部分完成的报告看。", en: "Enter a higher cap on the job page and press Resume to finish (only empty slots are asked); or read the partly completed report as is."}
   - code: SURFACE_DISABLED

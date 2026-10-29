@@ -30,7 +30,7 @@ entries:
       en: "Allow AI search crawlers in your robots.txt — without it, AI search cannot reach your site at all"
     verify:
       zh: "改完后重新检测一次,看「官网抓取情况」有没有变成 🟢;真正确认要看网站后台或日志里官方 AI 爬虫是否访问成功"
-      en: "Re-run the check and see whether 'Site crawlability' turns 🟢; the real confirmation is whether official AI crawlers succeed in your server logs"
+      en: "Re-run the check and see whether “Site crawlability” turns 🟢; the real confirmation is whether official AI crawlers succeed in your server logs"
     evidence_level: A
     sources:
       zh: [各平台官方爬虫文档]
@@ -58,7 +58,7 @@ entries:
       en: "First make your homepage load normally: check whether the server returns errors and whether redirects go in circles"
     verify:
       zh: "修好后重新检测一次,看「官网抓取情况」有没有变成 🟢"
-      en: "Re-run the check after the fix and see whether 'Site crawlability' turns 🟢"
+      en: "Re-run the check after the fix and see whether “Site crawlability” turns 🟢"
     evidence_level: A
     sources:
       zh: [Google 搜索中心「HTTP 状态码、网络与 DNS 错误对 Google 搜索的影响」, 各平台官方爬虫文档]
@@ -86,7 +86,7 @@ entries:
       en: "Have your CDN / firewall admit real AI crawlers by their official IP lists instead of blocking every bot"
     verify:
       zh: "在 CDN 后台确认官方爬虫的访问不再被拦,再重新检测一次看「官网抓取情况」"
-      en: "Confirm in the CDN console that official crawlers are no longer blocked, then re-run the check and look at 'Site crawlability'"
+      en: "Confirm in the CDN console that official crawlers are no longer blocked, then re-run the check and look at “Site crawlability”"
     evidence_level: A
     sources:
       zh: [各平台官方 IP 段文档, 主流 CDN verified-bots 机制文档]
@@ -114,7 +114,7 @@ entries:
       en: "Put key content directly in the page HTML rather than loading it with browser scripts — most AI crawlers do not run scripts"
     verify:
       zh: "用不运行脚本的方式打开页面(比如查看网页源代码),确认正文在里面;再重新检测看「官网抓取情况」"
-      en: "Open the page without scripts (e.g. view page source) and confirm the text is there; then re-run the check and look at 'Site crawlability'"
+      en: "Open the page without scripts (e.g. view page source) and confirm the text is there; then re-run the check and look at “Site crawlability”"
     evidence_level: A
     sources:
       zh: [各平台官方爬虫文档(主流 AI 爬虫不执行 JS)]
@@ -169,8 +169,8 @@ entries:
       zh: "让页面标题、小标题和结构化标记直接说明这页回答的是什么问题,可能让 AI 搜索时更容易把它挑出来(还没被证明)"
       en: "Make page titles, headings and structured markup say plainly which question the page answers; this may make it easier for AI search to pick it out (not proven)"
     verify:
-      zh: "改完后等 2–4 周,用同一批问题再测一次,看「AI 搜索时有没有找到你」这一格有没有从 🔴 变 🟡 或 🟢;一次只改一件事再测,才知道是哪个起了作用"
-      en: "Wait 2–4 weeks, re-test with the same questions and see whether 'Does the AI find you when it searches' moves from 🔴 to 🟡 or 🟢; change one thing at a time so you know what worked"
+      zh: "改完后等 2–4 周,用同一批问题再测一次,看第二步「官网检索」这一格有没有从 🔴 变 🟡 或 🟢;一次只改一件事再测,才知道是哪个起了作用"
+      en: "Wait 2–4 weeks, re-test with the same questions and see whether the “Site retrieval” cell in Step 2 moves from 🔴 to 🟡 or 🟢; change one thing at a time so you know what worked"
     evidence_level: B
     sources:
       zh: [SAGEO-Arena(支持:结构化信息利于检索), C-SEO-Bench(检索位次效应显著)]
@@ -196,8 +196,8 @@ entries:
       zh: "为用户真正会问的问题写专门的页面、直接作答,可能让 AI 搜索时更容易找到你(还没被证明)"
       en: "Write dedicated pages that directly answer the questions users actually ask; this may make AI search more likely to find you (not proven)"
     verify:
-      zh: "新页面上线 2–4 周后,用同一批问题再测一次,看「AI 搜索时有没有找到你」这一格有没有变好"
-      en: "2–4 weeks after the new pages go live, re-test with the same questions and see whether 'Does the AI find you when it searches' improves"
+      zh: "新页面上线 2–4 周后,用同一批问题再测一次,看第二步「官网检索」这一格有没有变好"
+      en: "2–4 weeks after the new pages go live, re-test with the same questions and see whether the “Site retrieval” cell in Step 2 improves"
     evidence_level: C
     sources:
       zh: [SAGEO-Arena(间接支持), 传统检索共识(描述性)]
@@ -224,8 +224,8 @@ entries:
       zh: "争取出现在 AI 常引用的第三方内容里(测评、榜单、对比文章),这样可能借它们进入 AI 的搜索结果(还没被证明)"
       en: "Get covered by the third-party content AI tends to cite (reviews, rankings, comparisons); this may bring you into AI search results through them (not proven)"
     verify:
-      zh: "第三方内容发布 2–4 周后,用同一批问题再测一次,看「AI 搜索时有没有找到你」这一格,以及 AI 引用的来源里有没有出现那些第三方页面"
-      en: "2–4 weeks after the third-party content is published, re-test with the same questions; watch 'Does the AI find you when it searches' and whether those third-party pages appear among the AI's sources"
+      zh: "第三方内容发布 2–4 周后,用同一批问题再测一次,看第二步「第三方检索」这一格,以及 AI 引用的来源里有没有出现那些第三方页面"
+      en: "2–4 weeks after the third-party content is published, re-test with the same questions; watch the “Third-party retrieval” cell in Step 2 and whether those third-party pages appear among the AI's sources"
     evidence_level: C
     sources:
       zh: ["本项目实测观察(检索候选集由第三方内容主导,描述性)", "C-SEO-Bench(来源位次效应)"]
@@ -252,8 +252,8 @@ entries:
       zh: "在页面里给出可以核实的具体数据,可能让 AI 更愿意引用你"
       en: "Include verifiable, specific numbers on the page; AI may be more willing to cite you"
     verify:
-      zh: "改完后等 2–4 周,用同一批问题再测一次,看「AI 有没有引用你的官网」这一格有没有从 🔴 变 🟡 或 🟢"
-      en: "Wait 2–4 weeks, re-test with the same questions and see whether 'Does the AI cite your site' moves from 🔴 to 🟡 or 🟢"
+      zh: "改完后等 2–4 周,用同一批问题再测一次,看第三步「官网引用」这一格有没有从 🔴 变 🟡 或 🟢"
+      en: "Wait 2–4 weeks, re-test with the same questions and see whether the “Site citation” cell in Step 3 moves from 🔴 to 🟡 or 🟢"
     evidence_level: C
     sources:
       zh: [KDD2024(支持), C-SEO-Bench(削弱:跨域复测多数无效)]
@@ -279,8 +279,8 @@ entries:
       zh: "把结论写成清楚、可以直接引用的句子,可能让 AI 更愿意引用你"
       en: "Write conclusions as clear sentences that can be quoted directly; AI may be more willing to cite you"
     verify:
-      zh: "改完后等 2–4 周,用同一批问题再测一次,看「AI 有没有引用你的官网」这一格有没有变好"
-      en: "Wait 2–4 weeks, re-test with the same questions and see whether 'Does the AI cite your site' improves"
+      zh: "改完后等 2–4 周,用同一批问题再测一次,看第三步「官网引用」这一格有没有变好"
+      en: "Wait 2–4 weeks, re-test with the same questions and see whether the “Site citation” cell in Step 3 improves"
     evidence_level: C
     sources:
       zh: [KDD2024(引述类改写有正效应), C-SEO-Bench(多数改写基本无效)]
@@ -306,8 +306,8 @@ entries:
       zh: "当用户的问题本身就是问答式时,把内容整理成问答形式,可能更容易被 AI 选作来源"
       en: "When users' questions are Q&A-style, organizing content as Q&A may make it more likely to be picked as a source"
     verify:
-      zh: "改完后等 2–4 周,用同一批问答式的问题再测一次,看「AI 有没有引用你的官网」这一格有没有变好"
-      en: "Wait 2–4 weeks, re-test with the same Q&A-style questions and see whether 'Does the AI cite your site' improves"
+      zh: "改完后等 2–4 周,用同一批问答式的问题再测一次,看第三步「官网引用」这一格有没有变好"
+      en: "Wait 2–4 weeks, re-test with the same Q&A-style questions and see whether the “Site citation” cell in Step 3 improves"
     evidence_level: D
     sources:
       zh: [描述性关联,无对照研究]
@@ -334,8 +334,8 @@ entries:
       zh: "在官网维护一份清楚、稳定的品牌基本事实(定位、价格、与同类的差别),可能让 AI 介绍你时更准确(还没被证明)"
       en: "Keep a clear, stable statement of brand basics on your site (positioning, pricing, how you differ); this may help AI describe you more accurately (not proven)"
     verify:
-      zh: "改完后等 2–4 周,用「用户直接询问品牌时」的问题再测一次,看 AI 的介绍有没有变准确、评价有没有变好"
-      en: "Wait 2–4 weeks, re-test with the 'when users ask about the brand directly' questions and see whether the AI's description becomes accurate and its tone improves"
+      zh: "改完后等 2–4 周,用「用户直接询问你的品牌时」这类问题再测一次,看 AI 的介绍有没有变准确、评价有没有变好"
+      en: "Wait 2–4 weeks, re-test with the “When users ask about your brand directly” questions and see whether the AI's description becomes accurate and its tone improves"
     evidence_level: D
     sources:
       zh: [描述性关联]
@@ -392,8 +392,8 @@ entries:
       zh: "看看 AI 回答这类问题时已经在引用哪些别人写的文章(报告「检测依据与方法」里每家 AI 的第三方线下列了它引用过、但没写到你的别人的文章),争取让那些文章也写到你"
       en: "See which third-party articles the AI already cites for these questions (each AI's third-party section in 'How this was tested' lists the articles it cited that don't mention you) and get those articles to mention you too"
     verify:
-      zh: "对方加上你之后等 2–4 周,用同一批题、同一型号再测一次,看「AI 有没有拿别人提到你的文章当参考」这一格有没有从 🔴 变 🟡 或 🟢;另留一批没去争取的题做对照。一次只改一件事"
-      en: "2–4 weeks after the page adds you, re-test the same questions on the same model and see whether 'Does the AI use articles about you as sources' moves from 🔴 to 🟡 or 🟢; keep a batch of untouched questions as a control. Change one thing at a time"
+      zh: "对方加上你之后等 2–4 周,用同一批题、同一型号再测一次,看第三步「第三方引用」这一格有没有从 🔴 变 🟡 或 🟢;另留一批没去争取的题做对照。一次只改一件事"
+      en: "2–4 weeks after the page adds you, re-test the same questions on the same model and see whether the “Third-party citation” cell in Step 3 moves from 🔴 to 🟡 or 🟢; keep a batch of untouched questions as a control. Change one thing at a time"
     evidence_level: C
     sources:
       zh: ["Chen & Koudas 2026(ChatGPT 引用的页面全部来自它自己的检索;检索解释 32% 差异、页面特征 2.8%;接口数据)", "Scrunch 2026-09(被引的第三方对比页写到品牌时推荐率 ~4%→~7%;准实验、厂商)", "Ahrefs 2026-07(老品牌新增的 AI 提及 94% 来自第三方页面;厂商实验)", "本项目实测观察(品类题第三方被引极少;描述性)"]
@@ -420,8 +420,8 @@ entries:
       zh: "用户问「哪家好、怎么选」时,AI 多半引用别人写的榜单、对比和测评文;争取被这类文章收录——不是自己写一篇把自己排第一"
       en: "When users ask 'which is best / how to choose', AI mostly cites third-party lists, comparisons and reviews; get included in those — do not write your own list ranking yourself first"
     verify:
-      zh: "文章收录你之后等 2–4 周,用同一批品类 / 推荐 / 对比题、同一型号再测一次,看「AI 有没有拿别人提到你的文章当参考」这一格有没有变好,以及那篇文章有没有出现在 AI 的来源里;另留一批没动的题做对照"
-      en: "2–4 weeks after the article includes you, re-test the same category / recommendation / comparison questions on the same model; watch whether 'Does the AI use articles about you as sources' improves and whether that article appears among the AI's sources; keep untouched questions as a control"
+      zh: "文章收录你之后等 2–4 周,用同一批品类 / 推荐 / 对比题、同一型号再测一次,看第三步「第三方引用」这一格有没有变好,以及那篇文章有没有出现在 AI 的来源里;另留一批没动的题做对照"
+      en: "2–4 weeks after the article includes you, re-test the same category / recommendation / comparison questions on the same model; watch whether the “Third-party citation” cell in Step 3 improves and whether that article appears among the AI's sources; keep untouched questions as a control"
     evidence_level: C
     sources:
       zh: ["Ahrefs 2025-12(750 个品类题,「最佳 X」榜单占被引页面类型 43.8%;厂商)", "Peec / Wix 2026-03(商业意图下榜单占引用 40.86%;专业服务前 1,000 被引榜单 80.9% 第三方、19.1% 自建;厂商)", "Scrunch 2026-09(中立第三方对比页带来推荐 Gemini 64.1% / ChatGPT 33.9%,自建榜单 14.8% / 8.6%;准实验、厂商)", "Seer 2026-02(反证:ChatGPT 榜单引用环比降 30%;代理)"]
@@ -449,8 +449,8 @@ entries:
       zh: "被 AI 在你这个行业本来就常引用的媒体、评测站写到,可能比发通稿或被不知名站点写到更容易被当参考(还没被证明);哪些站算「常引用」,看报告「检测依据与方法」里每家 AI 的第三方线下列了它引用过、但没写到你的别人的文章的那份名单,不要用网站权重猜"
       en: "Coverage on the media and review sites the AI already cites in your industry may be more likely to be used as a source than press releases or obscure sites (not proven); which sites count comes from the list where each AI's third-party section in 'How this was tested' lists the articles it cited that don't mention you, not a guess from domain authority"
     verify:
-      zh: "报道发布 2–4 周后,用同一批题、同一型号再测一次,看「AI 有没有拿别人提到你的文章当参考」这一格有没有变好,以及那家站有没有出现在 AI 的来源里;另留一批没动的题做对照"
-      en: "2–4 weeks after the coverage is published, re-test the same questions on the same model; watch whether 'Does the AI use articles about you as sources' improves and whether that outlet appears among the AI's sources; keep untouched questions as a control"
+      zh: "报道发布 2–4 周后,用同一批题、同一型号再测一次,看第三步「第三方引用」这一格有没有变好,以及那家站有没有出现在 AI 的来源里;另留一批没动的题做对照"
+      en: "2–4 weeks after the coverage is published, re-test the same questions on the same model; watch whether the “Third-party citation” cell in Step 3 improves and whether that outlet appears among the AI's sources; keep untouched questions as a control"
     evidence_level: B
     sources:
       zh: ["Chen & Koudas 2026(ChatGPT 47% 的引用来自模型不搜也能叫出名字的站;接口数据)", "Dai 等 EMNLP 2025(控制实验:模型按媒体名字而非内容选来源;仿真)", "Yang 2025(36.6 万条引用:新闻引用高度集中在少数媒体;一手)", "Schuster 等 2026(模型偏好机构来源;仿真)", "Muck Rack 2026(2,500 万条引用:付费 / 软文 0.3%;厂商)", "Zhang 等 2025(反证:除 ChatGPT 外 AI 引用的域名按流量排名比谷歌低;一手)"]
@@ -478,8 +478,8 @@ entries:
       zh: "在你这个行业 AI 常引用的评价平台上有真实、活跃的页面(有真实用户的评价),可能更容易被 AI 当参考;这只是相关,不是证明"
       en: "Having a genuine, active page with real customer reviews on the review platforms the AI cites in your industry may make it more likely to be used as a source; this is a correlation, not proof"
     verify:
-      zh: "档案建好、有真实评价后等 4–8 周,用同一批题、同一型号再测一次,看「AI 有没有拿别人提到你的文章当参考」这一格有没有变好,以及那个平台有没有出现在 AI 的来源里;另留一批没动的题做对照"
-      en: "4–8 weeks after the profile is live with genuine reviews, re-test the same questions on the same model; watch whether 'Does the AI use articles about you as sources' improves and whether that platform appears among the AI's sources; keep untouched questions as a control"
+      zh: "档案建好、有真实评价后等 4–8 周,用同一批题、同一型号再测一次,看第三步「第三方引用」这一格有没有变好,以及那个平台有没有出现在 AI 的来源里;另留一批没动的题做对照"
+      en: "4–8 weeks after the profile is live with genuine reviews, re-test the same questions on the same model; watch whether the “Third-party citation” cell in Step 3 improves and whether that platform appears among the AI's sources; keep untouched questions as a control"
     evidence_level: D
     sources:
       zh: ["Seer / Trustpilot 2026-05(804,491 条回答、1,926 品牌、按 DR 配对:无档案中位引用率 1%,1–13 条评价 53.5%;横截面,Trustpilot 推广)", "G2 / Indig 2025-10(反证:评价数 +10% ≈ 引用 +2%,R² 0.009;平台自发)", "Profound 2025-06(G2 占 ChatGPT 引用 1.1%,Perplexity 前十含 G2 / Yelp / TripAdvisor;厂商)", "Peec 2026-03(G2 只进 Perplexity 前五;厂商)"]

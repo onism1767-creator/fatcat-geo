@@ -11,6 +11,7 @@ from collections.abc import Awaitable, Callable
 from typing import Final
 from urllib.parse import urlsplit
 
+import structlog
 from fastapi import FastAPI, Request, Response
 from fastapi.responses import PlainTextResponse
 
@@ -20,14 +21,14 @@ from engine.calibration import CalibrationReport, load_calibration
 from engine.envfile import load_env_file
 from engine.judge import JudgeConfig, load_judges
 from engine.loader import build_adapters
-from engine.storage import CallStat, Storage, default_dsn
+from engine.storage import STORAGE_DOWN_ERRORS, CallStat, Storage, default_dsn
 from engine.tiers import TierConfig, load_tiers
 from report import runner
 from report.errors import ErrorLibrary, load_errors
 from report.jobs import JobRegistry
 from report.launcher import JobLauncher, JobRunner
 from report.routes import router
-from report.web import CategoryChecker, WebContext, category_checker, target_namer
+from report.web import CategoryChecker, WebContext, category_checker, ctx_of, error_text, target_namer
 
 
 class _Unset:
@@ -35,6 +36,7 @@ class _Unset:
 
 
 _UNSET = _Unset()
+log = structlog.get_logger("report.app")
 
 # 只认这两个主机名(本机工具,入口只绑 127.0.0.1;第二轮审核 24)。测试的 TestClient 发的是 testserver,
 # 由 tests/unit/conftest.py 在测试期间补进来,正式运行不认。
@@ -111,5 +113,16 @@ def create_app(
         errors=errors or load_errors(),
         category_check=category_check or category_checker(adapters, resolved_judges, resolved_dsn),
     )
+    async def storage_down(request: Request, exc: Exception) -> Response:
+        """库连不上或查到一半断了:给人话页 + 下一步(WEB_DB_UNREACHABLE;第二轮审核 B13,原来是裸 500)。
+        出题那条路自己接(撤掉草稿回首页),这里接其余所有页面:确认页查单价、单条回答页、下载结果……"""
+        log.error("web_db_unreachable", path=request.url.path, error=f"{type(exc).__name__}: {exc}")
+        page = ctx_of(request).render(request, "unavailable.html",
+                                      message=error_text(request, "WEB_DB_UNREACHABLE", detail=str(exc)[:200]))
+        page.status_code = 503
+        return page
+
+    for error_type in STORAGE_DOWN_ERRORS:
+        app.add_exception_handler(error_type, storage_down)
     app.include_router(router)
     return app

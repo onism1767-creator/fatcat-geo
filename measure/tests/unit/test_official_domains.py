@@ -65,6 +65,6 @@ def test_redirect_surface_candidates_come_from_resolved_destinations_only():
 def test_intake_only_takes_the_primary_site_from_the_user():
     """首页只填主站(S5,D12):地区站、官方渠道由开跑时自动发现,不再手填。"""
     brand, website = brand_from_form("始祖鸟", "Arc'teryx,Arcteryx", "https://www.ARCTERYX.com/zh")
-    assert website == "https://www.ARCTERYX.com/zh"
+    assert website == "https://www.arcteryx.com/zh"  # 主机名规整成小写,路径照原样
     assert brand.domains == ["www.arcteryx.com"] and brand.official_channels == []
     assert brand.aliases == ["Arc'teryx", "Arcteryx"]

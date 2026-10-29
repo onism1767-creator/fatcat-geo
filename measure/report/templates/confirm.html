@@ -101,6 +101,7 @@
     <p class="kv">{{ t["est_label"] }}<b><span id="est-calls">–</span></b> {{ t["est_calls_word"] }} ·
       ≈ <b>$<span id="est-cost">–</span></b> ·
       ≈ <b><span id="est-min">–</span> {{ t["est_min_word"] }}</b>({{ t["est_note"] }})
+      <span class="muted">{{ t["est_verify"].format(minutes=verify_minutes) }}</span>
       <span id="est-judge" class="muted" style="display:none"></span>
       <span id="est-custom" class="muted" style="display:none">· {{ t["est_custom_note"] }}</span></p>
     <p class="kv muted">{{ t["est_breakdown"] }}<span id="est-breakdown">–</span></p>

@@ -5,7 +5,9 @@
 
 from __future__ import annotations
 
-from urllib.parse import urlsplit
+from urllib.parse import urlsplit, urlunsplit
+
+import idna
 
 from adapters.base import SurfaceAdapter
 from engine.drafting import PromptCandidate, manual_intent
@@ -29,33 +31,38 @@ def _comma_list(text: str) -> list[str]:
     return [part.strip() for part in text.replace(",", ",").split(",") if part.strip()]
 
 
-def _host(url: str) -> str:
-    """网址 → 主机名(不带协议就补 https;大小写不敏感)。拆不出来(空串、只有协议、带空格)返回空串。"""
+def _site(website: str) -> tuple[str, str] | None:
+    """官网地址 → (规范主机名, 规范网址);不像网址返回 None。不带协议就补 https,只认 http / https。
+    主机名按国际域名标准(UTS 46)规整:全角字母、大写转成半角小写,中文等非英文域名转成 xn-- 开头的写法(AI 引用的网址
+    多是这种写法,不转就一条官网引用都认不出),每一段只许字母数字连字符、不许空段;结尾那个点(aurora-crm.com.)去掉
+    (第二轮审核 B15)。"""
+    text = website.strip()
     try:
-        return (urlsplit(url if "://" in url else f"https://{url}").hostname or "").lower()
-    except ValueError:  # 比如网址里夹着 [ 之类拆不开的字符
-        return ""
+        parts = urlsplit(text if "://" in text else f"https://{text}")
+        port = parts.port
+        host = idna.encode((parts.hostname or "").removesuffix("."), uts46=True, std3_rules=True).decode("ascii")
+    except ValueError:  # 拆不开的网址、端口不是数字、主机名不合规(idna.IDNAError 也是 ValueError)
+        return None
+    if parts.scheme not in ("http", "https") or "." not in host:
+        return None
+    return host, urlunsplit(parts._replace(netloc=host if port is None else f"{host}:{port}"))
 
 
 def website_host(website: str) -> str | None:
-    """官网地址校验(审核 2026-10-27 黄 18):拆得出主机名、主机名带点、没有空白,才算一个网址;
-    否则 None(路由给 FORM_BAD_WEBSITE)。只认是不是网址,不去访问——通不通是开跑后官网审计的事。"""
-    host = _host(website.strip())
-    if not host or "." not in host or any(c.isspace() for c in host):
-        return None
-    return host
+    """官网地址校验(审核 2026-10-27 黄 18,第二轮 B15):规整后的主机名;不像网址返回 None(路由给 FORM_BAD_WEBSITE)。
+    只认是不是网址,不去访问——通不通是开跑后官网审计的事。"""
+    site = _site(website)
+    return None if site is None else site[0]
 
 
 def brand_from_form(brand_name: str, aliases: str, website: str) -> tuple[BrandSpec, str]:
     """首页填的品牌 → (品牌, 规范化后的官网地址)。官网名单只填主站;地区站、官方渠道由工具开跑时
-    自动发现(S5,产品文档 D12),名单随任务快照冻结。调用方先过 website_host,这里不再校验。"""
-    website = website.strip()
-    normalized = website if "://" in website else f"https://{website}"
-    brand = BrandSpec(
-        name=brand_name.strip(),
-        aliases=_comma_list(aliases),
-        domains=[host for host in [_host(website)] if host],
-    )
+    自动发现(S5,产品文档 D12),名单随任务快照冻结。调用方先过 website_host。"""
+    site = _site(website)
+    if site is None:
+        raise ValueError(f"not a web address: {website!r}")
+    host, normalized = site
+    brand = BrandSpec(name=brand_name.strip(), aliases=_comma_list(aliases), domains=[host])
     return brand, normalized
 
 

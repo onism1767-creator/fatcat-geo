@@ -72,6 +72,10 @@ class StorageUnavailable(RuntimeError):
     不再无限挂起——调用方按错误代码 DB_UNREACHABLE 告诉用户该跑哪条命令。"""
 
 
+# 「库不能用」的两种样子:一开始就连不上(StorageUnavailable),或者查到一半断了(psycopg 的 OperationalError)。
+# 网页层据此给 WEB_DB_UNREACHABLE 的人话页(第二轮审核 B13:原来裸 500),不用自己认识 psycopg。
+STORAGE_DOWN_ERRORS: tuple[type[Exception], ...] = (StorageUnavailable, psycopg.OperationalError)
+
 CONNECT_TIMEOUT_S = 10
 DEFAULT_DSN = "postgresql://geo@localhost:5433/geo_toast"  # 项目专用库(scripts/pgdev.ps1 管理)
 

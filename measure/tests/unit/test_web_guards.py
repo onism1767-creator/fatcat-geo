@@ -9,7 +9,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from report.app import create_app
-from report.forms import website_host
+from report.forms import brand_from_form, website_host
 from tests.unit.test_report_page import REGISTRY, DummyAdapter, finished_job, visible_text
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -33,6 +33,12 @@ def test_route_handlers_are_plain_functions_so_blocking_work_leaves_the_event_lo
     ("aurora-crm.com", "aurora-crm.com"), ("https://www.Aurora-CRM.com/zh", "www.aurora-crm.com"),
     (" aurora-crm.com ", "aurora-crm.com"),
     ("https://", None), ("x", None), ("", None), ("http://", None), ("aurora crm.com", None), ("http://[bad", None),
+    # 第二轮审核 B15:只有点、空段、结尾点、非英文域名、全角、协议、端口
+    (".", None), ("...", None), ("a.", None), ("a..com", None), ("-a.com", None), ("aurora_crm.com", None),
+    ("aurora-crm.com.", "aurora-crm.com"), ("例子.中国", "xn--fsqu00a.xn--fiqs8s"),
+    ("ａｕｒｏｒａ－ｃｒｍ．ｃｏｍ", "aurora-crm.com"),
+    ("ftp://aurora-crm.com", None), ("javascript://aurora-crm.com", None), ("aurora-crm.com:abc", None),
+    ("HTTP://aurora-crm.com:8080/x", "aurora-crm.com"),
 ])
 def test_website_host_only_accepts_something_that_looks_like_an_address(website, host):
     assert website_host(website) == host
@@ -87,3 +93,83 @@ def test_only_this_computers_host_names_are_served():
     post = rebound.post("/jobs?lang=zh", data=FORM, headers={"origin": "http://attacker.test:8600"},
                         follow_redirects=False)
     assert post.status_code == 400 and app.state.ctx.registry.recent() == []  # 来源与主机名一致也不放行
+
+
+@pytest.fixture
+def db_down(monkeypatch):
+    """库连不上:直接让建连接抛 StorageUnavailable(真去连一个没人听的端口要等满 10 秒的连接超时)。"""
+    from engine.storage import Storage, StorageUnavailable
+
+    def refuse(self, dsn):
+        raise StorageUnavailable("10 秒内连不上数据库: connection refused")
+
+    monkeypatch.setattr(Storage, "__init__", refuse)
+
+
+def _down_client() -> TestClient:
+    app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+                     evidence=REGISTRY, job_runner=lambda **kw: None, calibration=None,
+                     category_check=lambda job: None)
+    return TestClient(app)
+
+
+def test_pages_say_the_database_is_down_instead_of_a_bare_500(db_down):
+    """库连不上时,单条回答页、下载这类要查库的页面给人话页 + 下一步(第二轮审核 B13:原来裸 Internal Server Error)。"""
+    client = _down_client()
+    job = finished_job()
+    client.app.state.ctx.registry.add(job)
+    for lang, words in (("zh", ("连不上本机数据库", "pgdev.ps1", "这一页暂时打不开")),
+                        ("en", ("Cannot reach the local database", "pgdev.ps1", "cannot open right now"))):
+        page = client.get(f"/jobs/{job.job_id}/responses/r1?lang={lang}")
+        assert page.status_code == 503, lang
+        text = visible_text(page.text)
+        assert all(w in text for w in words), (lang, text[:300])
+    assert client.get(f"/jobs/{job.job_id}/download?lang=zh").status_code == 503
+
+
+def test_database_dropping_mid_query_gets_the_same_plain_page(monkeypatch):
+    """查到一半库断了(psycopg 的 OperationalError,不是一开始就连不上):同样给人话页。"""
+    import psycopg
+
+    from engine.storage import Storage
+
+    def boom(self, run_id):
+        raise psycopg.OperationalError("server closed the connection unexpectedly")
+
+    monkeypatch.setattr(Storage, "__init__", lambda self, dsn: None)
+    monkeypatch.setattr(Storage, "close", lambda self: None)
+    monkeypatch.setattr(Storage, "run_by_id", boom)
+    client = _down_client()
+    job = finished_job()
+    client.app.state.ctx.registry.add(job)
+    page = client.get(f"/jobs/{job.job_id}/responses/r1?lang=zh")
+    assert page.status_code == 503 and "server closed the connection" in visible_text(page.text)
+
+
+def test_drafting_with_the_database_down_drops_the_draft_and_explains_on_the_home_page(db_down):
+    client = _down_client()
+    resp = client.post("/jobs?lang=zh", data={**FORM, "generate": "on"}, follow_redirects=False)
+    assert resp.status_code == 303 and "error=WEB_DB_UNREACHABLE" in resp.headers["location"]
+    assert client.app.state.ctx.registry.recent() == []
+    home = client.get(resp.headers["location"])
+    assert "连不上本机数据库" in visible_text(home.text)
+
+
+def test_unknown_check_says_so_in_both_languages_with_the_same_word_as_the_pages():
+    """英文界面把任务叫 check(Start a check / Check),找不到时也说 check,不冒出 Job(第二轮审核 B16)。"""
+    client = _client()
+    for path in ("/jobs/nope", "/jobs/nope/confirm", "/jobs/nope/report", "/jobs/nope/download"):
+        resp = client.get(path)
+        assert resp.status_code == 404, path
+        assert resp.text == "Check not found / 任务不存在", path
+
+
+@pytest.mark.parametrize("website, normalized", [
+    ("aurora-crm.com.", "https://aurora-crm.com"), ("例子.中国/关于", "https://xn--fsqu00a.xn--fiqs8s/关于"),
+    ("ａｕｒｏｒａ－ｃｒｍ．ｃｏｍ", "https://aurora-crm.com"), ("http://Aurora-CRM.com:8080/zh?a=1", "http://aurora-crm.com:8080/zh?a=1"),
+])
+def test_brand_domain_and_site_address_use_the_normalized_host(website, normalized):
+    """官网名单里的域名和开跑时访问的网址都用规整后的主机名:结尾带点、中文、全角写法也能认出 AI 引用的官网页(B15)。"""
+    brand, site = brand_from_form("极光CRM", "", website)
+    assert site == normalized
+    assert brand.domains == [website_host(website)]

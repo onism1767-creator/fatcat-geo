@@ -4,6 +4,7 @@
 """
 
 import re
+from pathlib import Path
 
 from fastapi.testclient import TestClient
 
@@ -137,3 +138,78 @@ def test_message_lists_are_joined_per_language():
     nested = msg("caution.unobservable", stages=[msg("stage.ACCESS"), msg("stage.RETRIEVAL")])
     assert render_msg(nested, "zh").endswith("ACCESS、RETRIEVAL")
     assert render_msg(nested, "en").endswith("ACCESS, RETRIEVAL") and "、" not in render_msg(nested, "en")
+
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def _scanned(pattern: str, *paths: str) -> set[str]:
+    """代码里的字面量:每个文件按正则扫出第一组(或几组)取值。"""
+    found: set[str] = set()
+    for path in paths:
+        for root in [ROOT / path] if (ROOT / path).is_file() else sorted((ROOT / path).glob("*.py")):
+            for hit in re.findall(pattern, root.read_text(encoding="utf-8")):
+                found |= set(hit) if isinstance(hit, tuple) else {hit}
+    return found
+
+
+def test_every_key_the_pages_build_from_a_value_exists_in_both_languages():
+    """界面文案取值是严格的(t[key] 缺了就抛错,首页整页 500):代码和模板里「前缀 + 取值」拼出来的每个键,中英都得有,
+    还不能是空串(第二轮审核 B17)。阶段码扫代码字面量;运行结果、网页抓取状态、来源归类、命中方式、官网依据等按枚举或
+    判定器取值全列——新增一个取值忘了配文案,这里先炸。"""
+    from diagnosis.representation_diag import _RELATION
+    from engine.detectors.brand_mention_fuzzy import _KIND_ORDER
+    from engine.detectors.source_class import REASON_NOT_ATTEMPTED, REASON_UNRESOLVED
+    from engine.models import Outcome, PageFetchStatus, Sentiment, SourceClass
+    from engine.tiers import MentionMethod, load_tiers
+    from engine.validity import PublicErrorCode
+    from report.errors import load_errors
+    from report.i18n import MESSAGES
+    from report.narrative import _STATUS_ORDER
+
+    phases = _scanned(r'"(phase_[a-z_]+)"', "report")
+    evidence_kinds = _scanned(r'kind="([a-z_]+)"|\.note\("([a-z_]+)"|kind = "([a-z_]+)" if .+ else "([a-z_]+)"',
+                              "engine/brand_domains.py") - {""}
+    assert {"phase_draft", "phase_sampling", "phase_done"} <= phases and {"seen", "hreflang"} <= evidence_kinds
+    keys = {
+        *phases,
+        *(f"outcome_{o.value}" for o in Outcome if o is not Outcome.SUCCESS),  # 单条回答页:无效回答的原因
+        *(f"reason_{s.value}" for s in PageFetchStatus if s is not PageFetchStatus.OK),  # 引用网页看不到的原因
+        f"reason_{REASON_UNRESOLVED}", f"reason_{REASON_NOT_ATTEMPTED}",
+        *(f"class_{c.value}" for c in SourceClass), "class_UNKNOWN",  # 来源归类;没有归属记录时 UNKNOWN
+        *(f"resp_match_{kind}" for kind in (*_KIND_ORDER, "judge")),  # 命中方式:模糊判定器三种 + AI 裁判
+        *(f"sentiment_{s.value}" for s in Sentiment),
+        *(f"tier_{tier}" for tier in ("primary", "A", "B", "unknown")),  # 单条回答页命中的官网等级
+        *(f"method_{m.value}" for m in MentionMethod),
+        *(f"tier_{part}_{spec.name}" for spec in load_tiers().tiers for part in ("name", "blurb")),
+        *(f"errors_scope_{scope}" for scope, _ in load_errors().by_scope()),
+        *(f"count_{status}" for status in _STATUS_ORDER),
+        *(f"breaker_code_{code.value}" for code in PublicErrorCode),  # 提前停了:按对外错误码分组计数
+        *(f"compare_{relation}" for relation in _RELATION.values()),
+        *(f"ev_{kind}" for kind in evidence_kinds),
+    }
+    for lang in ("zh", "en"):
+        missing = sorted(key for key in keys if not str(MESSAGES[lang].get(key, "")).strip())
+        assert not missing, (lang, missing)
+
+
+def test_both_languages_have_the_same_ui_keys():
+    """中文有、英文没有(或反过来)的键:切到那种语言,用到它的页面就 500(B17)。"""
+    from report.i18n import MESSAGES
+
+    assert set(MESSAGES["zh"]) == set(MESSAGES["en"])
+
+
+def test_cells_named_in_how_to_check_texts_exist_on_the_page():
+    """实验卡「怎么验证」点名的格子(中文「」、英文“”括起来的)必须是页面上真有的列名 / 标题 / 题型名,完整或到括号为止
+    (第二轮审核 B20:原来写的「AI 有没有引用你的官网」页面上没有,用户找不到该看哪一格)。"""
+    from diagnosis.recommender import load_evidence_registry
+    from report.i18n import INTENT_LABELS, MESSAGES
+
+    quote = {"zh": r"「([^」]+)」", "en": r"“([^”]+)”"}
+    for lang in ("zh", "en"):
+        labels = [str(v) for v in MESSAGES[lang].values()] + list(INTENT_LABELS[lang].values())
+        for entry in load_evidence_registry():
+            for named in re.findall(quote[lang], entry.verify[lang]):
+                assert any(label == named or re.match(re.escape(named) + r"\s*[(（]", label) for label in labels), \
+                    (lang, entry.id, named)

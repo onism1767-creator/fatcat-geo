@@ -19,9 +19,9 @@ from engine.page_check import BUDGET_S as VERIFY_BUDGET_S
 from engine.page_check import PageChecker
 from engine.scheduler import AccountProblem
 from engine.spellings import suggest_spellings
-from engine.storage import Storage
+from engine.storage import STORAGE_DOWN_ERRORS, Storage
 from engine.tiers import MentionMethod, tier_targets
-from report.estimate import estimate_job, unit_prices
+from report.estimate import VERIFY_MAX_MINUTES, estimate_job, unit_prices
 from report.export import build_bundle, content_disposition
 from report.forms import (
     brand_from_form,
@@ -176,6 +176,8 @@ def _draft_then_register(
                     return _abandon_draft(request, job, f"/?error=SPELLINGS_FAILED&detail={quote(str(exc)[:200])}")
                 finally:
                     opener.close()
+        except STORAGE_DOWN_ERRORS as exc:  # 出题途中库掉了:撤掉草稿回首页说人话(第二轮审核 B13;原来裸 500)
+            return _abandon_draft(request, job, f"/?error=WEB_DB_UNREACHABLE&detail={quote(str(exc)[:200])}")
         except AccountProblem as exc:  # 出题时就撞上账户问题:同一套话(错误库的码与账户类 error_type 同名),回首页说
             code = exc.error_type.value
             display = ctx.display_names.get(exc.surface, exc.surface)
@@ -225,7 +227,7 @@ def confirm_page(request: Request, job_id: str, error: str = ""):
                       tier_cards=tier_cards, tier_defaults=tier_defaults, default_tier=tiers.default,
                       default_keys=default_keys,
                       default_runs=tiers.default_tier.runs_per_prompt, custom_runs=tiers.custom_runs,
-                      est_basis=" ".join(basis),
+                      est_basis=" ".join(basis), verify_minutes=round(VERIFY_MAX_MINUTES),
                       calibration_text=(calibration_text(ctx.calibration, lang_of(request))
                                         if ctx.calibration is not None else None),
                       error=error_text(request, error, min=str(tiers.custom_runs.min), max=str(tiers.custom_runs.max)))

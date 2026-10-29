@@ -39,6 +39,7 @@ from engine.models import (
 from engine.scheduler import StopDetail
 from engine.tiers import MentionMethod, TierChoice
 from report.app import create_app
+from report.estimate import PREP_SECONDS as PREP  # 提问前的准备也算进预估(第二轮审核 B14)
 from report.jobs import ClassReport, DiagnosisJob, JobState, SamplingNote, SurfaceQuotes
 
 REGISTRY = load_evidence_registry()
@@ -199,7 +200,15 @@ def test_report_recommendations_carry_evidence_ids(client_and_job):
     client, job, _ = client_and_job
     html = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
     assert "EVIDENCE_STRUCT_V1" in html  # RETRIEVAL FAIL → 结构信号建议(B 级)
-    assert "实验卡" in html and "依据" in html  # GEO 方法一律实验卡:猜想 / 依据 / 怎么验证(硬边界 9,2026-10-28 落地)
+    # GEO 方法一律实验卡:猜想 / 依据 / 怎么验证(硬边界 9,2026-10-28 落地)。比整行原文:单查「依据」两个字恒为真,
+    # 「检测依据与方法」标题里就有(第二轮审核 B18)
+    from report.i18n import LEVEL_LABELS, MESSAGES
+
+    zh = MESSAGES["zh"]
+    struct = next(e for e in REGISTRY if e.id == "EVIDENCE_STRUCT_V1")
+    assert f'[{zh["kind_geo_method"]}]' in html
+    assert f'{zh["card_basis"]}:{LEVEL_LABELS["zh"][struct.evidence_level]}{zh["card_sources_below"]}' in html
+    assert zh["card_disclaimer"] in html
     assert "证据等级" in html
 
 
@@ -551,11 +560,12 @@ def test_confirm_estimate_prefers_measured_history():
     page, est = run([stat(12)])
     assert "预估按过去实测的平均费用和耗时算:S1" in page
     assert est["calls"] == 3  # 1 道题 × 3 次
-    assert est["cost_usd"] == pytest.approx(3 * 0.02) and est["minutes"] == pytest.approx(3 * 15 / 60)  # 1 条腿:串行
+    assert est["cost_usd"] == pytest.approx(3 * 0.02)
+    assert est["minutes"] == pytest.approx((PREP + 3 * 15) / 60)  # 1 条腿:串行
     assert est["breakdown"] == [{"display": "S1 · m1", "cost_usd": pytest.approx(3 * 0.02)}]
     page, est = run([stat(3)])  # 历史不足:声明单价 + 兜底时长
     assert "S1 · m1 还没有足够的历史记录" in page  # 确认页也用「接口 · 型号」
-    assert est["cost_usd"] == pytest.approx(3 * 0.005) and est["minutes"] == pytest.approx(3 * 20 / 60)
+    assert est["cost_usd"] == pytest.approx(3 * 0.005) and est["minutes"] == pytest.approx((PREP + 3 * 20) / 60)
 
 
 def test_estimate_job_arithmetic():
@@ -573,23 +583,23 @@ def test_estimate_job_arithmetic():
     assert est_dep.calls == 27
     assert est_dep.cost_usd == pytest.approx(9 * (0.005 + 0.17 + 0.04))
     assert est_dep.per_target == [(cheap, pytest.approx(9 * 0.005)), (pricey, pytest.approx(9 * (0.17 + 0.04)))]
-    assert est_dep.minutes == pytest.approx(27 * 20 / 60 / 3)
+    assert est_dep.minutes == pytest.approx((PREP + 27 * 20 / 3) / 60)
     # 高档(S9.3):每条回答(含闭卷腿)另请 AI 裁判判一次,按裁判单价与每条几秒另计
     judged = estimate_job(n_prompts=3, runs_per_prompt=3, targets=[cheap, pricey], dependency=True, prices=prices,
                           judge_cost_per_call=0.001)
     assert judged.calls == 27 and judged.judge_calls == 27 and judged.judge_cost_usd == pytest.approx(0.027)
     assert judged.cost_usd == pytest.approx(est_dep.cost_usd + 0.027)
-    assert judged.minutes == pytest.approx((27 * 20 + 27 * 4) / 60 / 3)
+    assert judged.minutes == pytest.approx((PREP + (27 * 20 + 27 * 4) / 3) / 60)
     assert est_dep.judge_calls == 0 and est_dep.judge_cost_usd == 0.0
     # 时长按真实并发算(审核 2026-10-27 黄 16):并发按腿分、一条腿内部串行——1 条腿全程串行,4 条腿要跑两轮
     one_leg = estimate_job(n_prompts=3, runs_per_prompt=3, targets=[cheap], dependency=False, prices=prices)
-    assert one_leg.minutes == pytest.approx(9 * 20 / 60)
+    assert one_leg.minutes == pytest.approx((PREP + 9 * 20) / 60)
     third = Target(surface="c", model="z")
     wide = UnitPrices(default={cheap.key: 0.005, pricey.key: 0.17, third.key: 0.01}, search_disabled={pricey.key: 0.04},
                       seconds_per_call=20.0, measured=[], declared=[cheap, pricey, third])
     four_legs = estimate_job(n_prompts=3, runs_per_prompt=3, targets=[cheap, pricey, third], dependency=True,
                              prices=wide)
-    assert four_legs.calls == 36 and four_legs.minutes == pytest.approx(2 * 9 * 20 / 60)
+    assert four_legs.calls == 36 and four_legs.minutes == pytest.approx((PREP + 2 * 9 * 20) / 60)
 
 
 def test_job_snapshot_round_trip():
@@ -1056,3 +1066,15 @@ def test_other_name_official_sites_show_their_evidence_in_both_languages(monkeyp
                   "encyclopedia or company directory"):
         assert piece in en, piece
     assert not any(token in en for token in USER_VIEW_FORBIDDEN_EN)
+
+
+def test_confirm_page_says_page_checking_comes_on_top_of_the_estimate(client_and_job):
+    """预估原来只算提问(第二轮审核 B14):提问前的准备算进去;提问后核对网页的时长开跑前不知道,写明上限、不在数里。"""
+    from engine.page_check import BUDGET_S
+
+    client, job, _ = client_and_job
+    job.state = JobState.DRAFT
+    zh = visible_text(client.get(f"/jobs/{job.job_id}/confirm?lang=zh").text)
+    assert f"最多再 {BUDGET_S // 60} 分钟" in zh and "含提问前的准备" in zh
+    en = visible_text(client.get(f"/jobs/{job.job_id}/confirm?lang=en").text)
+    assert f"up to {BUDGET_S // 60} more minutes" in en

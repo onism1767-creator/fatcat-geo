@@ -9,6 +9,7 @@ import math
 
 from adapters.base import SurfaceAdapter
 from engine.models import FrozenModel, SearchMode, Target
+from engine.page_check import BUDGET_S as VERIFY_BUDGET_S
 from engine.storage import CallStat
 from report.jobs import PLAN_CONCURRENCY
 
@@ -16,6 +17,11 @@ from report.jobs import PLAN_CONCURRENCY
 AVG_SECONDS_PER_CALL = 20.0
 JUDGE_SECONDS_PER_CALL = 4.0  # 裁判不联网、输出短,一条约几秒(S9.3;有实测后改读实测)
 MIN_STAT_SAMPLES = 10  # 少于这么多次历史调用不算数,仍用声明单价(v0.4.17)
+# 提问之前的准备(第二轮审核 B14:原来没算):官网审计(十来次爬虫探测、要时用真浏览器打开一次首页)、找官网名单
+# (最多打开 20 个首页)、开跑前预检。粗估,有实测后改读实测
+PREP_SECONDS = 120.0
+# 提问之后核对 AI 引用 / 搜到的网页:要开多少页取决于 AI 引了什么,开跑前不知道;只知道它有上限,确认页单独写明
+VERIFY_MAX_MINUTES = VERIFY_BUDGET_S / 60
 
 
 class UnitPrices(FrozenModel):
@@ -101,7 +107,7 @@ def estimate_job(
     return Estimate(
         calls=calls,
         cost_usd=sum(cost for _, cost in per_target) + judge_cost,
-        minutes=(sampling_s + judging_s) / 60,
+        minutes=(PREP_SECONDS + sampling_s + judging_s) / 60,  # 核对网页不在里面(上限另写,见 VERIFY_MAX_MINUTES)
         per_target=per_target,
         judge_calls=judge_calls,
         judge_cost_usd=judge_cost,
