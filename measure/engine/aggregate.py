@@ -9,10 +9,9 @@ from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Final
-from urllib.parse import urlsplit
 
 from engine.detectors.citation import DETECTOR_NAME as CITATION_LABEL
-from engine.detectors.matching import mention_sentence, normalize_domain
+from engine.detectors.matching import mention_sentence, normalize_domain, url_host
 from engine.detectors.retrieval_rank import DETECTOR_NAME as PRESENCE_LABEL
 from engine.metrics import Rate, SampleAccounting, account_runs, rate_of
 from engine.models import (
@@ -196,7 +195,7 @@ def cited_elsewhere(observations: Iterable[RunObservations]) -> CitedElsewhere |
         return None
     ranked = sorted(answers, key=lambda url: (-answers[url], url))
     return CitedElsewhere(
-        pages=[CitedPage(url=url, domain=normalize_domain(urlsplit(url).hostname or ""), title=titles.get(url),
+        pages=[CitedPage(url=url, domain=normalize_domain(url_host(url)), title=titles.get(url),
                          answers=answers[url]) for url in ranked[:CITED_ELSEWHERE_LIMIT]],
         total=len(ranked),
     )

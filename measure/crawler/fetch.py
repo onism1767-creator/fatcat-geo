@@ -10,6 +10,7 @@ import html as html_lib
 import json
 import re
 import string
+from collections.abc import Callable
 from dataclasses import dataclass
 from html.parser import HTMLParser
 from typing import Final
@@ -76,11 +77,14 @@ def decode_page(raw: bytes, header_charset: str | None) -> str:
         return raw.decode("utf-8", errors="replace")
 
 
-def _capped_get(client: httpx.Client, url: str, headers: dict[str, str], max_bytes: int) -> httpx.Response:
+def _capped_get(
+    client: httpx.Client, url: str, headers: dict[str, str], max_bytes: int, *, follow_redirects: bool | None = None,
+) -> httpx.Response:
     """GET 一次,正文最多读 max_bytes(超出截断,response.extensions["truncated"] 为 True);状态码、响应头、最终网址、
-    跳转链照旧,文字编码按 page_encoding 定。网络错误照常抛 httpx.HTTPError。"""
+    跳转链照旧,文字编码按 page_encoding 定。follow_redirects 不给就按客户端的设置。网络错误照常抛 httpx.HTTPError。"""
     request = client.build_request("GET", url, headers=headers)
-    streamed = client.send(request, stream=True)
+    follow = client.follow_redirects if follow_redirects is None else follow_redirects
+    streamed = client.send(request, stream=True, follow_redirects=follow)
     raw, truncated = _read_capped(streamed, max_bytes)
     kept = {k: v for k, v in streamed.extensions.items() if k in ("http_version", "reason_phrase")}
     headers_out = [(k, v) for k, v in streamed.headers.multi_items() if k.lower() not in _DECODED_BODY_DROP]
@@ -104,13 +108,42 @@ def get_as(client: httpx.Client, url: str, user_agent: str, *, max_bytes: int = 
     return _capped_get(client, url, {"User-Agent": user_agent}, max_bytes)
 
 
-def fetch_page(client: httpx.Client, url: str, *, max_bytes: int = MAX_PAGE_BYTES) -> tuple[httpx.Response, str, bool]:
+class VisitRefused(Exception):
+    """跟随跳转时,调用方不让去下一站(比如目的站 robots 不让抓):没发请求。url 是被拒的那一站。
+    故意不继承 httpx.HTTPError——它不是网络出错,调用方要按自己的口径记(看不到的原因不同)。"""
+
+    def __init__(self, url: str) -> None:
+        super().__init__(url)
+        self.url = url
+
+
+def fetch_page(
+    client: httpx.Client, url: str, *, max_bytes: int = MAX_PAGE_BYTES, may_visit: Callable[[str], bool] | None = None,
+) -> tuple[httpx.Response, str, bool]:
     """以浏览器身份 GET,正文最多读 max_bytes(超出截断并告知);返回 (响应, 解码后的文本, 是否截断)。
-    网络错误照常抛 httpx.HTTPError。"""
-    request = client.build_request(
-        "GET", url, headers={"User-Agent": BROWSER_UA, "Accept-Language": "en-US,en;q=0.8"},
-    )
-    response = client.send(request, stream=True)
+    网络错误照常抛 httpx.HTTPError。
+
+    may_visit:给了就一跳一跳自己跟随跳转,每到一个新网址先问它能不能去,不能 → 抛 VisitRefused、不发那次请求
+    (第三方站跳到另一个站时也要守目的站的 robots——第二轮审核 B2;原来交给 httpx 自动跟随,中途没机会查)。
+    最多跳客户端的 max_redirects 次,超了抛 httpx.TooManyRedirects,与自动跟随一致。不给就照客户端设置自动跟随。"""
+    headers = {"User-Agent": BROWSER_UA, "Accept-Language": "en-US,en;q=0.8"}
+    request = client.build_request("GET", url, headers=headers)
+    if may_visit is None:
+        response = client.send(request, stream=True)
+    else:
+        hops = 0
+        while True:
+            response = client.send(request, stream=True, follow_redirects=False)
+            if not response.is_redirect:
+                break
+            target = str(response.url.join(response.headers["location"]))
+            response.close()
+            hops += 1
+            if hops > client.max_redirects:
+                raise httpx.TooManyRedirects("Exceeded maximum allowed redirects.", request=request)
+            if not may_visit(target):
+                raise VisitRefused(target)
+            request = client.build_request("GET", target, headers=headers)
     raw, truncated = _read_capped(response, max_bytes)
     return response, decode_page(raw, response.charset_encoding), truncated
 
@@ -324,9 +357,12 @@ class RobotsRules:
 def robots_parser(client: httpx.Client, origin: str) -> RobotsRules:
     """读一个站的 robots.txt(以浏览器身份),按 RFC 9309 2.3.1:
     拿到 2xx 就解析;4xx(没有这个文件)= 没有规则、全放行;5xx、网络错误等读不到 = 全禁(unavailable)。
-    原来读不到也当「没有规则」,对方 robots 一出错就照抓(审核 2026-10-28 第二轮)。"""
+    原来读不到也当「没有规则」,对方 robots 一出错就照抓(审核 2026-10-28 第二轮)。
+    不管客户端设没设跟随跳转,读 robots 一律跟随(RFC 9309 2.3.1.2 要求至少跟 5 次):跳转还原用的客户端不自动跟随,
+    原来 robots.txt 一跳(比如 http 跳 https)就成了「读不到」、被当成全禁。"""
     try:
-        response = get_as_browser(client, f"{origin}/robots.txt", max_bytes=512_000)
+        response = _capped_get(client, f"{origin}/robots.txt", {"User-Agent": BROWSER_UA}, 512_000,
+                               follow_redirects=True)
     except httpx.HTTPError:
         return RobotsRules.unreadable()
     if response.is_success:

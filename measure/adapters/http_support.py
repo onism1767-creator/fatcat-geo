@@ -45,8 +45,12 @@ _ERROR_BODY_KEEP: Final = 8000
 
 
 def domain_of(url: str) -> str:
-    """URL 的主机名(平台给的 URL 原样翻译,不做归属判定)。"""
-    return urlsplit(url).hostname or ""
+    """URL 的主机名(平台给的 URL 原样翻译,不做归属判定)。网址坏了取不出 → 空串:原来 urlsplit 抛错被结构防线接住,
+    一条坏引用让整条好回答记成永久失败(第二轮审核 B4);网址本身照原样留在引用里。"""
+    try:
+        return urlsplit(url).hostname or ""
+    except ValueError:
+        return ""
 
 
 def full_body(data: Any) -> str:

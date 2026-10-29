@@ -15,10 +15,9 @@
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from urllib.parse import urlsplit
 
 from engine.detectors.citation import channel_hit
-from engine.detectors.matching import matches_any_brand_domain
+from engine.detectors.matching import matches_any_brand_domain, url_host
 from engine.detectors.page_mention import page_mention
 from engine.models import (
     BrandSpec,
@@ -50,7 +49,7 @@ def host_class(host: str, brand: BrandSpec, competitors: list[BrandSpec]) -> tup
 
 
 def url_host_class(url: str, brand: BrandSpec, competitors: list[BrandSpec]) -> tuple[SourceClass, str | None] | None:
-    host = urlsplit(url).hostname or ""
+    host = url_host(url)
     if channel_hit(url, brand.official_channels) is not None:
         return SourceClass.OFFICIAL_CHANNEL, None
     return host_class(host, brand, competitors)

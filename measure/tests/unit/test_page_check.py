@@ -509,3 +509,48 @@ def test_third_party_page_is_not_fetched_when_its_robots_cannot_be_read():
     finally:
         checker.close()
     assert index.lookup("https://flaky.test/a").status is PageFetchStatus.ROBOTS_UNAVAILABLE and page.call_count == 0
+
+
+@respx.mock
+def test_redirects_obey_the_robots_of_every_site_they_land_on():
+    """第三方页跳到别的站(或同站别的路径)时,要守跳到的那一站的 robots(第二轮审核 B2:原来只查原网址那个站)。
+    不让抓 → 记 robots 不允许、那一站不去请求,去向照记;允许的照常跟到底、照常判。"""
+    respx.get("https://short.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://short.test/a").mock(return_value=httpx.Response(301, headers={"Location": "https://closed.test/p"}))
+    respx.get("https://closed.test/robots.txt").mock(
+        return_value=httpx.Response(200, text="User-agent: *\nDisallow: /p\n"))
+    closed = respx.get("https://closed.test/p").mock(return_value=_html(ARTICLE))
+    respx.get("https://same.test/robots.txt").mock(
+        return_value=httpx.Response(200, text="User-agent: *\nDisallow: /private\n"))
+    respx.get("https://same.test/b").mock(return_value=httpx.Response(302, headers={"Location": "/private/x"}))
+    private = respx.get("https://same.test/private/x").mock(return_value=_html(ARTICLE))
+    respx.get("https://short.test/c").mock(return_value=httpx.Response(302, headers={"Location": "https://open.test/r"}))
+    respx.get("https://open.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://open.test/r").mock(return_value=_html(ARTICLE))
+    index, _ = _check(["https://short.test/a", "https://same.test/b", "https://short.test/c"])
+    refused = index.lookup("https://short.test/a")
+    assert refused.status is PageFetchStatus.ROBOTS_DISALLOWED and refused.final_url == "https://closed.test/p"
+    same_site = index.lookup("https://same.test/b")  # 同站跳到 robots 不让的路径:同样拦下
+    assert same_site.status is PageFetchStatus.ROBOTS_DISALLOWED and same_site.final_url == "https://same.test/private/x"
+    assert closed.call_count == 0 and private.call_count == 0
+    assert index.lookup("https://short.test/c").status is PageFetchStatus.OK
+    assert index.lookup("https://short.test/c").final_url == "https://open.test/r"
+
+
+BAD_URLS = ("http://[bad/x", "https://a.test:abc/x", "ftp://files.test/y", "notaurl")
+
+
+@respx.mock
+def test_malformed_citation_urls_are_recorded_as_unopenable_without_crashing_the_check():
+    """平台给的引用网址是外来输入:方括号不配对、端口不是数字、不是 http(s)——原来规范化时抛错没人接,整段核实崩
+    (第二轮审核 B4)。现在每条记「打不开」(原因 InvalidURL)、不发请求、照样落库;好网址照常核实。"""
+    respx.get("https://site-a.com/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://site-a.com/review").mock(return_value=_html(ARTICLE))
+    for url in BAD_URLS:
+        assert isinstance(normalize_url(url), str)  # 不抛错
+    index, store = _check([*BAD_URLS, "https://site-a.com/review"])
+    for url in BAD_URLS:
+        check = index.lookup(url)
+        assert check is not None and check.status is PageFetchStatus.FETCH_FAILED and check.error == "InvalidURL", url
+    assert index.lookup("https://site-a.com/review").status is PageFetchStatus.OK
+    assert len(store.rows) == len(BAD_URLS) + 1

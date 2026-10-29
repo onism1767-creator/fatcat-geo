@@ -80,9 +80,9 @@ class RedditFetcher:
                 f"{API_BASE}/comments/{post_id}", params={"limit": MAX_COMMENTS, "depth": 2, "raw_json": 1},
                 headers={"Authorization": f"Bearer {token}", "User-Agent": self._user_agent},
             )
-        except httpx.HTTPError as exc:
-            log.warning("reddit_api_failed", url=url, error=type(exc).__name__)
-            return None
+        except (httpx.HTTPError, _TokenUnavailable) as exc:
+            log.warning("reddit_api_failed", url=url, error=type(exc).__name__, detail=str(exc))
+            return None  # 退回普通抓取 + 嵌入接口(原来取令牌返回怪内容时异常冒出去,整页记「打开失败」;第二轮审核 B3)
         if response.status_code != 200:
             log.warning("reddit_api_status", url=url, status=response.status_code)
             return None
@@ -105,10 +105,20 @@ class RedditFetcher:
             headers={"User-Agent": self._user_agent},
         )
         response.raise_for_status()
-        data = response.json()
-        self._token = str(data["access_token"])
-        self._token_expires_at = time.monotonic() + float(data.get("expires_in", 3600))
+        try:
+            data = response.json()
+            token, expires_in = data["access_token"], float(data.get("expires_in", 3600))
+        except (ValueError, KeyError, TypeError, AttributeError) as exc:  # 不是 JSON、缺字段、类型怪
+            raise _TokenUnavailable(f"令牌接口返回的内容读不懂: {type(exc).__name__}") from exc
+        if not isinstance(token, str) or not token:
+            raise _TokenUnavailable("令牌接口没给 access_token")
+        self._token = token
+        self._token_expires_at = time.monotonic() + expires_in
         return self._token
+
+
+class _TokenUnavailable(Exception):
+    """取令牌那步返回了 200 却读不出令牌:当这次没拿到,调用方退回普通抓取。"""
 
 
 def _parse_thread(data: Any) -> tuple[dict[str, Any], list[str]]:

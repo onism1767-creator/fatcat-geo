@@ -41,6 +41,7 @@ from crawler.fetch import (
     MAX_PAGE_BYTES,
     PROTECTION_SUSPECT_STATUSES,
     RobotsRules,
+    VisitRefused,
     fetch_json,
     fetch_page,
     is_html,
@@ -71,11 +72,26 @@ _POLL_S: Final = 0.05  # 没有可开的网址时的轮询间隔(所有网站都
 
 
 def normalize_url(url: str) -> str:
-    """去 fragment、主机小写;保留 www 与查询串(规范化后必须仍可抓取)。"""
-    parts = urlsplit(url.strip())
-    host = (parts.hostname or "").lower()
-    netloc = host if parts.port is None else f"{host}:{parts.port}"
+    """去 fragment、主机小写;保留 www 与查询串(规范化后必须仍可抓取)。
+    网址坏了(方括号不配对、端口不是数字)→ 原样(去首尾空白)返回,由 check 记「网址坏了」;原来抛错没人接,
+    整段网页核实连同报告一起崩(第二轮审核 B4)。"""
+    try:
+        parts = urlsplit(url.strip())
+        host = (parts.hostname or "").lower()
+        netloc = host if parts.port is None else f"{host}:{parts.port}"
+    except ValueError:
+        return url.strip()
     return urlunsplit((parts.scheme.lower(), netloc, parts.path or "/", parts.query, ""))
+
+
+def _fetchable(normalized: str) -> bool:
+    """能不能发请求:http(s)、有主机名、端口是数字。"""
+    try:
+        parts = urlsplit(normalized)
+        _ = parts.port
+    except ValueError:
+        return False
+    return parts.scheme in ("http", "https") and bool(parts.hostname)
 
 
 class PageCheckStore(Protocol):
@@ -168,6 +184,11 @@ class PageChecker:
         for request in sorted(requests, key=lambda r: r.priority):
             wanted.setdefault(normalize_url(request.url), request)  # 同一网址只开一次,优先级取最高(最小)
         checks: dict[str, PageCheck] = dict(self._store.recent_page_checks(list(wanted), max_age_days=self._reuse_days))
+        for normalized, request in wanted.items():  # 坏网址不发请求:直接记打不开(原因 InvalidURL),失败照样落库
+            if normalized not in checks and not _fetchable(normalized):
+                check = self._record(request.url, normalized, PageFetchStatus.FETCH_FAILED, error="InvalidURL")
+                self._store.insert_page_check(check)
+                checks[normalized] = check
         pending = {normalized: request for normalized, request in wanted.items() if normalized not in checks}
         deadline = self._clock() + self._budget_s
         self._report(len(checks), len(wanted), "fetch")
@@ -386,12 +407,26 @@ class PageChecker:
     def _fetch_html(self, normalized: str, request: PageRequest) -> PageCheck:
         parts = urlsplit(normalized)
         origin = f"{parts.scheme}://{parts.netloc}"
+        refusals: list[PageFetchStatus] = []
+
+        def may_visit(target: str) -> bool:
+            """跳到的每一站都守它自己的 robots(第二轮审核 B2:原来只查原网址那个站,跳到别的站就不查了)。"""
+            target_parts = urlsplit(target)
+            refused = self._robots_refusal(f"{target_parts.scheme}://{target_parts.netloc}", target)
+            if refused is not None:
+                refusals.append(refused)
+            return refused is None
+
         if request.respect_robots:
             refused = self._robots_refusal(origin, normalized)
             if refused is not None:
                 return self._record(request.url, normalized, refused)
         try:
-            response, body, truncated = fetch_page(self._client, normalized, max_bytes=MAX_PAGE_BYTES)
+            response, body, truncated = fetch_page(self._client, normalized, max_bytes=MAX_PAGE_BYTES,
+                                                   may_visit=may_visit if request.respect_robots else None)
+        except VisitRefused as exc:
+            log.info("page_redirect_refused_by_robots", url=normalized, target=exc.url)
+            return self._record(request.url, normalized, refusals[-1], final_url=exc.url)
         except httpx.HTTPError as exc:
             log.warning("page_fetch_failed", url=normalized, error=type(exc).__name__)
             return self._record(request.url, normalized, PageFetchStatus.FETCH_FAILED, error=type(exc).__name__)

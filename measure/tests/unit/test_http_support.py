@@ -154,3 +154,12 @@ def test_spent_on_never_guesses_when_usage_fields_are_odd():
     assert spent_on(lambda: 0.25) == 0.25
     assert spent_on(lambda: {}["usage"]) == 0.0
     assert spent_on(lambda: float("not a number")) == 0.0
+
+
+def test_a_malformed_citation_url_gives_an_empty_domain_instead_of_failing_the_answer():
+    """原来 urlsplit 抛错被结构防线接住,一条坏引用让整条好回答记成永久失败(第二轮审核 B4)。"""
+    from adapters.http_support import domain_of
+
+    assert domain_of("http://[bad/x") == ""
+    assert domain_of("https://a.test:abc/x") == "a.test"  # 端口坏了主机名还取得到
+    assert domain_of("https://Example.COM/p") == "example.com"

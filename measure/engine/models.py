@@ -379,6 +379,9 @@ class ResolutionStatus(StrEnum):
     NOT_REDIRECTED = "NOT_REDIRECTED"  # 跳转服务没跳:看不到真正去向
     TOO_MANY_HOPS = "TOO_MANY_HOPS"
     FETCH_FAILED = "FETCH_FAILED"  # 网络错误 / 超时
+    # 跳转指向的那一站 robots 不让抓(或读不到):网址取自上一跳的跳转头,照记为去向,没去请求它;它还会不会接着跳不知道
+    # (用户 2026-10-29 定;原来连最后一站也直接请求、不查 robots)
+    STOPPED_AT_ROBOTS = "STOPPED_AT_ROBOTS"
 
 
 class CitationResolution(FrozenModel):

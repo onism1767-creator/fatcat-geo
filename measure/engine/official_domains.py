@@ -11,9 +11,8 @@ from __future__ import annotations
 
 from collections import Counter
 from collections.abc import Iterable
-from urllib.parse import urlsplit
 
-from engine.detectors.matching import matches_any_brand_domain, registrable
+from engine.detectors.matching import matches_any_brand_domain, registrable, url_host
 from engine.models import BrandSpec, FrozenModel, SurfaceRun
 from engine.resolve import ResolutionContext
 
@@ -31,7 +30,7 @@ def _hosts(run: SurfaceRun, context: ResolutionContext) -> list[str]:
             url = context.final_url(run.surface, citation.url)
             if url is None:
                 continue  # 跳转链还原失败:看不到去向,不猜
-            hosts.append(citation.domain if url == citation.url else (urlsplit(url).hostname or ""))
+            hosts.append(citation.domain if url == citation.url else url_host(url))
     return hosts
 
 

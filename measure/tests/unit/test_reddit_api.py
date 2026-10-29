@@ -77,3 +77,20 @@ def test_failures_return_none_so_the_caller_falls_back():
         assert fetcher.fetch("https://example.com/not-reddit") is None
     finally:
         fetcher.close()
+
+
+@respx.mock
+def test_token_step_returning_odd_content_falls_back_instead_of_failing_the_page():
+    """取令牌返回 200 却不是 JSON、缺 access_token、类型不对:原来异常冒出去,整页记「打开失败」、也不退回普通抓取
+    (第二轮审核 B3)。现在当这次没拿到,返回 None 让调用方退回普通抓取;也不把怪内容当令牌记住。"""
+    thread = respx.get(f"{API_BASE}/comments/abc").mock(return_value=httpx.Response(200, json=[]))
+    for body in (httpx.Response(200, text="<html>maintenance</html>"), httpx.Response(200, json={"error": "x"}),
+                 httpx.Response(200, json=["not", "a", "dict"]), httpx.Response(200, json={"access_token": ""})):
+        respx.post(TOKEN_URL).mock(return_value=body)
+        fetcher = RedditFetcher("id", "secret")
+        try:
+            assert fetcher.fetch("https://redd.it/abc") is None
+            assert fetcher._token is None
+        finally:
+            fetcher.close()
+    assert thread.call_count == 0  # 没令牌就不去打帖子接口

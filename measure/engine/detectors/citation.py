@@ -15,7 +15,7 @@ from __future__ import annotations
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 
-from engine.detectors.matching import matches_any_brand_domain, registrable
+from engine.detectors.matching import matches_any_brand_domain, registrable, url_host
 from engine.models import BrandSpec, CitationObservation, SurfaceRun
 from engine.resolve import ResolutionContext
 from engine.validity import is_valid_answer
@@ -27,7 +27,10 @@ DETECTOR_VERSION = 4
 def channel_hit(url: str, prefixes: list[str]) -> str | None:
     """链接命中哪条官方渠道(主机名 + 路径前缀,按路径段整段匹配):brand.tmall.com/ 命中 brand.tmall.com/item/1,
     www.instagram.com/brand 命中 /brand 与 /brand/p/1,不命中 /brandx。"""
-    parts = urlsplit(url)
+    try:
+        parts = urlsplit(url)
+    except ValueError:  # 坏网址(第二轮审核 B4):不命中任何渠道,不让整条回答的判定崩
+        return None
     key = f"{(parts.hostname or '').lower()}{parts.path or '/'}"
     for prefix in prefixes:
         if key == prefix or key.startswith(prefix.rstrip("/") + "/"):
@@ -63,7 +66,7 @@ class CitationDetector:
             if url is None:  # 跳转链还原失败:这条引用看不到,不猜
                 unresolved += 1
                 continue
-            host = citation.domain if url == citation.url else (urlsplit(url).hostname or "")
+            host = citation.domain if url == citation.url else url_host(url)
             if matches_any_brand_domain(host, brand):
                 positions.append(citation.position)
                 matched_domains.append(registrable(host)[1])

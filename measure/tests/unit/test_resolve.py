@@ -31,11 +31,18 @@ def _redirect(location: str, status: int = 302) -> httpx.Response:
     return httpx.Response(status, headers={"Location": location})
 
 
+def _no_robots(*origins: str) -> None:
+    """这些站没有 robots.txt(404 = 没有规则,全放行):请求被跳转指向的站之前要先查它的 robots。"""
+    for origin in origins:
+        respx.get(f"{origin}/robots.txt").mock(return_value=httpx.Response(404))
+
+
 @respx.mock
 def test_follows_chain_joins_relative_location_and_reads_headers_only():
     first = respx.get("https://redir.test/a").mock(return_value=_redirect("https://mid.test/b"))
     second = respx.get("https://mid.test/b").mock(return_value=_redirect("/final?x=1", status=301))
     last = respx.get("https://mid.test/final?x=1").mock(return_value=httpx.Response(200, html="<html>big page</html>"))
+    _no_robots("https://mid.test")
     store = MemoryStore()
     resolver = UrlResolver(store)
     try:
@@ -55,6 +62,7 @@ def test_not_redirected_too_many_hops_and_network_failure_are_recorded_not_guess
     respx.get("https://redir.test/plain").mock(return_value=httpx.Response(200))
     respx.get("https://redir.test/loop").mock(return_value=_redirect("https://redir.test/loop"))
     respx.get("https://redir.test/down").mock(side_effect=httpx.ConnectError("boom"))
+    _no_robots("https://redir.test")
     store = MemoryStore()
     resolver = UrlResolver(store)
     try:
@@ -83,6 +91,7 @@ def test_prior_resolved_rows_are_reused_and_failures_are_retried():
     respx.get("https://brand.test/q").mock(return_value=httpx.Response(200))
     respx.get("https://redir.test/failed").mock(return_value=_redirect("https://brand.test/r"))
     respx.get("https://brand.test/r").mock(return_value=httpx.Response(404))
+    _no_robots("https://brand.test")
     resolver = UrlResolver(store, max_age_days=30)
     try:
         result = resolver.resolve([fresh.url, stale.url, failed.url])
@@ -108,3 +117,50 @@ def test_context_only_applies_to_redirect_surfaces():
     assert context.final_url("redirect_surface", "https://redir.test/never-seen") is None
     assert context.final_url("plain_surface", "https://redir.test/bad") == "https://redir.test/bad"  # 非跳转仪器照原样
     assert ResolutionContext().final_url("anything", "https://a.test/") == "https://a.test/"
+
+
+@respx.mock
+def test_stops_before_a_destination_whose_robots_disallows_and_still_records_where_it_points():
+    """请求被跳转指向的那一站之前先查它的 robots(用户 2026-10-29 定):不让抓就停,网址取自上一跳的跳转头照记为去向,
+    不去请求它;读不到 robots(5xx)当全禁,同样停。第一站是平台给的跳转链本身,不查。robots.txt 自己跳转也要跟。"""
+    respx.get("https://redir.test/a").mock(return_value=_redirect("https://closed.test/article"))
+    closed_page = respx.get("https://closed.test/article").mock(return_value=httpx.Response(200))
+    respx.get("https://closed.test/robots.txt").mock(
+        return_value=_redirect("https://www.closed.test/robots.txt", status=301))  # http→https 这类跳转:要跟着读
+    respx.get("https://www.closed.test/robots.txt").mock(
+        return_value=httpx.Response(200, text="User-agent: *\nDisallow: /article\n"))
+    respx.get("https://redir.test/b").mock(return_value=_redirect("https://broken.test/x"))
+    broken_page = respx.get("https://broken.test/x").mock(return_value=httpx.Response(200))
+    respx.get("https://broken.test/robots.txt").mock(return_value=httpx.Response(503))
+    store = MemoryStore()
+    resolver = UrlResolver(store)
+    try:
+        result = resolver.resolve(["https://redir.test/a", "https://redir.test/b"])
+    finally:
+        resolver.close()
+    closed, broken = result["https://redir.test/a"], result["https://redir.test/b"]
+    assert closed.status is ResolutionStatus.STOPPED_AT_ROBOTS and closed.final_url == "https://closed.test/article"
+    assert closed.hops == 1 and closed.http_status == 302 and closed_page.call_count == 0
+    assert broken.status is ResolutionStatus.STOPPED_AT_ROBOTS and broken_page.call_count == 0
+    context = ResolutionContext.from_resolutions(frozenset({"s"}), result)  # 去向清楚:判定照用这个网址
+    assert context.final_url("s", "https://redir.test/a") == "https://closed.test/article"
+    again = UrlResolver(MemoryStore(store.rows))  # 时效内照样复用,不重新还原
+    try:
+        assert again.resolve(["https://redir.test/a"])["https://redir.test/a"] == closed
+    finally:
+        again.close()
+
+
+@respx.mock
+def test_a_malformed_redirect_location_is_recorded_not_raised():
+    """跳转头给了个坏网址:还原记「失败」(InvalidURL),不让这一批还原崩(第二轮审核 B4)。"""
+    respx.get("https://redir.test/bad").mock(return_value=_redirect("http://a.test:abc/p"))  # 端口不是数字:httpx 拒绝
+    store = MemoryStore()
+    resolver = UrlResolver(store)
+    try:
+        result = resolver.resolve(["https://redir.test/bad"])
+    finally:
+        resolver.close()
+    bad = result["https://redir.test/bad"]
+    assert bad.status is ResolutionStatus.FETCH_FAILED and bad.final_url is None
+    assert bad.error in ("InvalidURL", "RemoteProtocolError")  # httpx 收包时就可能先拒绝,两种都是「去向看不到」

@@ -306,3 +306,18 @@ def test_reported_failure_and_odd_structure_carry_the_money_already_spent():
     with pytest.raises(AdapterPermanentError) as top_info:  # 顶层就不对:也带响应(原来不带)
         adapter.ask(make_request())
     assert "unexpected" in (top_info.value.response_body or "")
+
+
+@respx.mock
+def test_one_malformed_citation_url_keeps_the_answer():
+    """一条坏引用网址(方括号不配对):原来取主机名抛错,整条好回答记成永久失败;现在回答照收,那条引用主机名留空
+    (第二轮审核 B4)。"""
+    body = golden("success_with_citations.json")
+    message = next(item for item in body["output"] if item.get("type") == "message")
+    note = next(n for part in message["content"] for n in part.get("annotations", []) if n["type"] == "url_citation")
+    note["url"] = "http://[bad/x"
+    respx.post(RESP_URL).mock(return_value=httpx.Response(200, json=body))
+    run = OpenAIWebSearchAdapter(api_key="test-key").ask(make_request())
+    assert run.outcome is Outcome.SUCCESS and run.answer is not None
+    bad = next(c for c in run.answer.citations if c.url == "http://[bad/x")
+    assert bad.domain == ""

@@ -4,6 +4,8 @@
 采样后对这些链接逐条跟随跳转——最多 MAX_HOPS 跳、只取响应头不读正文、按链接去重——结果写入只追加表
 citation_resolution(原链接、终点链接、跳数、状态、还原器版本)。判定一律用终点链接;还原不出去向的
 那条引用记「看不到」,不拿标题代替(铁律 7)。
+请求被跳转指向的每一站之前先查那个站的 robots(用户 2026-10-29 定):不让抓就停下,网址取自上一跳的跳转头照记为去向
+(STOPPED_AT_ROBOTS),不去请求它;代价是极少数还会接着跳的链接停在前一站。第一站是平台给的跳转链本身,不查。
 
 经 crawler/ 发请求(Chrome 身份,D13)。这里不做任何品牌判定——归属判定在 detectors/。
 """
@@ -14,17 +16,21 @@ from collections.abc import Callable, Mapping
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
+from urllib.parse import urlsplit
 
 import httpx
 import structlog
 
-from crawler.fetch import fetch_headers, new_client
+from crawler.fetch import RobotsRules, fetch_headers, new_client, robots_parser
 from engine.models import CitationResolution, ResolutionStatus
 
 log = structlog.get_logger("engine.resolve")
 
-RESOLVER_VERSION = 1
+RESOLVER_VERSION = 2  # 2(2026-10-29):请求被跳转指向的站之前先查它的 robots
 MAX_HOPS = 10
+# 这两种都知道真正去向:跟到了终点,或停在 robots 不让抓的那一站(网址来自上一跳的跳转头)
+_KNOWN_DESTINATION: frozenset[ResolutionStatus] = frozenset({ResolutionStatus.RESOLVED,
+                                                              ResolutionStatus.STOPPED_AT_ROBOTS})
 
 
 class ResolutionStore(Protocol):
@@ -50,7 +56,7 @@ class ResolutionContext:
     ) -> ResolutionContext:
         return cls(redirect_surfaces, {
             url: r.final_url for url, r in resolutions.items()
-            if r.status is ResolutionStatus.RESOLVED and r.final_url is not None
+            if r.status in _KNOWN_DESTINATION and r.final_url is not None
         })
 
 
@@ -62,6 +68,7 @@ class UrlResolver:
         self._own_client = client is None
         self._client = client or new_client(follow_redirects=False)
         self._max_age = timedelta(days=max_age_days)
+        self._robots: dict[str, RobotsRules] = {}  # 站点 → robots 规则,一单只读一次
 
     def close(self) -> None:
         if self._own_client:
@@ -77,7 +84,7 @@ class UrlResolver:
         result: dict[str, CitationResolution] = {}
         cutoff = datetime.now(UTC) - self._max_age
         for url, prior in self._storage.latest_citation_resolutions(wanted).items():
-            if prior.status is ResolutionStatus.RESOLVED and prior.resolved_at >= cutoff:
+            if prior.status in _KNOWN_DESTINATION and prior.resolved_at >= cutoff:
                 result[url] = prior
         for url in wanted:
             if url in result:
@@ -103,12 +110,29 @@ class UrlResolver:
                 if hops > MAX_HOPS:
                     return _record(url, ResolutionStatus.TOO_MANY_HOPS, hops=MAX_HOPS,
                                    http_status=response.status_code)
-                current = str(httpx.URL(current).join(location))
+                try:
+                    target = str(httpx.URL(current).join(location))
+                except (httpx.InvalidURL, ValueError):  # 跳转头给了个坏网址:去向看不到,如实记,不让整批还原崩
+                    return _record(url, ResolutionStatus.FETCH_FAILED, hops=hops, error="InvalidURL",
+                                   http_status=response.status_code)
+                if not self._robots_allow(target):
+                    log.info("citation_resolve_stopped_at_robots", url=url, target=target, hops=hops)
+                    return _record(url, ResolutionStatus.STOPPED_AT_ROBOTS, hops=hops,
+                                   http_status=response.status_code, final_url=target)
+                current = target
                 continue
             if hops == 0:  # 跳转服务没跳:看不到真正去向,如实记,不拿原链接或标题顶替
                 return _record(url, ResolutionStatus.NOT_REDIRECTED, hops=0, http_status=response.status_code)
             return _record(url, ResolutionStatus.RESOLVED, hops=hops, http_status=response.status_code,
                            final_url=current)
+
+    def _robots_allow(self, url: str) -> bool:
+        """这一站让不让抓(按 robots 的 * 组;读不到当全禁,RFC 9309)。同一站一单只读一次 robots。"""
+        parts = urlsplit(url)
+        origin = f"{parts.scheme}://{parts.netloc}"
+        if origin not in self._robots:
+            self._robots[origin] = robots_parser(self._client, origin)
+        return self._robots[origin].can_fetch("*", url)
 
 
 def _record(

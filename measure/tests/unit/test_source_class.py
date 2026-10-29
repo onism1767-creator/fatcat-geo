@@ -125,3 +125,12 @@ def test_third_party_line_aggregates_apart_from_the_own_site_line():
     assert tp.archived is not None and (tp.archived.pages, tp.archived.mentioning) == (1, 1)
     assert (tp.archived.oldest, tp.archived.newest) == ("2025-01-02", "2025-01-02")
     assert (m.citation.rate.k, m.citation.rate.n) == (1, 6)  # 官网线照旧
+
+
+def test_malformed_urls_are_unattributable_not_a_crash():
+    """坏网址(第二轮审核 B4):取不出主机名就当看不出是谁的网页,判定不崩。"""
+    from engine.detectors.citation import channel_hit
+    from engine.detectors.matching import url_host
+
+    assert url_host("http://[bad/x") == "" and url_host("https://a.test:abc/x") == "a.test"
+    assert channel_hit("http://[bad/x", ["brand.tmall.com/"]) is None

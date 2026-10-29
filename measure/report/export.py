@@ -15,12 +15,12 @@ import json
 import zipfile
 from datetime import UTC
 from typing import Any
-from urllib.parse import quote, urlsplit
+from urllib.parse import quote
 
 from diagnosis.messages import msg, render_msg
 from engine.detectors import citation
 from engine.detectors import source_class as source_class_detector
-from engine.detectors.matching import mention_sentence
+from engine.detectors.matching import mention_sentence, url_host
 from engine.models import SurfaceRun
 from engine.observe import mention_detector_name, sentiment_detector_name
 from engine.storage import Storage
@@ -154,7 +154,7 @@ def _response_record(
 def _citation_rows(run: SurfaceRun, prompt_no: int, ai: str, observations: list[dict[str, Any]]) -> list[list[Any]]:
     attribution = latest_observation(observations, source_class_detector.DETECTOR_NAME)
     return [
-        [run.run_id, prompt_no, run.run_index, ai, c.position, c.url, urlsplit(c.url).netloc, c.final_url or "",
+        [run.run_id, prompt_no, run.run_index, ai, c.position, c.url, url_host(c.url), c.final_url or "",
          c.kind, c.competitor or "", c.reason or ""]
         for c in citation_rows(run, attribution)  # 与单条回答页同一套取法
     ]

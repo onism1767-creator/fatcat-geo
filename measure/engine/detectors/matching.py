@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+from urllib.parse import urlsplit
 
 import tldextract
 
@@ -14,6 +15,16 @@ from engine.models import BrandSpec
 
 # 公共后缀表用 tldextract 内置快照,完全离线(不联网下载、不写缓存);快照版本写进报告的方法说明
 _EXTRACT = tldextract.TLDExtract(cache_dir=None, suffix_list_urls=())
+
+
+def url_host(url: str) -> str:
+    """网址的主机名;网址坏了(方括号不配对之类,urlsplit 会抛错)取不出 → 空串,当「看不出是谁的网页」。
+    平台给的引用网址是外来输入,一条坏的不能让整条回答、整单的判定或网页核实崩掉(第二轮审核 B4)。
+    好网址的结果与原来的 urlsplit(url).hostname 一样,判定器不用升版本。"""
+    try:
+        return urlsplit(url).hostname or ""
+    except ValueError:
+        return ""
 
 
 def normalize_domain(host: str) -> str:
