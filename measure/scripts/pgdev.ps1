@@ -15,7 +15,8 @@
 #   10 PG_START_TIMEOUT:启动后 180 秒仍连不上,看 .pgdata/server*.log
 #   11 PG_ZOMBIE:端口在听但不接连接(典型:杀毒软件杀了子进程后 error code 487),跑 restart
 #   12 PG_STOP_TIMEOUT:正常停止 30 秒停不掉,跑 kill
-#   13 PG_START_FAILED:pg_ctl start 本身失败(常见:日志文件被杀毒占着,脚本会自动换日志名再试一次)
+#   13 PG_START_FAILED:pg_ctl start 本身失败(常见:日志文件被杀毒占着,脚本会自动换日志名再试一次;
+#      日志里是「could not bind … Permission denied」时改为不经 pg_ctl、直接启动 postgres.exe,见下面 Start-Direct)
 
 param(
     [Parameter(Mandatory = $true)]
@@ -45,7 +46,8 @@ function Test-Listening {
 
 function Test-Answering {
     # 端口在听不等于能用:2026-09-25 主进程活着却起不了子进程。真探活只认 pg_isready。
-    & $PgIsReady -h 127.0.0.1 -p $Port -U $User -t 3 *> $null
+    # 指定连 postgres 库:不指定就按用户名找 geo 库,每探一次服务器日志里多一行「database "geo" does not exist」
+    & $PgIsReady -h 127.0.0.1 -p $Port -U $User -d postgres -t 3 *> $null
     return ($LASTEXITCODE -eq 0)
 }
 
@@ -67,6 +69,25 @@ function Start-PgCtl([string]$log) {
     $proc = Start-Process -FilePath $PgCtl -ArgumentList $argLine -WindowStyle Hidden -PassThru
     $null = $proc.Handle  # 先取句柄,之后才读得到 ExitCode(Windows PowerShell 的已知怪癖)
     return $proc
+}
+
+function Start-Direct([string]$log) {
+    # 退路:pg_ctl 拉起的 postgres 报「could not bind … Permission denied」时,不经 pg_ctl、用当前身份直接起 postgres.exe。
+    # 原因没查明(10-27、10-29 两次;不是沙箱、不是端口被占或被预留,同一时刻 Python 能绑同一端口)。10-29 观察到:pg_ctl 连败三次后,
+    # 第一次直接起就绑上了,之后 pg_ctl 怎么起都行——直接起是否真起了作用、还是恰好赶上它自己好了,分不清(见 docs/错误日志.md)。
+    # 管理员身份下 postgres.exe 会拒绝运行——那种机器上 pg_ctl 本身能起,走不到这里。
+    # 同样用隐藏窗口的 Start-Process,输出只进日志文件,调用方不等它(理由同 Start-PgCtl)。
+    $postgres = Join-Path $PgBin "postgres.exe"
+    $argLine = "-D `"$DataDir`" -p $Port"
+    $proc = Start-Process -FilePath $postgres -ArgumentList $argLine -WindowStyle Hidden -RedirectStandardError $log -PassThru
+    $null = $proc.Handle
+    return $proc
+}
+
+function Test-BindDenied([string]$log) {
+    # 只看日志末尾:server.log 是累积的,早先几次失败的旧行不该算进这一次
+    $tail = Get-Content $log -Tail 20 -ErrorAction SilentlyContinue | Out-String
+    return ($tail -match "could not bind" -and $tail -match "Permission denied")
 }
 
 function Wait-Ready($proc, [datetime]$deadline) {
@@ -91,11 +112,17 @@ function Start-Server {
     $deadline = (Get-Date).AddSeconds($StartTimeoutSec)
     $log = Join-Path $DataDir "server.log"
     $state = Wait-Ready (Start-PgCtl $log) $deadline
-    if ($state -eq "failed" -and -not (Test-Listening)) {
+    if ($state -eq "failed" -and -not (Test-Listening) -and -not (Test-BindDenied $log)) {
         $log = Join-Path $DataDir ("server-{0:yyyyMMdd-HHmm}.log" -f (Get-Date))
         Write-Host ""
         Write-Host -NoNewline "pg_ctl start 失败(多半是 server.log 被杀毒软件占着),换日志文件再试一次:$log"
         $state = Wait-Ready (Start-PgCtl $log) $deadline
+    }
+    if ($state -eq "failed" -and -not (Test-Listening) -and (Test-BindDenied $log)) {
+        $log = Join-Path $DataDir ("server-{0:yyyyMMdd-HHmm}-direct.log" -f (Get-Date))
+        Write-Host ""
+        Write-Host -NoNewline "pg_ctl 拉起的数据库绑不上端口(降权身份被拒),改为直接启动 postgres.exe:$log"
+        $state = Wait-Ready (Start-Direct $log) $deadline
     }
     Write-Host ""
     if ($state -eq "ready") { Write-Host "就绪:postgresql://$User@localhost:$Port/$Db"; return 0 }
