@@ -30,6 +30,9 @@ _LEVELS = ("A", "B", "C", "D", "E")
 _OUTPUT_LEVELS = ("A", "B", "C", "D")  # E 级永不作为建议输出
 _EXPERIMENT_LEVELS = ("C", "D")  # 技术修复类 C 级及以下必须带实验标注;GEO 方法不看等级,一律实验卡
 GEO_METHOD = "geo_method"
+# 条目可要求的「数据条件」(requires_data):条件全部成立才出。名单写死在这里,注册表写错名字加载时就报错
+THIRD_PARTY_CITED_ELSEWHERE = "third_party_cited_elsewhere"  # 有「AI 引用了、但没写到你」的第三方网页(C1 名单非空)
+DATA_CONDITIONS = frozenset({THIRD_PARTY_CITED_ELSEWHERE})
 _REQUIRED_LANGS = {"zh", "en"}
 
 
@@ -46,6 +49,8 @@ class EvidenceEntry(FrozenModel):
     # ACCESS 条目对应官网审计里的哪几项检查(check 名):只在那几项 FAIL 时给出——只是 robots 挂了,
     # 不该把 CDN、预渲染的建议整批端上(审核 2026-10-27 黄 14);空 = 不按检查项过滤
     access_checks: list[str] = []
+    # 数据条件(用户 2026-10-28 定补 C1 名单):全部成立才出,比如「证据区真有名单」;空 = 没有条件。机制同 access_checks
+    requires_data: list[str] = []
     hypothesis: dict[str, str]
     plain: dict[str, str]  # 人话版(v0.4.14)
     verify: dict[str, str]  # 做完之后怎么检查效果(v0.4.17)
@@ -96,6 +101,9 @@ def load_evidence_registry(path: Path = DEFAULT_REGISTRY_PATH) -> list[EvidenceE
     for entry in entries:
         if entry.evidence_level not in _LEVELS:
             raise ValueError(f"{entry.id}: 非法证据等级 {entry.evidence_level!r}")
+        unknown = set(entry.requires_data) - DATA_CONDITIONS
+        if unknown:
+            raise ValueError(f"{entry.id}: 未知的数据条件 {sorted(unknown)}(可用:{sorted(DATA_CONDITIONS)})")
     return entries
 
 
@@ -106,10 +114,12 @@ def recommend(
     intent: PromptIntent,
     channel: str = "own",
     access_checks: frozenset[str] | None = None,
+    data_available: frozenset[str] | None = None,
 ) -> list[Recommendation]:
     """给定【已定位的失败阶段】、需求意图与线(官网 / 第三方),产出建议。
     调用方只允许传该线的 primary_failure 阶段——这是"上游 FAIL 禁下游药方"的执行点。
-    access_checks:官网审计里 FAIL 的检查项名;给了就只出对应这些检查项的 ACCESS 条目(None = 不按检查项过滤)。"""
+    access_checks:官网审计里 FAIL 的检查项名;给了就只出对应这些检查项的 ACCESS 条目(None = 不按检查项过滤)。
+    data_available:本次成立的数据条件;给了就只出条件全部成立的条目(None = 不按数据条件过滤)。"""
     out = [
         Recommendation(
             evidence_id=entry.id,
@@ -130,6 +140,7 @@ def recommend(
         and entry.evidence_level in _OUTPUT_LEVELS
         and intent in entry.supported_intents
         and (access_checks is None or not entry.access_checks or set(entry.access_checks) & access_checks)
+        and (data_available is None or set(entry.requires_data) <= data_available)
     ]
     out.sort(key=lambda rec: rec.evidence_level)  # 证据强的排前面
     return out

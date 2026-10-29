@@ -78,6 +78,7 @@ def diagnose_class_targets(
             third_party=third_party,
             mention_compare=compare_mentions(brand.name, m.mention, m.competitor_mentions),
             sentiment=sentiment_tally(m.sentiment_counts),
+            third_party_cited_elsewhere=m.third_party.cited_elsewhere if m.third_party is not None else None,
         ))
         verdict_inputs[m.target] = verdict_input(
             intent, m.mention, retrieval, citation, third_party_cited=third_party[1])

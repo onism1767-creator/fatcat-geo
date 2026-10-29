@@ -278,6 +278,17 @@
     {% endif %}
     {% endfor %}
     {% for c in sd.third_party_cautions %}<p class="muted">{{ c|msg(lang) }}</p>{% endfor %}
+    {#- 证据区:AI 引用了、但没写到你的第三方网页(实验卡 C1 的名单;用户 2026-10-28 定补)。外来网址只认 http(s) 才给链接 -#}
+    {% if sd.third_party_cited_elsewhere %}{% set ce = sd.third_party_cited_elsewhere %}
+    <details class="cited-elsewhere">
+      <summary>{{ t["tp_cited_elsewhere_summary"].format(n=ce.total) }}</summary>
+      <p class="muted">{{ t["tp_cited_elsewhere_note"] }}</p>
+      <ol class="ev">{% for p in ce.pages %}
+        <li>{{ p.domain }}{% if p.title %} · {{ p.title }}{% endif %} · {{ t["tp_cited_elsewhere_count"].format(n=p.answers) }}{% if p.url.startswith("http://") or p.url.startswith("https://") %} · <a href="{{ p.url }}" rel="noopener noreferrer nofollow" target="_blank">{{ t["tp_cited_elsewhere_open"] }}</a>{% endif %}</li>{% endfor %}
+      </ol>
+      {% if ce.total > ce.pages|length %}<p class="muted">{{ t["tp_cited_elsewhere_more"].format(n=ce.total - ce.pages|length) }}</p>{% endif %}
+    </details>
+    {% endif %}
     {% endif %}
 
     {#- AI 原话(S7,用户定 Q1):只进证据区;每道题前 3 次回答里第一次提到你的那句,没提到就写没提到;外来文字自动转义 -#}

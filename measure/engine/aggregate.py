@@ -9,9 +9,10 @@ from collections import Counter
 from collections.abc import Callable, Iterable
 from dataclasses import dataclass
 from typing import Final
+from urllib.parse import urlsplit
 
 from engine.detectors.citation import DETECTOR_NAME as CITATION_LABEL
-from engine.detectors.matching import mention_sentence
+from engine.detectors.matching import mention_sentence, normalize_domain
 from engine.detectors.retrieval_rank import DETECTOR_NAME as PRESENCE_LABEL
 from engine.metrics import Rate, SampleAccounting, account_runs, rate_of
 from engine.models import (
@@ -149,6 +150,56 @@ class ArchiveTally:
     newest: str | None
 
 
+CITED_ELSEWHERE_LIMIT: Final = 20  # 报告里「AI 引用了、但没写到你」的第三方网页最多列几个(按引用它的回答数取前几)
+
+
+class CitedPage(FrozenModel):
+    """一个被 AI 引用、正文可读、但没写到你的第三方网页(第三方线 C1 名单的一行)。"""
+
+    url: str  # 判定用的链接(跳转仪器为还原后的终点)
+    domain: str
+    title: str | None  # AI 返回的引用标题;平台没给 → None,不猜
+    answers: int  # 引用了它的回答数(一条回答里引两次只算一次)
+
+
+class CitedElsewhere(FrozenModel):
+    """AI 回答这类问题时愿意拿来当参考、但里面没有你的第三方网页(用户 2026-10-28 定补:实验卡
+    EVIDENCE_THIRDPARTY_CITED_PAGE_GAP_V1 写着「证据区有名单」,名单就是它)。只算实时看到、正文可读的
+    (SourceClass.OTHER);存档行、看不到的、竞品官网都不算。"""
+
+    pages: list[CitedPage]  # 按回答数降序、同数按网址,最多 CITED_ELSEWHERE_LIMIT 个
+    total: int  # 去重后一共几个网页
+
+
+def cited_elsewhere(observations: Iterable[RunObservations]) -> CitedElsewhere | None:
+    """数出「AI 引用了、但没写到你」的第三方网页;一个都没有 → None(实验卡 C1 据此不出)。"""
+    answers: Counter[str] = Counter()
+    titles: dict[str, str | None] = {}
+    for obs in observations:
+        if obs.attribution is None or obs.attribution.cited is None or obs.run.answer is None:
+            continue
+        platform_titles = {c.url: c.title for c in obs.run.answer.citations}
+        seen: set[str] = set()
+        for entry in obs.attribution.cited:
+            if entry.source_class is not SourceClass.OTHER or not _live(entry):
+                continue
+            key = entry.final_url or entry.url
+            if key in seen:
+                continue
+            seen.add(key)
+            answers[key] += 1
+            if titles.get(key) is None:
+                titles[key] = platform_titles.get(entry.url)
+    if not answers:
+        return None
+    ranked = sorted(answers, key=lambda url: (-answers[url], url))
+    return CitedElsewhere(
+        pages=[CitedPage(url=url, domain=normalize_domain(urlsplit(url).hostname or ""), title=titles.get(url),
+                         answers=answers[url]) for url in ranked[:CITED_ELSEWHERE_LIMIT]],
+        total=len(ranked),
+    )
+
+
 @dataclass(frozen=True)
 class ThirdPartyMeasurement:
     """第三方线(S6.1):搜到 / 引用「正文写到你的第三方网页」,与官网线分开、不相加。
@@ -162,6 +213,7 @@ class ThirdPartyMeasurement:
     unobservable_retrieved: dict[str, int]
     summary_only: dict[str, int]  # 只拿到网页摘要 / 嵌入接口标题、按摘要判的第三方网页,按文字来源计数(引用 + 搜到;S6.3)
     archived: ArchiveTally | None  # 只能从存档看到的(引用 + 搜到;S6.4);没有 → None
+    cited_elsewhere: CitedElsewhere | None = None  # AI 引用了、但没写到你的第三方网页(C1 名单);没有 → None
 
 
 @dataclass(frozen=True)
@@ -305,6 +357,7 @@ def _measure_third_party(
         unobservable_cited=unobservable("cited"), unobservable_retrieved=unobservable("retrieved"),
         summary_only=_summary_only(entries_of("cited") + entries_of("retrieved")),
         archived=_archive_tally(entries_of("cited") + entries_of("retrieved")),
+        cited_elsewhere=cited_elsewhere(observations),
     )
 
 

@@ -354,6 +354,7 @@ entries:
   #    docs/研究/第三方线引用步-证据条目候选-2026-10-28.md;全部是 GEO 方法 → 实验卡)──────────
   - id: EVIDENCE_THIRDPARTY_CITED_PAGE_GAP_V1
     stage: CITATION
+    requires_data: [third_party_cited_elsewhere]  # 证据区真有「AI 引用了、但没写到你」的名单才出;名单为空不出(用户 2026-10-28 定)
     channel: third_party   # 第三方线「搜到了写你的第三方网页,但 AI 没拿它们当参考」时出
     kind: geo_method   # 硬边界 9:一律实验卡
     hypothesis:

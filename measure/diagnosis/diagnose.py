@@ -24,9 +24,10 @@ from __future__ import annotations
 from diagnosis.access_audit import AccessAuditResult
 from diagnosis.access_audit import CheckStatus as AccessCheckStatus
 from diagnosis.findings import MentionCompare, Msg, SentimentTally, Stage, StageFinding, StageStatus, msg
-from diagnosis.recommender import EvidenceEntry, Recommendation, recommend
+from diagnosis.recommender import THIRD_PARTY_CITED_ELSEWHERE, EvidenceEntry, Recommendation, recommend
 from diagnosis.retrieval_dependency import DependencyFinding
 from diagnosis.third_party_diag import localize_third_party
+from engine.aggregate import CitedElsewhere
 from engine.models import FrozenModel, PromptIntent
 
 _FUNNEL = (Stage.RETRIEVAL, Stage.CITATION, Stage.REPRESENTATION)
@@ -51,6 +52,8 @@ class SurfaceDiagnosis(FrozenModel):
     third_party_recommendations: list[Recommendation] = []
     mention_compare: MentionCompare | None = None  # 竞品提及对比(S7):主视图一块;没有竞品 → None
     sentiment: SentimentTally | None = None  # 提到你的句子按好坏计数(S8.1):主视图一行 + 饼图;一句没有 → None
+    # AI 引用了、但没写到你的第三方网页(第三方线证据区的名单;实验卡 C1 只在它非空时出);一个都没有 → None
+    third_party_cited_elsewhere: CitedElsewhere | None = None
 
 
 class ClassDiagnosis(FrozenModel):
@@ -116,6 +119,7 @@ def diagnose_surface(
     third_party: list[StageFinding] | None = None,
     mention_compare: MentionCompare | None = None,
     sentiment: SentimentTally | None = None,
+    third_party_cited_elsewhere: CitedElsewhere | None = None,
 ) -> SurfaceDiagnosis:
     findings = {
         Stage.ACCESS: access,
@@ -145,9 +149,12 @@ def diagnose_surface(
     if primary is None:
         cautions.append(msg("caution.none"))
 
+    # 本次成立的数据条件:有的条目要证据区真有东西才出(C1 要名单非空;用户 2026-10-28 定)
+    data = frozenset({THIRD_PARTY_CITED_ELSEWHERE}) if third_party_cited_elsewhere is not None else frozenset()
     recommendations = (  # ACCESS 的建议只针对挂了的检查项(审核 2026-10-27 黄 14);没记检查项就不过滤
         recommend(registry, stage=primary, intent=intent,
-                  access_checks=frozenset(access.failed_checks) if access.failed_checks else None)
+                  access_checks=frozenset(access.failed_checks) if access.failed_checks else None,
+                  data_available=data)
         if primary is not None else []
     )
     # 第三方线单独定位:同一套「第一个 FAIL,否则第一个 WEAK」,同样有通道分歧防线;建议只从第三方线的条目里取
@@ -176,11 +183,12 @@ def diagnose_surface(
         third_party_failure=tp_primary,
         third_party_cautions=tp_cautions,
         third_party_recommendations=(
-            recommend(registry, stage=tp_primary, intent=intent, channel="third_party")
+            recommend(registry, stage=tp_primary, intent=intent, channel="third_party", data_available=data)
             if tp_primary is not None else []
         ),
         mention_compare=mention_compare,
         sentiment=sentiment,
+        third_party_cited_elsewhere=third_party_cited_elsewhere,
     )
 
 
