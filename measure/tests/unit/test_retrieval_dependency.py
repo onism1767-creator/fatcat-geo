@@ -103,5 +103,17 @@ def test_offline_higher_than_online_is_low_but_said_plainly():
     finding = diagnose_retrieval_dependency(metric(3), metric(9))
     assert finding.level is DependencyLevel.LOW
     assert finding.headline.code == "dependency.headline.offline_higher"
-    assert "闭卷" in render_msg(finding.headline, "zh") and "Search-off" in render_msg(finding.headline, "en")
+    assert "闭卷" in render_msg(finding.headline, "zh") and "search-off" in render_msg(finding.headline, "en")
+    assert "记住了品牌" in render_msg(finding.headline, "zh")  # 第 9 章:只说观测差异,不说「它认识你」(第二轮)
+    assert "不联网" in render_msg(finding.headline, "zh", "plain")  # 人话版也有
     assert diagnose_retrieval_dependency(metric(8), metric(9)).headline.code == "dependency.headline.low"  # 差 10:接近
+
+
+def test_online_absent_but_offline_high_is_stated_not_called_inconclusive():
+    """联网 0/10、不联网 9/10:最显眼的反差,不能说「看不出来」(第二轮)。"""
+    finding = diagnose_retrieval_dependency(metric(0), metric(9))
+    assert finding.level is DependencyLevel.LOW and finding.headline.code == "dependency.headline.offline_higher"
+    near_zero = diagnose_retrieval_dependency(metric(0), metric(1))  # 两边都很低:照旧说看不出来
+    assert near_zero.level is DependencyLevel.INCONCLUSIVE
+    rule = render_msg(finding.evidence_lines[2], "zh")
+    assert "20 个百分点" in rule and "20%" not in rule.split("开卷低于")[0]

@@ -34,14 +34,20 @@ def api_line_text(line: ApiLine, lang: str) -> str:
         unprompted = t["count_sep"].join(items)
     else:
         unprompted = t["line_unprompted_none"]
-    if line.prompted:
-        ok, total = sum(flag for _, flag in line.prompted), len(line.prompted)
+    sure = [flag for _, flag in line.prompted if flag is not None]
+    unsure = len(line.prompted) - len(sure)
+    if sure:
+        ok, total = sum(sure), len(sure)
         if ok == total:
             prompted = t["line_prompted_all"].format(n=total) if total > 1 else t["line_prompted_one"]
         elif ok == 0:
             prompted = t["line_prompted_none"]
         else:
             prompted = t["line_prompted_some"].format(k=ok, m=total - ok)
+        if unsure:
+            prompted += t["line_prompted_unsure_tail"].format(n=unsure)
+    elif unsure:  # 测了,只是失败 / 拒答太多:不说「没测」也不说「能 / 不能」(第二轮)
+        prompted = t["line_prompted_unsure"]
     else:
         prompted = t["line_prompted_untested"]
     return t["line_api"].format(api=line.api, unprompted=unprompted, prompted=prompted)
@@ -59,9 +65,11 @@ def wrap_up_text(w: WrapUp, lang: str, reps: int, first_action: str | None) -> s
     t = MESSAGES[lang]
     parts = [t["wrap_tested"].format(apis=w.n_apis, models=w.n_models, prompts=w.n_prompts, reps=reps)]
     if w.prompted_ok is None:
-        parts.append(t["wrap_prompted_untested"])
+        parts.append(t["wrap_prompted_unsure"] if w.prompted_unsure else t["wrap_prompted_untested"])
     else:
         parts.append(t["wrap_prompted"].format(ok=w.prompted_ok, total=w.prompted_total))
+        if w.prompted_unsure:
+            parts.append(t["wrap_prompted_unsure_tail"].format(n=w.prompted_unsure))
     if w.unprompted is None or w.best_unprompted is None:
         parts.append(t["wrap_unprompted_untested"])
     else:
@@ -87,13 +95,15 @@ def wrap_up_text(w: WrapUp, lang: str, reps: int, first_action: str | None) -> s
 
 def verdict_text(verdict: SurfaceVerdict, display: str, lang: str) -> str:
     """每个型号的一句结论(L3 结论码代入显示名),S8.7 起只进证据区。"""
-    text = render_msg(msg(verdict.code, ai=display), lang, "plain")
+    t = MESSAGES[lang]
+    sentences = [render_msg(msg(verdict.code, ai=display), lang, "plain")]
     if verdict.third_party_code:
-        text += render_msg(msg(verdict.third_party_code, ai=display), lang, "plain") + MESSAGES[lang]["sentence_end"]
+        sentences.append(render_msg(msg(verdict.third_party_code, ai=display), lang, "plain"))
+    # 每句都收尾,句与句之间按语言隔开(原来中文少句号、英文少空格,两句粘在一起;第二轮)
+    text = t["sentence_sep"].join(s + t["sentence_end"] for s in sentences)
     if verdict.missing:
-        t = MESSAGES[lang]
         missing = t["count_sep"].join(render_msg(msg(code), lang, "plain") for code in verdict.missing)
-        text += f"({t['missing_pre']}{missing})"
+        text += f"{t['sentence_sep']}({t['missing_pre']}{missing})"
     return text
 
 

@@ -129,3 +129,12 @@ def test_class_diagnosis_assembles_surface_blocks():
         Stage.RETRIEVAL, Stage.CITATION, Stage.REPRESENTATION
     ]
     assert (block.provider, block.surface, block.model) == ("p", "s1", "m1")
+
+
+def test_funnel_cited_higher_is_not_called_close():
+    """在场 3、被引 18(同一批):不能说「相差不足」,也不能按漏斗解读(第二轮)。"""
+    finding = diagnose_generative_retrieval(presence_metric(r(3)), [1], None, r(18), None)
+    codes = [line.code for line in finding.evidence_lines]
+    assert "genret.funnel.cited_higher" in codes and "genret.funnel.aligned" not in codes
+    line = next(line for line in finding.evidence_lines if line.code == "genret.funnel.cited_higher")
+    assert "个百分点" in render_msg(line, "zh") and "points" in render_msg(line, "en")

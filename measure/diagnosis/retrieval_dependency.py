@@ -58,7 +58,7 @@ def diagnose_retrieval_dependency(
     meaning = msg("dependency.note.meaning")
     rule_line = msg(
         "dependency.thresholds",
-        gap=thresholds.rate_gap,
+        pts=round(thresholds.rate_gap * 100),  # 差距按「个百分点」说(与别处统一)
         ratio=thresholds.dependency_high_ratio,
         absent=thresholds.mention_fail_below,
     )
@@ -82,13 +82,19 @@ def diagnose_retrieval_dependency(
         on_k=on.k, on_n=on.n, on_share=on.share,
         off_k=off.k, off_n=off.n, off_share=off.share,
     )
+    diff = round(on.share - off.share, 9)  # 先四舍五入,免得 0.19999… 把正好差 20 个百分点判成分不出(同 compare_rates)
+    if on.share < thresholds.mention_fail_below and -diff >= thresholds.rate_gap:
+        # 联网几乎不提、不联网却常提:这是最显眼的一种反差,不能说成「看不出来」(第二轮)
+        return DependencyFinding(
+            level=DependencyLevel.LOW, headline=msg("dependency.headline.offline_higher"),
+            evidence_lines=[pair, meaning, rule_line, *calibers],
+        )
     if on.share < thresholds.mention_fail_below:
         return DependencyFinding(
             level=DependencyLevel.INCONCLUSIVE,
             headline=msg("dependency.headline.inconclusive"),
             evidence_lines=[msg("dependency.note.absent_online"), pair, meaning, rule_line, *calibers],
         )
-    diff = round(on.share - off.share, 9)  # 先四舍五入,免得 0.19999… 把正好差 20 个百分点判成分不出(同 compare_rates)
     if abs(diff) < thresholds.rate_gap:
         level, headline = DependencyLevel.LOW, msg("dependency.headline.low")
     elif diff < 0:  # 闭卷比开卷还高:不是「接近、未观测到差异」,要照实说(审核 2026-10-27 黄 15)

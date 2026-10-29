@@ -82,8 +82,11 @@ def diagnose_generative_retrieval(
         evidence.append(msg("genret.funnel.pair", **_prefixed("presence", r), **_prefixed("cited", cited_rate)))
         # 同仪器漏斗:被引比例明显低于在场比例 → 资料递到了却常落选(内容竞争力)
         pts = round(thresholds.rate_gap * 100)  # 差距按「个百分点」说
-        if compare_rates(r, cited_rate, thresholds.rate_gap) > 0:
+        direction = compare_rates(r, cited_rate, thresholds.rate_gap)
+        if direction > 0:
             evidence.append(msg("genret.funnel.gap", pts=pts))
+        elif direction < 0:  # 被引反而比在场高:不能说「相差不足」,也不能按漏斗解读(第二轮)
+            evidence.append(msg("genret.funnel.cited_higher", pts=pts))
         else:
             evidence.append(msg("genret.funnel.aligned", pts=pts))
     if triggered_rate is not None:

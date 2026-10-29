@@ -135,6 +135,11 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": "被引比例比在场比例低 {pts} 个百分点以上——资料递到了模型手上却常落选,缺席主因偏向内容竞争力而非检索可见度(同一批运行内部对比,零跨仪器混淆)",
         "en": "The cited rate is at least {pts} points below the presence rate — material reaches the model but often loses out; the absence leans toward content competitiveness rather than retrieval visibility (same-run comparison, no cross-instrument confound)",
     },
+    "genret.funnel.cited_higher": {
+        "zh": "被引比例反而比在场比例高 {pts} 个百分点以上(同一批回答):两者不能按「先在场、再被引」的漏斗解读,这一项只作参考",
+        "en": "The cited rate is at least {pts} points above the presence rate (same runs): the two cannot be read as a "
+              "'present first, then cited' funnel; reference only",
+    },
     "genret.funnel.aligned": {
         "zh": "在场与被引比例相差不足 {pts} 个百分点——递上来的资料被采用的程度与在场程度无法区分",
         "en": "Presence and cited rates differ by less than {pts} points — adoption of delivered material is indistinguishable from its presence",
@@ -320,6 +325,11 @@ CATALOG: dict[str, dict[str, str]] = {
     "repr.headline.probe_weak": {
         "zh": "点名询问下 AI 对品牌的描述含明显负面成分",
         "en": "When asked by name, the AI's description contains notable negative sentiment",
+    },
+    "repr.headline.probe_unsure": {
+        "zh": "点名询问下的回答失败 / 拒答太多,对品牌描述的好坏说不准(LOW_CONFIDENCE,降为 WEAK)",
+        "en": "When asked by name, too many answers failed or were refused to tell how the brand is described "
+              "(LOW_CONFIDENCE, downgraded to WEAK)",
     },
     "repr.headline.probe_pass": {
         "zh": "点名询问下 AI 对品牌的描述以中性/正面为主",
@@ -644,15 +654,20 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "The search-on or search-off leg has no valid samples; comparison is not possible",
     },
     "dependency.thresholds": {
-        "zh": "判定规则(看比例):开卷与闭卷相差不足 {gap:.0%} → LOW;闭卷反而比开卷高出 {gap:.0%} 以上 → LOW 并写明;"
-              "闭卷 < 开卷×{ratio:.0%} → HIGH;其余 → MEDIUM;开卷 < {absent:.0%} 或任一腿缺样本 → 无法判定",
-        "en": "Verdict rule (rates): search-on and search-off within {gap:.0%} → LOW; search-off higher than search-on by "
-              "{gap:.0%} or more → LOW, stated as such; search-off < search-on ×{ratio:.0%} → HIGH; "
-              "otherwise MEDIUM; search-on below {absent:.0%} or a missing leg → INCONCLUSIVE",
+        "zh": "判定规则(看比例):开卷与闭卷相差不足 {pts} 个百分点 → LOW;闭卷反而比开卷高出 {pts} 个百分点以上 → LOW 并写明"
+              "(开卷低于 {absent:.0%} 时也照写);闭卷 < 开卷×{ratio:.0%} → HIGH;其余 → MEDIUM;"
+              "其余开卷 < {absent:.0%} 或任一腿缺样本 → 无法判定",
+        "en": "Verdict rule (rates): search-on and search-off within {pts} points → LOW; search-off higher than search-on by "
+              "{pts} points or more → LOW, stated as such (also when search-on is below {absent:.0%}); "
+              "search-off < search-on ×{ratio:.0%} → HIGH; otherwise MEDIUM; any other search-on below {absent:.0%} "
+              "or a missing leg → INCONCLUSIVE",
     },
     "dependency.headline.offline_higher": {
-        "zh": "闭卷提及比例比开卷还高:它不靠检索也认识你,开了检索反而提得少",
-        "en": "Search-off mentions you more often than search-on: it knows you without retrieval, and retrieval makes it mention you less",
+        "zh": "检索依赖:低——闭卷提及比例反而比开卷高。这是两种模式下的观测差异,不解读为「AI 记住了品牌」,"
+              "也不说明检索让它少提(第 9 章)",
+        "en": "Retrieval dependency: LOW — the search-off mention rate is higher than search-on. This is an observed "
+              "difference between modes; it does not mean the AI \"remembers\" the brand, nor that retrieval makes it "
+              "mention you less (§9)",
     },
     "dependency.leg_caliber": {
         "zh": "{leg},{caliber}",
@@ -761,6 +776,10 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": "{ai} 本次没有可用的观测",
         "en": "No usable observations for {ai} this time",
     },
+    "verdict.all_unsure": {
+        "zh": "{ai} 这次的回答失败或拒答太多,说不准它提不提你",
+        "en": "Too many of {ai}'s answers failed or were refused this time to tell whether it mentions you",
+    },
     "verdict.missing.probe": {
         "zh": "用户直接问起你时的表现本次没测",
         "en": "how it behaves when users ask about you directly was not tested this time",
@@ -774,8 +793,8 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "whether your site was used could not be observed this time",
     },
     "verdict.missing.low_confidence": {
-        "zh": "有的题型失败或拒答太多,说不准,先不算",
-        "en": "some question types had too many failures or refusals to tell, so they were left out",
+        "zh": "有的项目失败或拒答太多,说不准,先不算",
+        "en": "some items had too many failures or refusals to tell, so they were left out",
     },
     # 第三方线一句(S6.1;措辞用户 2026-10-13 拍板:口语版,v0.4.24 D10)
     "verdict.thirdparty.often": {
@@ -832,6 +851,7 @@ PLAIN: dict[str, dict[str, str]] = {
     "repr.headline.probe_none": {"zh": "用户直接问起你时,回答里没有出现你的品牌名(不正常,建议检查测试)", "en": "Your brand name did not appear even when users asked directly (abnormal; check the test)"},
     "repr.headline.probe_fail": {"zh": "用户直接问起你时,AI 对你的评价以负面为主", "en": "When users ask about you directly, the AI's description is mostly negative"},
     "repr.headline.probe_weak": {"zh": "用户直接问起你时,AI 对你的评价里有明显负面内容", "en": "When users ask about you directly, the AI's description contains clearly negative content"},
+    "repr.headline.probe_unsure": {"zh": "用户直接问起你时,AI 的回答失败或拒答太多,评价好坏说不准", "en": "When users ask about you directly, too many answers failed or were refused to tell how the AI describes you"},
     "repr.headline.probe_pass": {"zh": "用户直接问起你时,AI 会正常介绍你,评价以中性或正面为主", "en": "When users ask about you directly, the AI describes you normally, mostly neutral or positive"},
     "repr.headline.neutral_fail": {"zh": "用户没提到你时,AI 基本不会主动提到你", "en": "When users do not name you, the AI basically never brings you up"},
     "repr.headline.neutral_weak": {"zh": "用户没提到你时,AI 有时会提到你,不稳定", "en": "When users do not name you, the AI sometimes mentions you, not reliably"},
@@ -843,6 +863,7 @@ PLAIN: dict[str, dict[str, str]] = {
     "dependency.headline.high": {"zh": "不用联网搜索时,AI 几乎不提你:目前的曝光主要靠联网搜索撑着", "en": "Without web search the AI barely mentions you: your current exposure relies mainly on live search"},
     "dependency.headline.medium": {"zh": "不用联网搜索时,AI 提到你的次数明显变少", "en": "Without web search the AI mentions you noticeably less"},
     "dependency.headline.low": {"zh": "用不用联网搜索,AI 提到你的次数差不多", "en": "With or without web search, the AI mentions you about as often"},
+    "dependency.headline.offline_higher": {"zh": "不联网时 AI 提到你的次数反而比联网时多(只是两种用法下看到的差别,不代表 AI 记住了你)", "en": "Without web search the AI mentions you more often than with it (just the difference seen between the two modes; it does not mean the AI remembers you)"},
     "dependency.headline.inconclusive": {"zh": "联网与不联网的差别本次看不出来", "en": "The difference with and without web search could not be determined this time"},
     "caution.divergence": {"zh": "搜索结果里没看到你的官网,但回答却引用了它:说明 AI 实际执行的搜索和我们能看到的不完全一样,这一项不作为问题依据", "en": "Your site was absent from the visible search results yet cited in the answer: the AI's actual search differs from what we can see, so this item is not used as evidence of a problem"},
     "caution.unobservable": {"zh": "以下项目本次看不到,没有参与判断:{stages}", "en": "The following items could not be observed and were not used: {stages}"},

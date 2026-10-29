@@ -982,3 +982,16 @@ def test_drafting_account_problem_sends_the_user_back_home_with_the_credit_sente
     assert resp.status_code == 303 and "error=ACCOUNT_CREDIT" in resp.headers["location"]
     page = client.get(resp.headers["location"]).text
     assert "S1(型号 m1)的 API 账户额度不足或欠费" in page and "Your credit balance is too low" in page
+
+
+def test_main_view_does_not_claim_it_can_describe_you_when_answers_mostly_failed():
+    """第二轮:主视图「直接问起时能介绍你」也认低置信——说不准就说说不准,不说能、不说没测。"""
+    from report.narrative import api_line_text
+    from report.summary import ApiLine
+
+    unsure_only = ApiLine(surface="s", api="S", unprompted=[], prompted=[("m1", None)])
+    assert "说不准" in api_line_text(unsure_only, "zh") and "没测直接问起" not in api_line_text(unsure_only, "zh")
+    mixed = ApiLine(surface="s", api="S", unprompted=[], prompted=[("m1", True), ("m2", None)])
+    text = api_line_text(mixed, "zh")
+    assert "能介绍你" in text and "另 1 个型号" in text and "说不准" in text
+    assert "to tell" in api_line_text(unsure_only, "en")

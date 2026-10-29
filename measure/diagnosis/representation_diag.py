@@ -138,15 +138,16 @@ def diagnose_representation(
         else:
             status = StageStatus.PASS
         notes: list[Msg] = []
-        if accounting.low_confidence and status is not StageStatus.WEAK:
-            # 失败 / 拒答太多:不许下确定性结论,一律降 WEAK(7.3;不点名的题走 rate_status 早有此规,
-            # 点名的题原来漏了——5 次里 4 次失败、剩下 1 句负面就判「以负面为主」;审核 2026-10-27 黄 13)
-            status, notes = StageStatus.WEAK, [msg("common.low_confidence_downgrade")]
         headline = {
             StageStatus.FAIL: "repr.headline.probe_fail",
             StageStatus.WEAK: "repr.headline.probe_weak",
             StageStatus.PASS: "repr.headline.probe_pass",
         }[status]
+        if accounting.low_confidence:
+            # 失败 / 拒答太多:不许下确定性结论,一律降 WEAK(7.3;审核 2026-10-27 黄 13),标题也换成「说不准」——
+            # 不能借用「有明显负面内容」那句:全是好评、只是失败多时,那句话和数据正好相反(第二轮红 2)
+            status, headline = StageStatus.WEAK, "repr.headline.probe_unsure"
+            notes = [msg("common.low_confidence_downgrade")]
         return StageFinding(
             stage=Stage.REPRESENTATION,
             status=status,

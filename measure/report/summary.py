@@ -89,7 +89,8 @@ class ApiLine(FrozenModel):
     surface: str
     api: str
     unprompted: list[tuple[str, Rate]]  # (型号, 不点名的四类题合计 k/n);没测 → 空
-    prompted: list[tuple[str, bool]]  # (型号, 品牌事实题里提及比例达到「经常」线);没测 → 空
+    # (型号, 品牌事实题里提及比例达到「经常」线;None = 失败 / 拒答太多、说不准);没测 → 空
+    prompted: list[tuple[str, bool | None]]
 
 
 class BestCell(FrozenModel):
@@ -104,8 +105,9 @@ class WrapUp(FrozenModel):
     n_apis: int
     n_models: int
     n_prompts: int
-    prompted_ok: int | None  # 直接问起时能介绍你的型号数;None = 没测
-    prompted_total: int
+    prompted_ok: int | None  # 直接问起时能介绍你的型号数;None = 没测或全都说不准
+    prompted_total: int  # 说得准的型号数
+    prompted_unsure: int  # 失败 / 拒答太多、说不准的型号数
     unprompted: dict[str, int] | None  # often / sometimes / rarely 各几个型号;None = 没测
     best_unprompted: tuple[str, Rate] | None
     best_own_citation: BestCell | None
@@ -172,7 +174,7 @@ def _step_view(stage: Stage, reports: list[ClassReport], name_of: TargetNamer, a
 def _api_lines(reports: list[ClassReport], api_name_of: ApiNamer) -> list[ApiLine]:
     pass_from = DiagnosisThresholds().mention_pass_from
     pooled: dict[tuple[str, str], list[int]] = {}  # (仪器, 型号) → [k, n],不点名的四类题合计(计数相加,不是平均)
-    prompted: dict[tuple[str, str], bool] = {}
+    prompted: dict[tuple[str, str], bool | None] = {}
     order: list[tuple[str, str]] = []
     for report in reports:
         for sd in report.diagnosis.surfaces:
@@ -183,7 +185,7 @@ def _api_lines(reports: list[ClassReport], api_name_of: ApiNamer) -> list[ApiLin
             if f.rate is None:
                 continue
             if report.intent is PromptIntent.BRAND_FACT:
-                prompted[key] = f.rate.share >= pass_from
+                prompted[key] = None if f.low_confidence else f.rate.share >= pass_from  # 说不准不下结论(第二轮)
             else:
                 acc = pooled.setdefault(key, [0, 0])
                 acc[0] += f.rate.k
@@ -228,7 +230,9 @@ def _wrap_up(reports: list[ClassReport], lines: list[ApiLine], name_of: TargetNa
     return WrapUp(
         n_apis=len({s for s, _ in models}), n_models=len(models),
         n_prompts=sum(len(r.prompt_texts) for r in reports),
-        prompted_ok=sum(prompted) if prompted else None, prompted_total=len(prompted),
+        prompted_ok=sum(1 for ok in prompted if ok) if any(ok is not None for ok in prompted) else None,
+        prompted_total=sum(1 for ok in prompted if ok is not None),
+        prompted_unsure=sum(1 for ok in prompted if ok is None),
         unprompted=buckets, best_unprompted=best,
         best_own_citation=best_of(lambda sd: _finding(sd, Stage.CITATION)),
         best_third_citation=best_of(lambda sd: _third(sd, Stage.CITATION)),

@@ -64,7 +64,37 @@ def test_low_confidence_inputs_are_left_out_and_said_so():
     shaky = VerdictInput(intent=P, mention=Band.SOMETIMES, site_used=True, low_confidence=True)
     verdict = surface_verdict("s", "m", [shaky, vi(D, Band.OFTEN, True)])
     assert verdict.code == "verdict.unnamed_often_site_used"  # 直接问起的那组没算,只说不点名的
-    assert verdict.missing == ["verdict.missing.probe", "verdict.missing.thirdparty", "verdict.missing.low_confidence"]
+    # 测了但说不准 ≠ 没测:句尾只说「说不准」,不再同时说「本次没测」(第二轮)
+    assert verdict.missing == ["verdict.missing.thirdparty", "verdict.missing.low_confidence"]
     assert "说不准" in render_msg(msg("verdict.missing.low_confidence"), "zh")
     steady = surface_verdict("s", "m", [vi(P, Band.SOMETIMES, True), vi(D, Band.OFTEN, True)])
     assert steady.code == "verdict.barely_known" and "low_confidence" not in "".join(steady.missing)
+
+
+def test_unsure_site_and_all_unsure_are_said_plainly():
+    """第二轮:官网引用因失败多被降级时不说「很少引用你的官网」,句尾说说不准;全部题型都说不准时整句就说说不准,
+    不再写「没有可用的观测(其中:……本次没测)」。"""
+    shaky_site = VerdictInput(intent=D, mention=Band.OFTEN, site_used=None, site_unsure=True)
+    v = surface_verdict("s", "m", [shaky_site])
+    assert v.code == "verdict.unnamed_often_site_rare" or v.code == "verdict.unnamed_often_site_used"
+    assert "verdict.missing.site" not in v.missing and "verdict.missing.low_confidence" in v.missing
+    all_unsure = surface_verdict("s", "m", [
+        VerdictInput(intent=P, mention=Band.SOMETIMES, site_used=None, low_confidence=True),
+        VerdictInput(intent=D, mention=Band.RARELY, site_used=None, low_confidence=True),
+    ])
+    assert all_unsure.code == "verdict.all_unsure"
+    said = set(all_unsure.missing)
+    assert not {"verdict.missing.probe", "verdict.missing.organic", "verdict.missing.low_confidence"} & said
+    assert "说不准" in render_msg(msg("verdict.all_unsure", ai="X"), "zh")
+
+
+def test_verdict_sentences_end_properly_in_both_languages():
+    """第二轮:一句话和第三方那句不再粘连(中文缺句号、英文缺空格)。"""
+    from diagnosis.verdict import SurfaceVerdict
+    from report.narrative import verdict_text
+
+    v = SurfaceVerdict(surface="s", model="m", code="verdict.known_recommends_cites",
+                       missing=["verdict.missing.probe"], third_party_code="verdict.thirdparty.often")
+    zh, en = verdict_text(v, "X", "zh"), verdict_text(v, "X", "en")
+    assert "。它常常" in zh and zh.count("。") >= 2 and "。(其中:" in zh
+    assert ". It often" in en and " (note: " in en

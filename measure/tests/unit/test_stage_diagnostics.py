@@ -183,7 +183,7 @@ def test_representation_brand_fact_low_confidence_is_downgraded_to_weak():
     assert shaky.accounting.low_confidence is True
     finding = diagnose_representation(PromptIntent.BRAND_FACT, shaky, {Sentiment.NEGATIVE: 1})
     assert finding.status is StageStatus.WEAK and finding.low_confidence is True
-    assert finding.headline.code == "repr.headline.probe_weak"
+    assert finding.headline.code == "repr.headline.probe_unsure"  # 不借「有明显负面内容」那句(第二轮红 2)
     assert any("WEAK" in line for line in zh_lines(finding))
     steady = diagnose_representation(PromptIntent.BRAND_FACT, make_metric(5, 5), {Sentiment.NEGATIVE: 1})
     assert steady.status is StageStatus.FAIL  # 样本靠得住时照旧按负面占比判
