@@ -4,7 +4,10 @@
 名单从配置动态读取,新增 surface / 爬虫自动纳入,无需改本测试:
 - config/surfaces.yaml:provider、name、name 按 _ 拆出的词、aliases(gpt / chatgpt / google / sonar……);
 - config/crawlers.yaml:每个爬虫的 name 与 robots_token(GPTBot / Googlebot / ClaudeBot……)。
-按词边界匹配(前后不是字母数字):「gpt-4o」「chatgpt」会被抓到,「combining」不会因为含 bing 中枪。
+怎么比对(第二轮审核 7:原来一律按「前后不是字母数字」的整词比,gpt4o、OpenAIClient、GeminiJudge、claude3 全漏):
+- 6 个字符以上的名字按子串认——openai / gemini / claude 这么长,连写进别的标识符里也是在说这家;
+- 5 个字符以内的短名(gpt / oai / bard / sonar / pplx)只要求前后不紧挨字母:gpt4o、gpt_model 认,
+  「combining」不会因为含 bing 中枪、「bombardment」不会因为含 bard 中枪。
 (用户 2026-10-28 定:名单从只看 surfaces.yaml 扩到别名与爬虫名。)
 """
 
@@ -18,6 +21,7 @@ SCANNED_PACKAGES = ("engine", "diagnosis")
 
 # surface 名按 _ 拆词后,这些通用词不作为禁用词(否则 SearchMode 等正当命名全中枪)
 GENERIC_TOKENS = {"web", "search", "agent", "api", "mode"}
+SHORT_NAME_MAX = 5  # 这么短的名字按字母边界认,更长的按子串认
 
 
 def forbidden_names() -> set[str]:
@@ -37,7 +41,13 @@ def forbidden_names() -> set[str]:
 
 def offenders_in(text: str, names: set[str]) -> list[str]:
     lowered = text.lower()
-    return sorted(name for name in names if re.search(rf"(?<![a-z0-9]){re.escape(name)}(?![a-z0-9])", lowered))
+
+    def hit(name: str) -> bool:
+        if len(name) > SHORT_NAME_MAX:
+            return name in lowered
+        return re.search(rf"(?<![a-z]){re.escape(name)}(?![a-z])", lowered) is not None
+
+    return sorted(name for name in names if hit(name))
 
 
 def test_forbidden_name_list_is_not_empty_and_wide():
@@ -47,10 +57,13 @@ def test_forbidden_name_list_is_not_empty_and_wide():
     assert {"gpt", "chatgpt", "google", "sonar", "gptbot", "googlebot", "claudebot"} <= names
 
 
-def test_matching_is_by_word_boundary():
-    assert offenders_in("model = \"gpt-4o\"", {"gpt"}) == ["gpt"]
-    assert offenders_in("unicodedata.combining(c)", {"bing"}) == []
-    assert offenders_in("ChatGPT said", {"chatgpt"}) == ["chatgpt"]
+def test_long_names_match_inside_identifiers_and_short_ones_by_letter_boundary():
+    for text, name in (("model = \"gpt-4o\"", "gpt"), ("model = \"gpt4o\"", "gpt"), ("gpt_model", "gpt"),
+                       ("class OpenAIClient:", "openai"), ("GeminiJudge()", "gemini"), ("claude3", "claude"),
+                       ("ChatGPT said", "chatgpt")):
+        assert offenders_in(text, {name}) == [name], text
+    for text, name in (("unicodedata.combining(c)", "bing"), ("bombardment", "bard"), ("SonarQube", "sonar")):
+        assert offenders_in(text, {name}) == [], text
 
 
 def test_engine_and_diagnosis_contain_no_provider_strings():
