@@ -213,6 +213,12 @@ errors:
     trigger: {zh: "第三方站的 robots.txt 不允许抓这页,我们没抓", en: "The third-party site's robots.txt disallows this page, so it was not fetched"}
     message: {zh: "站点不允许抓取。", en: "Site disallows fetching."}
     next_step: {zh: "尊重对方规则,不绕;记「看不到」。", en: "We respect the rule and do not work around it; recorded as not checkable."}
+  - code: PAGE_ROBOTS_UNAVAILABLE
+    scope: page
+    resumable: false
+    trigger: {zh: "第三方站的 robots.txt 读不到(对方服务器出错或连不上)", en: "The third-party site's robots.txt could not be read (server error or unreachable)"}
+    message: {zh: "站点的抓取规则读不到,按规矩不抓。", en: "The site's crawl rules could not be read, so the page was not fetched."}
+    next_step: {zh: "按 robots 标准,规则读不到时当作全部不许抓;记「看不到」,对方恢复后再测会重新读。", en: "Per the robots standard, unreadable rules mean nothing may be fetched; recorded as not checkable and re-read next time."}
   - code: PAGE_BLOCKED
     scope: page
     resumable: false

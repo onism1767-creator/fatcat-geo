@@ -495,3 +495,17 @@ def test_page_check_table_is_append_only_and_latest_per_url(storage):
         storage._conn.execute("UPDATE page_check SET text = NULL")
     with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
         storage._conn.execute("DELETE FROM page_check")
+
+
+@respx.mock
+def test_third_party_page_is_not_fetched_when_its_robots_cannot_be_read():
+    """对方 robots.txt 返回 5xx:按 RFC 9309 当全禁,不抓,记「抓取规则读不到」(第二轮;原来当没规则照抓)。"""
+    respx.get("https://flaky.test/robots.txt").mock(return_value=httpx.Response(503))
+    page = respx.get("https://flaky.test/a").mock(return_value=_html(ARTICLE))
+    store = MemoryStore()
+    checker = PageChecker(store, sleep=lambda s: None)
+    try:
+        index = checker.check([PageRequest(url="https://flaky.test/a")])
+    finally:
+        checker.close()
+    assert index.lookup("https://flaky.test/a").status is PageFetchStatus.ROBOTS_UNAVAILABLE and page.call_count == 0

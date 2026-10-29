@@ -51,6 +51,7 @@ from crawler.fetch import (
     PROTECTION_SUSPECT_STATUSES,
     RobotsRules,
     extract_visible_text,
+    get_as,
     get_as_browser,
     is_html,
     new_client,
@@ -305,7 +306,7 @@ def _probe_bots(
         chars: int | None = None
         if bot.user_agent:
             try:
-                resp = client.get(url, headers={"User-Agent": bot.user_agent})
+                resp = get_as(client, url, bot.user_agent)  # 正文封顶(审核 2026-10-28 第二轮)
                 fetch_status = resp.status_code
                 if resp.is_success and is_html(resp):
                     chars = visible_text_length(resp.text)

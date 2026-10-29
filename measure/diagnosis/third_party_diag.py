@@ -26,8 +26,8 @@ from engine.aggregate import ArchiveTally, ClassSurfaceMetric
 from engine.metrics import Rate
 
 _STEP = {Stage.RETRIEVAL: "retrieved", Stage.CITATION: "cited"}
-_REASON_ORDER = ("ROBOTS_DISALLOWED", "BLOCKED", "LOGIN_REQUIRED", "EMPTY_TEXT", "NOT_HTML", "FETCH_FAILED",
-                 "NOT_ATTEMPTED", "UNRESOLVED")
+_REASON_ORDER = ("ROBOTS_DISALLOWED", "ROBOTS_UNAVAILABLE", "BLOCKED", "LOGIN_REQUIRED", "EMPTY_TEXT", "NOT_HTML",
+                 "FETCH_FAILED", "NOT_ATTEMPTED", "UNRESOLVED")
 
 
 def diagnose_third_party(

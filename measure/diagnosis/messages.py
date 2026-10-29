@@ -280,6 +280,7 @@ CATALOG: dict[str, dict[str, str]] = {
         "en": "{reason} {n}",
     },
     "pagereason.ROBOTS_DISALLOWED": {"zh": "站点不允许抓取", "en": "site disallows fetching"},
+    "pagereason.ROBOTS_UNAVAILABLE": {"zh": "站点的抓取规则读不到,按规矩不抓", "en": "the site's crawl rules could not be read, so it was not fetched"},
     "pagereason.BLOCKED": {"zh": "被拦截", "en": "blocked"},
     "pagereason.LOGIN_REQUIRED": {"zh": "需要登录", "en": "login required"},
     "pagereason.EMPTY_TEXT": {"zh": "抽不出正文", "en": "no extractable text"},

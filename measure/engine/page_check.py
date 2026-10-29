@@ -140,7 +140,7 @@ class PageChecker:
         self._budget_s, self._concurrency, self._host_gap_s = budget_s, concurrency, host_gap_s
         self._reuse_days = reuse_days
         self._clock, self._sleep = clock, sleep
-        self._robots: dict[str, RobotsRules | None] = {}
+        self._robots: dict[str, RobotsRules] = {}
         self._robots_lock = threading.Lock()
 
     def _report(self, done: int, total: int, stage: str) -> None:
@@ -386,8 +386,10 @@ class PageChecker:
     def _fetch_html(self, normalized: str, request: PageRequest) -> PageCheck:
         parts = urlsplit(normalized)
         origin = f"{parts.scheme}://{parts.netloc}"
-        if request.respect_robots and not self._robots_allows(origin, normalized):
-            return self._record(request.url, normalized, PageFetchStatus.ROBOTS_DISALLOWED)
+        if request.respect_robots:
+            refused = self._robots_refusal(origin, normalized)
+            if refused is not None:
+                return self._record(request.url, normalized, refused)
         try:
             response, body, truncated = fetch_page(self._client, normalized, max_bytes=MAX_PAGE_BYTES)
         except httpx.HTTPError as exc:
@@ -413,7 +415,9 @@ class PageChecker:
         return self._record(request.url, normalized, PageFetchStatus.OK, title=title, text=text[:MAX_TEXT_CHARS],
                             text_source=source, text_chars=len(text), **common)
 
-    def _robots_allows(self, origin: str, url: str) -> bool:
+    def _robots_refusal(self, origin: str, url: str) -> PageFetchStatus | None:
+        """这页能不能抓:能 → None;robots 不让 → ROBOTS_DISALLOWED;
+        robots 读不到 → ROBOTS_UNAVAILABLE(RFC 9309 当全禁)。"""
         with self._robots_lock:
             known = origin in self._robots
         if not known:
@@ -421,8 +425,10 @@ class PageChecker:
             with self._robots_lock:
                 self._robots[origin] = parser
         with self._robots_lock:
-            parser = self._robots[origin]
-        return True if parser is None else parser.can_fetch("*", url)
+            rules = self._robots[origin]
+        if rules.unavailable:
+            return PageFetchStatus.ROBOTS_UNAVAILABLE
+        return None if rules.can_fetch("*", url) else PageFetchStatus.ROBOTS_DISALLOWED
 
     @staticmethod
     def _record(url: str, normalized: str, status: PageFetchStatus, **fields: object) -> PageCheck:

@@ -302,6 +302,7 @@ class PageFetchStatus(StrEnum):
     EMPTY_TEXT = "EMPTY_TEXT"  # 可达 HTML 但一个字也抽不出(脚本渲染的空壳 / 空页)
     NOT_HTML = "NOT_HTML"  # 可达但不是网页(PDF、图片……)
     ROBOTS_DISALLOWED = "ROBOTS_DISALLOWED"  # 站点 robots.txt 不允许抓,没抓(第三方站尊重,D23)
+    ROBOTS_UNAVAILABLE = "ROBOTS_UNAVAILABLE"  # robots.txt 读不到(服务器出错 / 网络错误):按 RFC 9309 当全禁,没抓
     BLOCKED = "BLOCKED"  # 403 / 429 / 503:疑似机器人防护拦截本工具客户端
     LOGIN_REQUIRED = "LOGIN_REQUIRED"  # 401,或终点落在登录页
     FETCH_FAILED = "FETCH_FAILED"  # 其余非成功状态(404…)、超时、网络错误
