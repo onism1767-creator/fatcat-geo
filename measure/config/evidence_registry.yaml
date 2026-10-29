@@ -350,6 +350,120 @@ entries:
       en: Only factual corrections may be requested; pressuring removal of genuine negative reviews is forbidden
     version: 1
 
+  # ── 第三方线「引用」步(用户 2026-10-28 定「按建议进」;研究报告与来源明细:
+  #    docs/研究/第三方线引用步-证据条目候选-2026-10-28.md;全部是 GEO 方法 → 实验卡)──────────
+  - id: EVIDENCE_THIRDPARTY_CITED_PAGE_GAP_V1
+    stage: CITATION
+    channel: third_party   # 第三方线「搜到了写你的第三方网页,但 AI 没拿它们当参考」时出
+    kind: geo_method   # 硬边界 9:一律实验卡
+    hypothesis:
+      zh: 被引用的网页几乎都来自 AI 自己检索到并排在前面的那一小撮;让 AI 回答这类问题时已经在引用的第三方网页也写到你,可能比另找新文章更容易让「别人提到你的文章」被当参考
+      en: Cited pages come almost entirely from the small set the engine itself retrieves and ranks near the top; getting mentioned in the third-party pages the AI already cites for these questions may earn third-party citations more readily than seeking fresh coverage elsewhere
+    plain:
+      zh: "看看 AI 回答这类问题时已经在引用哪些别人写的文章(证据区有名单),争取让那些文章也写到你"
+      en: "See which third-party articles the AI already cites for these questions (the evidence area lists them) and get those articles to mention you too"
+    verify:
+      zh: "对方加上你之后等 2–4 周,用同一批题、同一型号再测一次,看「AI 有没有拿别人提到你的文章当参考」这一格有没有从 🔴 变 🟡 或 🟢;另留一批没去争取的题做对照。一次只改一件事"
+      en: "2–4 weeks after the page adds you, re-test the same questions on the same model and see whether 'Does the AI use articles about you as sources' moves from 🔴 to 🟡 or 🟢; keep a batch of untouched questions as a control. Change one thing at a time"
+    evidence_level: C
+    sources:
+      zh: ["Chen & Koudas 2026(ChatGPT 引用的页面全部来自它自己的检索;检索解释 32% 差异、页面特征 2.8%;接口数据)", "Scrunch 2026-09(被引的第三方对比页写到品牌时推荐率 ~4%→~7%;准实验、厂商)", "Ahrefs 2026-07(老品牌新增的 AI 提及 94% 来自第三方页面;厂商实验)", "本项目实测观察(品类题第三方被引极少;描述性)"]
+      en: ["Chen & Koudas 2026 (every ChatGPT citation was in its own retrieval; retrieval explains 32% of variance vs 2.8% for page features; API data)", "Scrunch 2026-09 (recommendation ~4%→~7% when a cited third-party comparison page names the brand; quasi-experiment, vendor)", "Ahrefs 2026-07 (94% of an established brand's new AI mentions came via third-party pages; vendor experiment)", "This project's field observation (third-party citations rare on category questions; descriptive)"]
+    supported_intents: [category_discovery, recommendation, comparison_alternative, problem_solution]
+    contraindications:
+      zh: [证据区里 AI 这类题根本没引任何第三方网页(名单为空), 付费换提及且不披露, 要求对方改写评价(只可请求事实性补充或更正)]
+      en: [The evidence area shows the AI cites no third-party pages at all for these questions (empty list), Paying for a mention without disclosure, Asking the page to rewrite its judgement (only factual additions or corrections may be requested)]
+    engines_tested: [openai, gemini, perplexity, claude]
+    expected_effect: unknown_experiment_required
+    guardrail:
+      zh: 只可通过真实的公关 / 内容合作请求收录;严禁付费不披露、严禁伪造第三方背书;被引页面名单只能从本次报告的证据区数出来,不得凭猜
+      en: Only via genuine PR / content partnerships; undisclosed payment and fabricated endorsements are forbidden; the list of cited pages must come from this report's evidence area, never guessed
+    version: 1
+
+  - id: EVIDENCE_THIRDPARTY_LISTICLE_V1
+    stage: CITATION
+    channel: third_party
+    kind: geo_method
+    hypothesis:
+      zh: 品类 / 推荐 / 对比类问题里,AI 引用的第三方网页以「最佳 X」榜单、对比文与测评为主,且第三方写的比品牌自建的更常带来推荐;被这类第三方文章收录,可能让「别人提到你的文章」被当参考
+      en: For category / recommendation / comparison questions, the third-party pages AI cites are mostly "best X" lists, comparisons and reviews, and third-party lists lead to recommendations far more often than self-published ones; being included in such third-party articles may earn third-party citations
+    plain:
+      zh: "用户问「哪家好、怎么选」时,AI 多半引用别人写的榜单、对比和测评文;争取被这类文章收录——不是自己写一篇把自己排第一"
+      en: "When users ask 'which is best / how to choose', AI mostly cites third-party lists, comparisons and reviews; get included in those — do not write your own list ranking yourself first"
+    verify:
+      zh: "文章收录你之后等 2–4 周,用同一批品类 / 推荐 / 对比题、同一型号再测一次,看「AI 有没有拿别人提到你的文章当参考」这一格有没有变好,以及那篇文章有没有出现在 AI 的来源里;另留一批没动的题做对照"
+      en: "2–4 weeks after the article includes you, re-test the same category / recommendation / comparison questions on the same model; watch whether 'Does the AI use articles about you as sources' improves and whether that article appears among the AI's sources; keep untouched questions as a control"
+    evidence_level: C
+    sources:
+      zh: ["Ahrefs 2025-12(750 个品类题,「最佳 X」榜单占被引页面类型 43.8%;厂商)", "Peec / Wix 2026-03(商业意图下榜单占引用 40.86%;专业服务前 1,000 被引榜单 80.9% 第三方、19.1% 自建;厂商)", "Scrunch 2026-09(中立第三方对比页带来推荐 Gemini 64.1% / ChatGPT 33.9%,自建榜单 14.8% / 8.6%;准实验、厂商)", "Seer 2026-02(反证:ChatGPT 榜单引用环比降 30%;代理)"]
+      en: ["Ahrefs 2025-12 (750 category prompts; 'best X' lists = 43.8% of cited page types; vendor)", "Peec / Wix 2026-03 (listicles 40.86% of commercial-intent citations; professional-services top-1,000 cited lists 80.9% third-party vs 19.1% self-published; vendor)", "Scrunch 2026-09 (neutral third-party comparison pages lead to a recommendation in 64.1% Gemini / 33.9% ChatGPT vs 14.8% / 8.6% for self-ranked lists; quasi-experiment, vendor)", "Seer 2026-02 (counter: ChatGPT listicle citations fell 30% month over month; agency)"]
+    supported_intents: [category_discovery, recommendation, comparison_alternative]
+    contraindications:
+      zh: [在自己网站上发「最佳 X」榜单把自己排第一(被引但不被推荐的反证), 付费上榜且不披露, 品牌事实类与问题方案类问题(不适用)]
+      en: ["Publishing a 'best X' list on your own site ranking yourself first (counter-evidence: cited but not recommended)", Paid placement without disclosure, Brand-fact and problem-solution questions (not applicable)]
+    engines_tested: [openai, gemini, perplexity, claude]
+    expected_effect: unknown_experiment_required
+    guardrail:
+      zh: 只可通过真实测评 / 编辑收录;付费上榜必须披露且不得指定名次;严禁伪造榜单或测评
+      en: Only via genuine reviews / editorial inclusion; paid placement must be disclosed and must not dictate rank; fabricated lists or reviews are forbidden
+    version: 1
+
+  - id: EVIDENCE_THIRDPARTY_PUBLISHER_V1
+    stage: CITATION
+    channel: third_party
+    kind: geo_method
+    hypothesis:
+      zh: AI 选来源时看的是站点身份——它更常引用自己「认得」的媒体与评测站,通稿站与付费软文几乎不被引;被这类站点写到,可能比被不知名站点写到更容易让「别人提到你的文章」被当参考。「认得」不等于流量大或权重高
+      en: Engines choose sources by site identity — they cite publishers the model already recognizes far more often, while PR-wire and paid advertorial pages are almost never cited; coverage on such outlets may earn third-party citations more readily than coverage on obscure sites. 'Recognized' is not the same as high-traffic or high-authority
+    plain:
+      zh: "被 AI 在你这个行业本来就常引用的媒体、评测站写到,比发通稿或被不知名站点写到更可能被当参考;哪些站算「常引用」,看报告证据区里数出来的名单,不要用网站权重猜"
+      en: "Coverage on the media and review sites the AI already cites in your industry is more likely to be used as a source than press releases or obscure sites; which sites count is the list counted in the evidence area, not a guess from domain authority"
+    verify:
+      zh: "报道发布 2–4 周后,用同一批题、同一型号再测一次,看「AI 有没有拿别人提到你的文章当参考」这一格有没有变好,以及那家站有没有出现在 AI 的来源里;另留一批没动的题做对照"
+      en: "2–4 weeks after the coverage is published, re-test the same questions on the same model; watch whether 'Does the AI use articles about you as sources' improves and whether that outlet appears among the AI's sources; keep untouched questions as a control"
+    evidence_level: B
+    sources:
+      zh: ["Chen & Koudas 2026(ChatGPT 47% 的引用来自模型不搜也能叫出名字的站;接口数据)", "Dai 等 EMNLP 2025(控制实验:模型按媒体名字而非内容选来源;仿真)", "Yang 2025(36.6 万条引用:新闻引用高度集中在少数媒体;一手)", "Schuster 等 2026(模型偏好机构来源;仿真)", "Muck Rack 2026(2,500 万条引用:付费 / 软文 0.3%;厂商)", "Zhang 等 2025(反证:除 ChatGPT 外 AI 引用的域名按流量排名比谷歌低;一手)"]
+      en: ["Chen & Koudas 2026 (47% of ChatGPT citations come from sites the model names without searching; API data)", "Dai et al. EMNLP 2025 (controlled experiments: models pick sources by outlet name, not content; simulation)", "Yang 2025 (366k citations: news citations concentrate heavily among few outlets; primary)", "Schuster et al. 2026 (models prefer institutional sources; simulation)", "Muck Rack 2026 (25M cited links: paid / advertorial 0.3%; vendor)", "Zhang et al. 2025 (counter: except ChatGPT, engines cite less-popular domains by traffic rank than Google; primary)"]
+    supported_intents: [category_discovery, recommendation, comparison_alternative, problem_solution, brand_fact]
+    contraindications:
+      zh: [发通稿到通稿站(几乎不被引), 付费软文不披露, 证据区里 AI 在这类题上常引用的站没有一家覆盖你的品类]
+      en: [Press releases on wire services (almost never cited), Undisclosed paid advertorial, None of the outlets the AI cites for these questions covers your category at all]
+    engines_tested: [openai, gemini, perplexity]
+    expected_effect: unknown_experiment_required
+    guardrail:
+      zh: 「AI 认得的站」只能从本次报告的证据区数出来,不得凭 DR / 流量 / 名气猜;只可争取真实报道与测评,严禁付费不披露
+      en: Which outlets 'the AI recognizes' must be counted from this report's evidence area, never guessed from DR / traffic / fame; only genuine coverage and reviews, undisclosed payment forbidden
+    version: 1
+
+  - id: EVIDENCE_THIRDPARTY_REVIEW_PROFILE_V1
+    stage: CITATION
+    channel: third_party
+    kind: geo_method
+    hypothesis:
+      zh: 在 AI 常引用的第三方评价平台(软件类如 G2 / Capterra,消费与本地服务类如 Trustpilot / Yelp,视行业而定)上有真实、活跃的档案,与「别人提到你的文章」被引用相关;方向与幅度都没有对照实验
+      en: Having a genuine, active profile on the third-party review platforms the AI cites (G2 / Capterra for software, Trustpilot / Yelp for consumer and local services, depending on the industry) correlates with third-party citations; neither direction nor size has been tested with a control
+    plain:
+      zh: "在你这个行业 AI 常引用的评价平台上有真实、活跃的页面(有真实用户的评价),可能更容易被 AI 当参考;这只是相关,不是证明"
+      en: "Having a genuine, active page with real customer reviews on the review platforms the AI cites in your industry may make it more likely to be used as a source; this is a correlation, not proof"
+    verify:
+      zh: "档案建好、有真实评价后等 4–8 周,用同一批题、同一型号再测一次,看「AI 有没有拿别人提到你的文章当参考」这一格有没有变好,以及那个平台有没有出现在 AI 的来源里;另留一批没动的题做对照"
+      en: "4–8 weeks after the profile is live with genuine reviews, re-test the same questions on the same model; watch whether 'Does the AI use articles about you as sources' improves and whether that platform appears among the AI's sources; keep untouched questions as a control"
+    evidence_level: D
+    sources:
+      zh: ["Seer / Trustpilot 2026-05(804,491 条回答、1,926 品牌、按 DR 配对:无档案中位引用率 1%,1–13 条评价 53.5%;横截面,Trustpilot 推广)", "G2 / Indig 2025-10(反证:评价数 +10% ≈ 引用 +2%,R² 0.009;平台自发)", "Profound 2025-06(G2 占 ChatGPT 引用 1.1%,Perplexity 前十含 G2 / Yelp / TripAdvisor;厂商)", "Peec 2026-03(G2 只进 Perplexity 前五;厂商)"]
+      en: ["Seer / Trustpilot 2026-05 (804,491 responses, 1,926 brands, DR-matched: median citation rate 1% with no profile vs 53.5% with 1–13 reviews; cross-sectional, promoted by Trustpilot)", "G2 / Indig 2025-10 (counter: +10% reviews ≈ +2% citations, R² 0.009; platform-published)", "Profound 2025-06 (G2 = 1.1% of ChatGPT citations; Perplexity top-10 includes G2 / Yelp / TripAdvisor; vendor)", "Peec 2026-03 (G2 only in Perplexity's top 5; vendor)"]
+    supported_intents: [recommendation, comparison_alternative, category_discovery, brand_fact]
+    contraindications:
+      zh: [刷评 / 付费评 / 激励评 / 只邀请满意客户评价(FTC 2024 规则与各平台准则禁止), 证据区里 AI 在这类题上没引过任何评价平台, 把软件评价平台的结论套到消费品牌(平台不同)]
+      en: [Fake / paid / incentivised / cherry-picked reviews (forbidden by the FTC 2024 rule and platform guidelines), The evidence area shows the AI never cites review platforms for these questions, Applying software-review findings to consumer brands (different platforms)]
+    engines_tested: [openai, gemini, perplexity]
+    expected_effect: unknown_experiment_required
+    guardrail:
+      zh: 只可按平台规则邀请真实客户评价;严禁激励、筛选、冒充;不得因负面评价施压删除
+      en: Only invite genuine customers under the platform's rules; incentives, gating and impersonation are forbidden; never pressure for removal of negative reviews
+    version: 1
+
   # ── E 级存档(永不作为建议输出)──────────────────────────────────────
   - id: EVIDENCE_LLMSTXT_V1
     stage: RETRIEVAL
@@ -400,6 +514,34 @@ entries:
       en: []
     engines_tested: [完整检索流水线仿真]
     expected_effect: 负效应
+    guardrail:
+      zh: 禁止项,任何情况下不得建议
+      en: Forbidden; must never be recommended
+    version: 1
+
+  - id: EVIDENCE_THIRDPARTY_PAID_PLACEMENT_V1
+    stage: CITATION
+    channel: third_party
+    kind: geo_method   # E 级存档,永不作为建议输出(kind 只有 technical_fix / geo_method 两个值,与现有 KEYWORD_STUFFING 同)
+    hypothesis:
+      zh: 买第三方提及、付费上榜不披露、马甲 / 代写回帖、刷评、付费改维基、在页面藏指令,能提高「别人提到你的文章」被引用
+      en: Buying third-party mentions, undisclosed paid listings, sockpuppet / ghost-written replies, fake reviews, paid Wikipedia edits or hidden instructions on pages raise third-party citations
+    plain:
+      zh: "花钱买提及、买榜单位置、用马甲发帖、刷评价、付费改维基百科来让 AI 引用你(违规,禁止;效果也站不住)"
+      en: "Buying mentions, list placements, sockpuppet posts, fake reviews or paid Wikipedia edits to get cited by AI (rule-breaking, forbidden; effects do not hold either)"
+    verify:
+      zh: "不适用(禁止项)"
+      en: "Not applicable (forbidden)"
+    evidence_level: E
+    sources:
+      zh: ["Muck Rack 2026(付费 / 软文占引用 0.3%;厂商)", "Sitebulb / Shotland 2026-02(买账号刷提及,停即归零;二手)", "404 Media 2024-04(卖 AI 代写 Reddit 回帖的账号多被封)", "Nestaas 等 2024 / Pfrommer 等 2024(网页藏指令可操纵 AI 推荐;一手 / 仿真)", "FTC 2024-08 规则、Google 站点声誉政策 2026-08、Reddit 内容政策第 2 条、维基百科付费编辑披露政策、Bing 站长指南(操纵语言模型内容降权)"]
+      en: ["Muck Rack 2026 (paid / advertorial = 0.3% of citations; vendor)", "Sitebulb / Shotland 2026-02 (purchased accounts; gains vanished when stopped; secondary)", "404 Media 2024-04 (accounts selling AI-written Reddit replies mostly banned)", "Nestaas et al. 2024 / Pfrommer et al. 2024 (hidden page instructions manipulate AI recommendations; primary / simulation)", "FTC rule 2024-08, Google site reputation policy 2026-08, Reddit Content Policy rule 2, Wikipedia paid-contribution disclosure, Bing Webmaster Guidelines (manipulating language models reduces visibility)"]
+    supported_intents: []
+    contraindications:
+      zh: []
+      en: []
+    engines_tested: []
+    expected_effect: 违规;效果不持久
     guardrail:
       zh: 禁止项,任何情况下不得建议
       en: Forbidden; must never be recommended
