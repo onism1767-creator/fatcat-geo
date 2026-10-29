@@ -149,3 +149,11 @@ def test_json_tolerates_markdown_fences():
     adapter.ask = ask_with_fence
     candidates, _ = draft_prompt_candidates(adapter, category=CATEGORY, brand=BRAND, ledger=lambda run: None)
     assert len(candidates) == 24
+
+
+def test_brand_domain_collisions_need_a_boundary_on_both_sides():
+    """品牌 On 的域名 on.com:题里的 amazon.com 不算撞车(原来按子串算,第二轮审核 B11);它自己的子域、带路径的照算。"""
+    on = BrandSpec(name="On", domains=["on.com"])
+    texts = ["Is amazon.com cheaper for running shoes?", "Visit shop.on.com today", "see on.com/shoes",
+             "neon.com deals"]
+    assert brand_collisions(texts, on) == ["Visit shop.on.com today", "see on.com/shoes"]

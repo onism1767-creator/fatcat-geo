@@ -8,7 +8,7 @@
 #   all                              每家全部当前一代型号
 # mention_method(「提到你」怎么认;自定义跟起点档走,不单独选):
 #   rules              别名表 + 词边界精确匹配(判定器 brand_mention_rules v2)
-#   rules_fuzzy        + 规整 + 模糊匹配(判定器 brand_mention_fuzzy v1,S9.2 起中档用它)
+#   rules_fuzzy        + 规整 + 模糊匹配(判定器 brand_mention_fuzzy v2:只认尾巴不同 + 去重音,S9.2 起中档用它)
 #   rules_fuzzy_judge  + 另一家 AI 读上下文裁定(判定器 brand_mention_judge v1,S9.3 起高档用它;裁判型号在 judges.yaml)
 # 配置写的就是现在真实用的,不预先写还没有的方法。
 

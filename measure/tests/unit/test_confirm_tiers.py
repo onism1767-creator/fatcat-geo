@@ -171,3 +171,19 @@ def test_confirm_page_offers_spellings_and_ticked_ones_become_aliases():
     other = _job_of(client, plain)
     client.post(plain, data=base, follow_redirects=False)
     assert other.brand.aliases == [] and other.fingerprint != job.fingerprint  # 别名是口径的一部分
+
+
+def test_tier_config_comments_name_the_detector_versions_actually_in_use():
+    """tiers.yaml 头上写的判定器版本要和代码一致(第二轮审核 B12:模糊判定升 v2 后注释还写 v1)。"""
+    import re
+    from pathlib import Path
+
+    from engine.detectors import brand_mention, brand_mention_fuzzy, brand_mention_judge
+
+    text = (Path(__file__).resolve().parents[2] / "config" / "tiers.yaml").read_text(encoding="utf-8")
+    written = {name: int(version) for name, version in re.findall(r"(brand_mention_\w+) v(\d+)", text)}
+    assert written == {
+        brand_mention.DETECTOR_NAME: brand_mention.DETECTOR_VERSION,
+        brand_mention_fuzzy.DETECTOR_NAME: brand_mention_fuzzy.DETECTOR_VERSION,
+        brand_mention_judge.DETECTOR_NAME: brand_mention_judge.DETECTOR_VERSION,
+    }

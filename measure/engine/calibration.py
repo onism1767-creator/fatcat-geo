@@ -105,8 +105,11 @@ def _fullwidth(ch: str) -> str:
 
 
 def _other_word(name: str) -> str:
-    """中间换一个字母:按 2026-10-27 定稿(黄 9)这是别的词(Colombia 不是 Columbia),规则 / 模糊都不该认。"""
-    middle = [i for i, c in enumerate(name) if c.isalpha()][len(name) // 2]
+    """中间换一个字母:按 2026-10-27 定稿(黄 9)这是别的词(Colombia 不是 Columbia),规则 / 模糊都不该认。
+    字母少、别的字符多的名字(「Web 3.0」7 个字只有 3 个字母)原来下标越界、整个校准脚本崩(第二轮审核 B10);
+    现在越界时取最后一个字母,没崩过的名字换的还是原来那个字母(校准数字不因此变)。"""
+    letters = [i for i, c in enumerate(name) if c.isalpha()]
+    middle = letters[min(len(name) // 2, len(letters) - 1)]
     swap = "x" if name[middle].lower() != "x" else "q"
     return name[:middle] + swap + name[middle + 1:]
 
@@ -244,8 +247,9 @@ def calibrate(
     synthetic_runs = [(base, variant, synthetic_run(base, variant, i))
                       for base in bases for i, variant in enumerate(variants_of(base.brand, base.competitors))]
     if prefetch is not None and judge_a is not None:
-        prefetch([Sample(run=run, brand=base.brand) for base, _, run in synthetic_runs
-                  if base.run.run_id in judged_ids], False)  # 合成样本只请主裁判
+        # 合成样本只请主裁判;不归裁判计分的写法(中间换一个字母)不请——原来也先请裁判判一遍,花了钱却不计分(第二轮 B10)
+        prefetch([Sample(run=run, brand=base.brand) for base, variant, run in synthetic_runs
+                  if base.run.run_id in judged_ids and variant.judge], False)
     scores: dict[tuple[str, str, bool], list[int]] = {}
     for base, variant, run in synthetic_runs:
         methods: list[tuple[str, Judge]] = [("rules", rules), ("fuzzy", fuzzy)]

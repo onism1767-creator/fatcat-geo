@@ -143,3 +143,22 @@ def test_prefetch_hook_gets_the_sampled_answers_then_their_synthetic_runs():
     assert calls[0] == (["r1", "r2"], True)
     synthetic_ids, both = calls[1]
     assert both is False and synthetic_ids and all(i.startswith("r1#") for i in synthetic_ids)  # 只有 r1 是底本
+
+
+def test_prefetch_skips_spellings_the_judge_is_not_scored_on():
+    """「中间换一个字母」只对规则 / 模糊计分,裁判不判:原来预判时也先请裁判判一遍,花钱不计分(第二轮审核 B10)。"""
+    samples = [sample("常见选择包括 Alpha。", "r1"), sample("推荐 极光CRM。", "r2")]
+    calls = []
+    calibrate(samples, source="测试", judge_a=lambda run, brand: False, judge_b=lambda run, brand: False,
+              judge_sample=2, prefetch=lambda batch, both: calls.append(sorted(s.run.run_id for s in batch)))
+    variants = variants_of(BRAND)
+    assert any(not v.judge for v in variants)  # 有不归裁判计分的写法,这条测试才有意义
+    assert calls[1] == sorted(f"r1#{i}" for i, v in enumerate(variants) if v.judge)
+
+
+def test_names_with_few_letters_do_not_crash_the_variant_maker():
+    """「Web 3.0」7 个字只有 3 个字母:原来找中间字母时下标越界,整个校准脚本崩(第二轮审核 B10)。"""
+    swapped = [v.text for v in variants_of(BrandSpec(name="Web 3.0")) if not v.expected]
+    assert len(swapped) == 1 and swapped[0] != "Web 3.0"
+    # 没崩过的名字换的还是原来那个字母(校准数字不因此变)
+    assert [v.text for v in variants_of(BRAND) if v.kind.startswith("中间")] == ["AuroxaCRM", "Aurorx CRM"]

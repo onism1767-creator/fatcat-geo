@@ -19,10 +19,12 @@ from __future__ import annotations
 
 import random
 import time
+import traceback
 from collections import Counter, deque
 from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Protocol
+from pathlib import Path
+from typing import Any, Protocol
 from uuid import uuid4
 
 import structlog
@@ -317,7 +319,7 @@ def ask_with_retries(
                         error_type=RunErrorType.TRANSIENT, message=str(exc),
                         http_status=exc.http_status, attempts=attempts,
                     ),
-                    response_body=exc.response_body,
+                    raw_payload=_error_body(exc.response_body),
                     cost_usd=spent,
                 )
             cap = min(policy.backoff_max_s, policy.backoff_base_s * (2 ** (attempts - 1)))
@@ -337,7 +339,7 @@ def ask_with_retries(
                         error_type=RunErrorType.TRANSIENT, message=message,
                         http_status=exc.http_status, attempts=attempts,
                     ),
-                    response_body=exc.response_body,
+                    raw_payload=_error_body(exc.response_body),
                     cost_usd=spent,
                 )
             log.warning("adapter_retry", run_id=request.run_id, surface=adapter.meta().surface,
@@ -356,7 +358,7 @@ def ask_with_retries(
                     error_type=exc.error_type, message=str(exc),
                     http_status=exc.http_status, attempts=attempts,
                 ),
-                response_body=exc.response_body,
+                raw_payload=_error_body(exc.response_body),
                 cost_usd=spent,
             )
         except AdapterPermanentError as exc:
@@ -370,7 +372,7 @@ def ask_with_retries(
                     error_type=RunErrorType.PERMANENT, message=str(exc),
                     http_status=exc.http_status, attempts=attempts,
                 ),
-                response_body=exc.response_body,
+                raw_payload=_error_body(exc.response_body),
                 cost_usd=spent,
             )
         except CapabilityNotSupportedError:
@@ -378,16 +380,23 @@ def ask_with_retries(
         except Exception as exc:  # 三类契约之外的异常 = 适配器契约违规(13.4 记 ERROR):当永久失败落库,整单不崩
             # 平台返回了适配器没见过的结构时,翻译代码可能抛 AttributeError / 校验错之类;这次尝试照样要有失败行
             # (失败不蒸发),要修的是适配器,不该让一次怪返回把整单撂倒(审核 2026-10-27 黄 4)
+            # 说法(第二轮审核 B9):这条路也接住适配器自己的代码出错,原来一律说「平台返回了没见过的结构」会误导;
+            # 平台原始响应在这里拿不到,改存出错的位置(哪个文件哪一行),修适配器时一眼能找到
+            where = traceback.extract_tb(exc.__traceback__)[-1] if exc.__traceback__ is not None else None
+            at = f"{Path(where.filename).name}:{where.lineno} {where.name}" if where is not None else "?"
             log.error("adapter_contract_violation", run_id=request.run_id, surface=adapter.meta().surface,
-                      error=f"{type(exc).__name__}: {exc}")
+                      error=f"{type(exc).__name__}: {exc}", at=at)
             return _failure_run(
                 adapter, request, started_at, t0,
                 outcome=Outcome.PERMANENT_FAILURE,
                 error=RunError(
                     error_type=RunErrorType.PERMANENT,
-                    message=f"适配器抛出契约之外的异常(平台返回了没见过的结构,要修适配器): {type(exc).__name__}: {exc}",
+                    message=(f"适配器抛出契约之外的异常(可能是平台返回了没见过的结构,也可能是适配器自己的代码出错,"
+                             f"要修适配器;出错位置 {at}): {type(exc).__name__}: {exc}"),
                     attempts=attempts,
                 ),
+                raw_payload={"contract_violation": {"exception": type(exc).__name__, "message": str(exc)[:2000],
+                                                    "at": at}},
                 cost_usd=spent,  # 这次花了多少看不出,之前几次失败尝试花掉的照记
             )
         else:
@@ -398,6 +407,11 @@ def ask_with_retries(
             return run
 
 
+def _error_body(response_body: str | None) -> dict[str, Any] | None:
+    """平台响应体(有的话)按原样存进失败行的 raw_payload。"""
+    return {"error_response_text": response_body} if response_body is not None else None
+
+
 def _failure_run(
     adapter: SurfaceAdapter,
     request: AskRequest,
@@ -406,7 +420,7 @@ def _failure_run(
     *,
     outcome: Outcome,
     error: RunError,
-    response_body: str | None = None,
+    raw_payload: dict[str, Any] | None = None,
     cost_usd: float = 0.0,
 ) -> SurfaceRun:
     meta = adapter.meta()  # 只在失败时取:构造失败记录要知道是哪台仪器、哪个型号
@@ -423,10 +437,8 @@ def _failure_run(
         outcome=outcome,
         error=error,
         # SearchTrace 默认全 UNKNOWN/NOT_OBSERVABLE;失败时无回答
-        # 平台响应体存档:失败的证据也不蒸发(13.1)
-        raw_payload=(
-            {"error_response_text": response_body} if response_body is not None else None
-        ),
+        # 失败的证据也不蒸发(13.1):平台响应体,或契约外异常的出错位置
+        raw_payload=raw_payload,
         timestamp=started_at,
         latency_ms=int((time.perf_counter() - t0) * 1000),  # 含重试与退避的真实耗时
         cost_usd=cost_usd,  # 各次尝试里平台回了话却报失败时照样计的费(第二轮审核 26)

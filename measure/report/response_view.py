@@ -49,10 +49,14 @@ def run_belongs_to(job: DiagnosisJob, run: SurfaceRun) -> bool:
 
 
 def latest_observation(observations: list[dict[str, Any]], detector_name: str) -> dict[str, Any] | None:
-    """库里这条回答某个判定器的最新一行观测(版本最高、同版本里最后算出的——判据改了之后重算会追加同版本的新行;
-    没有 → None);单条回答页与结果文件打包共用。"""
+    """库里这条回答某个判定器的最新一行观测(版本最高、同版本里最后写入的——判据改了之后重算会追加同版本的新行;
+    没有 → None);单条回答页、结果文件打包、装回裁判结论共用。observations 按写入先后排(storage 取判定行一律
+    ORDER BY seq 保证)。原来按 payload 里的算出时间比,两行时间一样时随便挑一行(第二轮审核 B5)。"""
     rows = [o for o in observations if o["detector_name"] == detector_name]
-    return max(rows, key=lambda o: (o["detector_version"], o["computed_at"])) if rows else None
+    if not rows:
+        return None
+    top = max(o["detector_version"] for o in rows)
+    return [o for o in rows if o["detector_version"] == top][-1]
 
 
 def _tier(domain_list: BrandDomainList | None, domain: str) -> str:

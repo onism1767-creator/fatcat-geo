@@ -47,17 +47,23 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         detector_name text NOT NULL,
         detector_version integer NOT NULL,
         computed_at timestamptz NOT NULL,
-        payload jsonb NOT NULL
+        payload jsonb NOT NULL,
+        seq bigserial
     )
     """,
+    # seq:库里自增的写入序号,「最新一行」只认它(第二轮审核 B5):computed_at 是 Python 给的时间,本机连取 20 万次只有
+    # 12 个不同值,紧挨着写的两行时间一样、先后看运气(09-21 报告快照同因)。已建的库启动时就地补上这一列——
+    # 不删不改已有的行(只追加铁律),旧行按表里现有顺序编号;以后的行按写入先后编号。
+    "ALTER TABLE derived_observation ADD COLUMN IF NOT EXISTS seq bigserial",
     "CREATE INDEX IF NOT EXISTS derived_obs_run_idx ON derived_observation (run_id)",
     "CREATE INDEX IF NOT EXISTS derived_obs_detector_idx ON derived_observation (detector_name, detector_version)",
     # 同 (run, 判定器, 版本) 可以有多行(审核 2026-10-27 黄 7):判据(官网名单、别名)改了之后重算要能追加,
     # 读的一方取最新;「同样的判定不重复写」由 Storage.insert_observation 比对最新一行保证(v0.4.9 的幂等续跑照旧)。
     # 原来的唯一索引会让同版本重算静默写不进去,撤掉(已建的库启动时一并撤)。
     "DROP INDEX IF EXISTS derived_obs_exactly_once_idx",
-    "CREATE INDEX IF NOT EXISTS derived_obs_latest_idx "
-    "ON derived_observation (run_id, detector_name, detector_version, computed_at DESC)",
+    "DROP INDEX IF EXISTS derived_obs_latest_idx",  # 按 computed_at 排的旧索引,换成按 seq 的
+    "CREATE INDEX IF NOT EXISTS derived_obs_latest_seq_idx "
+    "ON derived_observation (run_id, detector_name, detector_version, seq DESC)",
     # 任务快照(v0.4.9,16.3 修订):任务是运行状态而非观测,允许覆写;
     # 观测四表的只追加铁律不受影响
     """

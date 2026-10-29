@@ -150,23 +150,18 @@ def persist_observations(
     trigger_kind: str = "job", note: str | None = None,
 ) -> int:
     """把 observe() 算出的判定行逐条存档(同样的判定不重复写;判据改了的追加,见 Storage.insert_observation)。
-    判定只算一次——裁判是花钱的。某个判定器的版本第一次出现在库里(新库,或判定器升级后的第一单)落一条
+    判定只算一次——裁判是花钱的。某个判定器的版本第一次出现在库里(新库,或判定器升级后的第一单)记一条
     RecomputeEvent 审计(13.5;审核 2026-10-27 黄 8):指标变了,得分得清是世界变了还是判定器变了。
-    返回实际写入的条数。"""
+    记没记过以审计表本身为准(Storage.record_version_first_seen):两单同时存档只记一条,上次存档中途断库漏记的这次补上
+    (第二轮审核 B6)。返回实际写入的条数。"""
     written: Counter[tuple[str, int]] = Counter()
-    before: dict[tuple[str, int], int | None] = {}  # 写之前库里该判定器的最高版本
     for item in observations:
         for observation in item.archived:
             key = (observation.detector_name, observation.detector_version)
-            if key not in before:
-                before[key] = storage.max_detector_version(observation.detector_name)
+            written[key] += 0  # 这批里出现过的版本都要核一遍审计,哪怕这次一行都没新写(补记漏掉的)
             if storage.insert_observation(observation):
                 written[key] += 1
     for (name, version), count in written.items():
-        prior = before[(name, version)]
-        if prior is None or prior < version:
-            storage.insert_recompute_event(
-                detector_name=name, version_from=prior, version_to=version,
-                rows_affected=count, trigger_kind=trigger_kind, note=note,
-            )
+        storage.record_version_first_seen(detector_name=name, version=version, rows_affected=count,
+                                          trigger_kind=trigger_kind, note=note)
     return sum(written.values())

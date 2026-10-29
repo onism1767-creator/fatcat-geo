@@ -154,12 +154,15 @@ class ListStore:
         self.rows.append(observation)
         return True
 
-    def max_detector_version(self, detector_name: str) -> int | None:
-        versions = [o.detector_version for o in self.rows if o.detector_name == detector_name]
-        return max(versions) if versions else None
-
-    def insert_recompute_event(self, **kw) -> None:
-        self.events.append(kw)
+    def record_version_first_seen(self, *, detector_name, version, rows_affected, trigger_kind, note=None) -> bool:
+        """与 Storage 同规:以审计本身为准,记过就不再记。"""
+        if any(e["detector_name"] == detector_name and e["version_to"] == version for e in self.events):
+            return False
+        prior = [o.detector_version for o in self.rows
+                 if o.detector_name == detector_name and o.detector_version < version]
+        self.events.append(dict(detector_name=detector_name, version_from=max(prior) if prior else None,
+                                version_to=version, rows_affected=rows_affected, trigger_kind=trigger_kind, note=note))
+        return True
 
 
 def test_tier_method_picks_the_main_detector_and_sentiment_follows_it():

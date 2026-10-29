@@ -408,3 +408,14 @@ def test_every_kind_of_account_problem_stops_the_plan_without_retry(kind):
     assert sleeps == [] and exc_info.value.error_type is kind
     [run] = storage.runs
     assert run.error.error_type is kind
+
+
+def test_non_contract_exception_says_it_may_be_the_adapters_own_bug_and_keeps_where_it_happened():
+    """兜底那条失败行(第二轮审核 B9):原来一律说「平台返回了没见过的结构」,适配器自己的代码出错也这么说,会误导;
+    平台原始响应在这里拿不到,改存出错的位置,修适配器时一眼能找到。"""
+    storage = MemoryStorage()
+    make_sampler(storage).run_plan(ScriptedAdapter([KeyError("usage"), "ok"]), [P1])
+    failure = storage.runs[0]
+    assert "也可能是适配器自己的代码出错" in failure.error.message and "出错位置" in failure.error.message
+    evidence = failure.raw_payload["contract_violation"]
+    assert evidence["exception"] == "KeyError" and evidence["at"].startswith("test_scheduler.py:")

@@ -13,6 +13,7 @@ from engine.judge import JudgeConfig, JudgeModel, JudgeVerdict, MentionJudge, bu
 from engine.models import Answer, BrandSpec, Outcome, SearchMode, SearchTrace, Sentiment, SurfaceRun
 from engine.observe import ObserveContext, mention_detector, observe, persist_observations
 from engine.tiers import MentionMethod
+from tests.unit.test_brand_mention_fuzzy import ListStore  # 同一个假存储,别处一份
 
 BRAND = BrandSpec(name="极光CRM", aliases=["AuroraCRM"], domains=["aurora-crm.com"])
 CONFIG = JudgeConfig(primary=JudgeModel(surface="judge_a", model="ja", est_cost_per_call_usd=0.001),
@@ -181,21 +182,6 @@ def test_detectors_translate_the_verdict_and_share_one_call():
     assert JudgeSentimentDetector(judge).detect(run_with("别家。", run_id="r2"), BRAND) is None
 
 
-class ListStore:
-    def __init__(self) -> None:
-        self.rows: list = []
-        self.events: list[dict] = []
-
-    def insert_observation(self, observation) -> bool:
-        self.rows.append(observation)
-        return True
-
-    def max_detector_version(self, detector_name: str) -> int | None:
-        versions = [o.detector_version for o in self.rows if o.detector_name == detector_name]
-        return max(versions) if versions else None
-
-    def insert_recompute_event(self, **kw) -> None:
-        self.events.append(kw)
 
 
 def test_high_tier_observation_uses_the_judge_and_archives_every_detector():

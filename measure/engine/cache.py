@@ -55,7 +55,7 @@ def cached_answers(
     search_mode: SearchMode,
     now: datetime,
     hours: int = CACHE_HOURS,
-    region: str | None = None,
+    region: str | None,  # 必填(第二轮审核 B8):和采样钉的地区一致;原来默认空,以后钉了地区忘传就会串用
 ) -> list[SurfaceRun]:
     """别的检测里可复用的有效回答,新的在前;不含本单自己的题。只拿原件:别的单从缓存复制来的那条
     (时间戳、原文都和原件一样)不再当成第二条回答,否则同一条回答会填进同一道题的两个槽位(审核 2026-10-27 黄 6)。"""
@@ -86,7 +86,7 @@ def fill_from_cache(
     missing_indices: list[int],
     now: datetime,
     hours: int = CACHE_HOURS,
-    region: str | None = None,
+    region: str | None,  # 必填(第二轮审核 B8):和采样钉的地区一致;原来默认空,以后钉了地区忘传就会串用
 ) -> list[SurfaceRun]:
     """把缓存里的回答填进本单空着的槽位(按槽位号顺序,一条只用一次),落库并记复用关系;返回填进去的运行。"""
     if not missing_indices:

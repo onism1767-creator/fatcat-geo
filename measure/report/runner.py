@@ -79,6 +79,7 @@ from report.jobs import (
     SurfaceQuotes,
     current_code_version,
 )
+from report.response_view import latest_observation
 
 log = structlog.get_logger("report.runner")
 
@@ -313,6 +314,7 @@ def _fill_from_cache(job: DiagnosisJob, storage: Storage, adapter_of: dict[Targe
                 filled += len(fill_from_cache(
                     storage, job_id=job.job_id, brand_name=job.brand.name, prompt=prompt, target=target,
                     search_mode=mode, missing_indices=missing, now=now,
+                    region=None,  # 与采样一致:run_plan 目前不钉地区;哪天钉了,这里和采样一起改(必填,忘传就报错)
                 ))
     if filled:
         log.info("answers_reused_from_cache", job_id=job.job_id, n=filled, hours=CACHE_HOURS)
@@ -383,16 +385,16 @@ def _judge_for(
 
 
 def _stored_verdicts(storage: Storage, runs: list[SurfaceRun]) -> dict[str, JudgeVerdict]:
-    """库里已有的裁判判定行(每条回答取最高版本)翻回裁判结论;态度取裁判的态度行。"""
+    """库里已有的裁判判定行(每条回答取最新一行:版本最高、同版本里最后写入的)翻回裁判结论;态度取裁判的态度行。
+    原来同版本有好几行时取到的是最旧那行(第二轮审核 B5)。"""
     rows_by_run = storage.observations_for_runs([run.run_id for run in runs])
     verdicts: dict[str, JudgeVerdict] = {}
     for run_id, rows in rows_by_run.items():
-        mentions = [r for r in rows if r["detector_name"] == JUDGE_DETECTOR]
-        if not mentions:
+        row = latest_observation(rows, JUDGE_DETECTOR)
+        if row is None:
             continue
-        row = max(mentions, key=lambda r: r["detector_version"])
-        tones = [r for r in rows if r["detector_name"] == JUDGE_SENTIMENT]
-        tone = max(tones, key=lambda r: r["detector_version"])["sentiment"] if tones else None
+        tone_row = latest_observation(rows, JUDGE_SENTIMENT)
+        tone = tone_row["sentiment"] if tone_row is not None else None
         verdicts[run_id] = JudgeVerdict(
             mentioned=bool(row["mentioned"]), spans=[row["matched_text"]] if row.get("matched_text") else [],
             first_position=row.get("first_position"), confidence=float(row.get("confidence") or 0.0),

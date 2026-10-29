@@ -77,7 +77,7 @@ def test_cached_answers_follow_the_key_and_the_12_hour_window():
     prompt = Prompt(text="中小团队用什么　crm 好?", intent=PromptIntent.CATEGORY_DISCOVERY, origin=PromptOrigin.USER,
                     locale="zh-CN")
     hits = cached_answers(FakeStore(prompts, runs), job_id="me", brand_name="极光CRM", prompt=prompt, target=TARGET,
-                          search_mode=SearchMode.DEFAULT, now=NOW)
+                          search_mode=SearchMode.DEFAULT, now=NOW, region=None)
     assert [r.run_id for r in hits] == ["newer", "fresh"]  # 新的在前;过期 / 失败 / 闭卷 / 英文 / 别家 / 别题都不算
 
 
@@ -88,7 +88,7 @@ def test_fill_from_cache_copies_into_empty_slots_with_zero_cost_and_records_reus
     prompt = Prompt(prompt_id="p-new", text="中小团队用什么 CRM 好?", intent=PromptIntent.CATEGORY_DISCOVERY,
                     origin=PromptOrigin.USER, locale="zh-CN")
     copies = fill_from_cache(store, job_id="me", brand_name="极光CRM", prompt=prompt, target=TARGET,
-                             search_mode=SearchMode.DEFAULT, missing_indices=[3, 1, 2], now=NOW)
+                             search_mode=SearchMode.DEFAULT, missing_indices=[3, 1, 2], now=NOW, region=None)
     # 只有两条可用:新的先填小槽位,花费记 0
     assert [(c.run_index, c.answer.answer_text, c.cost_usd) for c in copies] == [(1, "乙", 0.0), (2, "甲", 0.0)]
     assert all(c.prompt_id == "p-new" and c.run_id not in ("a", "b") for c in copies)
@@ -96,7 +96,7 @@ def test_fill_from_cache_copies_into_empty_slots_with_zero_cost_and_records_reus
     assert store.inserted == copies
     assert [(r["source_run_id"], r["cache_age_s"]) for r in store.reuses] == [("b", 3600), ("a", 3 * 3600)]
     assert fill_from_cache(store, job_id="me", brand_name="极光CRM", prompt=prompt, target=TARGET,
-                           search_mode=SearchMode.DEFAULT, missing_indices=[], now=NOW) == []
+                           search_mode=SearchMode.DEFAULT, missing_indices=[], now=NOW, region=None) == []
 
 
 def test_copies_made_from_cache_are_not_served_again_as_a_second_answer():
@@ -110,10 +110,10 @@ def test_copies_made_from_cache_are_not_served_again_as_a_second_answer():
     prompt = Prompt(prompt_id="p-c", text="中小团队用什么 CRM 好?", intent=PromptIntent.CATEGORY_DISCOVERY,
                     origin=PromptOrigin.USER, locale="zh-CN")
     hits = cached_answers(store, job_id="c", brand_name="极光CRM", prompt=prompt, target=TARGET,
-                          search_mode=SearchMode.DEFAULT, now=NOW)
+                          search_mode=SearchMode.DEFAULT, now=NOW, region=None)
     assert [r.run_id for r in hits] == ["orig"]
     filled = fill_from_cache(store, job_id="c", brand_name="极光CRM", prompt=prompt, target=TARGET,
-                             search_mode=SearchMode.DEFAULT, missing_indices=[1, 2], now=NOW)
+                             search_mode=SearchMode.DEFAULT, missing_indices=[1, 2], now=NOW, region=None)
     assert [(c.run_index, c.raw_payload) for c in filled] == [(1, {"k": "orig"})]  # 第二个槽位空着,等真提问
 
 
@@ -143,6 +143,20 @@ def test_region_is_part_of_the_cache_key():
                     origin=PromptOrigin.USER, locale="zh-CN")
     common = dict(job_id="c", brand_name="极光CRM", prompt=prompt, target=TARGET, search_mode=SearchMode.DEFAULT,
                   now=NOW)
-    assert [r.run_id for r in cached_answers(store, **common)] == ["plain"]
+    assert [r.run_id for r in cached_answers(store, region=None, **common)] == ["plain"]
     assert [r.run_id for r in cached_answers(store, region="JP", **common)] == ["japan"]
     assert cached_answers(store, region="US", **common) == []
+
+
+def test_the_region_must_be_passed_explicitly():
+    """地区是缓存键的一部分,必须明说(第二轮审核 B8):原来默认空,以后采样钉了地区、缓存这边忘传,就会把没钉地区的回答
+    填进钉了地区的单。现在忘传直接报错。"""
+    import inspect
+
+    import pytest as _pytest
+
+    for fn in (cached_answers, fill_from_cache):
+        assert inspect.signature(fn).parameters["region"].default is inspect.Parameter.empty
+    with _pytest.raises(TypeError, match="region"):
+        cached_answers(None, job_id="x", brand_name="b", prompt=None, target=TARGET,  # type: ignore[arg-type]
+                       search_mode=SearchMode.DEFAULT, now=NOW)

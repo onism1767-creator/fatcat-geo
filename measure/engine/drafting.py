@@ -15,6 +15,7 @@
 
 from __future__ import annotations
 
+import re
 from collections.abc import Callable
 from typing import Any
 
@@ -218,11 +219,13 @@ def manual_intent(text: str, brand: BrandSpec) -> PromptIntent:
 def brand_collisions(texts: list[str], brand: BrandSpec) -> list[str]:
     """别名撞车扫描:返回含焦点品牌名/别名/域名的文本(不点名的题命中即违规)。名字按判定器同一套词边界规则认
     (拉丁字母按词、中文按子串):品牌叫 On,含 "on" 的题不算撞车——按子串会让这种品牌三轮都出不了题
-    (审核 2026-10-27 黄 10);域名本身够特定,按子串。"""
-    domains = [d.strip().lower() for d in brand.domains if d.strip()]
+    (审核 2026-10-27 黄 10)。域名两边不能紧挨字母、数字或连字符:原来按子串,品牌 On 的域名 on.com 在题里的
+    amazon.com 也算撞车(第二轮审核 B11);前面是点照算(shop.on.com 是它的子域)。"""
+    domains = [re.compile(rf"(?<![a-z0-9-]){re.escape(d.strip().lower())}(?![a-z0-9-])")
+               for d in brand.domains if d.strip()]
     return [
         text for text in texts
-        if find_first_alias(text, brand) is not None or any(domain in text.lower() for domain in domains)
+        if find_first_alias(text, brand) is not None or any(domain.search(text.lower()) for domain in domains)
     ]
 
 

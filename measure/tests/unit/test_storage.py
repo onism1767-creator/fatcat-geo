@@ -10,7 +10,7 @@ import psycopg
 import pytest
 
 from engine.detectors.citation import CitationDetector
-from engine.detectors.runner import observe_runs, recompute_all
+from engine.detectors.runner import observe_runs, recompute_by_job
 from engine.models import (
     Answer,
     BrandSpec,
@@ -225,8 +225,8 @@ def test_observations_and_recompute_audit(storage):
     assert obs[0]["detector_version"] == detector.version
 
     # 同版本、同判据重算:同样的判定不重复写(v0.4.9 幂等续跑);审计事件照落,rows_affected 是实际写入数;
-    # 别的品牌的运行不在重算范围(审核 2026-10-27 黄 8)
-    recomputed = recompute_all(storage, detector, brand, note="测试重算")
+    # 按单重算:这单的回答用这单冻结的品牌卡判,别的单的运行不在这单里(第二轮审核 B7;原来按品牌名取,黄 8)
+    recomputed = recompute_by_job(storage, detector, job_ids=["job-obs"], note="测试重算")
     assert recomputed == 0
     assert len(storage.observations_for_run("run-obs-1")) == 1
     assert storage.observations_for_run("run-obs-other") == []
@@ -296,3 +296,104 @@ def test_citation_resolution_is_append_only_and_latest_per_url(storage):
         storage._conn.execute("UPDATE citation_resolution SET final_url = NULL")
     with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
         storage._conn.execute("DELETE FROM citation_resolution")
+
+
+def test_latest_row_is_the_last_written_even_when_the_timestamps_tie(storage):
+    """「最新一行」只认库里的写入序号(第二轮审核 B5):判定行的算出时间由 Python 给,本机连取 20 万次只有 12 个不同值,
+    两行时间一模一样时原来先后看运气(全量测试偶发失败就是它)。这里故意让两行时间相同。"""
+    from engine.models import BrandSpec
+
+    brand = BrandSpec(name="极光CRM-平局", domains=["aurora-crm.com"])
+    run = make_run("run-tie-1").model_copy(update={"prompt_id": "need-tie"})
+    storage.insert_surface_run(run)
+    detector = CitationDetector()
+    stamp = datetime(2026, 10, 29, 12, 0, tzinfo=UTC)
+    moved = brand.model_copy(update={"domains": ["elsewhere.example"]})
+    first = detector.detect(run, brand).model_copy(update={"computed_at": stamp})
+    second = detector.detect(run, moved).model_copy(update={"computed_at": stamp})
+    assert storage.insert_observation(first) and storage.insert_observation(second)
+    rows = storage.observations_for_run("run-tie-1")
+    assert [r["cited"] for r in rows] == [True, False]  # 按写入先后
+    assert latest_observation(rows, detector.name)["cited"] is False
+    again = detector.detect(run, moved).model_copy(update={"computed_at": stamp})
+    assert storage.insert_observation(again) is False  # 和最新一行一样:不重复写(比对的是写入序号上的最新一行)
+    assert storage.observations_for_runs(["run-tie-1"])["run-tie-1"] == rows
+
+
+def test_latest_observation_takes_the_highest_version_then_the_last_written():
+    rows = [
+        {"detector_name": "d", "detector_version": 2, "v": "old-v2"},
+        {"detector_name": "d", "detector_version": 3, "v": "v3-first"},
+        {"detector_name": "x", "detector_version": 9, "v": "other"},
+        {"detector_name": "d", "detector_version": 3, "v": "v3-last"},
+        {"detector_name": "d", "detector_version": 2, "v": "late-v2"},
+    ]
+    assert latest_observation(rows, "d")["v"] == "v3-last"
+    assert latest_observation(rows, "missing") is None
+
+
+def test_stored_judge_verdicts_take_the_latest_row_not_the_oldest():
+    """装回裁判结论原来同版本多行时取到最旧那行(第二轮审核 B5)。"""
+    from engine.detectors.brand_mention_judge import DETECTOR_NAME, SENTIMENT_DETECTOR_NAME
+    from report.runner import _stored_verdicts
+
+    class Rows:
+        def observations_for_runs(self, run_ids):
+            return {"r1": [
+                {"detector_name": DETECTOR_NAME, "detector_version": 1, "mentioned": False, "confidence": 0.9},
+                {"detector_name": SENTIMENT_DETECTOR_NAME, "detector_version": 1, "sentiment": "negative"},
+                {"detector_name": DETECTOR_NAME, "detector_version": 1, "mentioned": True, "confidence": 0.8,
+                 "matched_text": "AuroraCRM"},
+                {"detector_name": SENTIMENT_DETECTOR_NAME, "detector_version": 1, "sentiment": "positive"},
+            ]}
+
+    verdict = _stored_verdicts(Rows(), [make_run("r1")])["r1"]
+    assert verdict.mentioned is True and verdict.spans == ["AuroraCRM"] and verdict.sentiment.value == "positive"
+
+
+def test_recompute_by_job_judges_each_job_with_its_own_frozen_brand_card(storage):
+    """两单测同一个品牌,但冻结的官网名单不同:一单的回答只能拿它自己的品牌卡判(第二轮审核 B7)。
+    原来拿一张品牌卡判这个品牌所有单的回答,会给别的单追加按错卡判的行。"""
+    class ProbeDetector(CitationDetector):
+        name = "citation_recompute_by_job_probe"  # 独立判定器名:共享测试库里不和真实判定器混
+
+    run_a = make_run("run-bj-a").model_copy(update={"prompt_id": "need-bj-a"})
+    run_b = make_run("run-bj-b").model_copy(update={"prompt_id": "need-bj-b"})
+    for run in (run_a, run_b):
+        storage.insert_surface_run(run)
+    for job_id, prompt_id, domains in (("job-bj-a", "need-bj-a", ["aurora-crm.com"]),
+                                       ("job-bj-b", "need-bj-b", ["elsewhere.example"])):
+        storage.upsert_job_snapshot({
+            "job_id": job_id, "created_at": "2026-10-29T12:00:00+00:00", "state": "DONE", "fingerprint": job_id,
+            "brand": {"name": "极光CRM-按单", "domains": domains},
+            "prompts": [{"prompt_id": prompt_id, "text": "q", "locale": "zh-CN"}],
+        })
+    written = recompute_by_job(storage, ProbeDetector(), job_ids=["job-bj-a", "job-bj-b"], note="按单")
+    assert written == 2
+    cited = {run_id: storage.observations_for_run(run_id)[-1]["cited"] for run_id in ("run-bj-a", "run-bj-b")}
+    assert cited == {"run-bj-a": True, "run-bj-b": False}  # 各用各的官网名单
+
+
+def test_version_first_seen_is_audited_once_and_a_missed_audit_is_filled_in(storage):
+    """判定器版本第一次在库里落判定行记一条审计(第二轮审核 B6):同一版本再存不再记;上次存档中途断库、判定行写进去了
+    审计没记上的,下一单补上(原来看见版本已在库里就永远不记了)。"""
+    name = "citation_first_seen_probe"
+    count = lambda: storage._conn.execute(  # noqa: E731
+        "SELECT count(*) FROM recompute_event WHERE detector_name = %s", (name,)).fetchone()[0]
+    assert storage.record_version_first_seen(detector_name=name, version=1, rows_affected=3, trigger_kind="job")
+    assert not storage.record_version_first_seen(detector_name=name, version=1, rows_affected=2, trigger_kind="job")
+    assert count() == 1
+    # 模拟「判定行写进去了、审计没记上」:版本 2 的行先在库里,审计表里还没有它
+    run = make_run("run-first-seen").model_copy(update={"prompt_id": "need-first-seen"})
+    storage.insert_surface_run(run)
+
+    class V2(CitationDetector):
+        version = 2
+
+    observation = V2().detect(run, BrandSpec(name="X", domains=["aurora-crm.com"]))
+    storage.insert_observation(observation.model_copy(update={"detector_name": name}))
+    assert storage.record_version_first_seen(detector_name=name, version=2, rows_affected=0, trigger_kind="job")
+    event = storage._conn.execute(
+        "SELECT version_from, version_to FROM recompute_event WHERE detector_name = %s AND version_to = 2", (name,)
+    ).fetchone()
+    assert event == (None, 2)  # 版本 1 只在审计里,库里没有版本 1 的判定行

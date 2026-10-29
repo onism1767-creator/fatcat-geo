@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import re
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Any
 from uuid import uuid4
@@ -24,6 +25,7 @@ from psycopg.types.json import Jsonb
 
 from engine.models import (
     Answer,
+    BrandSpec,
     CitationResolution,
     DerivedObservation,
     FrozenModel,
@@ -146,7 +148,7 @@ class Storage:
         latest = self._conn.execute(
             "SELECT payload FROM derived_observation "
             "WHERE run_id = %s AND detector_name = %s AND detector_version = %s "
-            "ORDER BY computed_at DESC LIMIT 1",
+            "ORDER BY seq DESC LIMIT 1",  # 最新一行只认写入序号(第二轮审核 B5:按 Python 时间排会平局)
             (observation.run_id, observation.detector_name, observation.detector_version),
         ).fetchone()
         if latest is not None and _judgement(latest[0]) == _judgement(payload):
@@ -233,6 +235,32 @@ class Storage:
             )
             for row in rows
         }
+
+    def record_version_first_seen(
+        self, *, detector_name: str, version: int, rows_affected: int, trigger_kind: str, note: str | None = None,
+    ) -> bool:
+        """某判定器的这个版本第一次在库里落判定行:记一条重算审计(13.5),已经记过就不再记;返回这次有没有记。
+        原来按「写之前库里有没有这个版本」猜:两单几乎同时存档会各记一条;存档中途断库,判定行写进去了、审计没记上,
+        之后的单看见版本已在库里就永远不记了(第二轮审核 B6)。现在以审计表本身为准,按「判定器 + 版本」加事务级的
+        咨询锁,两单同时来也只记一条;上次漏记的,下一单补上。"""
+        with self._conn.transaction():
+            self._conn.execute("SELECT pg_advisory_xact_lock(hashtext(%s))", (f"recompute:{detector_name}:{version}",))
+            audited = self._conn.execute(
+                "SELECT 1 FROM recompute_event WHERE detector_name = %s AND version_to = %s LIMIT 1",
+                (detector_name, version),
+            ).fetchone()
+            if audited is not None:
+                return False
+            prior = self._conn.execute(
+                "SELECT max(detector_version) FROM derived_observation "
+                "WHERE detector_name = %s AND detector_version < %s",
+                (detector_name, version),
+            ).fetchone()
+            self.insert_recompute_event(
+                detector_name=detector_name, version_from=prior[0] if prior is not None else None, version_to=version,
+                rows_affected=rows_affected, trigger_kind=trigger_kind, note=note,
+            )
+        return True
 
     def insert_recompute_event(
         self,
@@ -385,16 +413,24 @@ class Storage:
         rows = self._conn.execute(sql, params).fetchall()
         return [_row_to_run(row) for row in rows]
 
-    def runs_for_brand(self, brand_name: str) -> list[SurfaceRun]:
-        """一个品牌全部任务里的全部运行(全量重算用,13.5):只重算这个品牌的——别的品牌的回答不能拿这家的
-        名单与别名去判(审核 2026-10-27 黄 8)。品牌只在任务快照里,先取它的题再取运行。"""
-        prompt_ids = sorted({pid for pid, _, _ in self.brand_prompts(brand_name, exclude_job_id="")})
-        if not prompt_ids:
-            return []
-        rows = self._conn.execute(
-            f"SELECT {_RUN_COLUMNS} FROM surface_run WHERE prompt_id = ANY(%s) ORDER BY run_timestamp", (prompt_ids,)
-        ).fetchall()
-        return [_row_to_run(row) for row in rows]
+    def job_brands_and_runs(
+        self, job_ids: Iterable[str] | None = None,
+    ) -> list[tuple[str, BrandSpec, list[SurfaceRun]]]:
+        """每一单:(任务编号, 它冻结的品牌卡, 它的题下的全部运行)——全量重算按单来(13.5;第二轮审核 B7):各单冻结的
+        别名、官网名单可能不同,一单的回答只能拿它自己的品牌卡去判。job_ids 不给 = 全部单。"""
+        wanted = set(job_ids) if job_ids is not None else None
+        out: list[tuple[str, BrandSpec, list[SurfaceRun]]] = []
+        for snapshot in self.load_job_snapshots():
+            job_id = snapshot.get("job_id", "")
+            if wanted is not None and job_id not in wanted:
+                continue
+            prompt_ids = sorted({p["prompt_id"] for p in snapshot.get("prompts", [])})
+            rows = self._conn.execute(
+                f"SELECT {_RUN_COLUMNS} FROM surface_run WHERE prompt_id = ANY(%s) ORDER BY run_timestamp",
+                (prompt_ids,),
+            ).fetchall() if prompt_ids else []
+            out.append((job_id, BrandSpec.model_validate(snapshot["brand"]), [_row_to_run(row) for row in rows]))
+        return out
 
     def run_by_id(self, run_id: str) -> SurfaceRun | None:
         """单条回答页用(S8.3):没有这条就 None,归属校验由调用方做。"""
@@ -404,7 +440,7 @@ class Storage:
     def observations_for_run(self, run_id: str) -> list[dict[str, Any]]:
         rows = self._conn.execute(
             "SELECT observation_type, detector_name, detector_version, payload "
-            "FROM derived_observation WHERE run_id = %s ORDER BY computed_at",
+            "FROM derived_observation WHERE run_id = %s ORDER BY seq",  # 按写入先后(同版本里最后一行 = 最新)
             (run_id,),
         ).fetchall()
         return [
@@ -413,12 +449,12 @@ class Storage:
         ]
 
     def observations_for_runs(self, run_ids: list[str]) -> dict[str, list[dict[str, Any]]]:
-        """多条回答的判定行一次取齐(结果文件打包用,S8.4):按 run_id 分组,组内按算出时间序;没有行的 run_id 不在结果里。"""
+        """多条回答的判定行一次取齐(结果文件打包用,S8.4):按 run_id 分组,组内按写入先后;没有行的 run_id 不在结果里。"""
         if not run_ids:
             return {}
         rows = self._conn.execute(
             "SELECT run_id, observation_type, detector_name, detector_version, payload "
-            "FROM derived_observation WHERE run_id = ANY(%s) ORDER BY computed_at",
+            "FROM derived_observation WHERE run_id = ANY(%s) ORDER BY seq",
             (run_ids,),
         ).fetchall()
         grouped: dict[str, list[dict[str, Any]]] = {}
