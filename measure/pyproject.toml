@@ -21,11 +21,11 @@ dependencies = [
 
 [dependency-groups]
 dev = [
-    "hypothesis>=6",
     "mypy>=2",
     "pytest>=8",
     "respx>=0.21",
     "ruff>=0.16",
+    "types-PyYAML>=6",  # mypy 查 yaml 的类型要它(原来是环境里碰巧装着,没写进清单)
 ]
 
 [tool.pytest.ini_options]

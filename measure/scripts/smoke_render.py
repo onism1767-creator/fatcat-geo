@@ -16,7 +16,7 @@ from crawler.render import PlaywrightRenderer, playwright_available  # noqa: E40
 def main(url: str) -> int:
     sys.stdout.reconfigure(errors="replace")  # Windows 控制台是 GBK,网页里的生僻字符别把脚本打崩
     if not playwright_available():
-        print("Playwright 没装:pip install playwright && python -m playwright install chromium")
+        print(r"Playwright 没装:uv sync --locked,再 .venv\Scripts\python -m playwright install chromium")
         return 2
     renderer = PlaywrightRenderer()
     try:
