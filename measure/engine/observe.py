@@ -16,11 +16,14 @@ from dataclasses import dataclass, field
 
 from engine.detectors.brand_mention import BrandMentionDetector
 from engine.detectors.brand_mention_fuzzy import FuzzyBrandMentionDetector
+from engine.detectors.brand_mention_judge import DETECTOR_NAME as JUDGE_MENTION_NAME
+from engine.detectors.brand_mention_judge import SENTIMENT_DETECTOR_NAME as JUDGE_SENTIMENT_NAME
 from engine.detectors.brand_mention_judge import JudgeBrandMentionDetector, JudgeSentimentDetector
 from engine.detectors.citation import CitationDetector
 from engine.detectors.query_trace import QueryTraceDetector
 from engine.detectors.retrieval_rank import RetrievalRankDetector
 from engine.detectors.runner import Detector, ObservationStore
+from engine.detectors.sentiment import DETECTOR_NAME as LEXICON_SENTIMENT_NAME
 from engine.detectors.sentiment import SentimentDetector
 from engine.detectors.source_class import SourceClassifier
 from engine.judge import JudgeUnavailable, MentionJudge
@@ -55,6 +58,17 @@ def mention_detector(method: MentionMethod, judge: MentionJudge | None = None) -
     if judge is None:
         raise JudgeUnavailable("高档的提及判定要 AI 裁判,但没有装配裁判(config/judges.yaml 的型号没加载)")
     return JudgeBrandMentionDetector(judge)
+
+
+def mention_detector_name(method: MentionMethod) -> str:
+    """档位主提及判定器的名字——只读库里已存的判定行时用(单条回答页、结果文件),不需要装配裁判。
+    原来这两处直接调 mention_detector(),高档没装裁判就抛错,页面 500(第二轮红 3)。"""
+    return JUDGE_MENTION_NAME if method is MentionMethod.RULES_FUZZY_JUDGE else mention_detector(method).name
+
+
+def sentiment_detector_name(method: MentionMethod) -> str:
+    """档位用的情感判定器名字:高档存的是裁判给的情感,其余档是词表情感(读库里的判定行时用)。"""
+    return JUDGE_SENTIMENT_NAME if method is MentionMethod.RULES_FUZZY_JUDGE else LEXICON_SENTIMENT_NAME
 
 
 def _free_detector(method: MentionMethod) -> Detector:

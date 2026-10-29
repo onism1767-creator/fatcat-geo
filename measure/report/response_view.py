@@ -8,10 +8,10 @@ from __future__ import annotations
 
 from typing import Any
 
-from engine.detectors import citation, sentiment, source_class
+from engine.detectors import citation, source_class
 from engine.detectors.matching import mention_sentence
 from engine.models import BrandDomainList, FrozenModel, SurfaceRun, Target
-from engine.observe import mention_detector
+from engine.observe import mention_detector_name, sentiment_detector_name
 from engine.validity import is_valid_answer
 from report.jobs import DiagnosisJob
 
@@ -84,9 +84,10 @@ def citation_rows(run: SurfaceRun, attribution: dict[str, Any] | None) -> list[C
 
 def build_response_view(job: DiagnosisJob, run: SurfaceRun, observations: list[dict[str, Any]]) -> ResponseView:
     prompt_text = next((p.text for p in job.prompts if p.prompt_id == run.prompt_id), "")
-    mention = latest_observation(observations, mention_detector(job.frozen_tier().mention_method).name)
+    method = job.frozen_tier().mention_method  # 按档位读已存的判定行,不现算、不需要裁判(第二轮红 3)
+    mention = latest_observation(observations, mention_detector_name(method))
     cite = latest_observation(observations, citation.DETECTOR_NAME)
-    tone = latest_observation(observations, sentiment.DETECTOR_NAME)
+    tone = latest_observation(observations, sentiment_detector_name(method))
     attribution = latest_observation(observations, source_class.DETECTOR_NAME)
     mentioned = mention["mentioned"] if mention is not None else None
     excerpt = None

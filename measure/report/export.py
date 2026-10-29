@@ -18,11 +18,11 @@ from typing import Any
 from urllib.parse import quote, urlsplit
 
 from diagnosis.messages import msg, render_msg
-from engine.detectors import citation, sentiment
+from engine.detectors import citation
 from engine.detectors import source_class as source_class_detector
 from engine.detectors.matching import mention_sentence
 from engine.models import SurfaceRun
-from engine.observe import mention_detector
+from engine.observe import mention_detector_name, sentiment_detector_name
 from engine.storage import Storage
 from engine.tiers import TierChoice
 from report.i18n import INTENT_LABELS, MESSAGES, STATUS_LABELS
@@ -97,23 +97,25 @@ def _responses_and_citations(
         for run in storage.runs_for_prompt(prompt.prompt_id, surface=target.surface, model=target.model)
     ]
     observations = storage.observations_for_runs([run.run_id for _, run in runs])  # 判定行一次取齐,不逐条查库
-    mention_name = mention_detector(job.frozen_tier().mention_method).name  # 「提到没提到」按本单档位的主判定器
+    method = job.frozen_tier().mention_method  # 「提到没提到」与情感按本单档位的判定器读(不需要裁判;第二轮红 3)
+    mention_name, tone_name = mention_detector_name(method), sentiment_detector_name(method)
     responses: list[dict[str, Any]] = []
     rows: list[list[Any]] = []
     for no, run in runs:
         ai = name_of(run.surface, run.model)
         recorded = observations.get(run.run_id, [])
-        responses.append(_response_record(run, no, ai, recorded, mention_name))
+        responses.append(_response_record(run, no, ai, recorded, mention_name, tone_name))
         rows.extend(_citation_rows(run, no, ai, recorded))
     return responses, rows
 
 
 def _response_record(
     run: SurfaceRun, prompt_no: int, ai: str, observations: list[dict[str, Any]], mention_name: str,
+    tone_name: str,
 ) -> dict[str, Any]:
     mention = latest_observation(observations, mention_name)
     cited = latest_observation(observations, citation.DETECTOR_NAME)
-    tone = latest_observation(observations, sentiment.DETECTOR_NAME)
+    tone = latest_observation(observations, tone_name)
     excerpt = None
     if mention and mention.get("mentioned") and mention.get("first_position") is not None and run.answer is not None:
         excerpt = mention_sentence(run.answer.answer_text, mention["first_position"]).strip()
