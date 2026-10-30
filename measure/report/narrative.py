@@ -149,7 +149,19 @@ def calibration_text(report: CalibrationReport, lang: str) -> str:
         parts.append(t["calib_rf"].format(d=pair.disagree, n=pair.n))
     if report.double_judge is not None and report.double_judge.n:
         parts.append(t["calib_double"].format(a=report.double_judge.agree, n=report.double_judge.n))
+    hard_rules, hard_fuzzy = report.hard_totals("rules"), report.hard_totals("fuzzy")
+    if hard_rules["neg_n"]:  # BR1:难题单独说,不和上面的竞品名合计
+        parts.append(t["calib_hard"].format(r=hard_rules["neg_false"], rn=hard_rules["neg_n"],
+                                            f=hard_fuzzy["neg_false"], fn=hard_fuzzy["neg_n"]))
+    if hard_rules["pos_n"]:
+        parts.append(t["calib_hard_pos"].format(r=hard_rules["pos_hit"], rn=hard_rules["pos_n"],
+                                                f=hard_fuzzy["pos_hit"], fn=hard_fuzzy["pos_n"]))
+    if "judge" not in report.detector_versions:
+        parts.append(t["calib_no_judge"])
     parts.append(t["calib_tail"])
+    stale = report.stale_methods()
+    if stale:  # 第 22 条:判定器升过版本,这份数字是旧版的,照实提示
+        parts.append(t["calib_stale"].format(methods=t["count_sep"].join(t[f"calib_method_{m}"] for m in stale)))
     return "".join(parts)
 
 

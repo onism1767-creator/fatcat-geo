@@ -29,6 +29,7 @@ from engine.calibration import (  # noqa: E402
     save_calibration,
 )
 from engine.envfile import load_env_file  # noqa: E402
+from engine.hard_cases import load_hard_brands  # noqa: E402
 from engine.judge import JudgeConfig, MentionJudge, load_judges  # noqa: E402
 from engine.loader import build_adapters  # noqa: E402
 from engine.models import Answer, BrandSpec, Outcome, SearchMode, SearchTrace, SurfaceRun  # noqa: E402
@@ -125,7 +126,7 @@ def main() -> int:
     try:
         report = calibrate(samples, source=source, judge_a=judge_a, judge_b=judge_b,
                            judge_sample=args.judge_sample, seed=args.seed,
-                           prefetch=prefetch if judge_a is not None else None)
+                           prefetch=prefetch if judge_a is not None else None, hard=load_hard_brands())
     finally:
         for adapter in adapters.values():
             adapter.close()

@@ -6,7 +6,9 @@
    (答案已知:没提到),每种判法认出几条、误认几条自动数;
 ② 真实回答上两两分歧:规则 vs 模糊全量比,裁判只比抽样的那批(裁判花钱);
 ③ 两家不同的裁判判同一批回答,一致几条;不一致的列出来供可选抽看。
-结果存 config/calibration.yaml(确认页「准确率对比」只读它)与 docs/校准/ 的 markdown。
+BR1 补两样(engine/hard_cases.py):④ 难题——程序造「长得像你、其实不是你」的写法和配套正例,塞进真实回答,按种类分开数;
+⑤ 别家回答当底本——拿难名字去判别的品牌的真实回答,认出来的基本都是误认,列出来可选抽看。④⑤ 目前只跑规则和模糊,不花钱。
+结果存 config/calibration.yaml(确认页「准确率对比」只读它,带测的是哪版判定器)与 docs/校准/ 的 markdown。
 本模块无厂商名,不连库;读库在 scripts/ 里。
 """
 
@@ -14,7 +16,6 @@ from __future__ import annotations
 
 import random
 import re
-import unicodedata
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
@@ -23,14 +24,19 @@ import yaml
 
 from engine.detectors.brand_mention import BrandMentionDetector
 from engine.detectors.brand_mention_fuzzy import FuzzyBrandMentionDetector
-from engine.detectors.matching import is_spaced_script_char
+from engine.detectors.brand_mention_judge import JudgeBrandMentionDetector
+from engine.detectors.matching import find_first_alias, is_spaced_script_char
+from engine.hard_cases import HardBrand, HardCase, cases_of, strip_marks
 from engine.models import BrandSpec, FrozenModel, SurfaceRun
 
 DEFAULT_CALIBRATION_PATH = Path(__file__).resolve().parents[1] / "config" / "calibration.yaml"
 MAX_EXAMPLES = 20  # 分歧清单最多列几条 run_id
+HARD_BASES = 40  # 每个难名字最多用几条真实回答当底本:判法现在不看上下文,条数多了只是同一个结果乘倍数
+MAX_CROSS_EXAMPLES = 5  # 别家回答当底本时,每个名字每种判法最多列几处
 
 Judge = Callable[[SurfaceRun, BrandSpec], bool | None]  # 裁判:提到了 / 没提到 / 看不到(None)
 METHODS = ("rules", "fuzzy", "judge")
+_Detectors = dict[str, BrandMentionDetector | FuzzyBrandMentionDetector]
 
 
 class Sample(FrozenModel):
@@ -69,24 +75,57 @@ class DoubleJudge(FrozenModel):
     disagree_ids: list[str]
 
 
+class CrossScore(FrozenModel):
+    """拿一个难名字去判别的品牌的真实回答:答案不是构造出来的,认出来的「基本都是」误认,所以单独记、不进合计。"""
+
+    brand: str
+    method: str
+    n: int  # 判了几条回答
+    hits: int  # 认出来几条
+    examples: list[str]  # 「run_id:回答里那一小段」,最多 MAX_CROSS_EXAMPLES 处,供抽看
+
+
+def _sums(scores: Sequence[KindScore], method: str) -> dict[str, int]:
+    pos = [s for s in scores if s.method == method and s.expected]
+    neg = [s for s in scores if s.method == method and not s.expected]
+    return {
+        "pos_n": sum(s.n for s in pos), "pos_hit": sum(s.correct for s in pos),
+        "neg_n": sum(s.n for s in neg), "neg_false": sum(s.n - s.correct for s in neg),
+    }
+
+
+def current_versions() -> dict[str, int]:
+    """三种判法现在的判定器版本:和校准文件里记的对不上,就说明那份数字是旧版判法的(第二轮审核第 22 条)。"""
+    return {"rules": BrandMentionDetector.version, "fuzzy": FuzzyBrandMentionDetector.version,
+            "judge": JudgeBrandMentionDetector.version}
+
+
 class CalibrationReport(FrozenModel):
     calibrated_at: datetime
     source: str  # 数据来源口径(哪个库、哪几单、几条回答)
     n_answers: int
     n_bases: int  # 作合成底本的回答数(规则 / 模糊都说没提到)
     judge_sample: int  # 抽了几条真实回答请裁判
+    detector_versions: dict[str, int]  # 这次测的判定器版本;没测的判法(没请裁判)不记
     synthetic: list[KindScore]
+    hard: list[KindScore]  # 难题:答案由构造决定,按种类分开数
+    cross: list[CrossScore]  # 别家回答当底本
     disagreement: list[PairDisagreement]
     double_judge: DoubleJudge | None
 
     def totals(self, method: str) -> dict[str, int]:
         """一种判法的合计:塞入写法 pos_n 条认出 pos_hit;塞入错名 neg_n 条误认 neg_false。"""
-        pos = [s for s in self.synthetic if s.method == method and s.expected]
-        neg = [s for s in self.synthetic if s.method == method and not s.expected]
-        return {
-            "pos_n": sum(s.n for s in pos), "pos_hit": sum(s.correct for s in pos),
-            "neg_n": sum(s.n for s in neg), "neg_false": sum(s.n - s.correct for s in neg),
-        }
+        return _sums(self.synthetic, method)
+
+    def hard_totals(self, method: str) -> dict[str, int]:
+        """难题的合计:配套正例 pos_n 条认出 pos_hit;难题 neg_n 条误认 neg_false。"""
+        return _sums(self.hard, method)
+
+    def stale_methods(self) -> list[str]:
+        """这份校准之后判定器升过版本的判法:确认页要提示,别把旧版的数字当成现在的。"""
+        now = current_versions()
+        return [method for method in METHODS if method in self.detector_versions
+                and self.detector_versions[method] != now[method]]
 
     def pair(self, a: str, b: str) -> PairDisagreement | None:
         return next((p for p in self.disagreement if {p.a, p.b} == {a, b}), None)
@@ -112,11 +151,6 @@ def _other_word(name: str) -> str:
     middle = letters[min(len(name) // 2, len(letters) - 1)]
     swap = "x" if name[middle].lower() != "x" else "q"
     return name[:middle] + swap + name[middle + 1:]
-
-
-def _strip_accents(name: str) -> str:
-    """去掉重音符号(Citroën → Citroen):回答里常这么写,规整那道关该认(v2)。"""
-    return "".join(c for c in unicodedata.normalize("NFKD", name) if not unicodedata.combining(c))
 
 
 def variants_of(brand: BrandSpec, competitors: Sequence[str] = ()) -> list[Variant]:
@@ -147,9 +181,10 @@ def variants_of(brand: BrandSpec, competitors: Sequence[str] = ()) -> list[Varia
             if len(name) >= 4 and name[-1].isalpha():
                 add("复数", name + "s", True)
                 add("所有格", name + "'s", True)
-            if _strip_accents(name) != name:
-                add("去重音", _strip_accents(name), True)
-            if len(name) >= 6:
+            if strip_marks(name) != name:
+                add("去重音", strip_marks(name), True)
+            # 换完还含别的登记名就不是干净负例:On Running → On Runxing 里 On 本来就是登记名,认出来是对的(第 8 条)
+            if len(name) >= 6 and find_first_alias(_other_word(name), brand) is None:
                 add("中间换一个字母(别的词)", _other_word(name), False, judge=False)
     known = {n.strip().lower() for n in [brand.name, *brand.aliases]}
     for competitor in competitors:
@@ -170,10 +205,11 @@ def inject(answer: str, text: str) -> str:
     return f"{answer[:cut]} {text} {answer[cut:].lstrip(' ')}"
 
 
-def synthetic_run(sample: Sample, variant: Variant, index: int) -> SurfaceRun:
+def synthetic_run(sample: Sample, text: str, label: str, locale: str | None = None) -> SurfaceRun:
     assert sample.run.answer is not None
-    answer = sample.run.answer.model_copy(update={"answer_text": inject(sample.run.answer.answer_text, variant.text)})
-    return sample.run.model_copy(update={"run_id": f"{sample.run.run_id}#{index}", "answer": answer})
+    answer = sample.run.answer.model_copy(update={"answer_text": inject(sample.run.answer.answer_text, text)})
+    return sample.run.model_copy(update={"run_id": f"{sample.run.run_id}#{label}", "answer": answer,
+                                         "locale": locale or sample.run.locale})
 
 
 # ── 跑三种判法 ────────────────────────────────────────────────────────────────────────
@@ -209,9 +245,11 @@ def calibrate(
     seed: int = 0,
     now: datetime | None = None,
     prefetch: Callable[[Sequence[Sample], bool], None] | None = None,
+    hard: Sequence[HardBrand] = (),
 ) -> CalibrationReport:
     """三件套一次跑完。裁判只在抽样的 judge_sample 条真实回答及其合成样本上跑(花钱有界);没给裁判就只比规则 / 模糊。
-    prefetch(批, 两家都判吗):给脚本并行预判的钩子——先把一批裁判结论并行取回缓存,这里再顺序读。"""
+    prefetch(批, 两家都判吗):给脚本并行预判的钩子——先把一批裁判结论并行取回缓存,这里再顺序读。
+    hard:难名字清单(engine/hard_cases.py),跑难题和别家回答底本,只用规则和模糊。"""
     rng = random.Random(seed)
     rules, fuzzy = _rules_judge(), _fuzzy_judge()
     verdicts: dict[str, dict[str, bool | None]] = {m: {} for m in METHODS}  # 判法 → run_id → 结论
@@ -244,7 +282,7 @@ def calibrate(
     bases = [s for s in samples if verdicts["rules"].get(s.run.run_id) is False
              and verdicts["fuzzy"].get(s.run.run_id) is False]
     judged_ids = {s.run.run_id for s in judged if verdicts["judge"].get(s.run.run_id) is False}
-    synthetic_runs = [(base, variant, synthetic_run(base, variant, i))
+    synthetic_runs = [(base, variant, synthetic_run(base, variant.text, str(i)))
                       for base in bases for i, variant in enumerate(variants_of(base.brand, base.competitors))]
     if prefetch is not None and judge_a is not None:
         # 合成样本只请主裁判;不归裁判计分的写法(中间换一个字母)不请——原来也先请裁判判一遍,花了钱却不计分(第二轮 B10)
@@ -262,13 +300,73 @@ def calibrate(
             cell = scores.setdefault((method, variant.kind, variant.expected), [0, 0])
             cell[0] += 1
             cell[1] += int(said == variant.expected)
-    synthetic = [KindScore(method=m, kind=k, expected=e, n=n, correct=c)
-                 for (m, k, e), (n, c) in sorted(scores.items(), key=lambda kv: (METHODS.index(kv[0][0]), kv[0][1]))]
+    versions = {method: version for method, version in current_versions().items()
+                if method != "judge" or judged}
+    hard_scores, cross = _hard_scores(samples, hard, rng)
     return CalibrationReport(
         calibrated_at=now or datetime.now(UTC), source=source, n_answers=len(samples), n_bases=len(bases),
-        judge_sample=len(judged), synthetic=synthetic, disagreement=[d for d in disagreement if d.n],
-        double_judge=double,
+        judge_sample=len(judged), detector_versions=versions, synthetic=_kind_scores(scores), hard=hard_scores,
+        cross=cross, disagreement=[d for d in disagreement if d.n], double_judge=double,
     )
+
+
+def _kind_scores(scores: dict[tuple[str, str, bool], list[int]]) -> list[KindScore]:
+    return [KindScore(method=m, kind=k, expected=e, n=n, correct=c)
+            for (m, k, e), (n, c) in sorted(scores.items(), key=lambda kv: (METHODS.index(kv[0][0]), kv[0][1]))]
+
+
+def _snippet(run: SurfaceRun, position: int | None) -> str:
+    """回答里认出来的那一小段,前后各带几个字,换行压平。"""
+    assert run.answer is not None
+    start = max(0, (position or 0) - 12)
+    return " ".join(run.answer.answer_text[start:start + 30].split())
+
+
+def _hard_scores(samples: Sequence[Sample], hard: Sequence[HardBrand],
+                 rng: random.Random) -> tuple[list[KindScore], list[CrossScore]]:
+    """④ 难题 + ⑤ 别家回答当底本。底本先过一遍:这个名字在回答里本来就被认出的,记进 ⑤;
+    本来没被认出的才拿来塞难题,否则分不清是塞进去的字惹的,还是回答里原来就有。"""
+    detectors: _Detectors = {"rules": BrandMentionDetector(), "fuzzy": FuzzyBrandMentionDetector()}
+    scores: dict[tuple[str, str, bool], list[int]] = {}
+    cross: list[CrossScore] = []
+    for hard_brand in hard:
+        brand = BrandSpec(name=hard_brand.name, aliases=hard_brand.aliases)
+        eligible = [s for s in samples if s.brand.name not in hard_brand.skip_bases]
+        clean: list[Sample] = []
+        hits: dict[str, list[str]] = {method: [] for method in detectors}
+        counts = dict.fromkeys(detectors, 0)
+        for sample in eligible:
+            spotted = False
+            for method, detector in detectors.items():
+                obs = detector.detect(sample.run, brand)
+                if obs is None:
+                    spotted = True  # 判不了的回答不当底本
+                    continue
+                counts[method] += 1
+                if obs.mentioned:
+                    spotted = True
+                    hits[method].append(f"{sample.run.run_id}:{_snippet(sample.run, obs.first_position)}")
+            if not spotted:
+                clean.append(sample)
+        cross += [CrossScore(brand=brand.name, method=method, n=counts[method], hits=len(found),
+                             examples=found[:MAX_CROSS_EXAMPLES]) for method, found in hits.items()]
+        bases = rng.sample(clean, min(HARD_BASES, len(clean)))
+        for index, case in enumerate(cases_of(hard_brand)):
+            _score_case(case, index, brand, bases, detectors, scores)
+    return _kind_scores(scores), cross
+
+
+def _score_case(case: HardCase, index: int, brand: BrandSpec, bases: Sequence[Sample], detectors: _Detectors,
+                scores: dict[tuple[str, str, bool], list[int]]) -> None:
+    for base in bases:
+        run = synthetic_run(base, case.text, f"{brand.name}{index}", case.locale)
+        for method, detector in detectors.items():
+            obs = detector.detect(run, brand)
+            if obs is None:
+                continue
+            cell = scores.setdefault((method, case.kind, case.expected), [0, 0])
+            cell[0] += 1
+            cell[1] += int(obs.mentioned == case.expected)
 
 
 def _pair(a: str, b: str, verdicts: dict[str, dict[str, bool | None]]) -> PairDisagreement:
@@ -304,6 +402,7 @@ def render_markdown(report: CalibrationReport) -> str:
     lines = [f"# 提及判法自动校准 {report.calibrated_at.astimezone(UTC):%Y-%m-%d}", "",
              f"口径:{report.source};真实回答 {report.n_answers} 条,合成底本 {report.n_bases} 条,"
              f"请裁判抽样 {report.judge_sample} 条。",
+             "测的判定器版本:" + "、".join(f"{m} v{v}" for m, v in report.detector_versions.items()) + "。",
              "自动校准,非人工核对。", "", "## ① 合成测试集(程序塞入写法,答案已知)", "",
              "| 判法 | 写法 | 应认出 | 条数 | 判对 |", "|---|---|---|---|---|"]
     for s in report.synthetic:
@@ -324,4 +423,18 @@ def render_markdown(report: CalibrationReport) -> str:
     else:
         d = report.double_judge
         lines.append(f"- 一致 {pct(d.agree, d.n)};不一致抽看:{', '.join(d.disagree_ids) or '—'}")
+    lines += ["", "## ④ 难题(程序造,答案由构造决定;只量会不会犯这类错,不是真实回答上错多少)", "",
+              "| 判法 | 种类 | 应认出 | 条数 | 判对 |", "|---|---|---|---|---|"]
+    for s in report.hard:
+        lines.append(f"| {s.method} | {s.kind} | {'是' if s.expected else '否'} | {s.n} | {pct(s.correct, s.n)} |")
+    lines += ["", "合计:"]
+    for m in METHODS:
+        t = report.hard_totals(m)
+        if t["pos_n"] or t["neg_n"]:
+            lines.append(f"- {m}:配套正例认出 {pct(t['pos_hit'], t['pos_n'])};"
+                         f"难题误认 {pct(t['neg_false'], t['neg_n'])}")
+    lines += ["", "## ⑤ 别家回答当底本(认出来的基本都是误认,不进合计)", ""]
+    for c in report.cross:
+        lines.append(f"- {c.brand} · {c.method}:{pct(c.hits, c.n)}")
+        lines += [f"  - {example}" for example in c.examples]
     return "\n".join(lines) + "\n"
