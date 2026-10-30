@@ -26,6 +26,7 @@ from engine.calibration import (  # noqa: E402
     Sample,
     calibrate,
     render_markdown,
+    report_path,
     save_calibration,
 )
 from engine.envfile import load_env_file  # noqa: E402
@@ -133,7 +134,7 @@ def main() -> int:
     out = Path(args.out)
     save_calibration(report, out)
     DOCS_DIR.mkdir(parents=True, exist_ok=True)
-    md = DOCS_DIR / f"校准-{datetime.now(UTC):%Y-%m-%d}.md"
+    md = report_path(DOCS_DIR, f"{datetime.now(UTC):%Y-%m-%d}")
     md.write_text(render_markdown(report), encoding="utf-8")
     print(render_markdown(report))
     print(f"写入 {out} 与 {md};裁判调用 {len(spent)} 次,花费 ${sum(spent):.4f}")

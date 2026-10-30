@@ -23,7 +23,7 @@ import structlog
 
 from adapters.base import SurfaceAdapter
 from engine.ai_task import Ledger, extract_json, run_task
-from engine.detectors.matching import find_first_alias
+from engine.detectors.brand_mention_fuzzy import find_mention
 from engine.models import (
     BrandSpec,
     CompetitorSuggestion,
@@ -210,22 +210,23 @@ def _str_list(value: Any) -> list[str]:
 # ── 质检原语(17.4)───────────────────────────────────────────────────
 
 
-def manual_intent(text: str, brand: BrandSpec) -> PromptIntent:
+def manual_intent(text: str, brand: BrandSpec, locale: str) -> PromptIntent:
     """用户手填的题归哪个题型:点了品牌名或别名的就是「品牌事实」,否则按「品类发现」。
-    点名的题里品牌提及率天然接近 100%,混进不点名的题型会把「AI 会主动推荐你」的结论虚高。"""
-    return PromptIntent.BRAND_FACT if find_first_alias(text, brand) is not None else PromptIntent.CATEGORY_DISCOVERY
+    点名的题里品牌提及率天然接近 100%,混进不点名的题型会把「AI 会主动推荐你」的结论虚高。
+    「点了名」按档位里最宽的免费判法认(find_mention,第 9 条):比判定器窄的话,回答里算提及的写法在题里却算没点名。"""
+    return PromptIntent.BRAND_FACT if find_mention(text, brand, locale) is not None else PromptIntent.CATEGORY_DISCOVERY
 
 
-def brand_collisions(texts: list[str], brand: BrandSpec) -> list[str]:
-    """别名撞车扫描:返回含焦点品牌名/别名/域名的文本(不点名的题命中即违规)。名字按判定器同一套词边界规则认
-    (拉丁字母按词、中文按子串):品牌叫 On,含 "on" 的题不算撞车——按子串会让这种品牌三轮都出不了题
+def brand_collisions(texts: list[str], brand: BrandSpec, locale: str) -> list[str]:
+    """别名撞车扫描:返回含焦点品牌名/别名/域名的文本(不点名的题命中即违规)。名字按档位里最宽的免费判法认
+    (find_mention,第 9 条;拉丁字母按词、中文按子串):品牌叫 On,含 "on" 的题不算撞车——按子串会让这种品牌三轮都出不了题
     (审核 2026-10-27 黄 10)。域名两边不能紧挨字母、数字或连字符:原来按子串,品牌 On 的域名 on.com 在题里的
     amazon.com 也算撞车(第二轮审核 B11);前面是点照算(shop.on.com 是它的子域)。"""
     domains = [re.compile(rf"(?<![a-z0-9-]){re.escape(d.strip().lower())}(?![a-z0-9-])")
                for d in brand.domains if d.strip()]
     return [
         text for text in texts
-        if find_first_alias(text, brand) is not None or any(domain.search(text.lower()) for domain in domains)
+        if find_mention(text, brand, locale) is not None or any(domain.search(text.lower()) for domain in domains)
     ]
 
 
@@ -271,7 +272,7 @@ def _draft_blind(
         all_texts = [t for intent in _BLIND_INTENTS for t in _str_list(data[intent.value])]
         if len(_dedupe(all_texts)) != len(all_texts):
             raise ValueError("题目存在重复")
-        leaked = brand_collisions(all_texts, brand)
+        leaked = brand_collisions(all_texts, brand, locale)
         if leaked:
             raise ValueError(f"不点名的题泄漏焦点品牌(违反真盲):{leaked[:2]}")
 
@@ -355,7 +356,7 @@ def _draft_comparison(
             raise ValueError(f"对比与替代应恰为 {count} 条,实得 {len(texts)}")
         if len(_dedupe(texts)) != len(texts):
             raise ValueError("题目存在重复")
-        leaked = brand_collisions(texts, brand)
+        leaked = brand_collisions(texts, brand, locale)
         if leaked:
             raise ValueError(f"对比与替代题点名了焦点品牌:{leaked[:2]}")
 
@@ -387,7 +388,7 @@ def _draft_brand_facts(
         texts = _str_list(data[PromptIntent.BRAND_FACT.value])
         if len(texts) != count:
             raise ValueError(f"品牌事实题应恰为 {count} 条,实得 {len(texts)}")
-        missing = [t for t in texts if brand.name.lower() not in t.lower()]
+        missing = [t for t in texts if find_mention(t, brand, locale) is None]
         if missing:
             raise ValueError(f"品牌事实题未点名焦点品牌:{missing[:2]}")
 

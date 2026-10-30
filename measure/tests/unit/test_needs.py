@@ -13,12 +13,14 @@ from engine.drafting import (
     DEFAULT_COUNTS,
     brand_collisions,
     draft_prompt_candidates,
+    manual_intent,
     suggest_competitors,
 )
 from engine.models import Answer, BrandSpec, Outcome, PromptIntent, PromptOrigin, SurfaceRun
 
 BRAND = BrandSpec(name="极光CRM", aliases=["AuroraCRM"], domains=["aurora-crm.com"])
 CATEGORY = "客户关系管理软件(CRM)"
+LOCALE = "zh-CN"
 
 BLIND_OK = {
     "category_discovery": [f"发现题{i}" for i in range(1, 9)],
@@ -89,7 +91,7 @@ def test_blind_brand_leak_is_rejected_then_retried():
     candidates, _ = draft_prompt_candidates(adapter, category=CATEGORY, brand=BRAND, ledger=lambda run: None)
     assert len(adapter.prompts) == 5  # 第一步第一次被质检打回,重试了一次
     assert not brand_collisions(
-        [c.text for c in candidates if c.intent is not PromptIntent.BRAND_FACT], BRAND
+        [c.text for c in candidates if c.intent is not PromptIntent.BRAND_FACT], BRAND, LOCALE
     )
 
 
@@ -122,7 +124,26 @@ def test_suggest_competitors_standalone():
 
 def test_brand_collisions_scans_name_alias_domain():
     texts = ["AURORACRM 好用吗", "无关问题", "见 aurora-crm.com 官网"]
-    assert brand_collisions(texts, BRAND) == ["AURORACRM 好用吗", "见 aurora-crm.com 官网"]
+    assert brand_collisions(texts, BRAND, LOCALE) == ["AURORACRM 好用吗", "见 aurora-crm.com 官网"]
+
+
+def test_prompt_checks_recognise_what_the_medium_tier_recognises():
+    """第 9 条:题里点没点名按档位里最宽的免费判法认,比判定器窄的话回答里算提及的写法在题里却算没点名,提及率虚高。"""
+    wide = ["Is Aurora-CRM any good?", "auroracrms 好用吗", "ＡｕｒｏｒａＣＲＭ 怎么样"]
+    assert brand_collisions(wide, BRAND, LOCALE) == wide
+    assert all(manual_intent(text, BRAND, LOCALE) is PromptIntent.BRAND_FACT for text in wide)
+    assert manual_intent("哪些 CRM 适合小团队?", BRAND, LOCALE) is PromptIntent.CATEGORY_DISCOVERY
+    assert not brand_collisions(["Which targets matter?"], BrandSpec(name="Target"), "en-US")  # 加尾成了普通词
+
+
+def test_brand_fact_prompts_count_as_naming_only_when_the_detector_says_so():
+    """品牌事实题原来按子串查名字:品牌 On 时任何含 on 的题都算点了名(reputation)。别名点的也算。"""
+    on = BrandSpec(name="On", aliases=["On Running"], domains=["on.com"])
+    facts = {"brand_fact": ["What is its reputation?", "Is it a good option?", "Does it last in this condition?",
+                            "Why only online?"]}
+    adapter = RecordingAdapter([BLIND_OK, COMPETITORS_OK, COMPARISON_OK] + [facts] * 3)
+    with pytest.raises(ValueError, match="未产出合格结果"):
+        draft_prompt_candidates(adapter, category=CATEGORY, brand=on, ledger=lambda run: None, locale="en-US")
 
 
 def test_brand_collisions_respect_word_boundaries_for_short_latin_names():
@@ -130,9 +151,9 @@ def test_brand_collisions_respect_word_boundaries_for_short_latin_names():
     on = BrandSpec(name="On", aliases=["On Running"], domains=["on.com"])
     texts = ["What should I look for in a marathon shoe?", "Is On a good running brand?",
              "Compare on-running shoes", "see on.com for details"]  # on-running:连字符是词边界,这是点名了
-    assert brand_collisions(texts, on) == ["Is On a good running brand?", "Compare on-running shoes",
-                                           "see on.com for details"]
-    assert brand_collisions(["极光CRM系统怎么样", "极光好看吗"], BRAND) == ["极光CRM系统怎么样"]
+    assert brand_collisions(texts, on, "en-US") == ["Is On a good running brand?", "Compare on-running shoes",
+                                                    "see on.com for details"]
+    assert brand_collisions(["极光CRM系统怎么样", "极光好看吗"], BRAND, LOCALE) == ["极光CRM系统怎么样"]
 
 
 def test_json_tolerates_markdown_fences():
@@ -156,4 +177,4 @@ def test_brand_domain_collisions_need_a_boundary_on_both_sides():
     on = BrandSpec(name="On", domains=["on.com"])
     texts = ["Is amazon.com cheaper for running shoes?", "Visit shop.on.com today", "see on.com/shoes",
              "neon.com deals"]
-    assert brand_collisions(texts, on) == ["Visit shop.on.com today", "see on.com/shoes"]
+    assert brand_collisions(texts, on, "en-US") == ["Visit shop.on.com today", "see on.com/shoes"]

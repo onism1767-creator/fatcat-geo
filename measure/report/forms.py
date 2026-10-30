@@ -66,10 +66,10 @@ def brand_from_form(brand_name: str, aliases: str, website: str) -> tuple[BrandS
     return brand, normalized
 
 
-def manual_candidates(questions: str, brand: BrandSpec) -> list[PromptCandidate]:
+def manual_candidates(questions: str, brand: BrandSpec, locale: str) -> list[PromptCandidate]:
     """用户手填的题,按是否点名品牌归题型。"""
     return [
-        PromptCandidate(origin=PromptOrigin.USER, intent=manual_intent(text, brand), text=text)
+        PromptCandidate(origin=PromptOrigin.USER, intent=manual_intent(text, brand, locale), text=text)
         for text in lines_of(questions)
     ]
 
@@ -159,7 +159,8 @@ def confirm_choice(
         for i in prompts_selected if 0 <= i < len(job.candidates)
         for c in [job.candidates[i]]
     ] + [
-        Prompt(text=text, intent=manual_intent(text, job.brand), origin=PromptOrigin.USER, locale=job.locale)
+        Prompt(text=text, intent=manual_intent(text, job.brand, job.locale), origin=PromptOrigin.USER,
+               locale=job.locale)
         for text in lines_of(custom)
     ]
     if not 1 <= len(prompts) <= MAX_PROMPTS:

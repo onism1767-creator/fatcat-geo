@@ -1,13 +1,13 @@
 # 自动校准结果(S9.4,scripts/calibrate_mention_detectors.py 生成;只记计数,非人工核对)。
 # 确认页「准确率对比」只读本文件。
-calibrated_at: '2026-10-30T20:45:00.809450Z'
+calibrated_at: '2026-10-30T22:54:34.184618Z'
 source: 旧库 geo_tool:香奈儿(1796f5fac88f,180 条)、始祖鸟(b4099bc0df58,680 条)
 n_answers: 860
 n_bases: 162
 judge_sample: 0
 detector_versions:
   rules: 2
-  fuzzy: 2
+  fuzzy: 3
 synthetic:
 - method: rules
   kind: 中间换一个字母(别的词)
@@ -204,12 +204,12 @@ hard:
   kind: 多尾巴撞别词
   expected: false
   n: 200
-  correct: 40
+  correct: 200
 - method: fuzzy
   kind: 少尾巴撞别家
   expected: false
   n: 40
-  correct: 0
+  correct: 40
 - method: fuzzy
   kind: 带助词
   expected: true
@@ -229,7 +229,7 @@ hard:
   kind: 日文近形
   expected: false
   n: 120
-  correct: 0
+  correct: 120
 - method: fuzzy
   kind: 片假名复合词
   expected: true
@@ -249,17 +249,17 @@ hard:
   kind: 越南文去声调(越南语单)
   expected: false
   n: 40
-  correct: 0
+  correct: 40
 - method: fuzzy
   kind: 越南文换声调
   expected: false
   n: 40
-  correct: 0
+  correct: 40
 - method: fuzzy
   kind: 跨标点
   expected: false
   n: 320
-  correct: 0
+  correct: 320
 - method: fuzzy
   kind: 连写
   expected: true
@@ -269,7 +269,7 @@ hard:
   kind: 韩文近形
   expected: false
   n: 160
-  correct: 40
+  correct: 160
 cross:
 - brand: 'On'
   method: rules

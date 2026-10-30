@@ -183,7 +183,7 @@ def _draft_then_register(
             display = ctx.display_names.get(exc.surface, exc.surface)
             return _abandon_draft(request, job, f"/?error={code}&ai={quote(display)}&model={quote(exc.model)}"
                                                 f"&detail={quote(exc.message[:200])}")
-    job.candidates = drafted + manual_candidates(questions, brand)
+    job.candidates = drafted + manual_candidates(questions, brand, locale)
     if not job.candidates:
         return ctx.render(request, "index.html", jobs=ctx.registry.recent(), surfaces=sorted(ctx.adapters),
                           error=error_text(request, "FORM_NO_QUESTION"))

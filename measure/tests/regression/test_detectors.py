@@ -105,6 +105,12 @@ SAMPLES = {
     # 模糊判定器 v2(2026-10-27 黄 9):中间换一个字母是别的词,不认;尾巴多一个字母(所有格)认
     "mention_other_word_rejected": make_run("r-m11", answer=answer_with("AuroxaCRM is a different tool.")),
     "mention_possessive_tail": make_run("r-m12", answer=answer_with("I like AuroraCRM's pricing.")),
+    # 模糊判定器 v3(BR2):不跨标点、少尾巴不认、多尾巴只认复数、拉丁之外的文字不去符号(这个样本的品牌名里没有,见单元测试)
+    "mention_across_comma_rejected": make_run("r-m13", answer=answer_with("Aurora, CRM tools vary a lot.")),
+    "mention_across_full_stop_rejected": make_run("r-m14", answer=answer_with("See Aurora. CRM tools vary a lot.")),
+    "mention_short_tail_rejected": make_run("r-m15", answer=answer_with("AuroraCR is a different tool.")),
+    "mention_other_tail_rejected": make_run("r-m16", answer=answer_with("AuroraCRMx is a different tool.")),
+    "mention_dot_not_in_the_name_rejected": make_run("r-m17", answer=answer_with("aurora.crm is a different tool.")),
     "empty_answer_success": make_run("r-e1", answer=answer_with("  \n")),  # SUCCESS 但正文为空:v2 判不了
     "refused_run": make_run(
         "r-m5",
@@ -341,6 +347,16 @@ FUZZY_MENTION_EXPECTED[2] = {
         mentioned=True, matched_alias="AuroraCRM", first_position=7, match_kind="exact",
         matched_text="AuroraCRM", edit_distance=0,
     ),
+}
+# 模糊判定器 v3(BR2,用户 2026-10-29 定 Q1、Q2):v2 的样本行为不变,只新增这些 v2 会认、v3 不认的边界样本
+_FUZZY_V3_ABSENT = dict(mentioned=False, matched_alias=None, first_position=None)
+FUZZY_MENTION_EXPECTED[3] = {
+    **FUZZY_MENTION_EXPECTED[2],
+    "mention_across_comma_rejected": _FUZZY_V3_ABSENT,
+    "mention_across_full_stop_rejected": _FUZZY_V3_ABSENT,
+    "mention_short_tail_rejected": _FUZZY_V3_ABSENT,
+    "mention_other_tail_rejected": _FUZZY_V3_ABSENT,
+    "mention_dot_not_in_the_name_rejected": _FUZZY_V3_ABSENT,
 }
 
 

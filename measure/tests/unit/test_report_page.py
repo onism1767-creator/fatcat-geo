@@ -361,9 +361,9 @@ def test_manual_question_naming_the_brand_is_a_brand_question():
     from engine.models import PromptIntent
 
     brand = BrandSpec(name="始祖鸟", aliases=["Arc'teryx"], domains=["arcteryx.com"])
-    assert manual_intent("始祖鸟的整体口碑和做工质量怎么样?", brand) is PromptIntent.BRAND_FACT
-    assert manual_intent("is ARC'TERYX worth the price?", brand) is PromptIntent.BRAND_FACT  # 别名,不分大小写
-    assert manual_intent("预算有限但想一步到位,哪些更值得先买?", brand) is PromptIntent.CATEGORY_DISCOVERY
+    assert manual_intent("始祖鸟的整体口碑和做工质量怎么样?", brand, "zh-CN") is PromptIntent.BRAND_FACT
+    assert manual_intent("is ARC'TERYX worth the price?", brand, "en-US") is PromptIntent.BRAND_FACT  # 别名,不分大小写
+    assert manual_intent("预算有限但想一步到位,哪些更值得先买?", brand, "zh-CN") is PromptIntent.CATEGORY_DISCOVERY
 
 
 def test_preselect_candidates_checks_everything_by_default():

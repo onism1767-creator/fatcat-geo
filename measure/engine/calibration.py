@@ -394,6 +394,15 @@ def load_calibration(path: Path = DEFAULT_CALIBRATION_PATH) -> CalibrationReport
     return CalibrationReport.model_validate(yaml.safe_load(path.read_text(encoding="utf-8")))
 
 
+def report_path(directory: Path, day: str) -> Path:
+    """存档文件名。同一天重跑不盖掉先前的:改判定器前后同日各跑一次是要比的(BR2 盖掉过 BR1 的基准)。"""
+    path, n = directory / f"校准-{day}.md", 1
+    while path.exists():
+        n += 1
+        path = directory / f"校准-{day}-{n}.md"
+    return path
+
+
 def render_markdown(report: CalibrationReport) -> str:
     """docs/校准/ 的存档:计数 + 比例 + 口径。"""
     def pct(k: int, n: int) -> str:

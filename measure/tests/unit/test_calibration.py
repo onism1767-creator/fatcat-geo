@@ -13,6 +13,7 @@ from engine.calibration import (
     inject,
     load_calibration,
     render_markdown,
+    report_path,
     save_calibration,
     variants_of,
 )
@@ -98,6 +99,18 @@ def test_calibration_round_trips_through_yaml(tmp_path: Path):
     save_calibration(report, path)
     assert load_calibration(path) == report
     assert load_calibration(tmp_path / "missing.yaml") is None  # 没跑过就是没有,不猜
+
+
+def test_a_rerun_on_the_same_day_keeps_the_earlier_report(tmp_path: Path):
+    """改判定器前后同日各跑一次要比前后,不能盖掉(BR2 盖掉过 BR1 的基准)。"""
+    first = report_path(tmp_path, "2026-10-30")
+    assert first.name == "校准-2026-10-30.md"
+    first.write_text("基准", encoding="utf-8")
+    second = report_path(tmp_path, "2026-10-30")
+    assert second.name == "校准-2026-10-30-2.md"
+    second.write_text("修后", encoding="utf-8")
+    assert report_path(tmp_path, "2026-10-30").name == "校准-2026-10-30-3.md"
+    assert first.read_text(encoding="utf-8") == "基准"
 
 
 def test_confirm_page_shows_measured_counts_only_after_calibration():
@@ -187,18 +200,18 @@ def _hard_report() -> CalibrationReport:
 
 def test_hard_cases_are_counted_by_kind_and_kept_apart_from_the_old_totals():
     """BR1:难题按种类分开数、不混进原来的合计;量的是现在判法的毛病。
-    韩文近形三条(기압、기안、기암)中档现在全误认——这是基准数,BR2 修好后这里要翻过来。"""
+    韩文近形三条(기압、기안、기암)BR2 之前中档全误认,模糊 v3 全不认了。"""
     report = _hard_report()
     plain = calibrate([sample("常见选择包括 Alpha 和 Beta。", "r1")], source="测试")
     assert report.totals("rules")["neg_n"] > 0 and plain.hard == [] and plain.cross == []
     cells = {(s.method, s.kind, s.expected): (s.n, s.correct) for s in report.hard}
     assert cells[("rules", "韩文近形", False)] == (6, 6)  # 3 条 × 2 个底本,规则不认
-    assert cells[("fuzzy", "韩文近形", False)] == (6, 0)  # 模糊把韩文拆开了,全误认
+    assert cells[("fuzzy", "韩文近形", False)] == (6, 6)
     assert cells[("rules", "带助词", True)] == (2, 2) and cells[("fuzzy", "带助词", True)] == (2, 2)
     # 美的的底本只剩 r1:r2 里的「完美的」本来就被认出,不能拿来塞难题,否则分不清是谁惹的
     assert cells[("rules", "中文词中词", False)] == (1, 0) and cells[("rules", "语境里的品牌", True)] == (1, 1)
     totals = report.hard_totals("fuzzy")
-    assert (totals["neg_n"], totals["neg_false"]) == (7, 7) and (totals["pos_n"], totals["pos_hit"]) == (3, 3)
+    assert (totals["neg_n"], totals["neg_false"]) == (7, 1) and (totals["pos_n"], totals["pos_hit"]) == (3, 3)
 
 
 def test_other_brands_answers_as_bases_are_listed_for_checking():
@@ -209,7 +222,7 @@ def test_other_brands_answers_as_bases_are_listed_for_checking():
     assert cross[("美的", "rules")].examples == ["r2:这是一次完美的旅行。第二句。"]
     assert (cross[("기아", "fuzzy")].n, cross[("기아", "fuzzy")].hits) == (2, 0)
     md = render_markdown(report)
-    assert "## ④ 难题" in md and "| fuzzy | 韩文近形 | 否 | 6 | 0/6(0%) |" in md
+    assert "## ④ 难题" in md and "| fuzzy | 韩文近形 | 否 | 6 | 6/6(100%) |" in md
     assert "## ⑤ 别家回答当底本" in md and "美的 · rules:1/2(50%)" in md
 
 
@@ -230,8 +243,8 @@ def test_versions_are_recorded_and_a_changed_detector_is_flagged(tmp_path: Path,
     zh, en = calibration_text(report, "zh"), calibration_text(report, "en")
     assert "判法改过了" not in zh and "has changed since" not in en
     assert "裁判这次没测" in zh and "the judge was not tested this time" in en
-    assert "规则误认 1/7,模糊误认 7/7" in zh and "规则认出 3/3,模糊认出 3/3" in zh
-    assert "rules false alarms 1/7, fuzzy 7/7" in en and "rules recognised 3/3, fuzzy 3/3" in en
+    assert "规则误认 1/7,模糊误认 1/7" in zh and "规则认出 3/3,模糊认出 3/3" in zh
+    assert "rules false alarms 1/7, fuzzy 1/7" in en and "rules recognised 3/3, fuzzy 3/3" in en
 
     newer = {**current_versions(), "fuzzy": report.detector_versions["fuzzy"] + 1}
     monkeypatch.setattr("engine.calibration.current_versions", lambda: newer)
