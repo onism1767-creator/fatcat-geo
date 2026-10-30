@@ -25,6 +25,7 @@ from engine.models import SurfaceRun
 from engine.observe import mention_detector_name, sentiment_detector_name
 from engine.storage import Storage
 from engine.tiers import TierChoice
+from report.clock import local_date, local_time
 from report.i18n import INTENT_LABELS, MESSAGES, STATUS_LABELS
 from report.jobs import DiagnosisJob
 from report.narrative import action_card_lines, action_text, api_line_text, wrap_up_text
@@ -186,10 +187,9 @@ def _summary_md(
     elif sn.n_cached:  # S11.2
         lines.append("- " + t["sampling_cached"].format(n=sn.n_cached, hours=sn.cache_hours))
     lines.append("- " + _tier_line(sn.tier, t))
-    fmt = "%Y-%m-%d %H:%M"
-    lines.append("- " + t["sampling_time"].format(
-        start=sn.started_at.astimezone(UTC).strftime(fmt) if sn.started_at else "—",
-        end=sn.finished_at.astimezone(UTC).strftime(fmt) if sn.finished_at else "—"))
+    lines.append("- " + t["sampling_time"].format(  # 当地时间 + 时区标记,和网页一致(用户 2026-10-29 定)
+        start=local_time(sn.started_at) if sn.started_at else "—",
+        end=local_time(sn.finished_at) if sn.finished_at else "—"))
     lines.append("- " + t["sampling_targets_pre"] + ";".join(name_of(x.surface, x.model) for x in sn.targets))
     if sn.judge_targets:  # S9.3:高档的 AI 裁判
         primary, backup = sn.judge_targets[0], sn.judge_targets[1]
@@ -197,7 +197,7 @@ def _summary_md(
                                                          backup=name_of(backup.surface, backup.model)))
     lines.append("- " + t["sampling_domains"].format(
         confirmed=sn.domains_confirmed, unconfirmed=sn.domains_unconfirmed,
-        date=sn.domains_at.astimezone(UTC).strftime("%Y-%m-%d") if sn.domains_at else "—"))
+        date=local_date(sn.domains_at) if sn.domains_at else "—"))
     code = job.report_meta.code_version if job.report_meta and job.report_meta.code_version else "—"
     lines += ["- " + t["sampling_version"].format(method=sn.method_version, code=code), ""]
     if stop_texts:  # S10.2:提前停的腿

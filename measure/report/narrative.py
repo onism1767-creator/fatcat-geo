@@ -12,6 +12,7 @@ from diagnosis.verdict import SurfaceVerdict
 from engine.calibration import CalibrationReport
 from engine.models import SearchMode
 from engine.scheduler import StopDetail
+from report.clock import local_date
 from report.errors import ErrorLibrary
 from report.i18n import INTENT_LABELS, LEVEL_LABELS, MESSAGES
 from report.summary import ApiLine, WrapUp
@@ -135,7 +136,7 @@ def calibration_text(report: CalibrationReport, lang: str) -> str:
     """确认页「准确率对比」(S9.4,用户定):只写自动校准数出来的计数,标明非人工核对;没跑过就不叫这个函数。"""
     t = MESSAGES[lang]
     rules, fuzzy, judge = report.totals("rules"), report.totals("fuzzy"), report.totals("judge")
-    parts = [t["calib_head"].format(date=report.calibrated_at.strftime("%Y-%m-%d"), n=report.n_answers),
+    parts = [t["calib_head"].format(date=local_date(report.calibrated_at), n=report.n_answers),
              t["calib_pos"].format(r=rules["pos_hit"], rn=rules["pos_n"], f=fuzzy["pos_hit"], fn=fuzzy["pos_n"])]
     if judge["pos_n"]:
         parts.append(t["calib_pos_judge"].format(j=judge["pos_hit"], jn=judge["pos_n"]))

@@ -8,7 +8,7 @@
 {# ══ 单条回答(S8.3):题目、第几次、型号、时间、提到没提到、摘录、语气;外来文字自动转义 ══ #}
 <div class="card">
   <p><b>{{ t["resp_question"] }}:</b>{{ view.prompt_text }}</p>
-  <p class="kv">{{ t["resp_meta"].format(i=run.run_index, ai=target_name(run.surface, run.model), time=run.timestamp|utc_time) }}</p>
+  <p class="kv">{{ t["resp_meta"].format(i=run.run_index, ai=target_name(run.surface, run.model), time=run.timestamp|local_time) }}</p>
   <p><b>{{ t["resp_mentioned_word"] }}:</b>
     {% if not view.valid %}{% set why = t["resp_blank"] if run.outcome.value == "SUCCESS" else t["outcome_" ~ run.outcome.value] %}{{ t["resp_invalid"].format(why=why) }}{% elif view.mentioned is none %}{{ t["resp_no_record"] }}{% elif view.mentioned %}{{ t["resp_yes"] }}{% else %}{{ t["resp_no"] }}{% endif %}</p>
   {% if view.excerpt %}<p><b>{{ t["resp_excerpt"] }}:</b>「{{ view.excerpt }}」</p>{% endif %}

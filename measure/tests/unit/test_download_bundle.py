@@ -54,7 +54,7 @@ def test_bundle_has_the_five_files_built_from_the_database(storage):
     assert by_id["b1"]["judgements"]["cited_brand_domains"] == ["aurora-crm.com"]
     assert by_id["b2"]["judgements"]["mentioned"] is False and by_id["b2"]["judgements"]["excerpt"] is None
     assert by_id["b1"]["judgements"]["detectors"]["brand_mention_rules"] == 2
-    assert by_id["b1"]["timestamp"] == "2026-10-14T03:04:00+00:00"  # 一律 UTC
+    assert by_id["b1"]["timestamp"] == "2026-10-14T03:04:00+00:00"  # 原始数据一律 UTC(带时区,不改)
 
     cites = list(csv.reader(io.StringIO(archive.read("citations.csv").decode("utf-8-sig"))))
     assert cites[0][:6] == ["run_id", "prompt_no", "run_index", "ai", "position", "url"]
@@ -69,6 +69,7 @@ def test_bundle_has_the_five_files_built_from_the_database(storage):
     summary = archive.read("summary.md").decode("utf-8")
     assert summary.startswith("# 极光CRM AI 可见度报告") and "## 这次是怎么测的" in summary
     assert "题目 1 道 · 型号 2 个 · 每题问 3 次" in summary and "S1 · m1" in summary
+    assert "测试时间:2026-08-24 09:00 UTC+8 至 2026-08-24 09:30 UTC+8" in summary  # 和网页一样:当地时间 + 时区
     assert "档位:低档 —— 每道题问 3 次;「提到你」按你的名字和别名精确匹配(整词)。" in summary  # S9.1
     assert "## AI 回答里写你的名字,最常见的几种写法" in summary and "- auroracrms · 3 · 还没登记" in summary  # S9.2b
     assert "## 提前停的型号" in summary and "s2 的 m2 提前停了:失败太多。" in summary  # S10.2

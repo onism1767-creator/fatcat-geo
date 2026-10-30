@@ -42,3 +42,14 @@ def _test_client_host(monkeypatch):
     import report.app
 
     monkeypatch.setattr(report.app, "ALLOWED_HOSTS", (*report.app.ALLOWED_HOSTS, "testserver"))
+
+
+@pytest.fixture(autouse=True)
+def _fixed_local_zone(monkeypatch):
+    """页面上的时刻按电脑当地时间显示(report/clock.py,用户 2026-10-29 定);测试一律当成 UTC+8,
+    换一台时区不同的电脑跑,期望值也不变。用非零时区才抓得到「直接按 UTC 或本机时间打印」这类错(10-14 踩过)。"""
+    from datetime import timedelta, timezone
+
+    import report.clock
+
+    monkeypatch.setattr(report.clock, "local_zone", lambda: timezone(timedelta(hours=8)))

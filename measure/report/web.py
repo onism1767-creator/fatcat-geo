@@ -4,7 +4,6 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
 from pathlib import Path
 
 import structlog
@@ -20,6 +19,7 @@ from engine.category_check import TASK_LABEL, CategoryCheck, helper_model, run_c
 from engine.judge import JudgeConfig
 from engine.storage import CallStat, Storage, StorageUnavailable
 from engine.tiers import TierConfig
+from report.clock import local_date, local_time
 from report.errors import ErrorLibrary
 from report.i18n import (
     ACCESS_LABELS,
@@ -75,11 +75,6 @@ def target_namer(adapters: dict[str, SurfaceAdapter]) -> TargetNamer:
     return target_name
 
 
-def utc_time(moment: datetime, fmt: str = "%Y-%m-%d %H:%M") -> str:
-    """时刻一律按 UTC 显示(S8.3):库里回来的时间带本机时区,直接 strftime 会显示成本机时间。"""
-    return moment.astimezone(UTC).strftime(fmt)
-
-
 def _templates(target_name: TargetNamer) -> Jinja2Templates:
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
     env = templates.env
@@ -88,7 +83,8 @@ def _templates(target_name: TargetNamer) -> Jinja2Templates:
     env.globals["layer_msg"] = lambda layer: msg(f"access.layer.{layer.value}")
     # 用户视图(v0.4.14):人话渲染器 + 阶段人话标签;技术目录只在「检测依据与方法」
     env.filters["plain"] = lambda message, lang: render_msg(message, lang, "plain")
-    env.filters["utc_time"] = utc_time  # 时刻按 UTC 显示(S8.3)
+    env.filters["local_time"] = local_time  # 时刻一律当地时间 + 时区标记(用户 2026-10-29 定)
+    env.filters["local_date"] = local_date
     env.globals["access_headline"] = lambda overall: msg(f"access.headline.{overall.value.lower()}")
     env.globals["target_name"] = target_name
     # S8.7:人话段落(各 AI 一句话 / 型号数数 / 末尾汇总 / 每个型号一句结论)在 report/narrative.py 拼

@@ -422,13 +422,27 @@ def test_report_opens_with_a_sampling_note(client_and_job):
     assert "这次是怎么测的" in view
     assert "题目 1 道 · 型号 2 个 · 每题问 3 次 → 共提问 6 次,其中有效回答 5 次" in view
     assert "另有不用联网搜索的对照 3 次,单独算" in view
-    assert "测试时间:2026-08-24 01:00 至 2026-08-24 01:30(UTC)" in view
+    assert "测试时间:2026-08-24 09:00 UTC+8 至 2026-08-24 09:30 UTC+8" in view  # 当地时间 + 时区(测试当 UTC+8)
     assert "实际调用的接口和型号:S1 · m1;s2 · m2" in view  # s2 没加载的仪器如实用内部名
     assert "官网名单:已确认 1 个、待你确认 2 个(名单日期 2026-08-24)" in view
     assert "方法版本 0.4.26" in view
     assert html.index("这次是怎么测的") < html.index("这次检测告诉了我们什么")  # 在最前面
     en = client.get(f"/jobs/{job.job_id}/report?lang=en").text
     assert "How this was measured" in en and "1 questions · 2 models · each asked 3 times" in en
+    assert "Tested: 2026-08-24 09:00 UTC+8 to 2026-08-24 09:30 UTC+8" in visible_text(en)
+
+
+def test_every_time_on_the_report_is_local_and_says_its_zone(client_and_job):
+    """同一页的时刻原来两种时区、两处没标(测试时间 UTC、起测 UTC 没标、报告生成于本机时间没标);
+    用户 2026-10-29 定一律显示电脑当地时间并带时区标记。"""
+    from datetime import timedelta, timezone
+
+    client, job, _ = client_and_job
+    text = visible_text(client.get(f"/jobs/{job.job_id}/report?lang=zh").text)
+    stamps = re.findall(r"\d{4}-\d\d-\d\d \d\d:\d\d(?: UTC[+-][\d:]+)?", text)
+    assert stamps and all(stamp.endswith("UTC+8") for stamp in stamps), stamps
+    assert f"{job.created_at.astimezone(timezone(timedelta(hours=8))):%Y-%m-%d %H:%M} UTC+8 起测" in text
+    assert "(UTC)" not in text
 
 
 def test_summarize_orders_by_evidence_level_then_support():

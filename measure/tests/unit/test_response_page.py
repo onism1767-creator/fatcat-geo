@@ -58,7 +58,7 @@ def test_response_page_shows_one_answer_with_its_recorded_judgements(storage):
     persist_observations(storage, [observe(run, job.brand, ObserveContext(competitors=[], pages=PageIndex()))])
     client = _client(job)
     html = client.get(f"/jobs/{job.job_id}/responses/r1?lang=zh").text
-    assert "中小团队用什么 CRM 好" in html and "第 2 次 · S1 · m1 · 2026-10-14 03:04" in html
+    assert "中小团队用什么 CRM 好" in html and "第 2 次 · S1 · m1 · 2026-10-14 11:04 UTC+8" in html
     assert "提到了" in html and "「极光CRM 适合中小团队 &lt;script&gt;alert(1)&lt;/script&gt;」" in html  # 摘录转义
     assert "<script>alert(1)</script>" not in html
     assert "https://www.aurora-crm.com/pricing" in html and "你的官网" in html and "aurora-crm.com(主站)" in html
