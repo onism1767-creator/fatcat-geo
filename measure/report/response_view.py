@@ -34,6 +34,7 @@ class ResponseView(FrozenModel):
     mentioned: bool | None  # None = 没有有效回答,判不了,或说不准(unsure)
     unsure: bool  # 只出现了这个词,看不出是不是你(BR4)
     clue: str | None  # 靠什么线索算你(BR4):有风险的名字才有
+    reason_code: str | None  # 裁判说没提到的理由码(BR5)
     excerpt: str | None  # 第一次提到你的那一句
     matched_alias: str | None  # 命中的登记名 / 别名
     matched_text: str | None  # 回答里的命中片段(S9.2,模糊判定器起才有)
@@ -116,6 +117,7 @@ def build_response_view(job: DiagnosisJob, run: SurfaceRun, observations: list[d
         mentioned=mentioned,
         unsure=mention is not None and mentioned is None,
         clue=mention.get("clue") if mention else None,
+        reason_code=mention.get("reason_code") if mention else None,
         excerpt=excerpt,
         matched_alias=mention.get("matched_alias") if mention else None,
         matched_text=mention.get("matched_text") if mention else None,

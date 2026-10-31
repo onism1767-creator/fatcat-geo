@@ -299,6 +299,8 @@ class BrandMentionObservation(DerivedObservation):
     confidence: float | None = None  # 裁判的置信度(S9.3,0–1;其他判定器不填)
     reason: str | None = None  # 裁判的一句理由(S9.3)
     clue: str | None = None  # 有风险的名字靠什么线索算你(BR4):附近的别家名、品类词、别的登记名或官网
+    reason_code: str | None = None  # 裁判说没提到的理由码(BR5,engine/judge.py 的 REASON_CODES)
+    new_spellings: list[str] = []  # 裁判看到的、像你但没登记的写法(BR5):不算提到,进报告写法清单
 
 
 class CitationObservation(DerivedObservation):

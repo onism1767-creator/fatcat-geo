@@ -10,7 +10,7 @@
 #   rules              别名表 + 词边界精确匹配(判定器 brand_mention_rules v3);常用词和太短的名字看大小写和线索,看不出来记说不准
 #   rules_fuzzy        + 规整 + 模糊匹配(判定器 brand_mention_fuzzy v4:只认复数尾巴 + 拉丁字母去重音,S9.2 起中档用它);
 #                      说不准的那几条请 AI 裁判,一单最多 300 条,判不了仍记说不准(BR4,用户定 Q3;裁判型号在 judges.yaml)
-#   rules_fuzzy_judge  + 另一家 AI 读上下文裁定每一条(判定器 brand_mention_judge v1,S9.3 起高档用它)
+#   rules_fuzzy_judge  + 另一家 AI 读上下文裁定每一条(判定器 brand_mention_judge v2,S9.3 起高档用它)
 # 配置写的就是现在真实用的,不预先写还没有的方法。
 
 default: medium

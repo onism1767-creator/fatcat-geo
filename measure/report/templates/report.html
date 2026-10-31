@@ -183,7 +183,7 @@
   <table class="brief">
     <tr><th>{{ t["spellings_col_text"] }}</th><th>{{ t["spellings_col_count"] }}</th><th>{{ t["spellings_col_status"] }}</th></tr>
     {% for sp in job.spellings %}
-    <tr><td>{{ sp.text }}</td><td>{{ sp.count }}</td><td>{% if sp.registered %}{{ t["spellings_registered"] }}{% else %}{{ t["spellings_unregistered"] }}{% endif %}</td></tr>
+    <tr><td>{{ sp.text }}</td><td>{{ sp.count }}</td><td>{% if sp.suggested %}{{ t["spellings_suggested"] }}{% elif sp.registered %}{{ t["spellings_registered"] }}{% else %}{{ t["spellings_unregistered"] }}{% endif %}</td></tr>
     {% endfor %}
   </table>
 </div>

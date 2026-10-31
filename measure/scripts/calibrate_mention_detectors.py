@@ -4,6 +4,7 @@
     .venv\\Scripts\\python scripts/calibrate_mention_detectors.py                 # 只比规则 / 模糊,不花钱
     .venv\\Scripts\\python scripts/calibrate_mention_detectors.py --judge-sample 100
         # 再抽 100 条请两家裁判(花钱,先点头)
+    --judge-real / --double-real / --judge-hard 3:难品牌的回答和难题也请裁判(花钱);--cap 是这次的花费上限,撞上就停。
 
 旧库是旧表结构(information_need / prompt_variant),这里自己读,不走 engine/storage.py;品牌卡从旧任务快照取。
 """
@@ -23,6 +24,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from engine.calibration import (  # noqa: E402
     DEFAULT_CALIBRATION_PATH,
+    UNSURE,
     RealSample,
     Sample,
     calibrate,
@@ -32,7 +34,7 @@ from engine.calibration import (  # noqa: E402
 )
 from engine.envfile import load_env_file  # noqa: E402
 from engine.hard_cases import REAL_KINDS, load_hard_brands, load_real_brands, prompts_of  # noqa: E402
-from engine.judge import JudgeConfig, MentionJudge, load_judges  # noqa: E402
+from engine.judge import NO_INFO, JudgeConfig, MentionJudge, load_judges  # noqa: E402
 from engine.loader import build_adapters  # noqa: E402
 from engine.models import (  # noqa: E402
     Answer,
@@ -107,6 +109,10 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="自动校准三种提及判法(计数,非人工核对)")
     parser.add_argument("--dsn", default=default_dsn().rsplit("/", 1)[0] + "/geo_tool", help="旧库连接串(只读)")
     parser.add_argument("--judge-sample", type=int, default=0, help="抽几条真实回答请两家裁判(花钱;0 = 不请)")
+    parser.add_argument("--judge-real", action="store_true", help="难品牌的回答全部请裁判(花钱)")
+    parser.add_argument("--double-real", action="store_true", help="难品牌的回答再请第二家裁判(花钱)")
+    parser.add_argument("--judge-hard", type=int, default=0, help="每道难题请裁判判几条底本(花钱;0 = 不请)")
+    parser.add_argument("--cap", type=float, default=1.0, help="这次裁判的花费上限(美元),撞上就停")
     parser.add_argument("--seed", type=int, default=20261021)
     parser.add_argument("--out", default=str(DEFAULT_CALIBRATION_PATH))
     args = parser.parse_args()
@@ -118,42 +124,66 @@ def main() -> int:
     judge_a = judge_b = None
     spent: list[float] = []
     adapters = {}
-    if args.judge_sample > 0:
+    if args.judge_sample > 0 or args.judge_real or args.judge_hard > 0:
         load_env_file()
         adapters = build_adapters(os.environ)
         config = load_judges()
         swapped = JudgeConfig(primary=config.backup, backup=config.primary)
-        first = MentionJudge(config, adapters, ledger=lambda r: spent.append(r.cost_usd), locale="zh-CN")
-        second = MentionJudge(swapped, adapters, ledger=lambda r: spent.append(r.cost_usd), locale="zh-CN")
+        pairs: dict[tuple[str, ...], tuple[MentionJudge, MentionJudge]] = {}
+        built: list[MentionJudge] = []
 
-        def same_judge(run) -> bool:
+        def ledger(run: SurfaceRun) -> None:
+            spent.append(run.cost_usd)
+            if sum(spent) >= args.cap:  # 撞上限:已判的留着,后面的记看不到,不再花钱
+                for judge in built:
+                    judge.stop_asking()
+
+        def judges_of(run: SurfaceRun, brand: BrandSpec, competitors: list[str] | None = None):
+            """按回答语言和品牌卡各一对裁判:提示词跟回答同语言,竞品跟这张品牌卡走(难题和真实回答的同名品牌卡不一样)。"""
+            key = (run.locale, brand.name, *brand.aliases)
+            if key not in pairs:
+                pairs[key] = tuple(MentionJudge(c, adapters, ledger=ledger, locale=run.locale,
+                                                competitors=competitors or []) for c in (config, swapped))
+                built.extend(pairs[key])
+                if sum(spent) >= args.cap:
+                    built[-1].stop_asking()
+                    built[-2].stop_asking()
+            return pairs[key]
+
+        def same_judge(run: SurfaceRun, brand: BrandSpec) -> bool:
             """两家裁判必须真是两家:被测回答出自其中一家时两边会挑到同一个型号,这条就不算「两家一致」。"""
+            first, second = judges_of(run, brand)
             mine, theirs = first.pick(run), second.pick(run)
             return mine is None or theirs is None or mine[1] == theirs[1]
 
-        def as_bool(judge: MentionJudge, second_opinion: bool = False):
+        def as_bool(which: int, second_opinion: bool = False):
             def says(run, brand):
-                if second_opinion and same_judge(run):
+                if second_opinion and same_judge(run, brand):
                     return None
-                verdict = judge.judge(run, brand)
-                return None if verdict is None else verdict.mentioned
+                verdict = judges_of(run, brand)[which].judge(run, brand)
+                if verdict is None:
+                    return None
+                return UNSURE if verdict.reason_code == NO_INFO else verdict.mentioned
             return says
 
-        judge_a, judge_b = as_bool(first), as_bool(second, second_opinion=True)
+        judge_a, judge_b = as_bool(0), as_bool(1, second_opinion=True)
 
         def prefetch(batch, both: bool) -> None:
             """并行预判(4 路),裁判结论进缓存;calibrate 再顺序读。"""
-            by_brand: dict[str, tuple[BrandSpec, list[SurfaceRun]]] = {}
+            groups: dict[tuple[str, ...], tuple[BrandSpec, list[str], list[SurfaceRun]]] = {}
             for s in batch:
-                by_brand.setdefault(s.brand.name, (s.brand, []))[1].append(s.run)
-            for brand, runs in by_brand.values():
+                key = (s.run.locale, s.brand.name, *s.brand.aliases)
+                groups.setdefault(key, (s.brand, s.competitors, []))[2].append(s.run)
+            for brand, competitors, runs in groups.values():
+                first, second = judges_of(runs[0], brand, competitors)
                 first.warm(runs, brand, concurrency=4)
                 if both:
-                    second.warm([r for r in runs if not same_judge(r)], brand, concurrency=4)
+                    second.warm([r for r in runs if not same_judge(r, brand)], brand, concurrency=4)
     try:
         report = calibrate(samples, source=f"{source};{real_source}", judge_a=judge_a, judge_b=judge_b,
                            judge_sample=args.judge_sample, seed=args.seed,
-                           prefetch=prefetch if judge_a is not None else None, hard=load_hard_brands(), real=real)
+                           prefetch=prefetch if judge_a is not None else None, hard=load_hard_brands(), real=real,
+                           judge_real=args.judge_real, double_real=args.double_real, judge_hard_bases=args.judge_hard)
     finally:
         for adapter in adapters.values():
             adapter.close()

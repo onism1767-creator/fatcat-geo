@@ -15,6 +15,7 @@
   {#- 怎么认出来的(S9.2,模糊判定器起才记;规则判定器的记录没有这一行) -#}
   {% if view.match_kind and not view.unsure %}<p class="kv">{{ t["resp_match_" ~ view.match_kind].format(text=view.matched_text or "—", alias=view.matched_alias or "—", d=view.edit_distance) }}</p>{% endif %}
   {% if view.clue %}<p class="kv">{{ t["resp_clue"].format(clue=view.clue) }}</p>{% endif %}
+  {% if view.reason_code %}<p class="kv">{{ t["resp_reason_" ~ view.reason_code] }}</p>{% endif %}
   {% if view.tone %}<p><b>{{ t["resp_tone"] }}:</b>{{ t["sentiment_" ~ view.tone] }}</p>{% endif %}
 </div>
 

@@ -7,11 +7,12 @@ from pathlib import Path
 import pytest
 import yaml
 
-from engine.aggregate import measure_target, rate_metric
+from engine.aggregate import measure_target, rate_metric, tally_spellings
 from engine.loader import DEFAULT_SURFACES_PATH, build_adapters, load_surface_registry
 from engine.models import (
     Answer,
     BrandMentionObservation,
+    BrandSpec,
     Outcome,
     PromptIntent,
     RunError,
@@ -147,6 +148,20 @@ def test_unsure_answers_stay_out_of_the_mention_rate():
                               stop_reason=StopReason.COMPLETED, competitor_names=[], exposes_retrieval=False)
     assert [(q.run_index, q.mentioned, q.unsure) for q in measured.quotes] == [(1, True, False), (2, False, False),
                                                                                (3, None, True)]
+
+
+def test_spellings_list_the_judges_new_ones_as_suggestions():
+    """BR5(用户 10-30 定):裁判看到的新写法进写法清单,标明没算进提及率;已登记的、真算过的不标。"""
+    def seen(*spellings: str, mentioned: bool | None = False, text: str | None = None) -> RunObservations:
+        mention = BrandMentionObservation(run_id="r", detector_name="m", detector_version=1, mentioned=mentioned,
+                                          matched_text=text, new_spellings=list(spellings))
+        return replace(make_obs("q1", 1), mention=mention)
+
+    brand = BrandSpec(name="极光CRM", aliases=["AuroraCRM"])
+    listed = tally_spellings(
+        [seen("极光CMR"), seen("极光cmr"), seen("auroracrm"), seen("Aurora", mentioned=True, text="Aurora")], brand)
+    assert [(s.text, s.count, s.registered, s.suggested) for s in listed] == [
+        ("极光CMR", 2, False, True), ("Aurora", 2, False, False)]
 
 
 def test_rate_metric_without_valid_samples_has_no_rate():

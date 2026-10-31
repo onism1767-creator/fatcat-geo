@@ -138,6 +138,8 @@ def _response_record(
             "mentioned": mention.get("mentioned") if mention else None,
             "unsure": mention is not None and mention.get("mentioned") is None,  # BR4:只出现了这个词,看不出是不是你
             "clue": mention.get("clue") if mention else None,
+            "reason_code": mention.get("reason_code") if mention else None,  # BR5:裁判说没提到的理由
+            "new_spellings": mention.get("new_spellings", []) if mention else [],
             "matched_alias": mention.get("matched_alias") if mention else None,
             "matched_text": mention.get("matched_text") if mention else None,  # S9.2:怎么认出来的
             "match_kind": mention.get("match_kind") if mention else None,
@@ -243,7 +245,8 @@ def _summary_md(
     if job.spellings:  # S9.2b:AI 回答里写你的名字的写法
         lines += [f"## {t['spellings_report_title']}", "", t["spellings_report_lead"], ""]
         for sp in job.spellings:
-            status = t["spellings_registered"] if sp.registered else t["spellings_unregistered"]
+            status = t["spellings_suggested" if sp.suggested else
+                       "spellings_registered" if sp.registered else "spellings_unregistered"]
             lines.append(f"- {sp.text} · {sp.count} · {status}")
         lines.append("")
     if summary.actions:

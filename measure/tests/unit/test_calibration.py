@@ -42,10 +42,9 @@ def test_variants_cover_the_decided_spellings_and_near_misses():
     assert not any(v.expected is False and v.kind == "竞品名" and v.text != "竞品甲" for v in variants)  # 撞名 / 空名
     assert ("小写", "auroracrm", True) in kinds and ("复数", "AuroraCRMs", True) in kinds
     assert ("所有格", "AuroraCRM's", True) in kinds
-    # 黄 9 定稿(2026-10-27):中间换一个字母是别的词,规则 / 模糊都不该认;裁判不判这条(按上下文会当拼错的品牌名)
+    # 黄 9 定稿(2026-10-27):中间换一个字母是别的词,谁都不该认
     other = next(v for v in variants if v.kind == "中间换一个字母(别的词)")
-    assert (other.text, other.expected, other.judge) == ("AuroxaCRM", False, False)
-    assert all(v.judge for v in variants if v.kind != "中间换一个字母(别的词)")
+    assert (other.text, other.expected) == ("AuroxaCRM", False)
     assert ("去空格", "AuroraCRM", True) not in kinds  # 与别名 AuroraCRM 重复:去重
     accented = {(v.kind, v.text, v.expected) for v in variants_of(BrandSpec(name="Citroën"))}
     assert ("去重音", "Citroen", True) in accented and ("原样", "Citroën", True) in accented
@@ -76,7 +75,7 @@ def test_calibrate_counts_hits_false_alarms_disagreement_and_double_judge():
     assert rules["pos_n"] == fuzzy["pos_n"] > 0 and rules["pos_hit"] < fuzzy["pos_hit"]  # 模糊比规则多认出变体
     assert rules["neg_n"] == fuzzy["neg_n"] == 6  # 两个底本各塞一个竞品名 + 两个别名各一个「中间换一个字母」
     assert rules["neg_false"] == 0 and fuzzy["neg_false"] == 0  # 竞品名、中间换字的别的词都没被误认(黄 9 v2)
-    assert judge["neg_n"] == 1  # 裁判只在它判过的底本(r1;r4 看不到)上判竞品名负例,不判「中间换一个字母」
+    assert judge["neg_n"] == 3  # 裁判只在它判过的底本(r1;r4 看不到)上判:竞品名 + 两个「中间换一个字母」(BR5 起算分)
     assert judge["pos_n"] > 0 and judge["pos_n"] < fuzzy["pos_n"]  # 裁判只在抽样且说没提到的底本上跑(r4 看不到)
     rf = report.pair("rules", "fuzzy")
     assert rf is not None and (rf.n, rf.disagree, rf.examples) == (4, 1, ["r2"])  # auroracrms:规则没认、模糊认了
@@ -163,15 +162,13 @@ def test_prefetch_hook_gets_the_sampled_answers_then_their_synthetic_runs():
     assert both is False and synthetic_ids and all(i.startswith("r1#") for i in synthetic_ids)  # 只有 r1 是底本
 
 
-def test_prefetch_skips_spellings_the_judge_is_not_scored_on():
-    """「中间换一个字母」只对规则 / 模糊计分,裁判不判:原来预判时也先请裁判判一遍,花钱不计分(第二轮审核 B10)。"""
+def test_the_judge_is_scored_on_a_letter_changed_in_the_middle():
+    """BR5(用户定 Q4):没登记的写法裁判也不认了,「中间换一个字母」这项开始算它的分(以前按错写认,不计分)。"""
     samples = [sample("常见选择包括 Alpha。", "r1"), sample("推荐 极光CRM。", "r2")]
-    calls = []
-    calibrate(samples, source="测试", judge_a=lambda run, brand: False, judge_b=lambda run, brand: False,
-              judge_sample=2, prefetch=lambda batch, both: calls.append(sorted(s.run.run_id for s in batch)))
-    variants = variants_of(BRAND)
-    assert any(not v.judge for v in variants)  # 有不归裁判计分的写法,这条测试才有意义
-    assert calls[1] == sorted(f"r1#{i}" for i, v in enumerate(variants) if v.judge)
+    report = calibrate(samples, source="测试", judge_a=lambda run, brand: False, judge_b=lambda run, brand: False,
+                       judge_sample=2)
+    [cell] = [s for s in report.synthetic if s.method == "judge" and s.kind == "中间换一个字母(别的词)"]
+    assert cell.n == cell.correct and cell.n > 0
 
 
 def test_names_with_few_letters_do_not_crash_the_variant_maker():
@@ -239,6 +236,44 @@ def test_real_answers_of_hard_brands_are_counted_apart_by_brand_kind_and_method(
     assert (cells[("不点名", "fuzzy")].hits, cells[("不点名", "fuzzy")].unsure) == (0, 1)  # BR4:说不准单独数
     assert report.synthetic == plain.synthetic and plain.real == []
     assert "| 美的 | 反例 | fuzzy | 2 | 1/2(50%) | 0 |" in render_markdown(report)
+
+
+def test_the_judge_can_read_real_answers_and_hard_cases_when_asked():
+    """BR5:裁判判难品牌的回答和难题,和规则 / 模糊分开数;只数模糊说不准的那些,看裁判能解决多少。"""
+    brand = BrandSpec(name="美的")
+
+    def real_sample(text: str, run_id: str, kind: str) -> RealSample:
+        return RealSample(run=sample(text, run_id).run, brand=brand, kind=kind)
+
+    real = [real_sample("美的很常见。", "u1", NAMING), real_sample("这款空调不错。", "u2", "反例")]
+    asked: list[str] = []
+    fetched: list[bool] = []
+
+    def judge_a(run, _brand):
+        asked.append(run.run_id)
+        return "这款" not in run.answer.answer_text
+
+    def judge_b(run, _brand):
+        return False
+
+    def prefetch(batch, both):
+        fetched.append(both)
+
+    hard = [HardBrand(name="기아", positives={"带助词": ["기아는 회사입니다."]})]
+    report = calibrate([sample("常见选择包括 Alpha。", "r1"), sample("另一条回答。", "r2")], source="测试",
+                       judge_a=judge_a, judge_b=judge_b, prefetch=prefetch, hard=hard, real=real, judge_real=True,
+                       double_real=True, judge_hard_bases=1)
+
+    cells = {(s.kind, s.method): s for s in report.real}
+    assert (cells[(NAMING, "judge")].hits, cells[("反例", "judge")].hits) == (1, 0)
+    assert (cells[(NAMING, "judge_on_unsure")].n, cells[(NAMING, "judge_on_unsure")].hits) == (1, 1)
+    assert ("反例", "judge_on_unsure") not in cells  # 模糊没说不准,不算这一格
+    assert report.real_double is not None and (report.real_double.n, report.real_double.agree) == (2, 1)
+    [hard_cell] = [s for s in report.hard if s.method == "judge" and s.kind == "带助词"]
+    assert (hard_cell.n, hard_cell.correct) == (1, 1)  # 两条底本只判一条
+    assert report.detector_versions["judge"] == current_versions()["judge"]
+    assert fetched.count(True) == 1 and "u1" in asked  # 只有难品牌回答要两家都判
+    assert "难品牌回答上一致 1/2(50%)" in render_markdown(report)
 
 
 def test_other_brands_answers_as_bases_are_listed_for_checking():

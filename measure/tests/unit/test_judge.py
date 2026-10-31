@@ -29,6 +29,7 @@ class ScriptedJudge(SurfaceAdapter):
             "mentioned": "极光CRM" in answer or "AuroraCRM" in answer,
             "spans": [s for s in ("极光CRM", "AuroraCRM") if s in answer],
             "confidence": 0.9, "sentiment": "positive" if "推荐" in answer else "neutral", "reason": "点名了",
+            "reason_code": None if "极光CRM" in answer or "AuroraCRM" in answer else "absent", "new_spellings": [],
         })
         self.requests = []
 
@@ -101,6 +102,55 @@ def test_prompt_isolates_the_answer_as_data_and_carries_the_brand_card():
     assert "Brand card" in build_prompt(BRAND, [], "x", "en-US")
 
 
+def test_prompt_counts_registered_names_only_and_lists_where_the_letters_appear():
+    """BR5(用户定 Q4):只有登记过的写法才算你;程序按字面找到的位置一起给裁判,没有就写没有,常用词也不会列太多。"""
+    for locale, none in (("zh-CN", "(无)"), ("en-US", "(none)")):
+        assert none in build_prompt(BRAND, [], "推荐别家。", locale).split("<<<BEGIN>>>")[0]
+    zh = build_prompt(BRAND, [], "我们推荐 极光CRM,很好用。", "zh-CN")
+    assert "没登记过的写法(拼错的、简称、别的译名)一律不算提到" in zh and "错写都算" not in zh
+    assert "- 我们推荐 极光CRM,很好用。" in zh.split("<<<BEGIN>>>")[0]
+    en = build_prompt(BrandSpec(name="On"), [], " on and".join("x" * 40 for _ in range(30)), "en-US")
+    assert "Anything not registered" in en and "misspelling" in en
+    assert en.split("Decide three things")[0].count("\n- ") == 4 + 8  # 品牌卡 4 行 + 最多 8 处
+
+
+def test_parse_verdict_requires_a_reason_when_not_mentioned_and_checks_new_spellings():
+    answer = "我们推荐 极光CMR,它比竞品甲好。"
+    v = parse_verdict('{"mentioned": false, "spans": [], "confidence": 0.7, "sentiment": null, '
+                      '"reason_code": "absent", "new_spellings": ["极光CMR", "不在原文里", "极光CMR"], "reason": "x"}',
+                      answer)
+    assert v.reason_code == "absent" and v.new_spellings == ["极光CMR"]
+    for bad in ['{"mentioned": false, "spans": [], "confidence": 0.7, "sentiment": null, "reason": "x"}',
+                '{"mentioned": false, "spans": [], "confidence": 0.7, "sentiment": null, "reason_code": "nope"}',
+                '{"mentioned": false, "spans": [], "confidence": 0.7, "sentiment": null, "reason_code": "absent", '
+                '"new_spellings": "极光CMR"}']:
+        with pytest.raises(ValueError):
+            parse_verdict(bad, answer)
+    yes = parse_verdict('{"mentioned": true, "spans": ["极光CMR"], "confidence": 0.7, "sentiment": null, '
+                        '"reason_code": "absent"}', answer)
+    assert yes.reason_code is None  # 提到了就没有「没提到的理由」
+
+
+def test_not_enough_information_is_recorded_as_unsure_at_the_place_it_saw():
+    """BR5:裁判说信息不够 → 判定行记说不准,不进分母;别的理由 → 没提到,理由码存下来。"""
+    brand = BrandSpec(name="美的")
+
+    def says(code: str):
+        return lambda answer: {"mentioned": False, "spans": [], "confidence": 0.5, "sentiment": None,
+                               "reason_code": code, "new_spellings": ["美的集团股份"] if code == "no_info" else [],
+                               "reason": "x"}
+
+    def judged(code: str, text: str):
+        judge = MentionJudge(CONFIG, adapters(says(code)), ledger=lambda r: None, locale="zh-CN")
+        return JudgeBrandMentionDetector(judge).detect(run_with(text), brand)
+
+    unsure = judged("no_info", "它家美的集团股份很有名,美的。")
+    assert unsure.mentioned is None and unsure.reason_code == "no_info"
+    assert unsure.matched_text == "美的" and unsure.first_position == 2 and unsure.new_spellings == ["美的集团股份"]
+    other = judged("other_meaning", "这是完美的旅行。")
+    assert other.mentioned is False and other.reason_code == "other_meaning" and other.matched_text is None
+
+
 def test_parse_verdict_checks_every_field_and_the_spans_mechanically():
     answer = "我们推荐 极光CRM,它比竞品甲好。"
     v = parse_verdict('{"mentioned": true, "spans": ["极光CRM", "不在原文里", "极光CRM"], "confidence": 0.8, '
@@ -108,7 +158,7 @@ def test_parse_verdict_checks_every_field_and_the_spans_mechanically():
     assert v == JudgeVerdict(mentioned=True, spans=["极光CRM"], first_position=answer.index("极光CRM"), confidence=0.8,
                              sentiment=Sentiment.POSITIVE, reason="点名")
     absent = parse_verdict('{"mentioned": false, "spans": ["极光CRM"], "confidence": 1, "sentiment": null, '
-                           '"reason": ""}', answer)
+                           '"reason_code": "absent", "reason": ""}', answer)
     assert absent.mentioned is False and absent.spans == [] and absent.sentiment is None
     assert absent.first_position is None
     for bad in ['{"mentioned": "yes"}', '{"mentioned": true, "spans": ["没有的"], "confidence": 0.5}',
@@ -172,7 +222,7 @@ def test_detectors_translate_the_verdict_and_share_one_call():
     run = run_with("我们推荐 极光CRM。")
     mention = JudgeBrandMentionDetector(judge).detect(run, BRAND)
     tone = JudgeSentimentDetector(judge).detect(run, BRAND)
-    assert mention is not None and (mention.detector_name, mention.detector_version) == ("brand_mention_judge", 1)
+    assert mention is not None and (mention.detector_name, mention.detector_version) == ("brand_mention_judge", 2)
     assert mention.mentioned and mention.matched_text == "极光CRM" and mention.match_kind == "judge"
     assert mention.confidence == 0.9 and mention.reason == "点名了" and mention.first_position == 5
     assert tone is not None and tone.detector_name == "sentiment_judge" and tone.sentiment is Sentiment.POSITIVE

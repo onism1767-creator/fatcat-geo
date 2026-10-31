@@ -161,6 +161,19 @@ def test_response_page_names_the_clue(storage):
     assert "提到了" in html and "附近写了「空调」,所以算你。" in html
 
 
+def test_response_page_gives_the_judges_reason_for_saying_no(storage):
+    from engine.judge import JudgeVerdict, MentionJudge
+    from tests.unit.test_judge import CONFIG, adapters
+
+    judge = MentionJudge(CONFIG, adapters(), ledger=lambda r: None, locale="zh-CN", offline=True)
+    judge.preload({"no1": JudgeVerdict(mentioned=False, spans=[], first_position=None, confidence=0.9, sentiment=None,
+                                       reason="说的是形容词", reason_code="other_meaning")})
+    job = _medium_job(storage, "美的很常见。", "no1", judge)
+    client = _client(job)
+    assert "这里是这个词的普通意思,不是你" in client.get(f"/jobs/{job.job_id}/responses/no1?lang=zh").text
+    assert "ordinary sense" in client.get(f"/jobs/{job.job_id}/responses/no1?lang=en").text
+
+
 def test_a_judges_answer_replaces_unsure_on_the_response_page(storage):
     """中档:模糊说不准、裁判判过的,页面和导出都算裁判的。"""
     from engine.judge import JudgeVerdict, MentionJudge

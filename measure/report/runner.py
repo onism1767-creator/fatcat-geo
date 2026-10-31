@@ -430,6 +430,7 @@ def _stored_verdicts(storage: Storage, runs: list[SurfaceRun]) -> dict[str, Judg
             mentioned=bool(row["mentioned"]), spans=[row["matched_text"]] if row.get("matched_text") else [],
             first_position=row.get("first_position"), confidence=float(row.get("confidence") or 0.0),
             sentiment=Sentiment(tone) if tone else None, reason=row.get("reason") or "",
+            reason_code=row.get("reason_code"), new_spellings=row.get("new_spellings") or [],
         )
     return verdicts
 

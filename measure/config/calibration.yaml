@@ -1,14 +1,15 @@
 # 自动校准结果(S9.4,scripts/calibrate_mention_detectors.py 生成;只记计数,非人工核对)。
 # 确认页「准确率对比」只读本文件。
-calibrated_at: '2026-10-31T02:36:01.706848Z'
+calibrated_at: '2026-10-31T03:21:39.001151Z'
 source: 旧库 geo_tool:香奈儿(1796f5fac88f,180 条)、始祖鸟(b4099bc0df58,680 条);新库 geo_toast 难品牌回答
   192 条
 n_answers: 860
 n_bases: 162
-judge_sample: 0
+judge_sample: 100
 detector_versions:
   rules: 3
   fuzzy: 4
+  judge: 2
 synthetic:
 - method: rules
   kind: 中间换一个字母(别的词)
@@ -93,6 +94,48 @@ synthetic:
   expected: false
   n: 486
   correct: 486
+  unsure: 0
+- method: judge
+  kind: 中间换一个字母(别的词)
+  expected: false
+  n: 45
+  correct: 24
+  unsure: 21
+- method: judge
+  kind: 全角
+  expected: true
+  n: 45
+  correct: 45
+  unsure: 0
+- method: judge
+  kind: 原样
+  expected: true
+  n: 64
+  correct: 64
+  unsure: 0
+- method: judge
+  kind: 复数
+  expected: true
+  n: 45
+  correct: 44
+  unsure: 0
+- method: judge
+  kind: 小写
+  expected: true
+  n: 39
+  correct: 39
+  unsure: 0
+- method: judge
+  kind: 所有格
+  expected: true
+  n: 45
+  correct: 45
+  unsure: 0
+- method: judge
+  kind: 竞品名
+  expected: false
+  n: 48
+  correct: 48
   unsure: 0
 hard:
 - method: rules
@@ -347,6 +390,132 @@ hard:
   n: 160
   correct: 160
   unsure: 0
+- method: judge
+  kind: 中文词中词
+  expected: false
+  n: 24
+  correct: 24
+  unsure: 0
+- method: judge
+  kind: 全角
+  expected: true
+  n: 3
+  correct: 1
+  unsure: 1
+- method: judge
+  kind: 半角片假名
+  expected: true
+  n: 3
+  correct: 3
+  unsure: 0
+- method: judge
+  kind: 原样
+  expected: true
+  n: 18
+  correct: 18
+  unsure: 0
+- method: judge
+  kind: 去重音
+  expected: true
+  n: 3
+  correct: 2
+  unsure: 0
+- method: judge
+  kind: 多尾巴撞别词
+  expected: false
+  n: 15
+  correct: 15
+  unsure: 0
+- method: judge
+  kind: 少尾巴撞别家
+  expected: false
+  n: 3
+  correct: 3
+  unsure: 0
+- method: judge
+  kind: 带助词
+  expected: true
+  n: 9
+  correct: 9
+  unsure: 0
+- method: judge
+  kind: 常用词
+  expected: false
+  n: 27
+  correct: 27
+  unsure: 0
+- method: judge
+  kind: 所有格
+  expected: true
+  n: 18
+  correct: 17
+  unsure: 0
+- method: judge
+  kind: 日文近形
+  expected: false
+  n: 9
+  correct: 8
+  unsure: 1
+- method: judge
+  kind: 普通短语拆开
+  expected: false
+  n: 3
+  correct: 3
+  unsure: 0
+- method: judge
+  kind: 普通词单写
+  expected: false
+  n: 6
+  correct: 6
+  unsure: 0
+- method: judge
+  kind: 片假名复合词
+  expected: true
+  n: 6
+  correct: 6
+  unsure: 0
+- method: judge
+  kind: 语境里的品牌
+  expected: true
+  n: 39
+  correct: 39
+  unsure: 0
+- method: judge
+  kind: 越南文去声调(别的语言单)
+  expected: true
+  n: 3
+  correct: 2
+  unsure: 1
+- method: judge
+  kind: 越南文去声调(越南语单)
+  expected: false
+  n: 3
+  correct: 0
+  unsure: 0
+- method: judge
+  kind: 越南文换声调
+  expected: false
+  n: 3
+  correct: 0
+  unsure: 1
+- method: judge
+  kind: 跨标点
+  expected: false
+  n: 24
+  correct: 15
+  unsure: 6
+- method: judge
+  kind: 连写
+  expected: true
+  n: 6
+  correct: 6
+  unsure: 0
+- method: judge
+  kind: 韩文近形
+  expected: false
+  n: 12
+  correct: 11
+  unsure: 1
 cross:
 - brand: 'On'
   method: rules
@@ -604,6 +773,13 @@ real:
   examples: []
   unsure: 0
 - brand: 'On'
+  kind: 点名
+  method: judge
+  n: 12
+  hits: 12
+  examples: []
+  unsure: 0
+- brand: 'On'
   kind: 反例
   method: rules
   n: 8
@@ -617,6 +793,20 @@ real:
   hits: 0
   examples: []
   unsure: 1
+- brand: 'On'
+  kind: 反例
+  method: judge
+  n: 8
+  hits: 0
+  examples: []
+  unsure: 0
+- brand: 'On'
+  kind: 反例
+  method: judge_on_unsure
+  n: 1
+  hits: 0
+  examples: []
+  unsure: 0
 - brand: 'On'
   kind: 不点名
   method: rules
@@ -639,6 +829,26 @@ real:
   - 85371795-b74d-4703-8d5e-32d225b66705:thable. - **On Cloud 6:** Forb
   - e2727c44-6773-46c8-ad77-77f3fd08a87c:nai)) | | **On Cloud 5 Waterpr
   unsure: 1
+- brand: 'On'
+  kind: 不点名
+  method: judge
+  n: 12
+  hits: 5
+  examples:
+  - 5136dbec-c666-42c2-8bf3-951fc9465617:No single brand dominates righ
+  - 8973b20f-99d3-45e4-b9b6-621d5029a886:Marathon runners generally div
+  - 85371795-b74d-4703-8d5e-32d225b66705:Here are some lightweight snea
+  - e2727c44-6773-46c8-ad77-77f3fd08a87c:For a single pair that can han
+  - 8007b9bf-8251-4a03-8a65-2db0944ccbf1:When choosing sneakers for wal
+  unsure: 0
+- brand: 'On'
+  kind: 不点名
+  method: judge_on_unsure
+  n: 1
+  hits: 1
+  examples:
+  - 8007b9bf-8251-4a03-8a65-2db0944ccbf1:When choosing sneakers for wal
+  unsure: 0
 - brand: Notion
   kind: 点名
   method: rules
@@ -653,6 +863,20 @@ real:
   hits: 9
   examples: []
   unsure: 3
+- brand: Notion
+  kind: 点名
+  method: judge
+  n: 12
+  hits: 12
+  examples: []
+  unsure: 0
+- brand: Notion
+  kind: 点名
+  method: judge_on_unsure
+  n: 3
+  hits: 3
+  examples: []
+  unsure: 0
 - brand: Notion
   kind: 反例
   method: rules
@@ -663,6 +887,13 @@ real:
 - brand: Notion
   kind: 反例
   method: fuzzy
+  n: 8
+  hits: 0
+  examples: []
+  unsure: 0
+- brand: Notion
+  kind: 反例
+  method: judge
   n: 8
   hits: 0
   examples: []
@@ -691,6 +922,28 @@ real:
   - '57f6b68c-abf0-43ea-9c4d-baa5a90d281c:wiki: - **Notion** — A commo'
   - b5025607-6012-43cd-9e07-403b1cc0fe34:paces** - **Notion** is the mo
   unsure: 3
+- brand: Notion
+  kind: 不点名
+  method: judge
+  n: 12
+  hits: 12
+  examples:
+  - 3a93ca2d-a530-4541-a848-53a9f00af861:The best choice depends on how
+  - 69812d91-706d-4e7d-816c-af64de038ea3:The best app depends on how yo
+  - f7047999-7718-456b-ae0a-1003cb86bc35:As of **October 2026**, these
+  - 60e42072-24ca-4c63-b139-3804c604f2b6:The best note-taking app for a
+  - 57f6b68c-abf0-43ea-9c4d-baa5a90d281c:Small startups usually choose
+  unsure: 0
+- brand: Notion
+  kind: 不点名
+  method: judge_on_unsure
+  n: 3
+  hits: 3
+  examples:
+  - 60e42072-24ca-4c63-b139-3804c604f2b6:The best note-taking app for a
+  - af3d2546-7deb-45f7-a701-8645e6b4775b:Small startups usually use one
+  - c9421e8f-0543-44de-bd03-94b9e9303843:For small startups, the ideal
+  unsure: 0
 - brand: Canvas
   kind: 点名
   method: rules
@@ -706,6 +959,20 @@ real:
   examples: []
   unsure: 3
 - brand: Canvas
+  kind: 点名
+  method: judge
+  n: 12
+  hits: 12
+  examples: []
+  unsure: 0
+- brand: Canvas
+  kind: 点名
+  method: judge_on_unsure
+  n: 3
+  hits: 3
+  examples: []
+  unsure: 0
+- brand: Canvas
   kind: 反例
   method: rules
   n: 8
@@ -719,6 +986,20 @@ real:
   hits: 0
   examples: []
   unsure: 3
+- brand: Canvas
+  kind: 反例
+  method: judge
+  n: 8
+  hits: 0
+  examples: []
+  unsure: 0
+- brand: Canvas
+  kind: 反例
+  method: judge_on_unsure
+  n: 3
+  hits: 0
+  examples: []
+  unsure: 0
 - brand: Canvas
   kind: 不点名
   method: rules
@@ -743,6 +1024,18 @@ real:
   - d5bdcfe7-d25b-4b14-8f05-b6ebbda982e0:compared to Canvas, though rec
   - 29e6f4f2-7243-4fc2-8e08-7c15619c520d:kspace. - **Canvas** — a fulle
   unsure: 0
+- brand: Canvas
+  kind: 不点名
+  method: judge
+  n: 12
+  hits: 11
+  examples:
+  - fd259d31-2e5a-48c4-8fdb-05a075bd1f66:There isn’t one best LMS for e
+  - f33d13ed-868c-4398-a272-ad18ee3c2b33:Most roundups name the same fo
+  - a788967c-ff9f-49ef-8e5b-2cf8995d67ea:For most universities, the str
+  - d5bdcfe7-d25b-4b14-8f05-b6ebbda982e0:Selecting a Learning Managemen
+  - 29e6f4f2-7243-4fc2-8e08-7c15619c520d:K–12 schools use several kinds
+  unsure: 0
 - brand: Meta AI
   kind: 点名
   method: rules
@@ -753,6 +1046,13 @@ real:
 - brand: Meta AI
   kind: 点名
   method: fuzzy
+  n: 12
+  hits: 12
+  examples: []
+  unsure: 0
+- brand: Meta AI
+  kind: 点名
+  method: judge
   n: 12
   hits: 12
   examples: []
@@ -767,6 +1067,13 @@ real:
 - brand: Meta AI
   kind: 反例
   method: fuzzy
+  n: 8
+  hits: 0
+  examples: []
+  unsure: 0
+- brand: Meta AI
+  kind: 反例
+  method: judge
   n: 8
   hits: 0
   examples: []
@@ -795,6 +1102,18 @@ real:
   - 43919080-988b-4629-aad7-e557f26c2add:tform** - **Meta AI** is the m
   - 9fb51476-c802-45ae-abcd-c5f4a1499337:enger** | **Meta AI** | Answer
   unsure: 0
+- brand: Meta AI
+  kind: 不点名
+  method: judge
+  n: 12
+  hits: 6
+  examples:
+  - c3464782-ba85-4b54-a76a-42e1f1d21124:There's no single best one, bu
+  - 1db2f14b-369b-4e7f-a889-c3de23ff9859:For everyday questions—like dr
+  - 66eb7c45-95e8-4468-b8e6-2e74894d3fb8:Some of the best-known AI chat
+  - 43919080-988b-4629-aad7-e557f26c2add:Here are the main ones. **Bui
+  - '9fb51476-c802-45ae-abcd-c5f4a1499337:Major examples include: | App'
+  unsure: 0
 - brand: 小米
   kind: 点名
   method: rules
@@ -810,6 +1129,20 @@ real:
   examples: []
   unsure: 3
 - brand: 小米
+  kind: 点名
+  method: judge
+  n: 12
+  hits: 12
+  examples: []
+  unsure: 0
+- brand: 小米
+  kind: 点名
+  method: judge_on_unsure
+  n: 3
+  hits: 3
+  examples: []
+  unsure: 0
+- brand: 小米
   kind: 反例
   method: rules
   n: 8
@@ -823,6 +1156,20 @@ real:
   hits: 0
   examples: []
   unsure: 8
+- brand: 小米
+  kind: 反例
+  method: judge
+  n: 8
+  hits: 0
+  examples: []
+  unsure: 0
+- brand: 小米
+  kind: 反例
+  method: judge_on_unsure
+  n: 8
+  hits: 0
+  examples: []
+  unsure: 0
 - brand: 小米
   kind: 不点名
   method: rules
@@ -845,6 +1192,28 @@ real:
   - 0747bfbc-de18-49ba-8da7-ef0661941a73:生态，别混搭太多。** 小米、华为、苹果 HomeKit、美
   - 66962c63-3b66-40a5-aeda-3476558c1418:想省心省钱** | **小米米家** | 配备 1 台**米
   unsure: 3
+- brand: 小米
+  kind: 不点名
+  method: judge
+  n: 12
+  hits: 7
+  examples:
+  - a23d51fb-7162-4fc0-ad4f-63f241a81559:三千元以内选手机，建议先看你最在意什么。按目前能查到的近期推
+  - 73900165-6e6a-4b76-8b4d-03b96d597fe5:如果你说的是**人民币 3000 元以内**，按“性能、续航
+  - 38b60d37-35a5-495f-b9ab-69c57c87a6e7:新手选全屋智能，**别先看“哪个牌子最好”，先看装修阶段、预
+  - 0747bfbc-de18-49ba-8da7-ef0661941a73:新手选全屋智能，关键是先定好生态，再按预算和房子的装修阶段选
+  - 66962c63-3b66-40a5-aeda-3476558c1418:对于新手来说，搭全屋智能最核心的原则是：**生态丰富、门槛低
+  unsure: 0
+- brand: 小米
+  kind: 不点名
+  method: judge_on_unsure
+  n: 3
+  hits: 3
+  examples:
+  - 38b60d37-35a5-495f-b9ab-69c57c87a6e7:新手选全屋智能，**别先看“哪个牌子最好”，先看装修阶段、预
+  - '4f4104a8-a2eb-4a74-b757-615e31fb7f9a:如果是**第一次搭全屋智能**，我给你的直接建议是： ##'
+  - 9a244a6a-5566-4be4-9707-b61cbd21beac:年轻人买第一辆电动车（新能源车），核心原则是**“不为伪需求
+  unsure: 0
 - brand: 美的
   kind: 点名
   method: rules
@@ -859,6 +1228,20 @@ real:
   hits: 8
   examples: []
   unsure: 4
+- brand: 美的
+  kind: 点名
+  method: judge
+  n: 12
+  hits: 12
+  examples: []
+  unsure: 0
+- brand: 美的
+  kind: 点名
+  method: judge_on_unsure
+  n: 4
+  hits: 4
+  examples: []
+  unsure: 0
 - brand: 美的
   kind: 反例
   method: rules
@@ -869,6 +1252,13 @@ real:
 - brand: 美的
   kind: 反例
   method: fuzzy
+  n: 8
+  hits: 0
+  examples: []
+  unsure: 0
+- brand: 美的
+  kind: 反例
+  method: judge
   n: 8
   hits: 0
   examples: []
@@ -896,6 +1286,18 @@ real:
   - 78ebf50f-931f-4138-9999-f7a50c86a5ed:么高的溢价： * **美的（Midea）**：推荐看**“
   - 9fc2b190-3c0c-4f00-b76e-231e11991f3b:- **大多数家庭：美的** - **更重视售后：海尔*
   - 3b0a400f-f9c8-4cb6-a483-9c4e106fc312:适合主流家庭。 - **美的元气2.0、海尔精华洗**：文章
+  unsure: 0
+- brand: 美的
+  kind: 不点名
+  method: judge
+  n: 12
+  hits: 6
+  examples:
+  - 7b222750-8bab-4c27-99bf-3022063005aa:总体来说，**美的、海尔、格力**都比较稳妥；如果更看重价格
+  - b215c58d-6e4f-478f-8f6d-7fa24244ef92:家用空调的性价比,现在主要看三点:新一级能效、补贴后的到手价
+  - 78ebf50f-931f-4138-9999-f7a50c86a5ed:在家用空调领域，如果追求**“性价比”**（即价格实惠、核心
+  - 9fc2b190-3c0c-4f00-b76e-231e11991f3b:如果你说的是**中国大陆家用空调**，按“价格、性能、售后”
+  - 3b0a400f-f9c8-4cb6-a483-9c4e106fc312:三千元左右的洗衣机，下面这些型号可以重点看。价格和参数来自网
   unsure: 0
 disagreement:
 - a: rules
@@ -903,4 +1305,27 @@ disagreement:
   n: 860
   disagree: 0
   examples: []
-double_judge: null
+- a: rules
+  b: judge
+  n: 100
+  disagree: 3
+  examples:
+  - 041a0d39-25af-4cff-b762-f7182c7631b3
+  - fc5d785c-4f42-41fe-88a1-a2ce82214783
+  - c9be930f-848b-44a6-8f8a-ec71d7ae423e
+- a: fuzzy
+  b: judge
+  n: 100
+  disagree: 3
+  examples:
+  - 041a0d39-25af-4cff-b762-f7182c7631b3
+  - fc5d785c-4f42-41fe-88a1-a2ce82214783
+  - c9be930f-848b-44a6-8f8a-ec71d7ae423e
+double_judge:
+  n: 38
+  agree: 38
+  disagree_ids: []
+real_double:
+  n: 96
+  agree: 96
+  disagree_ids: []

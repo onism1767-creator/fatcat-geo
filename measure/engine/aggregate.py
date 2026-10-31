@@ -41,26 +41,37 @@ class NameSpelling(FrozenModel):
     text: str
     count: int
     registered: bool
+    suggested: bool = False  # 裁判觉得像你、但没登记,没算进提及率(BR5,用户 2026-10-30 定)
 
 
 def tally_spellings(
     observations: Iterable[RunObservations], brand: BrandSpec, limit: int = SPELLINGS_LIMIT,
 ) -> list[NameSpelling]:
-    """按主判定器的命中片段数写法(规则判定器没有命中片段,用它命中的登记名);大小写合并、显示第一次见到的写法。"""
+    """按主判定器的命中片段数写法(规则判定器没有命中片段,用它命中的登记名);大小写合并、显示第一次见到的写法。
+    裁判看到的新写法也数进来,标 suggested;同一个写法也被算作提到过的,按算过的显示。"""
     known = {brand.name.strip().lower(), *(alias.strip().lower() for alias in brand.aliases)}
     counts: Counter[str] = Counter()
     display: dict[str, str] = {}
-    for o in observations:
-        m = o.mention
-        if m is None or not m.mentioned:
-            continue
-        text = (m.matched_text or m.matched_alias or "").strip()
-        if not text:
-            continue
+    counted: set[str] = set()
+
+    def add(text: str) -> str:
         key = text.lower()
         counts[key] += 1
         display.setdefault(key, text)
-    return [NameSpelling(text=display[key], count=n, registered=key in known) for key, n in counts.most_common(limit)]
+        return key
+
+    for o in observations:
+        m = o.mention
+        if m is None:
+            continue
+        for written in (s.strip() for s in m.new_spellings):
+            if written and written.lower() not in known:
+                add(written)
+        text = (m.matched_text or m.matched_alias or "").strip()
+        if m.mentioned and text:
+            counted.add(add(text))
+    return [NameSpelling(text=display[key], count=n, registered=key in known, suggested=key not in counted | known)
+            for key, n in counts.most_common(limit)]
 
 PRIMARY_CITATION_LABEL = f"{CITATION_LABEL}:primary"  # 主站引用率的命中口径(v0.4.26 S4)
 CHANNEL_CITATION_LABEL = f"{CITATION_LABEL}:official_channel"  # 官方渠道引用的命中口径(S5,单列)

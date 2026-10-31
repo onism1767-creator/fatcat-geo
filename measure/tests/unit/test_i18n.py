@@ -160,6 +160,7 @@ def test_every_key_the_pages_build_from_a_value_exists_in_both_languages():
     from diagnosis.representation_diag import _RELATION
     from engine.detectors.name_risk import _KIND_ORDER
     from engine.detectors.source_class import REASON_NOT_ATTEMPTED, REASON_UNRESOLVED
+    from engine.judge import REASON_CODES
     from engine.models import Outcome, PageFetchStatus, Sentiment, SourceClass
     from engine.tiers import MentionMethod, load_tiers
     from engine.validity import PublicErrorCode
@@ -178,6 +179,7 @@ def test_every_key_the_pages_build_from_a_value_exists_in_both_languages():
         f"reason_{REASON_UNRESOLVED}", f"reason_{REASON_NOT_ATTEMPTED}",
         *(f"class_{c.value}" for c in SourceClass), "class_UNKNOWN",  # 来源归类;没有归属记录时 UNKNOWN
         *(f"resp_match_{kind}" for kind in (*_KIND_ORDER, "judge")),  # 命中方式:模糊判定器三种 + AI 裁判
+        *(f"resp_reason_{code}" for code in REASON_CODES),  # 裁判说没提到的理由(BR5)
         *(f"sentiment_{s.value}" for s in Sentiment),
         *(f"tier_{tier}" for tier in ("primary", "A", "B", "unknown")),  # 单条回答页命中的官网等级
         *(f"method_{m.value}" for m in MentionMethod),
