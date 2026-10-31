@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from engine.calibration import (
     CalibrationReport,
+    RealSample,
     Sample,
     calibrate,
     current_versions,
@@ -17,7 +18,7 @@ from engine.calibration import (
     save_calibration,
     variants_of,
 )
-from engine.hard_cases import HardBrand
+from engine.hard_cases import NAMING, HardBrand
 from engine.models import Answer, BrandSpec, Outcome, SearchMode, SearchTrace, SurfaceRun
 from report.app import create_app
 from report.narrative import calibration_text
@@ -116,7 +117,7 @@ def test_a_rerun_on_the_same_day_keeps_the_earlier_report(tmp_path: Path):
 def test_confirm_page_shows_measured_counts_only_after_calibration():
     report = CalibrationReport.model_validate({
         "calibrated_at": "2026-10-21T00:00:00Z", "source": "旧库", "n_answers": 900, "n_bases": 600,
-        "judge_sample": 100, "detector_versions": current_versions(), "hard": [], "cross": [],
+        "judge_sample": 100, "detector_versions": current_versions(), "hard": [], "cross": [], "real": [],
         "synthetic": [
             {"method": "rules", "kind": "原样", "expected": True, "n": 600, "correct": 600},
             {"method": "rules", "kind": "复数", "expected": True, "n": 600, "correct": 0},
@@ -212,6 +213,25 @@ def test_hard_cases_are_counted_by_kind_and_kept_apart_from_the_old_totals():
     assert cells[("rules", "中文词中词", False)] == (1, 0) and cells[("rules", "语境里的品牌", True)] == (1, 1)
     totals = report.hard_totals("fuzzy")
     assert (totals["neg_n"], totals["neg_false"]) == (7, 1) and (totals["pos_n"], totals["pos_hit"]) == (3, 3)
+
+
+def test_real_answers_of_hard_brands_are_counted_apart_by_brand_kind_and_method():
+    """BR3:点名题列没认出的,反例题列认出的;不混进前面几样的合计。"""
+    brand = BrandSpec(name="美的")
+    real = [RealSample(run=sample("美的空调很省电。", "n1").run, brand=brand, kind=NAMING),
+            RealSample(run=sample("这款空调很省电。", "n2").run, brand=brand, kind=NAMING),
+            RealSample(run=sample("这是一次完美的旅行。", "c1").run, brand=brand, kind="反例")]
+
+    report = calibrate([sample("常见选择包括 Alpha。", "r1")], source="测试", real=real)
+    plain = calibrate([sample("常见选择包括 Alpha。", "r1")], source="测试")
+
+    cells = {(s.kind, s.method): s for s in report.real}
+    assert (cells[(NAMING, "rules")].n, cells[(NAMING, "rules")].hits) == (2, 1)
+    assert [e.split(":")[0] for e in cells[(NAMING, "rules")].examples] == ["n2"]
+    assert (cells[("反例", "fuzzy")].n, cells[("反例", "fuzzy")].hits) == (1, 1)
+    assert [e.split(":")[0] for e in cells[("反例", "fuzzy")].examples] == ["c1"]
+    assert report.synthetic == plain.synthetic and plain.real == []
+    assert "| 美的 | 反例 | fuzzy | 1 | 1/1(100%) |" in render_markdown(report)
 
 
 def test_other_brands_answers_as_bases_are_listed_for_checking():

@@ -1,5 +1,5 @@
-"""自动校准三种「提到你」判法(S9.4):读旧库 geo_tool 的真实回答(只读),跑 engine/calibration.py 的三件套,
-结果写 config/calibration.yaml(确认页读)与 docs/校准/校准-日期.md。
+"""自动校准三种「提到你」判法(S9.4):读旧库 geo_tool 的真实回答和新库 geo_toast 里难品牌的回答(都只读),
+跑 engine/calibration.py 的三件套,结果写 config/calibration.yaml(确认页读)与 docs/校准/校准-日期.md。
 
     .venv\\Scripts\\python scripts/calibrate_mention_detectors.py                 # 只比规则 / 模糊,不花钱
     .venv\\Scripts\\python scripts/calibrate_mention_detectors.py --judge-sample 100
@@ -23,6 +23,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from engine.calibration import (  # noqa: E402
     DEFAULT_CALIBRATION_PATH,
+    RealSample,
     Sample,
     calibrate,
     render_markdown,
@@ -30,11 +31,11 @@ from engine.calibration import (  # noqa: E402
     save_calibration,
 )
 from engine.envfile import load_env_file  # noqa: E402
-from engine.hard_cases import load_hard_brands  # noqa: E402
+from engine.hard_cases import REAL_KINDS, load_hard_brands, load_real_brands, prompts_of  # noqa: E402
 from engine.judge import JudgeConfig, MentionJudge, load_judges  # noqa: E402
 from engine.loader import build_adapters  # noqa: E402
 from engine.models import Answer, BrandSpec, Outcome, SearchMode, SearchTrace, SurfaceRun  # noqa: E402
-from engine.storage import default_dsn  # noqa: E402
+from engine.storage import Storage, default_dsn  # noqa: E402
 
 DOCS_DIR = Path(__file__).resolve().parents[1] / "docs" / "校准"
 
@@ -79,6 +80,19 @@ def load_old_samples(dsn: str) -> tuple[list[Sample], str]:
     return samples, "旧库 geo_tool:" + "、".join(parts)
 
 
+def load_real_samples(dsn: str) -> tuple[list[RealSample], str]:
+    """难品牌的回答(BR3):题目在 config/calibration_real.yaml,题号由题面算出;有效回答 = SUCCESS 且有正文。"""
+    samples: list[RealSample] = []
+    with Storage(dsn) as storage:
+        for real_brand in load_real_brands():
+            brand = BrandSpec(name=real_brand.name, aliases=real_brand.aliases)
+            for prompt in prompts_of(real_brand):
+                samples += [RealSample(run=run, brand=brand, kind=REAL_KINDS[prompt.intent])
+                            for run in storage.runs_for_prompt(prompt.prompt_id)
+                            if run.outcome is Outcome.SUCCESS and run.answer and run.answer.answer_text.strip()]
+    return samples, f"新库 geo_toast 难品牌回答 {len(samples)} 条"
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description="自动校准三种提及判法(计数,非人工核对)")
     parser.add_argument("--dsn", default=default_dsn().rsplit("/", 1)[0] + "/geo_tool", help="旧库连接串(只读)")
@@ -89,6 +103,8 @@ def main() -> int:
 
     samples, source = load_old_samples(args.dsn)
     print(f"真实回答 {len(samples)} 条:{source}")
+    real, real_source = load_real_samples(default_dsn())
+    print(real_source)
     judge_a = judge_b = None
     spent: list[float] = []
     adapters = {}
@@ -125,9 +141,9 @@ def main() -> int:
                 if both:
                     second.warm([r for r in runs if not same_judge(r)], brand, concurrency=4)
     try:
-        report = calibrate(samples, source=source, judge_a=judge_a, judge_b=judge_b,
+        report = calibrate(samples, source=f"{source};{real_source}", judge_a=judge_a, judge_b=judge_b,
                            judge_sample=args.judge_sample, seed=args.seed,
-                           prefetch=prefetch if judge_a is not None else None, hard=load_hard_brands())
+                           prefetch=prefetch if judge_a is not None else None, hard=load_hard_brands(), real=real)
     finally:
         for adapter in adapters.values():
             adapter.close()

@@ -21,6 +21,9 @@ from engine.models import FrozenModel, Prompt, PromptIntent, PromptOrigin
 DEFAULT_HARD_PATH = Path(__file__).resolve().parents[1] / "config" / "calibration_hard.yaml"
 DEFAULT_REAL_PATH = Path(__file__).resolve().parents[1] / "config" / "calibration_real.yaml"
 _REAL_PROMPTS = uuid5(NAMESPACE_URL, "geo-toast/calibration-real")
+NAMING = "点名"
+REAL_KINDS = {PromptIntent.BRAND_FACT: NAMING, PromptIntent.PROBLEM_SOLUTION: "反例",
+              PromptIntent.CATEGORY_DISCOVERY: "不点名"}  # 题型 → 校准里的说法
 
 _HANGUL_FIRST, _HANGUL_COUNT, _FINALS = 0xAC00, 11172, 28  # 韩文音节 = 声母 × 588 + 韵母 × 28 + 收音
 _ADDED_FINALS = (17, 4, 16)  # 没有收音时加的收音:ㅂ、ㄴ、ㅁ(기아 → 기압、기안、기암)

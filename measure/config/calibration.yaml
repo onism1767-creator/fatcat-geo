@@ -1,7 +1,8 @@
 # 自动校准结果(S9.4,scripts/calibrate_mention_detectors.py 生成;只记计数,非人工核对)。
 # 确认页「准确率对比」只读本文件。
-calibrated_at: '2026-10-30T22:54:34.184618Z'
-source: 旧库 geo_tool:香奈儿(1796f5fac88f,180 条)、始祖鸟(b4099bc0df58,680 条)
+calibrated_at: '2026-10-31T01:27:09.380792Z'
+source: 旧库 geo_tool:香奈儿(1796f5fac88f,180 条)、始祖鸟(b4099bc0df58,680 条);新库 geo_toast 难品牌回答
+  192 条
 n_answers: 860
 n_bases: 162
 judge_sample: 0
@@ -481,6 +482,329 @@ cross:
   n: 860
   hits: 0
   examples: []
+real:
+- brand: 'On'
+  kind: 点名
+  method: rules
+  n: 12
+  hits: 12
+  examples: []
+- brand: 'On'
+  kind: 点名
+  method: fuzzy
+  n: 12
+  hits: 12
+  examples: []
+- brand: 'On'
+  kind: 反例
+  method: rules
+  n: 8
+  hits: 8
+  examples:
+  - '5e7dfb1c-6758-453a-9a9f-47d0d83ec1be:han relying on willpower: 1.'
+  - 0ff6a5fc-60c3-4ca8-9af4-6c2b6d67de0a:or focusing on one task at hom
+  - 'eab09f81-5178-4e17-92e5-bd1ad1ed55cd:han relying on willpower: 1.'
+  - 72e1b3d2-020b-4907-8a97-df619b8121a1:ing focused on a single task w
+  - '61e136c3-3dc7-4ac4-b8a0-b81015119bf7:turning it on, check: - **An'
+- brand: 'On'
+  kind: 反例
+  method: fuzzy
+  n: 8
+  hits: 8
+  examples:
+  - '5e7dfb1c-6758-453a-9a9f-47d0d83ec1be:han relying on willpower: 1.'
+  - 0ff6a5fc-60c3-4ca8-9af4-6c2b6d67de0a:or focusing on one task at hom
+  - 'eab09f81-5178-4e17-92e5-bd1ad1ed55cd:han relying on willpower: 1.'
+  - 72e1b3d2-020b-4907-8a97-df619b8121a1:ing focused on a single task w
+  - '61e136c3-3dc7-4ac4-b8a0-b81015119bf7:turning it on, check: - **An'
+- brand: 'On'
+  kind: 不点名
+  method: rules
+  n: 12
+  hits: 10
+  examples:
+  - b36c090f-23ea-46cf-9a0d-0c70fda5b688:r beginners on a budget. **If
+  - 5db6025d-48f2-4f0d-8b70-6959caf9c6a2:1. Try them on with your usual
+  - 0ff85362-4861-4844-bc59-fece03ae813f:ep-in shoes on the market. The
+  - 6bffdbc6-ff99-4ffe-b255-787e79861d5c:It depends on what you mean by
+  - 5136dbec-c666-42c2-8bf3-951fc9465617:ooks, Hoka, On, New Balance an
+- brand: 'On'
+  kind: 不点名
+  method: fuzzy
+  n: 12
+  hits: 10
+  examples:
+  - b36c090f-23ea-46cf-9a0d-0c70fda5b688:r beginners on a budget. **If
+  - 5db6025d-48f2-4f0d-8b70-6959caf9c6a2:1. Try them on with your usual
+  - 0ff85362-4861-4844-bc59-fece03ae813f:ep-in shoes on the market. The
+  - 6bffdbc6-ff99-4ffe-b255-787e79861d5c:It depends on what you mean by
+  - 5136dbec-c666-42c2-8bf3-951fc9465617:ooks, Hoka, On, New Balance an
+- brand: Notion
+  kind: 点名
+  method: rules
+  n: 12
+  hits: 12
+  examples: []
+- brand: Notion
+  kind: 点名
+  method: fuzzy
+  n: 12
+  hits: 12
+  examples: []
+- brand: Notion
+  kind: 反例
+  method: rules
+  n: 8
+  hits: 3
+  examples:
+  - e9177aca-dbff-4168-b3be-9f3a136f0c94:the modern notion of **human
+  - a7b0419e-94f4-45cf-83d7-b77504901026:The notion of **human rights**
+  - 37c11dd1-0eba-4561-9ca1-08a575a2fabe:The notion of human rights—the
+- brand: Notion
+  kind: 反例
+  method: fuzzy
+  n: 8
+  hits: 3
+  examples:
+  - e9177aca-dbff-4168-b3be-9f3a136f0c94:the modern notion of **human
+  - a7b0419e-94f4-45cf-83d7-b77504901026:The notion of **human rights**
+  - 37c11dd1-0eba-4561-9ca1-08a575a2fabe:The notion of human rights—the
+- brand: Notion
+  kind: 不点名
+  method: rules
+  n: 12
+  hits: 12
+  examples:
+  - 3a93ca2d-a530-4541-a848-53a9f00af861:ools. | | **Notion** | Organiz
+  - 69812d91-706d-4e7d-816c-af64de038ea3:picks** - **Notion** is the mo
+  - f7047999-7718-456b-ae0a-1003cb86bc35:t 365 | | **Notion** | **Typed
+  - '60e42072-24ca-4c63-b139-3804c604f2b6:nization: **Notion** * **Best'
+  - '57f6b68c-abf0-43ea-9c4d-baa5a90d281c:wiki: - **Notion** — A commo'
+- brand: Notion
+  kind: 不点名
+  method: fuzzy
+  n: 12
+  hits: 12
+  examples:
+  - 3a93ca2d-a530-4541-a848-53a9f00af861:ools. | | **Notion** | Organiz
+  - 69812d91-706d-4e7d-816c-af64de038ea3:picks** - **Notion** is the mo
+  - f7047999-7718-456b-ae0a-1003cb86bc35:t 365 | | **Notion** | **Typed
+  - '60e42072-24ca-4c63-b139-3804c604f2b6:nization: **Notion** * **Best'
+  - '57f6b68c-abf0-43ea-9c4d-baa5a90d281c:wiki: - **Notion** — A commo'
+- brand: Canvas
+  kind: 点名
+  method: rules
+  n: 12
+  hits: 12
+  examples: []
+- brand: Canvas
+  kind: 点名
+  method: fuzzy
+  n: 12
+  hits: 12
+  examples: []
+- brand: Canvas
+  kind: 反例
+  method: rules
+  n: 8
+  hits: 5
+  examples:
+  - 2bbfef34-70ec-4a95-907c-0b0501263ac0:il-painting canvas, buy an **i
+  - 4233af6d-1e38-4e14-bac2-62c0d1f6abe2:ched cotton canvas** - **Cotto
+  - e1ab62e5-a192-4f75-889d-38032c3ab5f2:ched cotton canvas that is alr
+  - c6cc4376-3c2d-4e11-993c-c081e94ea9ca:imed cotton canvas panels (boa
+  - 21c1ea2e-a9c8-462f-8069-93d7b1f4ed3e:an infinite canvas, making it
+- brand: Canvas
+  kind: 反例
+  method: fuzzy
+  n: 8
+  hits: 5
+  examples:
+  - 2bbfef34-70ec-4a95-907c-0b0501263ac0:il-painting canvas, buy an **i
+  - 4233af6d-1e38-4e14-bac2-62c0d1f6abe2:ched cotton canvas** - **Cotto
+  - e1ab62e5-a192-4f75-889d-38032c3ab5f2:ched cotton canvas that is alr
+  - c6cc4376-3c2d-4e11-993c-c081e94ea9ca:imed cotton canvas panels (boa
+  - 21c1ea2e-a9c8-462f-8069-93d7b1f4ed3e:an infinite canvas, making it
+- brand: Canvas
+  kind: 不点名
+  method: rules
+  n: 12
+  hits: 11
+  examples:
+  - fd259d31-2e5a-48c4-8fdb-05a075bd1f66:s usually **Canvas, D2L Bright
+  - f33d13ed-868c-4398-a272-ad18ee3c2b33:picks **1. Canvas (Instructur
+  - a788967c-ff9f-49ef-8e5b-2cf8995d67ea:rtlist is **Canvas, D2L Bright
+  - 'd5bdcfe7-d25b-4b14-8f05-b6ebbda982e0:--- ### 1. Canvas by Instruct'
+  - 29e6f4f2-7243-4fc2-8e08-7c15619c520d:kspace. - **Canvas** — a fulle
+- brand: Canvas
+  kind: 不点名
+  method: fuzzy
+  n: 12
+  hits: 11
+  examples:
+  - fd259d31-2e5a-48c4-8fdb-05a075bd1f66:s usually **Canvas, D2L Bright
+  - f33d13ed-868c-4398-a272-ad18ee3c2b33:picks **1. Canvas (Instructur
+  - a788967c-ff9f-49ef-8e5b-2cf8995d67ea:rtlist is **Canvas, D2L Bright
+  - 'd5bdcfe7-d25b-4b14-8f05-b6ebbda982e0:--- ### 1. Canvas by Instruct'
+  - 29e6f4f2-7243-4fc2-8e08-7c15619c520d:kspace. - **Canvas** — a fulle
+- brand: Meta AI
+  kind: 点名
+  method: rules
+  n: 12
+  hits: 12
+  examples: []
+- brand: Meta AI
+  kind: 点名
+  method: fuzzy
+  n: 12
+  hits: 12
+  examples: []
+- brand: Meta AI
+  kind: 反例
+  method: rules
+  n: 8
+  hits: 0
+  examples: []
+- brand: Meta AI
+  kind: 反例
+  method: fuzzy
+  n: 8
+  hits: 0
+  examples: []
+- brand: Meta AI
+  kind: 不点名
+  method: rules
+  n: 12
+  hits: 6
+  examples:
+  - c3464782-ba85-4b54-a76a-42e1f1d21124:ration. - **Meta AI** is free
+  - '1db2f14b-369b-4e7f-a889-c3de23ff9859:- ### 6. **Meta AI** — *Most'
+  - '66eb7c45-95e8-4468-b8e6-2e74894d3fb8:s are: - **Meta AI** — integr'
+  - 43919080-988b-4629-aad7-e557f26c2add:tform** - **Meta AI** is the m
+  - 9fb51476-c802-45ae-abcd-c5f4a1499337:enger** | **Meta AI** | Answer
+- brand: Meta AI
+  kind: 不点名
+  method: fuzzy
+  n: 12
+  hits: 6
+  examples:
+  - c3464782-ba85-4b54-a76a-42e1f1d21124:ration. - **Meta AI** is free
+  - '1db2f14b-369b-4e7f-a889-c3de23ff9859:- ### 6. **Meta AI** — *Most'
+  - '66eb7c45-95e8-4468-b8e6-2e74894d3fb8:s are: - **Meta AI** — integr'
+  - 43919080-988b-4629-aad7-e557f26c2add:tform** - **Meta AI** is the m
+  - 9fb51476-c802-45ae-abcd-c5f4a1499337:enger** | **Meta AI** | Answer
+- brand: 小米
+  kind: 点名
+  method: rules
+  n: 12
+  hits: 12
+  examples: []
+- brand: 小米
+  kind: 点名
+  method: fuzzy
+  n: 12
+  hits: 12
+  examples: []
+- brand: 小米
+  kind: 反例
+  method: rules
+  n: 8
+  hits: 8
+  examples:
+  - 82791e59-3910-4c54-8505-4002f3bac4c8:*香、稠、米粒开花**的小米粥，关键是选好小米、先煮开再小火
+  - 0100e9c6-b366-4a14-9a53-9bce7231486b:小米粥是常见的家常做法,不需要搜索。下面是让它又香又稠的要点
+  - 101fdcfe-3a0f-458a-a94e-7fc7c43a278f:还结着一层厚厚“米油”的小米粥，关键在于**选米、水温、火候
+  - 444b7c3e-3f8e-47f3-ae4c-9dfddb394120:想把**小米粥煮得又香又稠**，关键是“米好、水合适、火候足
+  - eb682496-2a56-45c1-8eaa-84f37a92b0b4:简单说，**小米椒通常是朝天椒中的一种；“朝天椒”范围更大*
+- brand: 小米
+  kind: 反例
+  method: fuzzy
+  n: 8
+  hits: 8
+  examples:
+  - 82791e59-3910-4c54-8505-4002f3bac4c8:*香、稠、米粒开花**的小米粥，关键是选好小米、先煮开再小火
+  - 0100e9c6-b366-4a14-9a53-9bce7231486b:小米粥是常见的家常做法,不需要搜索。下面是让它又香又稠的要点
+  - 101fdcfe-3a0f-458a-a94e-7fc7c43a278f:还结着一层厚厚“米油”的小米粥，关键在于**选米、水温、火候
+  - 444b7c3e-3f8e-47f3-ae4c-9dfddb394120:想把**小米粥煮得又香又稠**，关键是“米好、水合适、火候足
+  - eb682496-2a56-45c1-8eaa-84f37a92b0b4:简单说，**小米椒通常是朝天椒中的一种；“朝天椒”范围更大*
+- brand: 小米
+  kind: 不点名
+  method: rules
+  n: 12
+  hits: 7
+  examples:
+  - a23d51fb-7162-4fc0-ad4f-63f241a81559:、拍照手感** | **小米 15** | 近期报道提到部分
+  - 73900165-6e6a-4b76-8b4d-03b96d597fe5:OO、红米 | | **小米数字系列旧款或促销款** | 兼
+  - 38b60d37-35a5-495f-b9ab-69c57c87a6e7:算有限、想自己慢慢添置：小米米家** 设备品类多、入
+  - 0747bfbc-de18-49ba-8da7-ef0661941a73:装修好、预算有限：米家（小米）** - 有榜单提到，米家的小
+  - '66962c63-3b66-40a5-aeda-3476558c1418:推荐 #### 1. 小米 / 米家（Mijia）—— 8'
+- brand: 小米
+  kind: 不点名
+  method: fuzzy
+  n: 12
+  hits: 7
+  examples:
+  - a23d51fb-7162-4fc0-ad4f-63f241a81559:、拍照手感** | **小米 15** | 近期报道提到部分
+  - 73900165-6e6a-4b76-8b4d-03b96d597fe5:OO、红米 | | **小米数字系列旧款或促销款** | 兼
+  - 38b60d37-35a5-495f-b9ab-69c57c87a6e7:算有限、想自己慢慢添置：小米米家** 设备品类多、入
+  - 0747bfbc-de18-49ba-8da7-ef0661941a73:装修好、预算有限：米家（小米）** - 有榜单提到，米家的小
+  - '66962c63-3b66-40a5-aeda-3476558c1418:推荐 #### 1. 小米 / 米家（Mijia）—— 8'
+- brand: 美的
+  kind: 点名
+  method: rules
+  n: 12
+  hits: 12
+  examples: []
+- brand: 美的
+  kind: 点名
+  method: fuzzy
+  n: 12
+  hits: 12
+  examples: []
+- brand: 美的
+  kind: 反例
+  method: rules
+  n: 8
+  hits: 6
+  examples:
+  - 67a55564-59c2-457d-8769-591a79a25ad1:写出优美的句子，不是堆砌华丽词语，而是把**想表达的意思、具
+  - '97f7559c-54b1-42f1-b944-324d5e625368:写出优美的句子没有捷径，但有一些可以练习的方法。 ## 1'
+  - f56b7725-84bb-4387-9611-84164c9ac140:写出优美的句子，最忌讳的是**“堆砌辞藻”**。很多初学者误
+  - c91bb3ca-146d-484e-914d-8a356c98bade:写出优美的句子，不只是“用高级词”，更重要的是：**有画面、
+  - f9c72d3d-a03c-4eac-86d8-1b194eb09d7c:看镜头更容易拍出自然、唯美的感觉。
+- brand: 美的
+  kind: 反例
+  method: fuzzy
+  n: 8
+  hits: 6
+  examples:
+  - 67a55564-59c2-457d-8769-591a79a25ad1:写出优美的句子，不是堆砌华丽词语，而是把**想表达的意思、具
+  - '97f7559c-54b1-42f1-b944-324d5e625368:写出优美的句子没有捷径，但有一些可以练习的方法。 ## 1'
+  - f56b7725-84bb-4387-9611-84164c9ac140:写出优美的句子，最忌讳的是**“堆砌辞藻”**。很多初学者误
+  - c91bb3ca-146d-484e-914d-8a356c98bade:写出优美的句子，不只是“用高级词”，更重要的是：**有画面、
+  - f9c72d3d-a03c-4eac-86d8-1b194eb09d7c:看镜头更容易拍出自然、唯美的感觉。
+- brand: 美的
+  kind: 不点名
+  method: rules
+  n: 12
+  hits: 6
+  examples:
+  - 7b222750-8bab-4c27-99bf-3022063005aa:总体来说，**美的、海尔、格力**都比较稳妥；如果更看重价格
+  - b215c58d-6e4f-478f-8f6d-7fa24244ef92:较高的品牌** - **美的、华凌**:华凌是美的子品牌,和
+  - 78ebf50f-931f-4138-9999-f7a50c86a5ed:#### 1. 华凌（美的旗下子品牌） * **定位与优势
+  - 9fc2b190-3c0c-4f00-b76e-231e11991f3b:较高的品牌 1. **美的** - 综合性价比通常最
+  - 3b0a400f-f9c8-4cb6-a483-9c4e106fc312:适合主流家庭。 - **美的元气2.0、海尔精华洗**：文章
+- brand: 美的
+  kind: 不点名
+  method: fuzzy
+  n: 12
+  hits: 6
+  examples:
+  - 7b222750-8bab-4c27-99bf-3022063005aa:总体来说，**美的、海尔、格力**都比较稳妥；如果更看重价格
+  - b215c58d-6e4f-478f-8f6d-7fa24244ef92:较高的品牌** - **美的、华凌**:华凌是美的子品牌,和
+  - 78ebf50f-931f-4138-9999-f7a50c86a5ed:#### 1. 华凌（美的旗下子品牌） * **定位与优势
+  - 9fc2b190-3c0c-4f00-b76e-231e11991f3b:较高的品牌 1. **美的** - 综合性价比通常最
+  - 3b0a400f-f9c8-4cb6-a483-9c4e106fc312:适合主流家庭。 - **美的元气2.0、海尔精华洗**：文章
 disagreement:
 - a: rules
   b: fuzzy

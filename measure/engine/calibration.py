@@ -8,6 +8,8 @@
 ③ 两家不同的裁判判同一批回答,一致几条;不一致的列出来供可选抽看。
 BR1 补两样(engine/hard_cases.py):④ 难题——程序造「长得像你、其实不是你」的写法和配套正例,塞进真实回答,按种类分开数;
 ⑤ 别家回答当底本——拿难名字去判别的品牌的真实回答,认出来的基本都是误认,列出来可选抽看。④⑤ 目前只跑规则和模糊,不花钱。
+BR3 补一样:⑥ 难品牌的真实回答——点名题答案是提到了,反例题答案是没提到,不点名题没有现成答案;
+单独数,不进前五样(那几样的数字要和改之前比)。
 结果存 config/calibration.yaml(确认页「准确率对比」只读它,带测的是哪版判定器)与 docs/校准/ 的 markdown。
 本模块无厂商名,不连库;读库在 scripts/ 里。
 """
@@ -26,7 +28,7 @@ from engine.detectors.brand_mention import BrandMentionDetector
 from engine.detectors.brand_mention_fuzzy import FuzzyBrandMentionDetector
 from engine.detectors.brand_mention_judge import JudgeBrandMentionDetector
 from engine.detectors.matching import find_first_alias, is_spaced_script_char
-from engine.hard_cases import HardBrand, HardCase, cases_of, strip_marks
+from engine.hard_cases import NAMING, HardBrand, HardCase, cases_of, strip_marks
 from engine.models import BrandSpec, FrozenModel, SurfaceRun
 
 DEFAULT_CALIBRATION_PATH = Path(__file__).resolve().parents[1] / "config" / "calibration.yaml"
@@ -85,6 +87,23 @@ class CrossScore(FrozenModel):
     examples: list[str]  # 「run_id:回答里那一小段」,最多 MAX_CROSS_EXAMPLES 处,供抽看
 
 
+class RealSample(FrozenModel):
+    """难品牌的一条真实回答(BR3)。"""
+
+    run: SurfaceRun
+    brand: BrandSpec
+    kind: str  # 点名 / 反例 / 不点名(engine/hard_cases.py 的 REAL_KINDS)
+
+
+class RealScore(FrozenModel):
+    brand: str
+    kind: str
+    method: str
+    n: int
+    hits: int  # 认出来几条
+    examples: list[str]  # 点名题列没认出的,别的题列认出的,格式同 CrossScore
+
+
 def _sums(scores: Sequence[KindScore], method: str) -> dict[str, int]:
     pos = [s for s in scores if s.method == method and s.expected]
     neg = [s for s in scores if s.method == method and not s.expected]
@@ -110,6 +129,7 @@ class CalibrationReport(FrozenModel):
     synthetic: list[KindScore]
     hard: list[KindScore]  # 难题:答案由构造决定,按种类分开数
     cross: list[CrossScore]  # 别家回答当底本
+    real: list[RealScore]  # 难品牌的真实回答
     disagreement: list[PairDisagreement]
     double_judge: DoubleJudge | None
 
@@ -246,10 +266,12 @@ def calibrate(
     now: datetime | None = None,
     prefetch: Callable[[Sequence[Sample], bool], None] | None = None,
     hard: Sequence[HardBrand] = (),
+    real: Sequence[RealSample] = (),
 ) -> CalibrationReport:
     """三件套一次跑完。裁判只在抽样的 judge_sample 条真实回答及其合成样本上跑(花钱有界);没给裁判就只比规则 / 模糊。
     prefetch(批, 两家都判吗):给脚本并行预判的钩子——先把一批裁判结论并行取回缓存,这里再顺序读。
-    hard:难名字清单(engine/hard_cases.py),跑难题和别家回答底本,只用规则和模糊。"""
+    hard:难名字清单(engine/hard_cases.py),跑难题和别家回答底本,只用规则和模糊。
+    real:难品牌的真实回答(BR3),只用规则和模糊,单独数。"""
     rng = random.Random(seed)
     rules, fuzzy = _rules_judge(), _fuzzy_judge()
     verdicts: dict[str, dict[str, bool | None]] = {m: {} for m in METHODS}  # 判法 → run_id → 结论
@@ -306,7 +328,7 @@ def calibrate(
     return CalibrationReport(
         calibrated_at=now or datetime.now(UTC), source=source, n_answers=len(samples), n_bases=len(bases),
         judge_sample=len(judged), detector_versions=versions, synthetic=_kind_scores(scores), hard=hard_scores,
-        cross=cross, disagreement=[d for d in disagreement if d.n], double_judge=double,
+        cross=cross, real=_real_scores(real), disagreement=[d for d in disagreement if d.n], double_judge=double,
     )
 
 
@@ -367,6 +389,27 @@ def _score_case(case: HardCase, index: int, brand: BrandSpec, bases: Sequence[Sa
             cell = scores.setdefault((method, case.kind, case.expected), [0, 0])
             cell[0] += 1
             cell[1] += int(obs.mentioned == case.expected)
+
+
+def _real_scores(real: Sequence[RealSample]) -> list[RealScore]:
+    """⑥ 难品牌的真实回答,按品牌 × 题型 × 判法分开数。"""
+    detectors: _Detectors = {"rules": BrandMentionDetector(), "fuzzy": FuzzyBrandMentionDetector()}
+    counts: dict[tuple[str, str, str], list[int]] = {}
+    shown: dict[tuple[str, str, str], list[str]] = {}
+    for sample in real:
+        for method, detector in detectors.items():
+            obs = detector.detect(sample.run, sample.brand)
+            if obs is None:
+                continue
+            key = (sample.brand.name, sample.kind, method)
+            cell = counts.setdefault(key, [0, 0])
+            cell[0] += 1
+            cell[1] += int(obs.mentioned)
+            if obs.mentioned != (sample.kind == NAMING):
+                shown.setdefault(key, []).append(f"{sample.run.run_id}:{_snippet(sample.run, obs.first_position)}")
+    return [RealScore(brand=brand, kind=kind, method=method, n=n, hits=hits,
+                      examples=shown.get((brand, kind, method), [])[:MAX_CROSS_EXAMPLES])
+            for (brand, kind, method), (n, hits) in counts.items()]
 
 
 def _pair(a: str, b: str, verdicts: dict[str, dict[str, bool | None]]) -> PairDisagreement:
@@ -446,4 +489,11 @@ def render_markdown(report: CalibrationReport) -> str:
     for c in report.cross:
         lines.append(f"- {c.brand} · {c.method}:{pct(c.hits, c.n)}")
         lines += [f"  - {example}" for example in c.examples]
+    lines += ["", "## ⑥ 难品牌的真实回答(点名题应认出,反例题不该认出,不点名题没有现成答案)", "",
+              "| 品牌 | 题型 | 判法 | 回答 | 认出 |", "|---|---|---|---|---|"]
+    for r in report.real:
+        lines.append(f"| {r.brand} | {r.kind} | {r.method} | {r.n} | {pct(r.hits, r.n)} |")
+    lines += ["", "抽看(点名题列没认出的,别的题列认出的):", ""]
+    for r in report.real:
+        lines += [f"- {r.brand} · {r.kind} · {r.method}:{example}" for example in r.examples]
     return "\n".join(lines) + "\n"
