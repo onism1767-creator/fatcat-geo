@@ -98,7 +98,7 @@ def _responses_and_citations(
         for run in storage.runs_for_prompt(prompt.prompt_id, surface=target.surface, model=target.model)
     ]
     observations = storage.observations_for_runs([run.run_id for _, run in runs])  # 判定行一次取齐,不逐条查库
-    method = job.frozen_tier().mention_method  # 「提到没提到」与情感按本单档位的判定器读(不需要裁判;第二轮红 3)
+    method = job.method_used()  # 「提到没提到」与情感按本单档位的判定器读(不需要裁判;第二轮红 3)
     tone_name = sentiment_detector_name(method)
     responses: list[dict[str, Any]] = []
     rows: list[list[Any]] = []
@@ -140,6 +140,8 @@ def _response_record(
             "clue": mention.get("clue") if mention else None,
             "reason_code": mention.get("reason_code") if mention else None,  # BR5:裁判说没提到的理由
             "new_spellings": mention.get("new_spellings", []) if mention else [],
+            "judged_by": mention.get("judged_by") if mention else None,  # BR6:哪个裁判判的、是不是自家判自家
+            "own_vendor": bool(mention.get("own_vendor")) if mention else False,
             "matched_alias": mention.get("matched_alias") if mention else None,
             "matched_text": mention.get("matched_text") if mention else None,  # S9.2:怎么认出来的
             "match_kind": mention.get("match_kind") if mention else None,
@@ -196,10 +198,13 @@ def _summary_md(
         end=local_time(sn.finished_at) if sn.finished_at else "—"))
     lines.append("- " + t["sampling_targets_pre"] + ";".join(name_of(x.surface, x.model) for x in sn.targets))
     if sn.judge_targets:  # S9.3:AI 裁判;中档只判说不准的(BR4)
-        primary, backup = sn.judge_targets[0], sn.judge_targets[1]
         every_answer = sn.tier.mention_method is MentionMethod.RULES_FUZZY_JUDGE
         lines.append("- " + t["sampling_judges" if every_answer else "sampling_judges_unsure"].format(
-            primary=name_of(primary.surface, primary.model), backup=name_of(backup.surface, backup.model)))
+            judges=";".join(name_of(x.surface, x.model) for x in sn.judge_targets)))
+    if sn.n_own_vendor:  # BR6:别家都请不到,自家判自家
+        lines.append("- " + t["sampling_own_vendor"].format(n=sn.n_own_vendor))
+    if sn.no_judge:  # BR6:一家裁判都请不到
+        lines.append("- " + t["sampling_no_judge"].format(names=" / ".join(sn.no_judge)))
     if sn.n_unsure:  # BR4:不进提及率分母,单独说清
         lines.append("- " + t["sampling_unsure"].format(n=sn.n_unsure))
     lines.append("- " + t["sampling_domains"].format(

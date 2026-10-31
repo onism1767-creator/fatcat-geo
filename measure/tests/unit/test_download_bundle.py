@@ -8,7 +8,7 @@ import json
 import zipfile
 from datetime import UTC, datetime
 
-from engine.models import BrandDomainList, BrandSpec
+from engine.models import BrandDomainList, BrandSpec, Target
 from engine.observe import ObserveContext, observe, persist_observations
 from engine.page_check import PageIndex
 from report.jobs import DiagnosisJob
@@ -79,6 +79,26 @@ def test_bundle_has_the_five_files_built_from_the_database(storage):
 
     en = _client(job).get(f"/jobs/{job.job_id}/download?lang=en")
     assert "## How this was measured" in zipfile.ZipFile(io.BytesIO(en.content)).read("summary.md").decode("utf-8")
+
+
+def test_summary_names_the_judges_and_where_they_fall_short(storage):
+    """BR6:结果文件和报告页说一样的话。"""
+    job = finished_job()
+    job.domain_list = BrandDomainList(primary="aurora-crm.com", discovered_at=datetime(2026, 10, 14, tzinfo=UTC),
+                                      public_suffix_list="t")
+    client = _client(job)
+
+    def summary() -> str:
+        resp = client.get(f"/jobs/{job.job_id}/download?lang=zh")
+        return zipfile.ZipFile(io.BytesIO(resp.content)).read("summary.md").decode("utf-8")
+
+    job.sampling = job.sampling.model_copy(update={
+        "judge_targets": [Target(surface="s1", model="m1"), Target(surface="s2", model="m2")], "n_own_vendor": 2})
+    text = summary()
+    assert "AI 裁判:S1 · m1;s2 · m2;" in text and "其中 2 条回答请不到别家,这部分是自家判自家,可能偏宽。" in text
+    job.sampling = job.sampling.model_copy(update={"judge_targets": [], "n_own_vendor": 0, "no_judge": ["S9"]})
+    text = summary()
+    assert "S9 无法进行 AI 判断,这单没有 AI 裁判" in text and "AI 裁判:" not in text
 
 
 def test_bundle_is_only_for_finished_jobs(storage):

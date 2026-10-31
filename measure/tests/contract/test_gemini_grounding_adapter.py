@@ -205,6 +205,21 @@ def test_undeclared_capabilities_and_unknown_model_raise_explicitly():
         adapter.ask(make_request(model="gemini-1.5-pro"))
 
 
+@respx.mock
+def test_helper_model_is_billed_at_its_own_price_and_never_tested():
+    """只当裁判的型号(BR6):能调用、按自己的价算钱、思考 token 按输出价,但不进被测清单,否则高档会多测一个。"""
+    respx.post(API_URL).mock(return_value=httpx.Response(200, json={
+        "status": "completed", "steps": [{"type": "model_output", "content": [{"type": "text", "text": "好"}]}],
+        "usage": {"total_input_tokens": 1_000_000, "total_output_tokens": 600_000, "total_thought_tokens": 400_000},
+    }))
+    adapter = GeminiGroundingAdapter(api_key="test-key", client=httpx.Client())
+    meta = adapter.meta()
+    assert meta.helper_models == ["gemini-3.1-flash-lite"] and "gemini-3.1-flash-lite" not in meta.models
+    assert set(meta.est_cost_per_call_usd) == set(meta.models)
+    run = adapter.ask(make_request(model="gemini-3.1-flash-lite", search_mode=SearchMode.SEARCH_DISABLED))
+    assert run.model == "gemini-3.1-flash-lite" and run.cost_usd == pytest.approx(0.25 + 1.50)
+
+
 def test_close_releases_http_client():
     client = httpx.Client()
     GeminiGroundingAdapter(api_key="test-key", client=client).close()

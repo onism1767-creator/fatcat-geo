@@ -301,6 +301,8 @@ class BrandMentionObservation(DerivedObservation):
     clue: str | None = None  # 有风险的名字靠什么线索算你(BR4):附近的别家名、品类词、别的登记名或官网
     reason_code: str | None = None  # 裁判说没提到的理由码(BR5,engine/judge.py 的 REASON_CODES)
     new_spellings: list[str] = []  # 裁判看到的、像你但没登记的写法(BR5):不算提到,进报告写法清单
+    judged_by: str | None = None  # 哪个裁判判的(Target.key,BR6;其他判定器不填)
+    own_vendor: bool = False  # 别家都请不到,这条是自家判自家(BR6):可能偏宽,报告注明
 
 
 class CitationObservation(DerivedObservation):

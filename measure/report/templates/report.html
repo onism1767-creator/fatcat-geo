@@ -23,7 +23,9 @@
     <li>{{ t["sampling_tier_custom" if sn.tier.custom else "sampling_tier"].format(tier=t["tier_name_" + sn.tier.name], runs=sn.tier.runs_per_prompt, method=t["method_" + sn.tier.mention_method.value]) }}</li>
     <li>{{ t["sampling_time"].format(start=sn.started_at|local_time if sn.started_at else "—", end=sn.finished_at|local_time if sn.finished_at else "—") }}</li>
     <li>{{ t["sampling_targets_pre"] }}{% for x in sn.targets %}{{ target_name(x.surface, x.model) }}{% if not loop.last %};{% endif %}{% endfor %}</li>
-    {% if sn.judge_targets %}<li>{{ t["sampling_judges" if sn.tier.mention_method.value == "rules_fuzzy_judge" else "sampling_judges_unsure"].format(primary=target_name(sn.judge_targets[0].surface, sn.judge_targets[0].model), backup=target_name(sn.judge_targets[1].surface, sn.judge_targets[1].model)) }}</li>{% endif %}
+    {% if sn.judge_targets %}<li>{{ t["sampling_judges" if sn.tier.mention_method.value == "rules_fuzzy_judge" else "sampling_judges_unsure"].format(judges=judge_names(sn.judge_targets)) }}</li>{% endif %}
+    {% if sn.n_own_vendor %}<li>{{ t["sampling_own_vendor"].format(n=sn.n_own_vendor) }}</li>{% endif %}
+    {% if sn.no_judge %}<li>{{ t["sampling_no_judge"].format(names=sn.no_judge|join(" / ")) }}</li>{% endif %}
     {#- 说不准(BR4,用户定 Q3):不进提及率分母,单独说清有几条 -#}
     {% if sn.n_unsure %}<li>{{ t["sampling_unsure"].format(n=sn.n_unsure) }}</li>{% endif %}
     <li>{{ t["sampling_domains"].format(confirmed=sn.domains_confirmed, unconfirmed=sn.domains_unconfirmed, date=sn.domains_at|local_date if sn.domains_at else "—") }} <a href="#official">{{ t["sampling_domains_link"] }}</a></li>

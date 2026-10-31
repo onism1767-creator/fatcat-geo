@@ -1,4 +1,4 @@
-"""AI 裁判(S9.3,高档):挑裁判(自家回答换备用)、严格 JSON 与片段机械核对、3 轮不合格记「裁判看不到」、
+"""AI 裁判(S9.3,高档):挑裁判(先挑别家,BR6)、严格 JSON 与片段机械核对、3 轮不合格记「裁判看不到」、
 一条只问一次、库里已有的装回;观测层按高档用裁判判提及与态度,竞品提及走免费判定器。零网络零数据库。"""
 
 import json
@@ -9,15 +9,27 @@ import pytest
 
 from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
 from engine.detectors.brand_mention_judge import JudgeBrandMentionDetector, JudgeSentimentDetector
-from engine.judge import JudgeConfig, JudgeModel, JudgeVerdict, MentionJudge, build_prompt, load_judges, parse_verdict
+from engine.judge import (
+    JudgeConfig,
+    JudgeModel,
+    JudgeVerdict,
+    MentionJudge,
+    build_prompt,
+    cannot_judge,
+    load_judges,
+    parse_verdict,
+    pick_judge,
+    usable_judges,
+)
+from engine.loader import build_adapters, load_surface_registry
 from engine.models import Answer, BrandSpec, Outcome, SearchMode, SearchTrace, Sentiment, SurfaceRun
 from engine.observe import ObserveContext, observe, persist_observations
 from engine.tiers import MentionMethod
 from tests.unit.test_brand_mention_fuzzy import ListStore  # 同一个假存储,别处一份
 
 BRAND = BrandSpec(name="极光CRM", aliases=["AuroraCRM"], domains=["aurora-crm.com"])
-CONFIG = JudgeConfig(primary=JudgeModel(surface="judge_a", model="ja", est_cost_per_call_usd=0.001),
-                     backup=JudgeModel(surface="judge_b", model="jb", est_cost_per_call_usd=0.002))
+CONFIG = JudgeConfig(candidates=[JudgeModel(name="甲家", surface="judge_a", model="ja", est_cost_per_call_usd=0.001),
+                                 JudgeModel(name="乙家", surface="judge_b", model="jb", est_cost_per_call_usd=0.002)])
 
 
 class ScriptedJudge(SurfaceAdapter):
@@ -73,27 +85,64 @@ def adapters(script=None) -> dict[str, ScriptedJudge]:
             "judge_b": ScriptedJudge("judge_b", "vendor_b", "jb", script)}
 
 
-def test_config_loads_and_requires_two_different_instruments(tmp_path: Path):
+def test_config_lists_one_line_per_instrument(tmp_path: Path):
+    line = "  - {name: 甲, surface: x, model: a, est_cost_per_call_usd: 0.001}\n"
+    twice, empty = tmp_path / "twice.yaml", tmp_path / "empty.yaml"
+    twice.write_text("candidates:\n" + line + line, encoding="utf-8")
+    empty.write_text("candidates: []\n", encoding="utf-8")
+    for bad in (twice, empty):
+        with pytest.raises(ValueError, match="一家也只能写一行"):
+            load_judges(bad)
+
+
+def test_every_real_candidate_can_really_judge():
+    """名单写错不会让任务停下,只会悄悄少一家裁判,所以这里把守:每行都对得上真适配器的型号,且能不联网调用。"""
+    keys = {entry.api_key_env: "test-key" for entry in load_surface_registry() if entry.enabled}
+    real = build_adapters(keys)
     config = load_judges()
-    assert config.primary.surface != config.backup.surface and len(config.targets) == 2
-    bad = tmp_path / "judges.yaml"
-    bad.write_text("primary: {surface: x, model: a, est_cost_per_call_usd: 0.001}\n"
-                   "backup: {surface: x, model: b, est_cost_per_call_usd: 0.001}\n", encoding="utf-8")
-    with pytest.raises(ValueError, match="不同的仪器"):
-        load_judges(bad)
+    try:
+        assert [judge.spec for judge in usable_judges(config, real)] == config.candidates
+        assert len({real[c.surface].meta().provider for c in config.candidates}) == len(config.candidates)
+    finally:
+        for adapter in real.values():
+            adapter.close()
 
 
-def test_judge_setup_fails_loudly_when_a_judge_cannot_be_used():
-    with pytest.raises(ValueError, match="没有加载"):
-        MentionJudge(CONFIG, {"judge_a": adapters()["judge_a"]}, ledger=lambda r: None, locale="zh-CN")
-    online_only = {"judge_a": ScriptedJudge("judge_a", "vendor_a", "ja", offline=False),
-                   "judge_b": adapters()["judge_b"]}
-    with pytest.raises(ValueError, match="不联网"):
-        MentionJudge(CONFIG, online_only, ledger=lambda r: None, locale="zh-CN")
-    wrong_model = JudgeConfig(primary=JudgeModel(surface="judge_a", model="nope", est_cost_per_call_usd=0.001),
-                              backup=CONFIG.backup)
-    with pytest.raises(ValueError, match="不在"):
-        MentionJudge(wrong_model, adapters(), ledger=lambda r: None, locale="zh-CN")
+def test_only_usable_candidates_stay():
+    """BR6:缺 key、不能不联网、型号不在清单的都不留;一家都不留时不报错,这单就是没有裁判。"""
+    a, b = adapters()["judge_a"], adapters()["judge_b"]
+    keep = lambda ads, config=CONFIG: [j.spec.surface for j in usable_judges(config, ads)]  # noqa: E731
+    assert keep({"judge_a": a, "judge_b": b}) == ["judge_a", "judge_b"]
+    assert keep({"judge_b": b}) == ["judge_b"]
+    assert keep({"judge_a": ScriptedJudge("judge_a", "vendor_a", "ja", offline=False), "judge_b": b}) == ["judge_b"]
+    wrong_model = JudgeConfig(candidates=[CONFIG.candidates[0].model_copy(update={"model": "nope"}),
+                                          CONFIG.candidates[1]])
+    assert keep({"judge_a": a, "judge_b": b}, wrong_model) == ["judge_b"]
+    nobody = MentionJudge(CONFIG, {}, ledger=lambda r: None, locale="zh-CN")
+    assert not nobody.available and nobody.judge(run_with("极光CRM"), BRAND) is None
+
+
+def test_a_helper_model_can_judge_without_being_tested():
+    """裁判专用型号不在被测清单里,但照样能当裁判(BR6)。"""
+
+    class Helper(ScriptedJudge):
+        def meta(self) -> SurfaceMeta:
+            return super().meta().model_copy(update={"models": ["tested"], "helper_models": [self._model]})
+
+    assert [j.spec.model for j in usable_judges(CONFIG, {"judge_a": Helper("judge_a", "vendor_a", "ja")})] == ["ja"]
+
+
+def test_picking_prefers_another_vendor_in_list_order():
+    usable = usable_judges(CONFIG, adapters())
+    assert pick_judge(usable, "vendor_x").spec.surface == "judge_a"
+    assert pick_judge(usable, "vendor_a").spec.surface == "judge_b"
+    assert pick_judge(usable[:1], "vendor_a").spec.surface == "judge_a"  # 别家都请不到才自家判自家
+    assert pick_judge([], "vendor_a") is None
+
+
+def test_the_ones_that_cannot_judge_are_named_once():
+    same = ScriptedJudge("同一家", "v", "m", offline=False)
+    assert cannot_judge({"s1": same, "s2": same}) == ["同一家"]
 
 
 def test_prompt_isolates_the_answer_as_data_and_carries_the_brand_card():
@@ -186,15 +235,22 @@ def test_judge_picks_another_vendor_caches_and_records_each_call():
     assert judge.judge(run_with("x", run_id="r3", provider="vendor_a"), BRAND) is not None
 
 
-def test_no_vendor_left_or_three_bad_rounds_means_judge_cannot_see():
-    ads = adapters()
-    judge = MentionJudge(CONFIG, ads, ledger=lambda r: None, locale="zh-CN")
-    assert judge.judge(run_with("极光CRM", provider="vendor_a"), BRAND) is not None
-    both_same = JudgeConfig(primary=CONFIG.primary, backup=JudgeModel(surface="judge_b", model="jb",
-                                                                       est_cost_per_call_usd=0.001))
+def test_own_vendor_judging_happens_only_as_a_last_resort_and_is_written_down():
+    """BR6(用户定):别家都请不到才自家判自家,判定行记下是谁判的、是不是自家。"""
+    judge = MentionJudge(CONFIG, adapters(), ledger=lambda r: None, locale="zh-CN")
+    run = run_with("极光CRM 不错", provider="vendor_a")
+    other_vendor = JudgeBrandMentionDetector(judge).detect(run, BRAND)
+    assert other_vendor.judged_by == "judge_b::jb" and not other_vendor.own_vendor
+
     same_vendor = {"judge_a": ScriptedJudge("judge_a", "v", "ja"), "judge_b": ScriptedJudge("judge_b", "v", "jb")}
-    stuck = MentionJudge(both_same, same_vendor, ledger=lambda r: None, locale="zh-CN")
-    assert stuck.judge(run_with("极光CRM", provider="v"), BRAND) is None and stuck.unavailable == 1
+    alone = MentionJudge(CONFIG, same_vendor, ledger=lambda r: None, locale="zh-CN")
+    run = run_with("极光CRM 不错", provider="v")
+    own = JudgeBrandMentionDetector(alone).detect(run, BRAND)
+    assert own.mentioned and own.judged_by == "judge_a::ja" and own.own_vendor
+    assert len(same_vendor["judge_a"].requests) == 1 and same_vendor["judge_b"].requests == []
+
+
+def test_three_bad_rounds_mean_the_judge_cannot_see():
     garbage = adapters(script=lambda answer: "I refuse to answer in JSON")
     spent = []
     bad = MentionJudge(CONFIG, garbage, ledger=spent.append, locale="zh-CN")
@@ -252,8 +308,6 @@ def test_high_tier_observation_uses_the_judge_and_archives_every_detector():
     assert len(ads["judge_a"].requests) == 1  # 提及 + 态度 + 存档:仍只问了一次
     store = ListStore()
     assert persist_observations(store, [obs]) == len(obs.archived) and store.rows == obs.archived
-    with pytest.raises(ValueError, match="裁判"):  # 没装配裁判就明确报错
-        observe(run_with("x"), BRAND, ObserveContext(competitors=[], mention_method=MentionMethod.RULES_FUZZY_JUDGE))
 
 
 def _medium_context(judge: MentionJudge | None) -> ObserveContext:

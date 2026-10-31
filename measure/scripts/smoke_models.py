@@ -60,7 +60,7 @@ def main() -> int:
           f"{'回答字数':>7} {'花费':>8} {'耗时':>7}  终止信号")
     try:
         for name, adapter in adapters.items():
-            for model in adapter.meta().models:
+            for model in (*adapter.meta().models, *adapter.meta().helper_models):
                 if args.only is not None and model not in args.only:
                     continue
                 request = AskRequest(

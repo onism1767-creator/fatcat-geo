@@ -320,7 +320,7 @@ def calibrate(
     synthetic_runs = [(base, variant, synthetic_run(base, variant.text, str(i)))
                       for base in bases for i, variant in enumerate(variants_of(base.brand, base.competitors))]
     if prefetch is not None and judge_a is not None:
-        # 合成样本只请主裁判
+        # 合成样本只请一位裁判
         prefetch([Sample(run=run, brand=base.brand) for base, _, run in synthetic_runs
                   if base.run.run_id in judged_ids], False)
     scores: dict[tuple[str, str, bool], list[int]] = {}

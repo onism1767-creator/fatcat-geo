@@ -17,6 +17,7 @@ from engine.models import (
     PromptOrigin,
     SearchMode,
     SurfaceRun,
+    Target,
 )
 from engine.observe import ObserveContext, observe, persist_observations
 from engine.page_check import PageIndex
@@ -144,6 +145,21 @@ def test_report_says_how_many_answers_it_could_not_tell():
     zh, en = (client.get(f"/jobs/{job.job_id}/report?lang={lang}").text for lang in ("zh", "en"))
     assert "另有 3 条回答只出现了这个词,看不出是不是你,没算进提及率。" in zh
     assert "Another 3 answers only contain the word" in en
+
+
+def test_report_names_the_judges_and_says_where_they_fall_short():
+    """BR6(用户定):写实际判过的那几家;自家判自家的条数单独说「可能偏宽」;一家裁判都没有就直接说谁无法进行 AI 判断。"""
+    job = finished_job()
+    client = _client(job)
+    both = [Target(surface="s1", model="m1"), Target(surface="s2", model="m2")]
+    job.sampling = job.sampling.model_copy(update={"judge_targets": both, "n_own_vendor": 4})
+    zh, en = (client.get(f"/jobs/{job.job_id}/report?lang={lang}").text for lang in ("zh", "en"))
+    assert "AI 裁判:S1 · m1;" in zh and "其中 4 条回答请不到别家,这部分是自家判自家,可能偏宽。" in zh
+    assert "That part may lean generous." in en
+    job.sampling = job.sampling.model_copy(update={"judge_targets": [], "n_own_vendor": 0, "no_judge": ["S9"]})
+    zh, en = (client.get(f"/jobs/{job.job_id}/report?lang={lang}").text for lang in ("zh", "en"))
+    assert "S9 无法进行 AI 判断,这单没有 AI 裁判,判不清的记「说不准」。" in zh and "AI 裁判:" not in zh
+    assert "S9 can’t do AI judging" in en
 
 
 def test_response_page_says_when_it_cannot_tell(storage):

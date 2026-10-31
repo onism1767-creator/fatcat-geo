@@ -5,7 +5,8 @@
 引用判定带「链接还原」上下文(S4);来源归属判定还带「网页核实」结果(S6.1):跳转仪器的引用按终点判,
 第三方网页按抓回的正文判,看不到的照记原因。
 提及判定随档位(S9.2 / S9.3):规则 / 模糊两个判定器每条都存档(供分歧率与校准),高档再加 AI 裁判;
-中档只把模糊判定器说不准的那几条请裁判,裁判判不了仍记说不准(BR4,用户定 Q3);低档说不准就是说不准。
+中档只把模糊判定器说不准的那几条请裁判,裁判判不了仍记说不准(BR4,用户定 Q3);低档说不准就是说不准;
+高档一家裁判都请不到时按模糊判定器算,说不准的记说不准(BR6)。
 提及率、AI 原话、情感句按档位的主判定器算;竞品提及走免费判定器(规则档用规则,其余用模糊),不请裁判。
 """
 
@@ -27,7 +28,7 @@ from engine.detectors.runner import ObservationStore
 from engine.detectors.sentiment import DETECTOR_NAME as LEXICON_SENTIMENT_NAME
 from engine.detectors.sentiment import SentimentDetector
 from engine.detectors.source_class import SourceClassifier
-from engine.judge import JudgeUnavailable, MentionJudge
+from engine.judge import MentionJudge
 from engine.models import (
     BrandMentionObservation,
     BrandSpec,
@@ -134,13 +135,11 @@ def observe(run: SurfaceRun, brand: BrandSpec, context: ObserveContext) -> RunOb
     fuzzy = FuzzyBrandMentionDetector(clues).detect(run, brand)
     judged: BrandMentionObservation | None = None
     sentiment: SentimentObservation | None
-    if method is MentionMethod.RULES_FUZZY_JUDGE:
-        if context.judge is None:  # 不静默退回别的方法(硬边界 5 同款)
-            raise JudgeUnavailable("高档的提及判定要 AI 裁判,但没有装配裁判(config/judges.yaml 的型号没加载)")
+    if method is MentionMethod.RULES_FUZZY_JUDGE and context.judge is not None:
         judged = _as_mention(JudgeBrandMentionDetector(context.judge).detect(run, brand))
         mention = judged
         sentiment = JudgeSentimentDetector(context.judge).detect(run, brand)
-    else:
+    else:  # 高档一家裁判都请不到时和这里一样:规则和模糊判得清的照算,判不清的说不准,报告写明(BR6,用户定)
         mention = rules if method is MentionMethod.RULES else fuzzy
         if method is MentionMethod.RULES_FUZZY and context.judge is not None and _unsure(fuzzy):
             judged = _as_mention(JudgeBrandMentionDetector(context.judge).detect(run, brand))

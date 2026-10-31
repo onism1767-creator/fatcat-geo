@@ -27,7 +27,7 @@ import structlog
 from adapters.base import SurfaceAdapter
 from crawler.fetch import FETCH_TIMEOUT, PageIntro, extract_page_intro, fetch_page, is_html, new_client
 from engine.ai_task import Ledger, TaskFailed, extract_json, run_task
-from engine.judge import JudgeConfig, JudgeModel
+from engine.judge import JudgeConfig, JudgeModel, usable_judges
 from engine.models import FrozenModel, SearchMode
 from engine.scheduler import AccountProblem, SamplingPolicy
 
@@ -59,15 +59,9 @@ class CategoryCheck(FrozenModel):
 def helper_model(
     config: JudgeConfig, adapters: Mapping[str, SurfaceAdapter],
 ) -> tuple[SurfaceAdapter, JudgeModel] | None:
-    """做这次小调用的仪器与型号:主的能用(已加载、型号在清单里、支持不联网)就用主的,否则备的;都不能用 → None。"""
-    for spec in (config.primary, config.backup):
-        adapter = adapters.get(spec.surface)
-        if adapter is None:
-            continue
-        meta = adapter.meta()
-        if spec.model in meta.models and meta.capabilities.supports_search_disabled:
-            return adapter, spec
-    return None
+    """做这次小调用的仪器与型号:裁判候选名单里第一家能用的(已加载、型号可用、支持不联网);都不能用 → None。"""
+    usable = usable_judges(config, adapters)
+    return (usable[0].adapter, usable[0].spec) if usable else None
 
 
 def fetch_intro(website: str, *, client: httpx.Client | None = None) -> PageIntro | None:

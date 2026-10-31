@@ -177,20 +177,13 @@ errors:
     next_step: {zh: "不用做什么:拒答与空回答单独计数,不进比例的分母。", en: "Nothing to do: refusals and blanks are counted separately and never enter a denominator."}
 
   # ── 高档裁判 ──
-  - code: JUDGE_UNAVAILABLE
-    scope: judge
-    resumable: true
-    trigger: {zh: "高档开跑时裁判型号没加载(缺 key / 不在清单 / 不支持不联网)", en: "A high-tier run started but a judge model is not loaded (missing key / not in lineup / cannot run without search)"}
-    causes: {zh: "config/judges.yaml 里的裁判型号这家没配 key、型号已下线,或被测仪器清单变了。", en: "The judge model in config/judges.yaml has no key, was retired, or the instrument lineup changed."}
-    message: {zh: "高档需要另一家 AI 当裁判,但裁判没准备好,检测已经停下。原话:{detail}", en: "The high tier needs a second AI as judge, but the judge is not ready; the run has stopped. Detail: {detail}"}
-    next_step: {zh: "检查 config/judges.yaml 里两家裁判的 key 和型号,重启服务后点「接着跑」。", en: "Check the keys and models of both judges in config/judges.yaml, restart, then press Resume."}
   - code: JUDGE_NOT_VISIBLE
     scope: judge
     resumable: false
-    trigger: {zh: "某条回答裁判判不了:两家裁判都是这条回答自家的,或裁判 3 轮都没给出合格 JSON", en: "The judge could not rule on an answer: both judges belong to that answer's vendor, or gave no valid JSON in 3 rounds"}
-    causes: {zh: "两家裁判里的那一家正好是这条回答的出处,另一家也是;或裁判三轮都没按格式答。", en: "Both judges belong to the vendor that produced this answer, or the judge failed to answer in the required format three times."}
+    trigger: {zh: "某条回答裁判判不了:裁判 3 轮都没给出合格 JSON", en: "The judge could not rule on an answer: no valid JSON in 3 rounds"}
+    causes: {zh: "裁判三轮都没按格式答。", en: "The judge failed to answer in the required format three times."}
     message: {zh: "这条回答裁判看不到,不猜;它不进「提到你」的分母。", en: "The judge could not see this answer; it is not guessed and not counted in the mention denominator."}
-    next_step: {zh: "不用做什么;条数多的话换一个备用裁判(config/judges.yaml)。", en: "Nothing to do; if it happens a lot, switch the backup judge in config/judges.yaml."}
+    next_step: {zh: "不用做什么;条数多的话换 config/judges.yaml 里的裁判型号。", en: "Nothing to do; if it happens a lot, change the judge model in config/judges.yaml."}
 
   # ── 熔断(一条腿提前停) ──
   - code: FAILURE_RATE_EXCEEDED

@@ -4,6 +4,7 @@
 from fastapi.testclient import TestClient
 
 from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
+from engine.judge import JudgeConfig, JudgeModel
 from engine.models import Target
 from engine.tiers import MentionMethod
 from report.app import create_app
@@ -18,7 +19,7 @@ class TwoModelAdapter(SurfaceAdapter):
         return SurfaceMeta(display_name="S2", api_name="S2 API", provider="test_provider2", surface="s2",
                            models=["m_cheap", "m_top"], default_model="m_cheap",
                            consumer_default_model="m_cheap", strongest_model="m_top", models_checked="test",
-                           capabilities=CapabilityRegistry(supports_citations=True),
+                           capabilities=CapabilityRegistry(supports_citations=True, supports_search_disabled=True),
                            est_cost_per_call_usd={"m_cheap": 0.01, "m_top": 0.10})
 
     def ask(self, request):
@@ -28,14 +29,17 @@ class TwoModelAdapter(SurfaceAdapter):
         return True
 
 
-def _client() -> tuple[TestClient, list]:
+JUDGES = JudgeConfig(candidates=[JudgeModel(name="乙家", surface="s2", model="m_cheap", est_cost_per_call_usd=0.0004)])
+
+
+def _client(judges: JudgeConfig = JUDGES) -> tuple[TestClient, list]:
     calls: list = []
 
     def stub_runner(*, job, adapters, dsn, evidence, replay):
         calls.append(job.job_id)
 
     app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter(), "s2": TwoModelAdapter()},
-                     dsn="postgresql://unused", evidence=REGISTRY, job_runner=stub_runner,
+                     dsn="postgresql://unused", evidence=REGISTRY, job_runner=stub_runner, judges=judges,
                      calibration=None)  # 页面测试不读本机的校准文件:「还没校准」的样子也要能测
     return TestClient(app), calls
 
@@ -117,6 +121,36 @@ def test_a_risky_name_is_explained_and_budgets_the_judge_on_the_medium_tier():
     tiers = _estimate(client, risky)["tiers"]
     assert tiers["low"]["judge_calls"] == 0
     assert tiers["medium"]["judge_upto"] and 0 < tiers["medium"]["judge_calls"] <= MAX_UNSURE_JUDGED
+
+
+def test_confirm_page_says_plainly_who_cannot_judge():
+    """BR6(用户定):一家裁判都请不到时,开跑前直接说这几家无法进行 AI 判断、加哪家的 key 就能判;预估里没有裁判的钱。"""
+    client, _ = _client(JudgeConfig(candidates=[
+        JudgeModel(name="甲家", surface="not_loaded", model="m", est_cost_per_call_usd=1.0),
+        JudgeModel(name="丙家", surface="gone", model="m", est_cost_per_call_usd=1.0)]))
+    url = _confirm_url(client)
+    text = visible_text(client.get(url).text)
+    assert "S1 / S2 无法进行 AI 判断" in text and "再加一家 甲家 / 丙家 的 key 就能判" in text
+    tiers = _estimate(client, url)["tiers"]
+    assert tiers["high"]["judge_calls"] == 0 and tiers["high"]["judge_cost_usd"] == 0
+
+    resp = client.post("/jobs?lang=zh", data={"brand_name": "小米", "aliases": "", "website": "mi.com",
+                                             "category": "手机", "questions": "问题一?\n问题二?", "generate": ""},
+                       follow_redirects=False)
+    risky = visible_text(client.get(resp.headers["location"]).text)
+    assert "光看字认不准" in risky and "中档和高档会请另一家 AI" not in risky  # 没有裁判就别说会请人看
+
+    client, _ = _client()
+    assert "无法进行 AI 判断" not in client.get(_confirm_url(client)).text
+
+
+def test_estimate_prices_the_judge_each_target_would_really_get():
+    """BR6:单价跟着这几个被测对象实际请到的裁判走,取最贵的;请到的是自家也算钱。"""
+    client, _ = _client(JudgeConfig(candidates=[
+        JudgeModel(name="乙家", surface="s2", model="m_cheap", est_cost_per_call_usd=0.0005),
+    ]))
+    tiers = _estimate(client, _confirm_url(client))["tiers"]
+    assert tiers["high"]["judge_cost_usd"] == round(tiers["high"]["judge_calls"] * 0.0005, 4)
 
 
 def test_confirm_freezes_the_tier_and_the_runner_reads_it():

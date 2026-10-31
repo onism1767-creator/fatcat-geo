@@ -37,7 +37,7 @@ def test_every_code_the_program_can_raise_is_in_the_library():
     assert page_codes | {"PAGE_NOT_ATTEMPTED", "CITATION_UNRESOLVED"} <= codes
     assert {f"VERIFY_{v.value}" for v in VerificationOutcome
             if v not in (VerificationOutcome.VERIFIED_MATCH, VerificationOutcome.CONTENT_MISMATCH)} <= codes
-    assert {"JOB_STALLED", "JOB_CRASHED", "JUDGE_UNAVAILABLE", "JUDGE_NOT_VISIBLE", "DRAFTING_FAILED"} <= codes
+    assert {"JOB_STALLED", "JOB_CRASHED", "JUDGE_NOT_VISIBLE", "DRAFTING_FAILED"} <= codes
 
 
 def test_text_fills_placeholders_and_refuses_missing_ones():

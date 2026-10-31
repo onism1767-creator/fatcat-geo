@@ -62,7 +62,7 @@ def main() -> int:
     declared: dict[str, set[str]] = {}
     for adapter in adapters.values():
         meta = adapter.meta()
-        declared.setdefault(meta.provider, set()).update(meta.models)
+        declared.setdefault(meta.provider, set()).update(meta.models, meta.helper_models)
         adapter.close()
 
     with httpx.Client(timeout=30.0) as client:

@@ -124,8 +124,9 @@ class ScriptedAdapter(SurfaceAdapter):
 
 
 INTRO = extract_page_intro(HOMEPAGE)
-JUDGES = JudgeConfig(primary=JudgeModel(surface="s_main", model="m_cheap", est_cost_per_call_usd=0.0004),
-                     backup=JudgeModel(surface="s_backup", model="m_small", est_cost_per_call_usd=0.0004))
+FIRST = JudgeModel(name="甲家", surface="s_main", model="m_cheap", est_cost_per_call_usd=0.0004)
+SECOND = JudgeModel(name="乙家", surface="s_backup", model="m_small", est_cost_per_call_usd=0.0004)
+JUDGES = JudgeConfig(candidates=[FIRST, SECOND])
 DIFFERENT = {"verdict": "different", "site_phrase": "极光CRM 帮销售团队管理客户、跟进商机。",
              "suggested_category": "客户关系管理软件", "reason": "官网说的是客户管理软件,用户填的是宠物食品"}
 
@@ -134,12 +135,12 @@ def _json(payload: dict) -> str:
     return json.dumps(payload, ensure_ascii=False)
 
 
-def test_helper_model_prefers_primary_then_backup_then_none():
-    primary, backup = ScriptedAdapter([]), ScriptedAdapter([], surface="s_backup", models=("m_small",))
-    assert helper_model(JUDGES, {"s_main": primary, "s_backup": backup}) == (primary, JUDGES.primary)
-    assert helper_model(JUDGES, {"s_backup": backup}) == (backup, JUDGES.backup)  # 主的没加载
+def test_helper_model_takes_the_first_usable_candidate_or_none():
+    first, second = ScriptedAdapter([]), ScriptedAdapter([], surface="s_backup", models=("m_small",))
+    assert helper_model(JUDGES, {"s_main": first, "s_backup": second}) == (first, FIRST)
+    assert helper_model(JUDGES, {"s_backup": second}) == (second, SECOND)  # 排第一的没加载
     wrong_model = ScriptedAdapter([], models=("m_other",))
-    assert helper_model(JUDGES, {"s_main": wrong_model, "s_backup": backup}) == (backup, JUDGES.backup)
+    assert helper_model(JUDGES, {"s_main": wrong_model, "s_backup": second}) == (second, SECOND)
     no_offline = ScriptedAdapter([], surface="s_backup", models=("m_small",), search_disabled=False)
     assert helper_model(JUDGES, {"s_backup": no_offline}) is None
     assert helper_model(JUDGES, {}) is None

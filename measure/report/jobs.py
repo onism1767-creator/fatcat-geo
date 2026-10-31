@@ -38,7 +38,7 @@ from engine.models import (
 )
 from engine.scheduler import SamplingPolicy, StopDetail
 from engine.spellings import SpellingCandidate
-from engine.tiers import TierChoice
+from engine.tiers import MentionMethod, TierChoice
 
 log = structlog.get_logger("report.jobs")
 
@@ -107,7 +107,9 @@ class SamplingNote(FrozenModel):
     domains_unconfirmed: int  # 待用户确认几个
     domains_at: datetime | None  # 名单日期
     method_version: str  # engine/method.py::METHOD_VERSION,生成时冻结
-    judge_targets: list[Target]  # AI 裁判(主 + 备用;S9.3,中档只判说不准的),没用裁判为空
+    judge_targets: list[Target]  # 这单实际判过的 AI 裁判(S9.3,中档只判说不准的),没用裁判为空
+    n_own_vendor: int = 0  # 其中几条回答别家都请不到,是自家判自家(BR6):可能偏宽
+    no_judge: list[str] = []  # 该请裁判却一家都请不到时,无法进行 AI 判断的这几家(BR6);非空 = 这单没有裁判
 
 
 class ReportPayload(FrozenModel):
@@ -333,6 +335,13 @@ class DiagnosisJob:
         if self.tier is None:
             raise RuntimeError("任务还没确认,没有档位参数(tier 为空)")
         return self.tier
+
+    def method_used(self) -> MentionMethod:
+        """读已存判定行时用:高档一家裁判都请不到时没有裁判那一行,和中档一样读模糊判定器(BR6)。"""
+        method = self.frozen_tier().mention_method
+        if method is MentionMethod.RULES_FUZZY_JUDGE and self.sampling is not None and self.sampling.no_judge:
+            return MentionMethod.RULES_FUZZY
+        return method
 
     def policy(self) -> SamplingPolicy:
         """本单的采样参数:重试 / 熔断用全局 POLICY,每题次数按档位(S9.1)。"""

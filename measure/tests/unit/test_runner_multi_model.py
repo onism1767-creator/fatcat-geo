@@ -4,6 +4,7 @@
 官网抓取审计与被引 URL 重抓(12.3:单测不许碰真实网络)。适配器是按型号给不同回答的假仪器。
 """
 
+import json
 from datetime import UTC, datetime
 from urllib.parse import urlsplit
 from uuid import uuid4
@@ -29,6 +30,7 @@ from engine.models import (
     ResolutionStatus,
     RunError,
     RunErrorType,
+    SearchMode,
     SearchTrace,
     SurfaceRun,
     Target,
@@ -82,6 +84,30 @@ class TwoModelAdapter(SurfaceAdapter):
 
     def healthcheck(self) -> bool:
         return True
+
+
+class ClosedBookAdapter(TwoModelAdapter):
+    """能不联网调用:开了闭卷对照就多一条闭卷腿。"""
+
+    def meta(self) -> SurfaceMeta:
+        return super().meta().model_copy(update={
+            "capabilities": CapabilityRegistry(supports_citations=True, supports_search_disabled=True),
+            "est_cost_per_call_search_disabled_usd": {CITES: 0.001, SILENT: 0.001}})
+
+
+class JudgingTwoModelAdapter(ClosedBookAdapter):
+    """这一家既被测、又是唯一能请到的裁判:不联网的调用按裁判的格式答。"""
+
+    def ask(self, request: AskRequest) -> SurfaceRun:
+        run = super().ask(request)
+        if request.search_mode is not SearchMode.SEARCH_DISABLED:
+            return run
+        said = "推荐极光CRM" in request.prompt_text.split("<<<BEGIN>>>", 1)[1]
+        verdict = {"mentioned": said, "spans": ["极光CRM"] if said else [], "confidence": 0.9, "reason": "读过了",
+                   "sentiment": "neutral" if said else None, "reason_code": None if said else "absent",
+                   "new_spellings": []}
+        return run.model_copy(update={"answer": Answer(answer_text=json.dumps(verdict, ensure_ascii=False),
+                                                       citations_available=False)})
 
 
 class _NoNetworkChecker:
@@ -301,8 +327,9 @@ def test_high_tier_asks_a_judge_once_per_answer_and_reuses_it_on_replay(storage,
     job.tier = TierChoice(name="high", runs_per_prompt=3, mention_method=MentionMethod.RULES_FUZZY_JUDGE, custom=False)
     judges = {"judge_a": ScriptedJudge("judge_a", "vendor_a", "ja"),
               "judge_b": ScriptedJudge("judge_b", "vendor_b", "jb")}
-    config = JudgeConfig(primary=JudgeModel(surface="judge_a", model="ja", est_cost_per_call_usd=0.001),
-                         backup=JudgeModel(surface="judge_b", model="jb", est_cost_per_call_usd=0.001))
+    config = JudgeConfig(candidates=[
+        JudgeModel(name="甲家", surface="judge_a", model="ja", est_cost_per_call_usd=0.001),
+        JudgeModel(name="乙家", surface="judge_b", model="jb", est_cost_per_call_usd=0.001)])
     adapters = {"two_model": TwoModelAdapter(), **judges}
     runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry(), judges=config)
     assert job.state is JobState.DONE, job.error
@@ -310,7 +337,8 @@ def test_high_tier_asks_a_judge_once_per_answer_and_reuses_it_on_replay(storage,
     assert job.spent_usd == pytest.approx(3 * 0.01 + 3 * 0.001 + 6 * 0.001)  # 裁判费用进账本
     assert job.judge_total == 6 and job.judge_done == 6
     note = job.sampling
-    assert note is not None and [t.key for t in note.judge_targets] == ["judge_a::ja", "judge_b::jb"]
+    assert note is not None and [t.key for t in note.judge_targets] == ["judge_a::ja"]  # 写实际判过的那几家
+    assert note.n_own_vendor == 0 and note.no_judge == []
     assert _citation_status(job) == {CITES: StageStatus.PASS, SILENT: StageStatus.FAIL}
     run = storage.runs_for_prompt(prompt.prompt_id, surface="two_model", model=CITES)[0]
     rows = {r["detector_name"]: r for r in storage.observations_for_run(run.run_id)}
@@ -350,8 +378,9 @@ def _judges() -> tuple:
 
     judges = {"judge_a": ScriptedJudge("judge_a", "vendor_a", "ja", says_yes),
               "judge_b": ScriptedJudge("judge_b", "vendor_b", "jb", says_yes)}
-    config = JudgeConfig(primary=JudgeModel(surface="judge_a", model="ja", est_cost_per_call_usd=0.001),
-                         backup=JudgeModel(surface="judge_b", model="jb", est_cost_per_call_usd=0.001))
+    config = JudgeConfig(candidates=[
+        JudgeModel(name="甲家", surface="judge_a", model="ja", est_cost_per_call_usd=0.001),
+        JudgeModel(name="乙家", surface="judge_b", model="jb", est_cost_per_call_usd=0.001)])
     return judges, config
 
 
@@ -383,13 +412,69 @@ def test_medium_tier_needs_no_judge_when_nothing_is_unsure(storage, offline):
 
 
 def test_medium_tier_goes_on_without_a_judge_and_keeps_answers_unsure(storage, offline):
-    """裁判没加载(缺 key):中档不停单,说不准的照旧说不准;高档才停(请不到裁判的情形归 BR6)。"""
+    """裁判没加载(缺 key):中档不停单,说不准的照旧说不准,报告写明谁无法进行 AI 判断。"""
     job = _medium_job("家用空调怎么选?")
     _, config = _judges()
     runner.execute_job(job=job, adapters={"two_model": CommonWordAdapter()}, dsn=TEST_DSN,
                        evidence=load_evidence_registry(), judges=config)
     assert job.state is JobState.DONE, job.error
     assert job.sampling.n_unsure == 6 and job.sampling.judge_targets == []
+    assert job.sampling.no_judge == [CommonWordAdapter().meta().display_name]
+
+
+def test_high_tier_without_any_judge_still_reports_what_rules_can_settle(storage, offline):
+    """BR6(用户定):只有判不了的家时高档不停单:规则和模糊判得清的照算,判不清的说不准,读判定行也跟着读模糊那一行。"""
+    from engine.tiers import MentionMethod, TierChoice
+    from report.response_view import build_response_view
+
+    job, prompt = _new_job("中小团队用什么 CRM 好?")
+    job.tier = TierChoice(name="high", runs_per_prompt=3, mention_method=MentionMethod.RULES_FUZZY_JUDGE, custom=False)
+    _, config = _judges()
+    runner.execute_job(job=job, adapters={"two_model": TwoModelAdapter()}, dsn=TEST_DSN,
+                       evidence=load_evidence_registry(), judges=config)
+    assert job.state is JobState.DONE, job.error
+    assert job.sampling.no_judge == [TwoModelAdapter().meta().display_name] and job.sampling.judge_targets == []
+    assert job.method_used() is MentionMethod.RULES_FUZZY
+    assert _citation_status(job) == {CITES: StageStatus.PASS, SILENT: StageStatus.FAIL}
+    run = storage.runs_for_prompt(prompt.prompt_id, surface="two_model", model=CITES)[0]
+    observations = storage.observations_for_run(run.run_id)
+    assert "brand_mention_judge" not in {o["detector_name"] for o in observations}
+    assert build_response_view(job, run, observations).mentioned is True
+
+
+def test_own_vendor_judging_is_counted_for_the_report(storage, offline):
+    """BR6(用户定):请不到别家时自家判自家,任务照跑,报告数出这部分有几条。"""
+    from engine.judge import JudgeConfig, JudgeModel
+    from engine.tiers import MentionMethod, TierChoice
+
+    job, prompt = _new_job("中小团队用什么 CRM 好?")
+    job.tier = TierChoice(name="high", runs_per_prompt=3, mention_method=MentionMethod.RULES_FUZZY_JUDGE, custom=False)
+    config = JudgeConfig(candidates=[JudgeModel(name="这家", surface="two_model", model=SILENT,
+                                                est_cost_per_call_usd=0.001)])
+    adapters = {"two_model": JudgingTwoModelAdapter()}
+    runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry(), judges=config)
+    assert job.state is JobState.DONE, job.error
+    assert job.sampling.n_own_vendor == 6 and [t.key for t in job.sampling.judge_targets] == [f"two_model::{SILENT}"]
+    run = storage.runs_for_prompt(prompt.prompt_id, surface="two_model", model=CITES)[0]
+    rows = {r["detector_name"]: r for r in storage.observations_for_run(run.run_id)}
+    assert rows["brand_mention_judge"]["own_vendor"] is True
+
+
+def test_closed_book_answers_are_judged_up_front_and_their_cost_is_recorded(storage, offline):
+    """高档开了闭卷对照:闭卷回答也请裁判。原来它们漏在预判之外,边算边一条条问,钱进了总数却没进账本,续跑还会再问一遍。"""
+    from engine.tiers import MentionMethod, TierChoice
+    from tests.unit.test_judge import ScriptedJudge
+
+    job, _ = _new_job("中小团队用什么 CRM 好?")
+    job.tier = TierChoice(name="high", runs_per_prompt=3, mention_method=MentionMethod.RULES_FUZZY_JUDGE, custom=False)
+    job.dependency_enabled = True
+    judge = ScriptedJudge("judge_a", "vendor_a", "ja")
+    _, config = _judges()
+    runner.execute_job(job=job, adapters={"two_model": ClosedBookAdapter(), "judge_a": judge}, dsn=TEST_DSN,
+                       evidence=load_evidence_registry(), judges=config)
+    assert job.state is JobState.DONE, job.error
+    assert job.judge_total == len(judge.requests) == 12  # 开卷 6 条 + 闭卷 6 条,都在预判这一步判完
+    assert storage.aux_spent_usd(job.job_id) == pytest.approx(0.001 * 12)
 
 
 class SickAdapter(TwoModelAdapter):

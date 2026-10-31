@@ -74,6 +74,11 @@ _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "gemini-3.1-pro-preview": (2.0, 12.0),
     "gemini-4-argon": (2.0, 10.0),
 }
+# 只当裁判的便宜型号(BR6;价目 2026-10-30 核对官方价目页与型号页):不进上面的被测清单,否则高档「全部型号」会多测一个
+_HELPER_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
+    "gemini-3.1-flash-lite": (0.25, 1.50),
+}
+_ALL_PRICES_PER_MTOK = {**_TOKEN_PRICES_PER_MTOK, **_HELPER_PRICES_PER_MTOK}
 _SEARCH_USD_PER_QUERY = 14.0 / 1000.0  # 接地检索 $14 / 千次查询(每月 5,000 次免费额度不计入预估)
 _DEFAULT_MODEL = "gemini-3.8-flash"
 # 型号标记(配置资产,用户定 2026-10-14):Gemini 应用默认官方未写(2025-12 起 3 Flash 为默认;
@@ -102,7 +107,7 @@ def _queries(steps: list[Any]) -> list[str]:
 
 def _cost_usd(data: dict[str, Any], model: str) -> float:
     """官方价目确定性折算:token 费(思考按输出价)+ 唯一非空查询数 × 检索单价。"""
-    in_price, out_price = _TOKEN_PRICES_PER_MTOK[model]
+    in_price, out_price = _ALL_PRICES_PER_MTOK[model]
     usage = data.get("usage") or {}
     token_cost = (
         (usage.get("total_input_tokens") or 0) / 1e6 * in_price
@@ -229,6 +234,7 @@ class GeminiGroundingAdapter(SurfaceAdapter):
             display_name="Gemini",
             api_name="Gemini API",
             models=list(_TOKEN_PRICES_PER_MTOK),  # 以官方模型页为准,与价目表同步核对
+            helper_models=list(_HELPER_PRICES_PER_MTOK),
             default_model=_DEFAULT_MODEL,
             consumer_default_model=_CONSUMER_DEFAULT_MODEL,
             strongest_model=_STRONGEST_MODEL,
@@ -259,9 +265,9 @@ class GeminiGroundingAdapter(SurfaceAdapter):
             _CAPABILITIES.require("supports_region")
         search_disabled = request.search_mode is SearchMode.SEARCH_DISABLED
         model = request.model or _DEFAULT_MODEL
-        if model not in _TOKEN_PRICES_PER_MTOK:
+        if model not in _ALL_PRICES_PER_MTOK:
             raise AdapterPermanentError(
-                f"未知模型 {model!r},本 surface 支持: {list(_TOKEN_PRICES_PER_MTOK)}"
+                f"未知模型 {model!r},本 surface 支持: {list(_ALL_PRICES_PER_MTOK)}"
             )
         data, latency_ms, started_at = contract_post(
             self._client,

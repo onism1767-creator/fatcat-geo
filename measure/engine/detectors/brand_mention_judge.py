@@ -1,9 +1,10 @@
 """品牌提及判定器·裁判版 v2 + 态度判定器·裁判版 v2(S9.3,高档;中档只判说不准的,BR4;v2 = BR5,只认登记过的写法):
 把 engine/judge.py 的裁判结论翻成判定行。
 
-两个判定器共用同一次裁判调用(裁判对象里缓存),一条回答只问一次;裁判看不到(没人可换 / 3 轮不合格)→ 不产出判定行,
+两个判定器共用同一次裁判调用(裁判对象里缓存),一条回答只问一次;裁判看不到(3 轮不合格)→ 不产出判定行,
 该条不进提及率分母,也不猜。裁判说信息不够(no_info)→ 判定行记说不准,同样不进分母。
-裁判的理由码、一句理由、置信度和它看到的新写法随判定行存档,供单条回答页与校准(S9.4)。
+裁判的理由码、一句理由、置信度和它看到的新写法随判定行存档,供单条回答页与校准(S9.4);
+哪个裁判判的、是不是自家判自家也记在判定行上(BR6)。
 """
 
 from __future__ import annotations
@@ -36,7 +37,8 @@ class JudgeBrandMentionDetector:
             return None  # 裁判看不到:缺席就是缺席
         common = dict(run_id=run.run_id, detector_name=self.name, detector_version=self.version,
                       computed_at=datetime.now(UTC), confidence=verdict.confidence, reason=verdict.reason or None,
-                      reason_code=verdict.reason_code, new_spellings=verdict.new_spellings)
+                      reason_code=verdict.reason_code, new_spellings=verdict.new_spellings,
+                      judged_by=verdict.judged_by, own_vendor=verdict.own_vendor)
         if verdict.reason_code == NO_INFO:  # 说不准:记下字面上看到的那一处
             assert run.answer is not None
             hit = find_mention(run.answer.answer_text, brand, run.locale)

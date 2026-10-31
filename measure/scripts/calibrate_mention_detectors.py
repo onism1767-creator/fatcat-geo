@@ -112,6 +112,9 @@ def main() -> int:
     parser.add_argument("--judge-real", action="store_true", help="难品牌的回答全部请裁判(花钱)")
     parser.add_argument("--double-real", action="store_true", help="难品牌的回答再请第二家裁判(花钱)")
     parser.add_argument("--judge-hard", type=int, default=0, help="每道难题请裁判判几条底本(花钱;0 = 不请)")
+    parser.add_argument("--only-judge", help="只用这一家当裁判(仪器名),它自家的回答就自家判;比裁判用,--out 写到别处")
+    parser.add_argument("--own-answers", action="store_true", help="难品牌的回答只留 --only-judge 这家自家的")
+    parser.add_argument("--dump", help="裁判的结论逐条写进这个 JSON 文件,比裁判时逐条对")
     parser.add_argument("--cap", type=float, default=1.0, help="这次裁判的花费上限(美元),撞上就停")
     parser.add_argument("--seed", type=int, default=20261021)
     parser.add_argument("--out", default=str(DEFAULT_CALIBRATION_PATH))
@@ -123,12 +126,17 @@ def main() -> int:
     print(real_source)
     judge_a = judge_b = None
     spent: list[float] = []
+    dumped: dict[str, dict[str, object]] = {}
     adapters = {}
     if args.judge_sample > 0 or args.judge_real or args.judge_hard > 0:
         load_env_file()
         adapters = build_adapters(os.environ)
         config = load_judges()
-        swapped = JudgeConfig(primary=config.backup, backup=config.primary)
+        if args.only_judge:
+            config = JudgeConfig(candidates=[c for c in config.candidates if c.surface == args.only_judge])
+        if args.own_answers:
+            real = [s for s in real if s.run.provider == adapters[args.only_judge].meta().provider]
+        swapped = JudgeConfig(candidates=list(reversed(config.candidates)))  # 三家时每条回答的两位裁判都不是同一家
         pairs: dict[tuple[str, ...], tuple[MentionJudge, MentionJudge]] = {}
         built: list[MentionJudge] = []
 
@@ -154,7 +162,7 @@ def main() -> int:
             """两家裁判必须真是两家:被测回答出自其中一家时两边会挑到同一个型号,这条就不算「两家一致」。"""
             first, second = judges_of(run, brand)
             mine, theirs = first.pick(run), second.pick(run)
-            return mine is None or theirs is None or mine[1] == theirs[1]
+            return mine is None or theirs is None or mine.spec == theirs.spec
 
         def as_bool(which: int, second_opinion: bool = False):
             def says(run, brand):
@@ -163,7 +171,12 @@ def main() -> int:
                 verdict = judges_of(run, brand)[which].judge(run, brand)
                 if verdict is None:
                     return None
-                return UNSURE if verdict.reason_code == NO_INFO else verdict.mentioned
+                said = UNSURE if verdict.reason_code == NO_INFO else verdict.mentioned
+                if which == 0:
+                    dumped[run.run_id] = {"brand": brand.name, "provider": run.provider, "said": said,
+                                          "judged_by": verdict.judged_by, "own_vendor": verdict.own_vendor,
+                                          "reason_code": verdict.reason_code, "reason": verdict.reason}
+                return said
             return says
 
         judge_a, judge_b = as_bool(0), as_bool(1, second_opinion=True)
@@ -187,6 +200,8 @@ def main() -> int:
     finally:
         for adapter in adapters.values():
             adapter.close()
+    if args.dump:
+        Path(args.dump).write_text(json.dumps(dumped, ensure_ascii=False, indent=1), encoding="utf-8")
     out = Path(args.out)
     save_calibration(report, out)
     DOCS_DIR.mkdir(parents=True, exist_ok=True)

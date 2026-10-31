@@ -267,8 +267,10 @@ def test_tier_method_picks_the_main_detector_and_sentiment_follows_it():
     assert fuzzy.sentiment is not None and fuzzy.sentiment.sentiment.value == "positive"  # 情感句跟主判定器定位
     assert ObserveContext(competitors=[]).mention_method is MentionMethod.RULES
     assert rules.mention.detector_name == "brand_mention_rules"
-    with pytest.raises(ValueError, match="裁判"):  # 高档没装配裁判:明确报错,不静默退回
-        observe(run, BRAND, ObserveContext(competitors=[], mention_method=MentionMethod.RULES_FUZZY_JUDGE))
+    # 高档一家裁判都请不到:按模糊判定器算,报告写明(BR6,用户定)
+    no_judge = observe(run, BRAND, ObserveContext(competitors=[], mention_method=MentionMethod.RULES_FUZZY_JUDGE))
+    assert no_judge.mention is not None and no_judge.mention.detector_name == "brand_mention_fuzzy"
+    assert no_judge.sentiment is not None and no_judge.sentiment.detector_name == "sentiment_lexicon"
 
 
 def test_both_mention_detectors_are_archived_side_by_side():

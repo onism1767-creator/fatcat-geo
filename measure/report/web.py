@@ -87,6 +87,7 @@ def _templates(target_name: TargetNamer) -> Jinja2Templates:
     env.filters["local_date"] = local_date
     env.globals["access_headline"] = lambda overall: msg(f"access.headline.{overall.value.lower()}")
     env.globals["target_name"] = target_name
+    env.globals["judge_names"] = lambda targets: ";".join(target_name(x.surface, x.model) for x in targets)
     # S8.7:人话段落(各 AI 一句话 / 型号数数 / 末尾汇总 / 每个型号一句结论)在 report/narrative.py 拼
     env.globals["api_line_text"] = api_line_text
     env.globals["count_models"] = count_models

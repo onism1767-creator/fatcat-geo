@@ -101,7 +101,7 @@ def citation_rows(run: SurfaceRun, attribution: dict[str, Any] | None) -> list[C
 
 def build_response_view(job: DiagnosisJob, run: SurfaceRun, observations: list[dict[str, Any]]) -> ResponseView:
     prompt_text = next((p.text for p in job.prompts if p.prompt_id == run.prompt_id), "")
-    method = job.frozen_tier().mention_method  # 按档位读已存的判定行,不现算、不需要裁判(第二轮红 3)
+    method = job.method_used()  # 按档位读已存的判定行,不现算、不需要裁判(第二轮红 3)
     mention = mention_row(observations, method)
     cite = latest_observation(observations, citation.DETECTOR_NAME)
     tone = latest_observation(observations, sentiment_detector_name(method))

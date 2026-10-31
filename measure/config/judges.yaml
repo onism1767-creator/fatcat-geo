@@ -1,13 +1,21 @@
-# 高档 AI 裁判(S9.3;架构书附录 v0.4.27 第 4 节 + 用户 2026-10-14 拍板):另一家 AI 读上下文判「提到你」,顺带判态度。
-# 主裁判 = 最便宜够用的型号;被测回答出自裁判自家时换备用裁判(另一家);两家都是自家 → 这条「裁判看不到」,不猜。
+# AI 裁判候选名单(S9.3;BR6,用户 2026-10-29 定):另一家 AI 读上下文判「提到你」,顺带判态度。排在前面的优先。
+# 开跑时只留下有 key、型号可用、能不联网调用的;每条回答挑第一家不是这条回答自家的;
+# 一家别家都请不到才自家判自家,判定行记下,报告注明可能偏宽;一家都留不下 → 这单没有裁判,判不清的记说不准。
 # 厂商名只许出现在本文件与 adapters/。裁判不联网(search_disabled),只看回答文本与品牌卡;费用进辅助调用账本(task=裁判)。
-# est_cost_per_call_usd:推导上界——一条回答约 1,500 输入 token + 150 输出 token,按型号价目算后留余量;价目核对 2026-10-20。
+# name:确认页说「再加一家 XX 的 key 就能判」用的名字。
+# est_cost_per_call_usd:推导上界——一条回答约 1,500 输入 token + 150 输出 token,按型号价目算后留余量。
 # 2026-10-21 真实冒烟:短回答每条 $0.00006–0.00011、2–4 秒;长回答按 1,500 输入 token 推导 ≈ $0.0003 → 写 0.0004。
-primary:
-  surface: openai_web_search
-  model: gpt-6-luna                # $0.10 / $0.50 per MTok → 约 $0.0003 / 条,写 0.0004 留余量
-  est_cost_per_call_usd: 0.0004
-backup:
-  surface: claude_web_search
-  model: claude-haiku-5-5          # $0.10 / $0.50 per MTok,同上
-  est_cost_per_call_usd: 0.0004
+candidates:
+  - name: OpenAI
+    surface: openai_web_search
+    model: gpt-6-luna              # $0.10 / $0.50 per MTok(官方价目页,核对 2026-10-30)→ 约 $0.0003 / 条,写 0.0004 留余量
+    est_cost_per_call_usd: 0.0004
+  - name: Anthropic
+    surface: claude_web_search
+    model: claude-haiku-5-5        # $0.10 / $0.50 per MTok,10 万输入 token 以内(官方价目页,核对 2026-10-30),同上
+    est_cost_per_call_usd: 0.0004
+  # 排最后:BR6 实测难题误认 21/129,前两家 8/129,见 docs/校准/校准-2026-10-31-BR6-Gemini裁判.md。
+  - name: Gemini
+    surface: gemini_grounding
+    model: gemini-3.1-flash-lite   # $0.25 / $1.50 per MTok(官方价目页,核对 2026-10-30);实测 434 次平均 $0.00055,长回答约 $0.0008
+    est_cost_per_call_usd: 0.0008

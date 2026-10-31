@@ -41,10 +41,19 @@ from engine.cache import CACHE_HOURS, fill_from_cache
 from engine.detectors.brand_mention_judge import DETECTOR_NAME as JUDGE_DETECTOR
 from engine.detectors.brand_mention_judge import SENTIMENT_DETECTOR_NAME as JUDGE_SENTIMENT
 from engine.detectors.matching import registrable
-from engine.judge import JudgeConfig, JudgeUnavailable, JudgeVerdict, MentionJudge, load_judges
+from engine.judge import (
+    JudgeConfig,
+    JudgeVerdict,
+    MentionJudge,
+    cannot_judge,
+    load_judges,
+    pick_judge,
+    usable_judges,
+)
 from engine.method import METHOD_VERSION
 from engine.models import (
     BrandDomainList,
+    BrandMentionObservation,
     BrandSpec,
     Prompt,
     PromptIntent,
@@ -118,7 +127,7 @@ class _ProgressSink:
 
 # 执行器会写进 job.error_code 的码(S10.1):都在 config/errors.yaml 里(测试把守),文案由任务页从库里取
 RUNNER_CODES = ("ACCOUNT_AUTH", "ACCOUNT_CREDIT", "ACCOUNT_REGION", "ACCOUNT_RESTRICTED", "ACCOUNT_QUOTA",
-                "DB_UNREACHABLE", "JUDGE_UNAVAILABLE", "JOB_CRASHED", "PRECHECK_FAILED")
+                "DB_UNREACHABLE", "JOB_CRASHED", "PRECHECK_FAILED")
 
 
 class PrecheckFailed(Exception):
@@ -163,12 +172,6 @@ def execute_job(
         log.error("job_halted_precheck_failed", job_id=job.job_id, names=exc.names)
         job.state = JobState.FAILED
         job.error_code, job.error_params, job.error = "PRECHECK_FAILED", {"names": ", ".join(exc.names)}, None
-        job.phase = "phase_failed"
-        _persist_failure(job, dsn)
-    except JudgeUnavailable as exc:  # S10.1:高档的裁判没准备好,也要有码和人话
-        log.error("job_halted_judge_unavailable", job_id=job.job_id, error=str(exc))
-        job.state = JobState.FAILED
-        job.error_code, job.error_params, job.error = "JUDGE_UNAVAILABLE", {"detail": str(exc)}, None
         job.phase = "phase_failed"
         _persist_failure(job, dsn)
     except Exception as exc:  # 失败不静默:状态页如实展示,也给码(S10.1)
@@ -225,7 +228,8 @@ def _execute(
                                         heartbeat=lambda: setattr(job, "last_result_at", datetime.now(UTC)))
         all_runs = [run for runs in runs_by.values() for run in runs]
         pages = _check_pages(job, storage, all_runs, resolution)
-        judge = _judge_for(job, adapters, storage, all_runs, judges,  # 装配裁判、装回库里的判定、并行预判(S9.3、BR4)
+        closed_book_runs = [run for runs in offline_runs_by.values() for run in runs]
+        judge = _judge_for(job, adapters, storage, [*all_runs, *closed_book_runs], judges,  # 装配裁判、并行预判
                            offline=replay)  # 只重算时不再请裁判(第二轮)
         context = ObserveContext(competitors=job.competitors, resolution=resolution, pages=pages,
                                  mention_method=job.frozen_tier().mention_method, judge=judge, category=job.category)
@@ -271,9 +275,8 @@ def _execute(
         # 采样后:回答里出现、名单外的同名域名再查一次,标 B1 / B2——只提示,用户确认后才算官网(S5)
         job.adopt_domain_list(_look_alikes(job, all_runs, resolution))
         truncated = any(r.stop_reason in _TRUNCATION_REASONS for r in results.values())
-        n_unsure = sum(o.mention is not None and o.mention.mentioned is None for batch in observations.values()
-                       for o in batch)
-        sampling = _sampling_note(job, runs_by, offline_runs_by, judge, storage, n_unsure)
+        mentions = [o.mention for batch in observations.values() for o in batch if o.mention is not None]
+        sampling = _sampling_note(job, runs_by, offline_runs_by, judge, storage, mentions, adapters)
         _finish(job, storage, truncated=truncated, sampling=sampling)
 
 
@@ -281,16 +284,18 @@ def _precheck(
     job: DiagnosisJob, adapters: dict[str, SurfaceAdapter], adapter_of: dict[Target, SurfaceAdapter],
     judges: JudgeConfig | None,
 ) -> None:
-    """开跑前预检(S11.1,用户 2026-10-12「开跑前自动查余额」):每家被测仪器(高档再加两家裁判)各打一次最小请求——
+    """开跑前预检(S11.1,用户 2026-10-12「开跑前自动查余额」):每家被测仪器(高档再加这单会请到的裁判)各打一次最小请求——
     账户问题(key 无效 / 额度不足)按原有的换 key / 充值流程停单;接口不通给 PRECHECK_FAILED。重算(replay)不预检。"""
     job.phase = "phase_precheck"
     to_check: dict[str, SurfaceAdapter] = {}
     for target, adapter in adapter_of.items():
         to_check.setdefault(target.surface, adapter)
     if job.frozen_tier().mention_method is MentionMethod.RULES_FUZZY_JUDGE:
-        for judge_target in (judges or load_judges()).targets:
-            if judge_target.surface in adapters:
-                to_check.setdefault(judge_target.surface, adapters[judge_target.surface])
+        usable = usable_judges(judges or load_judges(), adapters)
+        for adapter in adapter_of.values():
+            picked = pick_judge(usable, adapter.meta().provider)
+            if picked is not None:
+                to_check.setdefault(picked.spec.surface, picked.adapter)
     unavailable: list[str] = []
     for surface, adapter in to_check.items():
         meta = adapter.meta()
@@ -334,12 +339,17 @@ def _fill_from_cache(job: DiagnosisJob, storage: Storage, adapter_of: dict[Targe
 
 def _sampling_note(
     job: DiagnosisJob, runs_by: dict[RunsKey, list[SurfaceRun]], offline_runs_by: dict[RunsKey, list[SurfaceRun]],
-    judge: MentionJudge | None, storage: Storage, n_unsure: int,
+    judge: MentionJudge | None, storage: Storage, mentions: list[BrandMentionObservation],
+    adapters: dict[str, SurfaceAdapter],
 ) -> SamplingNote:
     """报告顶部的采样说明(S8.2):本单实际问了多少、有效多少、测了哪些接口与型号、官网名单情况、方法版本。
-    结束时刻由 _finish 落定后再填。"""
+    裁判写实际判过的那几家,自家判自家的条数单独说(BR6)。结束时刻由 _finish 落定后再填。"""
     runs = [run for batch in runs_by.values() for run in batch]
     dl = job.domain_list
+    n_unsure = sum(m.mentioned is None for m in mentions)
+    method = job.frozen_tier().mention_method
+    missing_judge = judge is None and (method is MentionMethod.RULES_FUZZY_JUDGE
+                                       or (method is MentionMethod.RULES_FUZZY and n_unsure > 0))
     return SamplingNote(
         n_cached=storage.cache_reuse_count(job.job_id), cache_hours=CACHE_HOURS, fresh=job.fresh,
         n_prompts=len(job.prompts), n_targets=len(job.targets), tier=job.frozen_tier(),
@@ -350,7 +360,9 @@ def _sampling_note(
         domains_unconfirmed=len(dl.unconfirmed_domains) if dl is not None else 0,
         domains_at=dl.discovered_at if dl is not None else None,
         method_version=METHOD_VERSION,
-        judge_targets=judge.config.targets if judge is not None else [],
+        judge_targets=[Target.parse(key) for key in dict.fromkeys(m.judged_by for m in mentions if m.judged_by)],
+        n_own_vendor=sum(m.own_vendor for m in mentions),
+        no_judge=cannot_judge(adapters) if missing_judge else [],
     )
 
 
@@ -361,7 +373,8 @@ def _judge_for(
     offline: bool = False,
 ) -> MentionJudge | None:
     """高档每条有效回答都判(S9.3);中档只判模糊判定器说不准的,最多 MAX_UNSURE_JUDGED 条,一条都没有就不装配
-    (BR4,用户定 Q3)。按 config/judges.yaml 装配裁判:高档型号没加载就明确报错,中档请不到裁判就照旧记说不准,不停单;
+    (BR4,用户定 Q3)。runs 含闭卷回答:它们也要判,判过的钱也要进账本。
+    按 config/judges.yaml 装配裁判:一家都请不到、库里也没判过 → 不停单,判不清的记说不准,报告写明(BR6,用户定);
     库里已有的裁判判定先装回(续跑 / 重算不花钱);其余并行预判,进度给任务页;
     裁判花费记进辅助调用账本(主线程落库:psycopg 连接非线程安全)。"""
     method = job.frozen_tier().mention_method
@@ -382,15 +395,13 @@ def _judge_for(
             job.spent_usd += run.cost_usd
             job.last_result_at = datetime.now(UTC)
 
-    try:
-        judge = MentionJudge(judges or load_judges(), adapters, ledger=ledger, locale=job.locale,
-                             competitors=[c.name for c in job.competitors], offline=offline)
-    except JudgeUnavailable as exc:
-        if every_answer:
-            raise
-        log.warning("unsure_answers_left_unjudged", job_id=job.job_id, unsure=len(wanted), error=str(exc))
+    judge = MentionJudge(judges or load_judges(), adapters, ledger=ledger, locale=job.locale,
+                         competitors=[c.name for c in job.competitors], offline=offline)
+    stored = _stored_verdicts(storage, runs)
+    if not judge.available and not stored:
+        log.warning("no_judge_available", job_id=job.job_id, wanted=len(wanted))
         return None
-    judge.preload(_stored_verdicts(storage, runs))
+    judge.preload(stored)
     pending = [run for run in wanted if not judge.has(run.run_id)]
     if not every_answer:  # 超过上限的抽一批判:按单号定随机数,续跑抽到的还是这批
         room = max(0, MAX_UNSURE_JUDGED - (len(wanted) - len(pending)))
@@ -431,6 +442,7 @@ def _stored_verdicts(storage: Storage, runs: list[SurfaceRun]) -> dict[str, Judg
             first_position=row.get("first_position"), confidence=float(row.get("confidence") or 0.0),
             sentiment=Sentiment(tone) if tone else None, reason=row.get("reason") or "",
             reason_code=row.get("reason_code"), new_spellings=row.get("new_spellings") or [],
+            judged_by=row.get("judged_by"), own_vendor=bool(row.get("own_vendor")),
         )
     return verdicts
 

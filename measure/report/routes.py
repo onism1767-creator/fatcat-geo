@@ -16,6 +16,7 @@ from adapters.base import SurfaceAdapter
 from engine.ai_task import TaskFailed
 from engine.detectors.name_risk import is_risky
 from engine.drafting import PromptCandidate, draft_prompt_candidates
+from engine.judge import cannot_judge, pick_judge, usable_judges
 from engine.models import Target
 from engine.page_check import BUDGET_S as VERIFY_BUDGET_S
 from engine.page_check import PageChecker
@@ -233,6 +234,8 @@ def confirm_page(request: Request, job_id: str, error: str = ""):
                       calibration_text=(calibration_text(ctx.calibration, lang_of(request))
                                         if ctx.calibration is not None else None),
                       name_risky=is_risky(job.brand),
+                      no_judge=cannot_judge(ctx.adapters) if not usable_judges(ctx.judges, ctx.adapters) else [],
+                      judge_candidates=[candidate.name for candidate in ctx.judges.candidates],
                       error=error_text(request, error, min=str(tiers.custom_runs.min), max=str(tiers.custom_runs.max)))
 
 
@@ -259,10 +262,16 @@ def confirm_estimate(
     choice, targets = chosen
     n_prompts = count_prompts(job, prompts_selected, custom)
     prices = unit_prices(ctx.adapters, ctx.call_stats())
+    usable = usable_judges(ctx.judges, ctx.adapters)
 
-    def judging(method: MentionMethod) -> dict[str, Any]:
-        """裁判的钱:高档每条回答判一次(S9.3);中档名字有风险时按上限算,只判说不准的(BR4);其余不请。"""
-        price = ctx.judges.primary.est_cost_per_call_usd
+    def judging(method: MentionMethod, chosen_targets: list[Target]) -> dict[str, Any]:
+        """裁判的钱:高档每条回答判一次(S9.3);中档名字有风险时按上限算,只判说不准的(BR4);其余不请。
+        单价取这几个被测对象会请到的裁判里最贵的(上界,BR6);一家裁判都请不到就没有这笔钱。"""
+        picked = [pick_judge(usable, ctx.adapters[t.surface].meta().provider) for t in chosen_targets]
+        unit = [judge.spec.est_cost_per_call_usd for judge in picked if judge is not None]
+        if not unit:
+            return {}
+        price = max(unit)
         if method is MentionMethod.RULES_FUZZY_JUDGE:
             return {"judge_cost_per_call": price}
         if method is MentionMethod.RULES_FUZZY and is_risky(job.brand):
@@ -270,11 +279,11 @@ def confirm_estimate(
         return {}
 
     estimate = estimate_job(n_prompts=n_prompts, runs_per_prompt=choice.runs_per_prompt, targets=targets,
-                            dependency=bool(dependency), prices=prices, **judging(choice.mention_method))
+                            dependency=bool(dependency), prices=prices, **judging(choice.mention_method, targets))
     per_tier = {
         spec.name: estimate_job(n_prompts=n_prompts, runs_per_prompt=spec.runs_per_prompt,
                                 targets=tier_targets(spec, ctx.adapters), dependency=bool(dependency), prices=prices,
-                                **judging(spec.mention_method))
+                                **judging(spec.mention_method, tier_targets(spec, ctx.adapters)))
         for spec in ctx.tiers.tiers
     }
     breakdown = [{"display": ctx.target_name(t.surface, t.model), "cost_usd": cost} for t, cost in estimate.per_target]

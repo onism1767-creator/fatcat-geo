@@ -132,6 +132,7 @@ class SurfaceMeta(FrozenModel):
     # 报告里的名字写「接口 · 型号」(产品文档 P4,用户定;S8.1):接口名由适配器声明,如 "Anthropic Messages API"
     api_name: str
     models: list[str]
+    helper_models: list[str] = []  # 只做裁判这类辅助调用、不被测的型号(BR6):不进档位、不上确认页、不算报价覆盖
     default_model: str
     # 型号标记(配置资产,S9.0;用户定 2026-10-14):「消费端默认」= 该家聊天产品界面默认用的型号;
     # 「最强」= 该家公认最强的型号。两个都必须在 models 里(加载器校验)。
