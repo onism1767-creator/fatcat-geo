@@ -18,6 +18,7 @@ from engine.models import (
     Answer,
     BrandSpec,
     Citation,
+    MentionContext,
     Outcome,
     RetrievedSource,
     RunError,
@@ -255,6 +256,8 @@ MENTION_EXPECTED[2] = {
     "mention_name_with_punctuation": dict(mentioned=True, matched_alias="AuroraCRM", first_position=4),
     "empty_answer_success": None,
 }
+# v3(BR4):普通词和太短的名字要看大小写和线索。这里的名字都没风险,行为不变;有风险的样本在下面 RISKY_EXPECTED
+MENTION_EXPECTED[3] = {**MENTION_EXPECTED[2]}
 
 CITATION_EXPECTED = {
     1: {
@@ -358,6 +361,38 @@ FUZZY_MENTION_EXPECTED[3] = {
     "mention_other_tail_rejected": _FUZZY_V3_ABSENT,
     "mention_dot_not_in_the_name_rejected": _FUZZY_V3_ABSENT,
 }
+# 模糊判定器 v4(BR4,用户 2026-10-29 定 Q3):这里的名字都没风险,行为不变
+FUZZY_MENTION_EXPECTED[4] = {**FUZZY_MENTION_EXPECTED[3]}
+
+# 有风险的名字(BR4):规则 v3 与模糊 v4 同一口径。(品牌, 回答) → mentioned;None 是说不准
+ON = BrandSpec(name="On", aliases=["On Running"])
+XIAOMI = BrandSpec(name="小米")
+MIDEA = BrandSpec(name="美的")
+NOTION = BrandSpec(name="Notion")
+META_AI = BrandSpec(name="Meta AI")
+RISKY_CONTEXT = MentionContext(category="running shoes 手机 空调", peers=["Hoka", "华为", "格力"])
+RISKY_EXPECTED = {
+    (3, 4): [
+        (ON, "Stay focused on one task.", False),  # 小写不算你
+        (ON, "Turn It On before you leave.", None),  # 大小写对,没线索
+        (ON, "Runners compare Hoka, On and Brooks.", True),  # 同一张名单里的别家
+        (ON, "Focus on form. On is a Swiss company.", None),  # 前一处不算,后一处说不准
+        (ON, "On the other hand, prices vary.", None),  # 句首大写挡不住,留给裁判
+        (ON, "On Running is growing fast.", True),  # 词组和登记的一样
+        (NOTION, "The notion of justice.", False),
+        (NOTION, "**Notion** is great for notes.", None),
+        (META_AI, "Meta AI is free.", True),  # 词组不用线索
+        (META_AI, "meta ai summaries", False),  # 词组大小写不对
+        (XIAOMI, "小米粥怎么煮?", False),  # 拼成词了
+        (XIAOMI, "水开后下小米。", None),  # 单写,没线索
+        (XIAOMI, "小米手机的拍照不错。", True),  # 品类词在同一句
+        (XIAOMI, "小米和华为都不错。", True),  # 别家在同一句
+        (MIDEA, "这是一次完美的旅行。", False),  # 边界切开了「完美」
+        (MIDEA, "我会写优美的句子。", False),
+        (MIDEA, "美的和格力哪个省电?", True),
+        (MIDEA, "很美的确如此,空调除外。", None),  # 切开了「的确」,但有线索,留给裁判
+    ],
+}
 
 
 QUERY_TRACE_EXPECTED = {
@@ -403,6 +438,15 @@ def test_sentiment_detector_matches_archived_expectations():
 
 def test_fuzzy_mention_detector_matches_archived_expectations():
     run_expectations(FuzzyBrandMentionDetector(), FUZZY_MENTION_EXPECTED)
+
+
+def test_risky_names_match_archived_expectations():
+    rules, fuzzy = BrandMentionDetector(RISKY_CONTEXT), FuzzyBrandMentionDetector(RISKY_CONTEXT)
+    for brand, text, expected in RISKY_EXPECTED[(rules.version, fuzzy.version)]:
+        run = make_run("r-risky", answer=answer_with(text))
+        for detector in (rules, fuzzy):
+            observation = detector.detect(run, brand)
+            assert observation is not None and observation.mentioned is expected, f"{detector.name}: {text}"
 
 
 def test_query_trace_detector_matches_archived_expectations():

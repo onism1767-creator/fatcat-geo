@@ -3,6 +3,7 @@
 #
 # name / aliases:当成被测品牌的名字
 # locale:提问语言
+# category / peers:这个品牌的品类和常见竞品,判定器用它们当线索(BR4),改了不用重新提问
 # naming:点名题,回答在说这个品牌,答案 = 提到了(量漏认)
 # counter:反例题,问这个词的普通意思或相近的东西,答案 = 没提到(量误认)
 # open:不点名题,没有现成答案,是产品的主要场景(给 BR4 看「说不准」有多少)
@@ -11,6 +12,8 @@ brands:
   - name: "On"  # 不加引号 YAML 会读成布尔值 true
     aliases: [On Running]
     locale: en-US
+    category: running shoes
+    peers: [Hoka, Brooks, Nike, Adidas, New Balance, Asics, Saucony]
     naming:
       - Are On running shoes worth the price?
       - How does the On Cloudmonster compare with the Hoka Clifton?
@@ -25,6 +28,8 @@ brands:
 
   - name: Notion
     locale: en-US
+    category: productivity workspace app
+    peers: [Obsidian, Evernote, OneNote, Confluence, Coda, ClickUp]
     naming:
       - Is Notion a good tool for managing a small team's projects?
       - What are the main differences between Notion and Obsidian for note-taking?
@@ -40,6 +45,8 @@ brands:
   - name: Canvas
     aliases: [Canvas LMS]
     locale: en-US
+    category: learning management system
+    peers: [Moodle, Blackboard, Brightspace, D2L, Schoology, Google Classroom]
     naming:
       - How do teachers grade assignments in Canvas LMS?
       - "Canvas or Moodle: which learning management system suits a university better?"
@@ -54,6 +61,8 @@ brands:
 
   - name: Meta AI
     locale: en-US
+    category: AI assistant
+    peers: [ChatGPT, Gemini, Copilot, Claude, Grok]
     naming:
       - What can the Meta AI assistant do inside WhatsApp?
       - How does Meta AI compare with ChatGPT for everyday questions?
@@ -69,6 +78,8 @@ brands:
   - name: 小米
     aliases: [Xiaomi]
     locale: zh-CN
+    category: 智能手机
+    peers: [华为, 荣耀, OPPO, vivo, 苹果, 一加, 红米]
     naming:
       - 小米手机值得买吗？
       - 小米和华为的智能家居哪个好用？
@@ -84,6 +95,8 @@ brands:
   - name: 美的
     aliases: [Midea]
     locale: zh-CN
+    category: 家用电器
+    peers: [格力, 海尔, 海信, 小米, 奥克斯, TCL]
     naming:
       - 美的空调质量怎么样？
       - 美的和格力的空调哪个更省电？

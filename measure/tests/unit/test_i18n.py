@@ -158,7 +158,7 @@ def test_every_key_the_pages_build_from_a_value_exists_in_both_languages():
     还不能是空串(第二轮审核 B17)。阶段码扫代码字面量;运行结果、网页抓取状态、来源归类、命中方式、官网依据等按枚举或
     判定器取值全列——新增一个取值忘了配文案,这里先炸。"""
     from diagnosis.representation_diag import _RELATION
-    from engine.detectors.brand_mention_fuzzy import _KIND_ORDER
+    from engine.detectors.name_risk import _KIND_ORDER
     from engine.detectors.source_class import REASON_NOT_ATTEMPTED, REASON_UNRESOLVED
     from engine.models import Outcome, PageFetchStatus, Sentiment, SourceClass
     from engine.tiers import MentionMethod, load_tiers

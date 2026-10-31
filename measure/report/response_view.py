@@ -9,9 +9,11 @@ from __future__ import annotations
 from typing import Any
 
 from engine.detectors import citation, source_class
+from engine.detectors.brand_mention_judge import DETECTOR_NAME as JUDGE_DETECTOR
 from engine.detectors.matching import mention_sentence
 from engine.models import BrandDomainList, FrozenModel, SurfaceRun, Target
 from engine.observe import mention_detector_name, sentiment_detector_name
+from engine.tiers import MentionMethod
 from engine.validity import is_valid_answer
 from report.jobs import DiagnosisJob
 
@@ -29,7 +31,9 @@ class ResponseView(FrozenModel):
     run: SurfaceRun
     prompt_text: str
     valid: bool  # 有效回答(成功且正文非空)
-    mentioned: bool | None  # None = 没有有效回答,判不了
+    mentioned: bool | None  # None = 没有有效回答,判不了,或说不准(unsure)
+    unsure: bool  # 只出现了这个词,看不出是不是你(BR4)
+    clue: str | None  # 靠什么线索算你(BR4):有风险的名字才有
     excerpt: str | None  # 第一次提到你的那一句
     matched_alias: str | None  # 命中的登记名 / 别名
     matched_text: str | None  # 回答里的命中片段(S9.2,模糊判定器起才有)
@@ -57,6 +61,14 @@ def latest_observation(observations: list[dict[str, Any]], detector_name: str) -
         return None
     top = max(o["detector_version"] for o in rows)
     return [o for o in rows if o["detector_version"] == top][-1]
+
+
+def mention_row(observations: list[dict[str, Any]], method: MentionMethod) -> dict[str, Any] | None:
+    """这条回答算数的那行提及判定:按档位的主判定器;主判定器说不准、裁判判过的,算裁判的(中档,BR4)。"""
+    row = latest_observation(observations, mention_detector_name(method))
+    if row is not None and row["mentioned"] is None:
+        return latest_observation(observations, JUDGE_DETECTOR) or row
+    return row
 
 
 def _tier(domain_list: BrandDomainList | None, domain: str) -> str:
@@ -89,7 +101,7 @@ def citation_rows(run: SurfaceRun, attribution: dict[str, Any] | None) -> list[C
 def build_response_view(job: DiagnosisJob, run: SurfaceRun, observations: list[dict[str, Any]]) -> ResponseView:
     prompt_text = next((p.text for p in job.prompts if p.prompt_id == run.prompt_id), "")
     method = job.frozen_tier().mention_method  # 按档位读已存的判定行,不现算、不需要裁判(第二轮红 3)
-    mention = latest_observation(observations, mention_detector_name(method))
+    mention = mention_row(observations, method)
     cite = latest_observation(observations, citation.DETECTOR_NAME)
     tone = latest_observation(observations, sentiment_detector_name(method))
     attribution = latest_observation(observations, source_class.DETECTOR_NAME)
@@ -102,6 +114,8 @@ def build_response_view(job: DiagnosisJob, run: SurfaceRun, observations: list[d
         prompt_text=prompt_text,
         valid=is_valid_answer(run),
         mentioned=mentioned,
+        unsure=mention is not None and mentioned is None,
+        clue=mention.get("clue") if mention else None,
         excerpt=excerpt,
         matched_alias=mention.get("matched_alias") if mention else None,
         matched_text=mention.get("matched_text") if mention else None,

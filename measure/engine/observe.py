@@ -5,6 +5,7 @@
 引用判定带「链接还原」上下文(S4);来源归属判定还带「网页核实」结果(S6.1):跳转仪器的引用按终点判,
 第三方网页按抓回的正文判,看不到的照记原因。
 提及判定随档位(S9.2 / S9.3):规则 / 模糊两个判定器每条都存档(供分歧率与校准),高档再加 AI 裁判;
+中档只把模糊判定器说不准的那几条请裁判,裁判判不了仍记说不准(BR4,用户定 Q3);低档说不准就是说不准。
 提及率、AI 原话、情感句按档位的主判定器算;竞品提及走免费判定器(规则档用规则,其余用模糊),不请裁判。
 """
 
@@ -22,7 +23,7 @@ from engine.detectors.brand_mention_judge import JudgeBrandMentionDetector, Judg
 from engine.detectors.citation import CitationDetector
 from engine.detectors.query_trace import QueryTraceDetector
 from engine.detectors.retrieval_rank import RetrievalRankDetector
-from engine.detectors.runner import Detector, ObservationStore
+from engine.detectors.runner import ObservationStore
 from engine.detectors.sentiment import DETECTOR_NAME as LEXICON_SENTIMENT_NAME
 from engine.detectors.sentiment import SentimentDetector
 from engine.detectors.source_class import SourceClassifier
@@ -32,6 +33,7 @@ from engine.models import (
     BrandSpec,
     CitationObservation,
     DerivedObservation,
+    MentionContext,
     QueryTraceObservation,
     RetrievalRankObservation,
     SentimentObservation,
@@ -42,28 +44,16 @@ from engine.page_check import PageIndex
 from engine.resolve import ResolutionContext
 from engine.tiers import MentionMethod
 
-_MENTION = BrandMentionDetector()
-_FUZZY = FuzzyBrandMentionDetector()
 _PRESENCE = RetrievalRankDetector()
 _QUERY = QueryTraceDetector()
-
-
-def mention_detector(method: MentionMethod, judge: MentionJudge | None = None) -> Detector:
-    """档位的主提及判定器(S9.2 / S9.3):提及率、AI 原话、情感句都按它算;
-    高档要 AI 裁判,没装配就明确报错,不静默退回别的方法(硬边界 5 同款)。"""
-    if method is MentionMethod.RULES:
-        return _MENTION
-    if method is MentionMethod.RULES_FUZZY:
-        return _FUZZY
-    if judge is None:
-        raise JudgeUnavailable("高档的提及判定要 AI 裁判,但没有装配裁判(config/judges.yaml 的型号没加载)")
-    return JudgeBrandMentionDetector(judge)
 
 
 def mention_detector_name(method: MentionMethod) -> str:
     """档位主提及判定器的名字——只读库里已存的判定行时用(单条回答页、结果文件),不需要装配裁判。
     原来这两处直接调 mention_detector(),高档没装裁判就抛错,页面 500(第二轮红 3)。"""
-    return JUDGE_MENTION_NAME if method is MentionMethod.RULES_FUZZY_JUDGE else mention_detector(method).name
+    if method is MentionMethod.RULES:
+        return BrandMentionDetector.name
+    return FuzzyBrandMentionDetector.name if method is MentionMethod.RULES_FUZZY else JUDGE_MENTION_NAME
 
 
 def sentiment_detector_name(method: MentionMethod) -> str:
@@ -71,20 +61,25 @@ def sentiment_detector_name(method: MentionMethod) -> str:
     return JUDGE_SENTIMENT_NAME if method is MentionMethod.RULES_FUZZY_JUDGE else LEXICON_SENTIMENT_NAME
 
 
-def _free_detector(method: MentionMethod) -> Detector:
-    """不花钱的那个:竞品提及用(规则档用规则,其余用模糊),不请裁判。"""
-    return _MENTION if method is MentionMethod.RULES else _FUZZY
+def _names_of(brand: BrandSpec) -> list[str]:
+    return [name for name in dict.fromkeys([brand.name, *brand.aliases]) if name.strip()]
+
+
+def mention_context(category: str, others: Iterable[BrandSpec]) -> MentionContext:
+    """判定一家时的线索:本单品类 + 同一张名单里的别家(判你时别家是竞品,判竞品时别家含你)。"""
+    return MentionContext(category=category, peers=[name for other in others for name in _names_of(other)])
 
 
 @dataclass(frozen=True)
 class ObserveContext:
-    """一单的判定上下文:竞品、跳转还原、网页核实、档位的认法、高档的裁判。"""
+    """一单的判定上下文:竞品、跳转还原、网页核实、档位的认法、裁判(高档每条判,中档只判说不准的)。"""
 
     competitors: list[BrandSpec]
     resolution: ResolutionContext | None = None
     pages: PageIndex | None = None
     mention_method: MentionMethod = MentionMethod.RULES  # 档位定的「提到你」怎么认(S9.2)
-    judge: MentionJudge | None = None  # 高档的裁判(S9.3),执行器装配并预判
+    judge: MentionJudge | None = None  # 执行器装配并预判
+    category: str = ""  # 本单品类,有风险的名字靠它和竞品名当线索(BR4)
 
 
 @dataclass(frozen=True)
@@ -110,28 +105,61 @@ def _as_mention(observation: DerivedObservation | None) -> BrandMentionObservati
     return observation if isinstance(observation, BrandMentionObservation) else None
 
 
+class _Settled:
+    """已经判完的提及当情感判定器的来源:情感句按主判定器定位,不重判。"""
+
+    name = "settled_mention"
+    version = 1
+
+    def __init__(self, mention: BrandMentionObservation | None) -> None:
+        self._mention = mention
+
+    def detect(self, run: SurfaceRun, brand: BrandSpec) -> BrandMentionObservation | None:
+        return self._mention
+
+
+def _unsure(observation: BrandMentionObservation | None) -> bool:
+    return observation is not None and observation.mentioned is None
+
+
+def is_unsure_for_fuzzy(run: SurfaceRun, brand: BrandSpec, context: MentionContext) -> bool:
+    """中档要不要为这条回答请裁判。"""
+    return _unsure(_as_mention(FuzzyBrandMentionDetector(context).detect(run, brand)))
+
+
 def observe(run: SurfaceRun, brand: BrandSpec, context: ObserveContext) -> RunObservations:
     method = context.mention_method
-    rules = _MENTION.detect(run, brand)
-    fuzzy = _FUZZY.detect(run, brand)
+    clues = mention_context(context.category, context.competitors)
+    rules = BrandMentionDetector(clues).detect(run, brand)
+    fuzzy = FuzzyBrandMentionDetector(clues).detect(run, brand)
     judged: BrandMentionObservation | None = None
     sentiment: SentimentObservation | None
     if method is MentionMethod.RULES_FUZZY_JUDGE:
-        judged = _as_mention(mention_detector(method, context.judge).detect(run, brand))
-        assert context.judge is not None  # mention_detector 已把守
+        if context.judge is None:  # 不静默退回别的方法(硬边界 5 同款)
+            raise JudgeUnavailable("高档的提及判定要 AI 裁判,但没有装配裁判(config/judges.yaml 的型号没加载)")
+        judged = _as_mention(JudgeBrandMentionDetector(context.judge).detect(run, brand))
+        mention = judged
         sentiment = JudgeSentimentDetector(context.judge).detect(run, brand)
     else:
-        sentiment = SentimentDetector(mention_detector(method)).detect(run, brand)
-    mention = {MentionMethod.RULES: rules, MentionMethod.RULES_FUZZY: fuzzy, MentionMethod.RULES_FUZZY_JUDGE: judged}
+        mention = rules if method is MentionMethod.RULES else fuzzy
+        if method is MentionMethod.RULES_FUZZY and context.judge is not None and _unsure(fuzzy):
+            judged = _as_mention(JudgeBrandMentionDetector(context.judge).detect(run, brand))
+            mention = judged or fuzzy  # 裁判判不了仍记说不准
+        sentiment = SentimentDetector(_Settled(mention)).detect(run, brand)
     citation_detector = CitationDetector(context.resolution)
     citation = citation_detector.detect(run, brand)
     presence = _PRESENCE.detect(run, brand)
     query = _QUERY.detect(run, brand)
     attribution = SourceClassifier(context.competitors, context.resolution, context.pages).detect(run, brand)
-    free = _free_detector(method)
+    def competitor_mention(competitor: BrandSpec) -> BrandMentionObservation | None:
+        """不花钱的那个判定器:规则档用规则,其余用模糊,不请裁判;说不准的不进这家的分母。"""
+        others = [brand, *(c for c in context.competitors if c.name != competitor.name)]
+        detector_class = BrandMentionDetector if method is MentionMethod.RULES else FuzzyBrandMentionDetector
+        return _as_mention(detector_class(mention_context(context.category, others)).detect(run, competitor))
+
     return RunObservations(
         run=run,
-        mention=mention[method],
+        mention=mention,
         citation=citation,
         presence=presence,
         sentiment=sentiment,
@@ -139,7 +167,7 @@ def observe(run: SurfaceRun, brand: BrandSpec, context: ObserveContext) -> RunOb
         competitor_citations={c.name: citation_detector.detect(run, c) for c in context.competitors},
         brand_cited_urls=list(citation.matched_urls) if citation is not None else [],
         attribution=attribution,
-        competitor_mentions={c.name: _as_mention(free.detect(run, c)) for c in context.competitors},
+        competitor_mentions={c.name: competitor_mention(c) for c in context.competitors},
         archived=[o for o in (rules, fuzzy, judged, citation, presence, sentiment, query, attribution)
                   if o is not None],
     )

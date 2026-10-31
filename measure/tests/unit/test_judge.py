@@ -11,7 +11,7 @@ from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
 from engine.detectors.brand_mention_judge import JudgeBrandMentionDetector, JudgeSentimentDetector
 from engine.judge import JudgeConfig, JudgeModel, JudgeVerdict, MentionJudge, build_prompt, load_judges, parse_verdict
 from engine.models import Answer, BrandSpec, Outcome, SearchMode, SearchTrace, Sentiment, SurfaceRun
-from engine.observe import ObserveContext, mention_detector, observe, persist_observations
+from engine.observe import ObserveContext, observe, persist_observations
 from engine.tiers import MentionMethod
 from tests.unit.test_brand_mention_fuzzy import ListStore  # 同一个假存储,别处一份
 
@@ -202,8 +202,72 @@ def test_high_tier_observation_uses_the_judge_and_archives_every_detector():
     assert len(ads["judge_a"].requests) == 1  # 提及 + 态度 + 存档:仍只问了一次
     store = ListStore()
     assert persist_observations(store, [obs]) == len(obs.archived) and store.rows == obs.archived
-    with pytest.raises(ValueError, match="裁判"):
-        mention_detector(MentionMethod.RULES_FUZZY_JUDGE)  # 没装配裁判就明确报错
+    with pytest.raises(ValueError, match="裁判"):  # 没装配裁判就明确报错
+        observe(run_with("x"), BRAND, ObserveContext(competitors=[], mention_method=MentionMethod.RULES_FUZZY_JUDGE))
+
+
+def _medium_context(judge: MentionJudge | None) -> ObserveContext:
+    return ObserveContext(competitors=[], mention_method=MentionMethod.RULES_FUZZY, judge=judge, category="空调")
+
+
+def _says_yes(answer: str) -> dict:
+    return {"mentioned": True, "spans": ["美的"], "confidence": 0.9, "sentiment": "neutral", "reason": "家电品牌"}
+
+
+def test_medium_tier_asks_the_judge_only_about_unsure_answers():
+    """BR4(用户定 Q3):认得出的不花钱,说不准的才请裁判,结论按裁判的,模糊的判定行照存。"""
+    brand = BrandSpec(name="美的")
+    ads = adapters(_says_yes)
+    context = _medium_context(MentionJudge(CONFIG, ads, ledger=lambda r: None, locale="zh-CN"))
+
+    sure = observe(run_with("美的空调很省电。", "sure"), brand, context)
+    unsure = observe(run_with("美的很常见。", "unsure"), brand, context)
+
+    assert sure.mention is not None and sure.mention.detector_name == "brand_mention_fuzzy" and sure.mention.mentioned
+    assert unsure.mention is not None and unsure.mention.detector_name == "brand_mention_judge"
+    assert unsure.mention.mentioned is True and unsure.sentiment is not None  # 情感句跟裁判指的位置走
+    assert len(ads["judge_a"].requests) == 1  # 只问了说不准的那条
+    rows = {o.detector_name: o for o in unsure.archived if o.detector_name.startswith("brand_mention")}
+    assert rows["brand_mention_fuzzy"].mentioned is None and rows["brand_mention_judge"].mentioned is True
+
+
+def test_unsure_stays_unsure_when_the_judge_cannot_judge_or_is_missing():
+    brand = BrandSpec(name="美的")
+    run = run_with("美的很常见。")
+    offline = MentionJudge(CONFIG, adapters(_says_yes), ledger=lambda r: None, locale="zh-CN", offline=True)
+    for judge in (offline, None):
+        obs = observe(run, brand, _medium_context(judge))
+        assert obs.mention is not None and obs.mention.mentioned is None
+        assert obs.mention.detector_name == "brand_mention_fuzzy" and obs.sentiment is None
+
+
+def test_low_tier_never_asks_a_judge():
+    brand = BrandSpec(name="美的")
+    ads = adapters(_says_yes)
+    judge = MentionJudge(CONFIG, ads, ledger=lambda r: None, locale="zh-CN")
+    context = ObserveContext(competitors=[], mention_method=MentionMethod.RULES, judge=judge)
+    assert observe(run_with("美的很常见。"), brand, context).mention.mentioned is None
+    assert ads["judge_a"].requests == []
+
+
+def test_stop_asking_keeps_what_was_judged_and_spends_nothing_more():
+    ads = adapters(_says_yes)
+    judge = MentionJudge(CONFIG, ads, ledger=lambda r: None, locale="zh-CN")
+    done = run_with("美的很常见。", "done")
+    assert judge.judge(done, BrandSpec(name="美的")) is not None
+    judge.stop_asking()
+    assert judge.judge(done, BrandSpec(name="美的")) is not None  # 判过的照用
+    assert judge.judge(run_with("美的也常见。", "late"), BrandSpec(name="美的")) is None
+    assert len(ads["judge_a"].requests) == 1
+
+
+def test_a_competitor_can_be_unsure_and_stays_out_of_its_own_count():
+    rival = BrandSpec(name="美的")
+    context = ObserveContext(competitors=[rival], mention_method=MentionMethod.RULES_FUZZY, category="空调")
+    unsure = observe(run_with("美的很常见。"), BrandSpec(name="极光CRM"), context)
+    sure = observe(run_with("极光CRM 和美的都卖空调。"), BrandSpec(name="极光CRM"), context)
+    assert unsure.competitor_mentions["美的"].mentioned is None
+    assert sure.competitor_mentions["美的"].mentioned is True
 
 
 def test_offline_judge_reuses_stored_verdicts_and_never_asks():

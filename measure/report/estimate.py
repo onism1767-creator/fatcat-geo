@@ -70,8 +70,9 @@ class Estimate(FrozenModel):
     cost_usd: float
     minutes: float
     per_target: list[tuple[Target, float]]  # 各对象的花费(含闭卷腿),与勾选同序
-    judge_calls: int  # 高档:AI 裁判要判几条回答(= 提问次数),其余档 0
+    judge_calls: int  # AI 裁判要判几条回答:高档 = 提问次数;中档 = 最多判几条(名字没风险时 0);低档 0
     judge_cost_usd: float
+    judge_upto: bool = False  # True = 上面两个数是上限:只有说不准的回答才请裁判(中档,BR4)
 
 
 def estimate_job(
@@ -82,10 +83,12 @@ def estimate_job(
     dependency: bool,
     prices: UnitPrices,
     judge_cost_per_call: float | None = None,
+    judge_limit: int | None = None,
 ) -> Estimate:
     """每条腿(一个对象 × 一种检索模式)的调用数 = 题数 × 每题次数(次数随档位,S9.1);
     启用检索依赖对照时,支持闭卷的对象多一条闭卷腿,按闭卷单价另计;
-    高档(judge_cost_per_call 非空)每条回答再请 AI 裁判判一次,按裁判单价另计(S9.3)。"""
+    judge_cost_per_call 非空时再按裁判单价另计:高档每条回答判一次(S9.3);给了 judge_limit 是中档,
+    只判说不准的,开跑前不知道有几条,按上限算(BR4)。"""
     per_leg_calls = n_prompts * runs_per_prompt
     per_target: list[tuple[Target, float]] = []
     legs = 0
@@ -98,6 +101,8 @@ def estimate_job(
         per_target.append((target, cost))
     calls = per_leg_calls * legs
     judge_calls = calls if judge_cost_per_call is not None else 0
+    if judge_limit is not None:
+        judge_calls = min(judge_calls, judge_limit)
     judge_cost = judge_calls * (judge_cost_per_call or 0.0)
     # 时长按真实的并发方式算:并发是按腿分的,一条腿内部严格串行,所以是「几轮腿 × 每腿时长」,不是总调用数 ÷ 3——
     # 只选 1 个型号时原公式会把时长少报到三分之一(审核 2026-10-27 黄 16);裁判是把全部回答摊到 3 路并发上判
@@ -111,4 +116,5 @@ def estimate_job(
         per_target=per_target,
         judge_calls=judge_calls,
         judge_cost_usd=judge_cost,
+        judge_upto=judge_limit is not None,
     )

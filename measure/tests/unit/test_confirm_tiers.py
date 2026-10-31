@@ -7,7 +7,7 @@ from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
 from engine.models import Target
 from engine.tiers import MentionMethod
 from report.app import create_app
-from report.jobs import DiagnosisJob
+from report.jobs import MAX_UNSURE_JUDGED, DiagnosisJob
 from tests.unit.test_report_page import REGISTRY, UI_FORBIDDEN, DummyAdapter, visible_text
 
 
@@ -92,6 +92,31 @@ def test_estimate_endpoint_returns_every_tier_and_flags_custom():
     assert fewer["custom"] is True
     bad = client.post(f"{path}/estimate", data={**base, "tier": "low", "runs": "11", "targets_selected": ["s1::m1"]})
     assert bad.status_code == 400 and bad.json() == {"error": "FORM_RUNS_RANGE"}
+
+
+def _estimate(client: TestClient, url: str) -> dict:
+    path = url.split("?")[0].rsplit("/", 1)[0]
+    form = {"prompts_selected": ["0", "1"], "custom": "", "tier": "low", "runs": "3",
+            "targets_selected": ["s1::m1", "s2::m_cheap"]}
+    return client.post(f"{path}/estimate", data=form).json()
+
+
+def test_a_risky_name_is_explained_and_budgets_the_judge_on_the_medium_tier():
+    """BR4:名字有风险才预留中档裁判的钱,写成「最多」;没风险的名字中档不多花。"""
+    client, _ = _client()
+    safe = _confirm_url(client)
+    assert "光看字认不准" not in client.get(safe).text
+    tiers = _estimate(client, safe)["tiers"]
+    assert tiers["medium"]["judge_calls"] == 0 and tiers["high"]["judge_calls"] > 0 and not tiers["high"]["judge_upto"]
+
+    resp = client.post("/jobs?lang=zh", data={"brand_name": "小米", "aliases": "", "website": "mi.com",
+                                             "category": "手机", "questions": "问题一?\n问题二?", "generate": ""},
+                       follow_redirects=False)
+    risky = resp.headers["location"]
+    assert "光看字认不准" in client.get(risky).text
+    tiers = _estimate(client, risky)["tiers"]
+    assert tiers["low"]["judge_calls"] == 0
+    assert tiers["medium"]["judge_upto"] and 0 < tiers["medium"]["judge_calls"] <= MAX_UNSURE_JUDGED
 
 
 def test_confirm_freezes_the_tier_and_the_runner_reads_it():

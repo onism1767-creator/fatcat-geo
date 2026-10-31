@@ -28,15 +28,18 @@ from engine.detectors.brand_mention import BrandMentionDetector
 from engine.detectors.brand_mention_fuzzy import FuzzyBrandMentionDetector
 from engine.detectors.brand_mention_judge import JudgeBrandMentionDetector
 from engine.detectors.matching import find_first_alias, is_spaced_script_char
+from engine.detectors.name_risk import Risk, risk_of
 from engine.hard_cases import NAMING, HardBrand, HardCase, cases_of, strip_marks
-from engine.models import BrandSpec, FrozenModel, SurfaceRun
+from engine.models import BrandSpec, FrozenModel, MentionContext, SurfaceRun
 
 DEFAULT_CALIBRATION_PATH = Path(__file__).resolve().parents[1] / "config" / "calibration.yaml"
 MAX_EXAMPLES = 20  # 分歧清单最多列几条 run_id
 HARD_BASES = 40  # 每个难名字最多用几条真实回答当底本:判法现在不看上下文,条数多了只是同一个结果乘倍数
 MAX_CROSS_EXAMPLES = 5  # 别家回答当底本时,每个名字每种判法最多列几处
+UNSURE = "unsure"  # 规则 / 模糊说不准(BR4):回答里出现了,看不出是不是你;单独数,不算对也不算错
 
 Judge = Callable[[SurfaceRun, BrandSpec], bool | None]  # 裁判:提到了 / 没提到 / 看不到(None)
+Said = bool | str | None  # 一种判法的结论:提到了 / 没提到 / UNSURE / 没有判定(None)
 METHODS = ("rules", "fuzzy", "judge")
 _Detectors = dict[str, BrandMentionDetector | FuzzyBrandMentionDetector]
 
@@ -45,6 +48,11 @@ class Sample(FrozenModel):
     run: SurfaceRun
     brand: BrandSpec
     competitors: list[str] = []  # 这单的竞品名:塞进去当负例(肯定不是你;S9.4b,10-21 换掉首字母错名)
+    category: str = ""  # 这单的品类,和竞品名一起当线索(BR4)
+
+    @property
+    def context(self) -> MentionContext:
+        return MentionContext(category=self.category, peers=self.competitors)
 
 
 class Variant(FrozenModel):
@@ -61,6 +69,7 @@ class KindScore(FrozenModel):
     expected: bool
     n: int
     correct: int  # expected=True 时 = 认出来的条数;expected=False 时 = 没误认的条数
+    unsure: int = 0  # 说不准的条数:n 里 correct 和判错之外的那部分
 
 
 class PairDisagreement(FrozenModel):
@@ -85,6 +94,7 @@ class CrossScore(FrozenModel):
     n: int  # 判了几条回答
     hits: int  # 认出来几条
     examples: list[str]  # 「run_id:回答里那一小段」,最多 MAX_CROSS_EXAMPLES 处,供抽看
+    unsure: int = 0
 
 
 class RealSample(FrozenModel):
@@ -93,6 +103,7 @@ class RealSample(FrozenModel):
     run: SurfaceRun
     brand: BrandSpec
     kind: str  # 点名 / 反例 / 不点名(engine/hard_cases.py 的 REAL_KINDS)
+    context: MentionContext = MentionContext()
 
 
 class RealScore(FrozenModel):
@@ -102,6 +113,7 @@ class RealScore(FrozenModel):
     n: int
     hits: int  # 认出来几条
     examples: list[str]  # 点名题列没认出的,别的题列认出的,格式同 CrossScore
+    unsure: int = 0
 
 
 def _sums(scores: Sequence[KindScore], method: str) -> dict[str, int]:
@@ -109,7 +121,9 @@ def _sums(scores: Sequence[KindScore], method: str) -> dict[str, int]:
     neg = [s for s in scores if s.method == method and not s.expected]
     return {
         "pos_n": sum(s.n for s in pos), "pos_hit": sum(s.correct for s in pos),
-        "neg_n": sum(s.n for s in neg), "neg_false": sum(s.n - s.correct for s in neg),
+        "pos_unsure": sum(s.unsure for s in pos),
+        "neg_n": sum(s.n for s in neg), "neg_false": sum(s.n - s.correct - s.unsure for s in neg),
+        "neg_unsure": sum(s.unsure for s in neg),
     }
 
 
@@ -193,7 +207,8 @@ def variants_of(brand: BrandSpec, competitors: Sequence[str] = ()) -> list[Varia
             continue
         add("原样", name, True)
         if _is_latin(name):
-            add("小写", name.lower(), True)
+            if risk_of(name) is Risk.NONE:  # 有风险的名字小写不算你(BR4,用户定 Q3)
+                add("小写", name.lower(), True)
             if " " in name:
                 add("去空格", name.replace(" ", ""), True)
                 add("连字符", name.replace(" ", "-"), True)
@@ -235,24 +250,22 @@ def synthetic_run(sample: Sample, text: str, label: str, locale: str | None = No
 # ── 跑三种判法 ────────────────────────────────────────────────────────────────────────
 
 
-def _rules_judge() -> Judge:
-    detector = BrandMentionDetector()
-
-    def says(run: SurfaceRun, brand: BrandSpec) -> bool | None:
-        obs = detector.detect(run, brand)
-        return None if obs is None else obs.mentioned
-
-    return says
+def _detectors(context: MentionContext) -> _Detectors:
+    return {"rules": BrandMentionDetector(context), "fuzzy": FuzzyBrandMentionDetector(context)}
 
 
-def _fuzzy_judge() -> Judge:
-    detector = FuzzyBrandMentionDetector()
+def _said(detector: BrandMentionDetector | FuzzyBrandMentionDetector, run: SurfaceRun, brand: BrandSpec) -> Said:
+    obs = detector.detect(run, brand)
+    if obs is None:
+        return None
+    return UNSURE if obs.mentioned is None else obs.mentioned
 
-    def says(run: SurfaceRun, brand: BrandSpec) -> bool | None:
-        obs = detector.detect(run, brand)
-        return None if obs is None else obs.mentioned
 
-    return says
+def _tally(cell: list[int], said: Said, expected: bool) -> None:
+    """一格的计数:[条数, 判对, 说不准]。"""
+    cell[0] += 1
+    cell[1] += int(said == expected)
+    cell[2] += int(said == UNSURE)
 
 
 def calibrate(
@@ -273,11 +286,10 @@ def calibrate(
     hard:难名字清单(engine/hard_cases.py),跑难题和别家回答底本,只用规则和模糊。
     real:难品牌的真实回答(BR3),只用规则和模糊,单独数。"""
     rng = random.Random(seed)
-    rules, fuzzy = _rules_judge(), _fuzzy_judge()
-    verdicts: dict[str, dict[str, bool | None]] = {m: {} for m in METHODS}  # 判法 → run_id → 结论
+    verdicts: dict[str, dict[str, Said]] = {m: {} for m in METHODS}  # 判法 → run_id → 结论
     for s in samples:
-        verdicts["rules"][s.run.run_id] = rules(s.run, s.brand)
-        verdicts["fuzzy"][s.run.run_id] = fuzzy(s.run, s.brand)
+        for method, detector in _detectors(s.context).items():
+            verdicts[method][s.run.run_id] = _said(detector, s.run, s.brand)
     judged: list[Sample] = []
     double: DoubleJudge | None = None
     if judge_a is not None and judge_sample > 0:
@@ -312,16 +324,13 @@ def calibrate(
                   if base.run.run_id in judged_ids and variant.judge], False)
     scores: dict[tuple[str, str, bool], list[int]] = {}
     for base, variant, run in synthetic_runs:
-        methods: list[tuple[str, Judge]] = [("rules", rules), ("fuzzy", fuzzy)]
+        says: dict[str, Said] = {m: _said(d, run, base.brand) for m, d in _detectors(base.context).items()}
         if judge_a is not None and base.run.run_id in judged_ids and variant.judge:
-            methods.append(("judge", judge_a))
-        for method, says in methods:
-            said = says(run, base.brand)
+            says["judge"] = judge_a(run, base.brand)
+        for method, said in says.items():
             if said is None:
                 continue  # 看不到的不算
-            cell = scores.setdefault((method, variant.kind, variant.expected), [0, 0])
-            cell[0] += 1
-            cell[1] += int(said == variant.expected)
+            _tally(scores.setdefault((method, variant.kind, variant.expected), [0, 0, 0]), said, variant.expected)
     versions = {method: version for method, version in current_versions().items()
                 if method != "judge" or judged}
     hard_scores, cross = _hard_scores(samples, hard, rng)
@@ -333,8 +342,8 @@ def calibrate(
 
 
 def _kind_scores(scores: dict[tuple[str, str, bool], list[int]]) -> list[KindScore]:
-    return [KindScore(method=m, kind=k, expected=e, n=n, correct=c)
-            for (m, k, e), (n, c) in sorted(scores.items(), key=lambda kv: (METHODS.index(kv[0][0]), kv[0][1]))]
+    return [KindScore(method=m, kind=k, expected=e, n=n, correct=c, unsure=u)
+            for (m, k, e), (n, c, u) in sorted(scores.items(), key=lambda kv: (METHODS.index(kv[0][0]), kv[0][1]))]
 
 
 def _snippet(run: SurfaceRun, position: int | None) -> str:
@@ -348,15 +357,16 @@ def _hard_scores(samples: Sequence[Sample], hard: Sequence[HardBrand],
                  rng: random.Random) -> tuple[list[KindScore], list[CrossScore]]:
     """④ 难题 + ⑤ 别家回答当底本。底本先过一遍:这个名字在回答里本来就被认出的,记进 ⑤;
     本来没被认出的才拿来塞难题,否则分不清是塞进去的字惹的,还是回答里原来就有。"""
-    detectors: _Detectors = {"rules": BrandMentionDetector(), "fuzzy": FuzzyBrandMentionDetector()}
     scores: dict[tuple[str, str, bool], list[int]] = {}
     cross: list[CrossScore] = []
     for hard_brand in hard:
         brand = BrandSpec(name=hard_brand.name, aliases=hard_brand.aliases)
+        detectors = _detectors(MentionContext(category=hard_brand.category, peers=hard_brand.peers))
         eligible = [s for s in samples if s.brand.name not in hard_brand.skip_bases]
         clean: list[Sample] = []
         hits: dict[str, list[str]] = {method: [] for method in detectors}
         counts = dict.fromkeys(detectors, 0)
+        unsure = dict.fromkeys(detectors, 0)
         for sample in eligible:
             spotted = False
             for method, detector in detectors.items():
@@ -365,13 +375,17 @@ def _hard_scores(samples: Sequence[Sample], hard: Sequence[HardBrand],
                     spotted = True  # 判不了的回答不当底本
                     continue
                 counts[method] += 1
-                if obs.mentioned:
+                if obs.mentioned is None:
+                    spotted = True
+                    unsure[method] += 1
+                elif obs.mentioned:
                     spotted = True
                     hits[method].append(f"{sample.run.run_id}:{_snippet(sample.run, obs.first_position)}")
             if not spotted:
                 clean.append(sample)
         cross += [CrossScore(brand=brand.name, method=method, n=counts[method], hits=len(found),
-                             examples=found[:MAX_CROSS_EXAMPLES]) for method, found in hits.items()]
+                             examples=found[:MAX_CROSS_EXAMPLES], unsure=unsure[method])
+                  for method, found in hits.items()]
         bases = rng.sample(clean, min(HARD_BASES, len(clean)))
         for index, case in enumerate(cases_of(hard_brand)):
             _score_case(case, index, brand, bases, detectors, scores)
@@ -383,36 +397,34 @@ def _score_case(case: HardCase, index: int, brand: BrandSpec, bases: Sequence[Sa
     for base in bases:
         run = synthetic_run(base, case.text, f"{brand.name}{index}", case.locale)
         for method, detector in detectors.items():
-            obs = detector.detect(run, brand)
-            if obs is None:
+            said = _said(detector, run, brand)
+            if said is None:
                 continue
-            cell = scores.setdefault((method, case.kind, case.expected), [0, 0])
-            cell[0] += 1
-            cell[1] += int(obs.mentioned == case.expected)
+            _tally(scores.setdefault((method, case.kind, case.expected), [0, 0, 0]), said, case.expected)
 
 
 def _real_scores(real: Sequence[RealSample]) -> list[RealScore]:
     """⑥ 难品牌的真实回答,按品牌 × 题型 × 判法分开数。"""
-    detectors: _Detectors = {"rules": BrandMentionDetector(), "fuzzy": FuzzyBrandMentionDetector()}
     counts: dict[tuple[str, str, str], list[int]] = {}
     shown: dict[tuple[str, str, str], list[str]] = {}
     for sample in real:
-        for method, detector in detectors.items():
+        for method, detector in _detectors(sample.context).items():
             obs = detector.detect(sample.run, sample.brand)
             if obs is None:
                 continue
             key = (sample.brand.name, sample.kind, method)
-            cell = counts.setdefault(key, [0, 0])
+            cell = counts.setdefault(key, [0, 0, 0])
             cell[0] += 1
-            cell[1] += int(obs.mentioned)
-            if obs.mentioned != (sample.kind == NAMING):
+            cell[1] += int(obs.mentioned is True)
+            cell[2] += int(obs.mentioned is None)
+            if (obs.mentioned is True) != (sample.kind == NAMING) and obs.mentioned is not None:
                 shown.setdefault(key, []).append(f"{sample.run.run_id}:{_snippet(sample.run, obs.first_position)}")
-    return [RealScore(brand=brand, kind=kind, method=method, n=n, hits=hits,
+    return [RealScore(brand=brand, kind=kind, method=method, n=n, hits=hits, unsure=unsure,
                       examples=shown.get((brand, kind, method), [])[:MAX_CROSS_EXAMPLES])
-            for (brand, kind, method), (n, hits) in counts.items()]
+            for (brand, kind, method), (n, hits, unsure) in counts.items()]
 
 
-def _pair(a: str, b: str, verdicts: dict[str, dict[str, bool | None]]) -> PairDisagreement:
+def _pair(a: str, b: str, verdicts: dict[str, dict[str, Said]]) -> PairDisagreement:
     both = [rid for rid in verdicts[a] if verdicts[a][rid] is not None and verdicts[b].get(rid) is not None]
     differ = [rid for rid in both if verdicts[a][rid] != verdicts[b][rid]]
     return PairDisagreement(a=a, b=b, n=len(both), disagree=len(differ), examples=differ[:MAX_EXAMPLES])
@@ -456,16 +468,16 @@ def render_markdown(report: CalibrationReport) -> str:
              f"请裁判抽样 {report.judge_sample} 条。",
              "测的判定器版本:" + "、".join(f"{m} v{v}" for m, v in report.detector_versions.items()) + "。",
              "自动校准,非人工核对。", "", "## ① 合成测试集(程序塞入写法,答案已知)", "",
-             "| 判法 | 写法 | 应认出 | 条数 | 判对 |", "|---|---|---|---|---|"]
+             "| 判法 | 写法 | 应认出 | 条数 | 判对 | 说不准 |", "|---|---|---|---|---|---|"]
     for s in report.synthetic:
         expected = "是" if s.expected else "否(错名)"
-        lines.append(f"| {s.method} | {s.kind} | {expected} | {s.n} | {pct(s.correct, s.n)} |")
+        lines.append(f"| {s.method} | {s.kind} | {expected} | {s.n} | {pct(s.correct, s.n)} | {s.unsure} |")
     lines += ["", "合计:"]
     for m in METHODS:
         t = report.totals(m)
         if t["pos_n"] or t["neg_n"]:
-            lines.append(f"- {m}:塞入写法认出 {pct(t['pos_hit'], t['pos_n'])};"
-                         f"塞入错名误认 {pct(t['neg_false'], t['neg_n'])}")
+            lines.append(f"- {m}:塞入写法认出 {pct(t['pos_hit'], t['pos_n'])}(说不准 {t['pos_unsure']});"
+                         f"塞入错名误认 {pct(t['neg_false'], t['neg_n'])}(说不准 {t['neg_unsure']})")
     lines += ["", "## ② 真实回答两两分歧", ""]
     for p in report.disagreement:
         lines.append(f"- {p.a} vs {p.b}:{pct(p.disagree, p.n)} 条判法不同;抽看:{', '.join(p.examples) or '—'}")
@@ -476,23 +488,24 @@ def render_markdown(report: CalibrationReport) -> str:
         d = report.double_judge
         lines.append(f"- 一致 {pct(d.agree, d.n)};不一致抽看:{', '.join(d.disagree_ids) or '—'}")
     lines += ["", "## ④ 难题(程序造,答案由构造决定;只量会不会犯这类错,不是真实回答上错多少)", "",
-              "| 判法 | 种类 | 应认出 | 条数 | 判对 |", "|---|---|---|---|---|"]
+              "| 判法 | 种类 | 应认出 | 条数 | 判对 | 说不准 |", "|---|---|---|---|---|---|"]
     for s in report.hard:
-        lines.append(f"| {s.method} | {s.kind} | {'是' if s.expected else '否'} | {s.n} | {pct(s.correct, s.n)} |")
+        lines.append(f"| {s.method} | {s.kind} | {'是' if s.expected else '否'} | {s.n} | {pct(s.correct, s.n)} "
+                     f"| {s.unsure} |")
     lines += ["", "合计:"]
     for m in METHODS:
         t = report.hard_totals(m)
         if t["pos_n"] or t["neg_n"]:
-            lines.append(f"- {m}:配套正例认出 {pct(t['pos_hit'], t['pos_n'])};"
-                         f"难题误认 {pct(t['neg_false'], t['neg_n'])}")
+            lines.append(f"- {m}:配套正例认出 {pct(t['pos_hit'], t['pos_n'])}(说不准 {t['pos_unsure']});"
+                         f"难题误认 {pct(t['neg_false'], t['neg_n'])}(说不准 {t['neg_unsure']})")
     lines += ["", "## ⑤ 别家回答当底本(认出来的基本都是误认,不进合计)", ""]
     for c in report.cross:
-        lines.append(f"- {c.brand} · {c.method}:{pct(c.hits, c.n)}")
+        lines.append(f"- {c.brand} · {c.method}:{pct(c.hits, c.n)},说不准 {c.unsure}")
         lines += [f"  - {example}" for example in c.examples]
     lines += ["", "## ⑥ 难品牌的真实回答(点名题应认出,反例题不该认出,不点名题没有现成答案)", "",
-              "| 品牌 | 题型 | 判法 | 回答 | 认出 |", "|---|---|---|---|---|"]
+              "| 品牌 | 题型 | 判法 | 回答 | 认出 | 说不准 |", "|---|---|---|---|---|---|"]
     for r in report.real:
-        lines.append(f"| {r.brand} | {r.kind} | {r.method} | {r.n} | {pct(r.hits, r.n)} |")
+        lines.append(f"| {r.brand} | {r.kind} | {r.method} | {r.n} | {pct(r.hits, r.n)} | {r.unsure} |")
     lines += ["", "抽看(点名题列没认出的,别的题列认出的):", ""]
     for r in report.real:
         lines += [f"- {r.brand} · {r.kind} · {r.method}:{example}" for example in r.examples]

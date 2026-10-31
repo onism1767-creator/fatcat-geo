@@ -9,6 +9,7 @@ from fastapi.testclient import TestClient
 from engine.models import (
     Answer,
     BrandDomainList,
+    BrandSpec,
     Citation,
     Outcome,
     Prompt,
@@ -64,7 +65,7 @@ def test_response_page_shows_one_answer_with_its_recorded_judgements(storage):
     assert "https://www.aurora-crm.com/pricing" in html and "你的官网" in html and "aurora-crm.com(主站)" in html
     assert "https://review.test/best-crm" in html and "没来得及开" in html  # 第三方页没核实:看不到(原因)
     assert "市面上常见的有几家。" in html  # 完整回答
-    assert "brand_mention_rules v2" in html  # 技术细节里列判定器版本
+    assert "brand_mention_rules v3" in html  # 技术细节里列判定器版本
     raw = client.get(f"/jobs/{job.job_id}/responses/r1/download")
     assert raw.status_code == 200 and raw.headers["content-disposition"].startswith("attachment")
     assert raw.json()["run_id"] == "r1" and raw.json()["raw_payload"] == {"platform": "raw"}
@@ -113,8 +114,64 @@ def test_response_page_explains_a_fuzzy_match(storage):
     persist_observations(storage, [observe(run, job.brand, context)])
     html = _client(job).get(f"/jobs/{job.job_id}/responses/fz1?lang=zh").text
     assert "提到了" in html and "尾巴差 1 个字母(模糊匹配)" in html and "auroracrms" in html
-    assert "brand_mention_fuzzy v3" in html and "brand_mention_rules v2" in html  # 两个判定器都存了
+    assert "brand_mention_fuzzy v4" in html and "brand_mention_rules v3" in html  # 两个判定器都存了
     assert "sentiment_lexicon v3" in html and "正面" in html  # 情感句跟主判定器定位
+
+
+def _medium_job(storage, text: str, run_id: str, judge=None):
+    """中档一单,品牌是有风险的「美的」,存好判定行。"""
+    from engine.tiers import MentionMethod, TierChoice
+
+    job = finished_job()
+    job.tier = TierChoice(name="medium", runs_per_prompt=5, mention_method=MentionMethod.RULES_FUZZY, custom=False)
+    job.brand = BrandSpec(name="美的")
+    prompt = job.prompts[0]
+    storage.insert_prompt(prompt)
+    run = _run(prompt.prompt_id, run_id=run_id, text=text)
+    storage.insert_surface_run(run)
+    context = ObserveContext(competitors=[], pages=PageIndex(), mention_method=MentionMethod.RULES_FUZZY, judge=judge,
+                             category="空调")
+    persist_observations(storage, [observe(run, job.brand, context)])
+    return job
+
+
+def test_report_says_how_many_answers_it_could_not_tell():
+    """BR4(用户定 Q3):不进分母的条数在报告里单独写,中英都有;一条都没有就不写。"""
+    job = finished_job()
+    client = _client(job)
+    assert "没算进提及率" not in client.get(f"/jobs/{job.job_id}/report?lang=zh").text
+    job.sampling = job.sampling.model_copy(update={"n_unsure": 3})
+    zh, en = (client.get(f"/jobs/{job.job_id}/report?lang={lang}").text for lang in ("zh", "en"))
+    assert "另有 3 条回答只出现了这个词,看不出是不是你,没算进提及率。" in zh
+    assert "Another 3 answers only contain the word" in en
+
+
+def test_response_page_says_when_it_cannot_tell(storage):
+    """BR4:说不准单独写清,写出看到的字,不算提到也不算没提到。"""
+    job = _medium_job(storage, "美的很常见。", "un1")
+    client = _client(job)
+    html = client.get(f"/jobs/{job.job_id}/responses/un1?lang=zh").text
+    assert "说不准:回答里出现了「美的」" in html and "没有判定记录" not in html
+    assert "Can’t tell" in client.get(f"/jobs/{job.job_id}/responses/un1?lang=en").text
+
+
+def test_response_page_names_the_clue(storage):
+    job = _medium_job(storage, "美的空调很省电。", "cl1")
+    html = _client(job).get(f"/jobs/{job.job_id}/responses/cl1?lang=zh").text
+    assert "提到了" in html and "附近写了「空调」,所以算你。" in html
+
+
+def test_a_judges_answer_replaces_unsure_on_the_response_page(storage):
+    """中档:模糊说不准、裁判判过的,页面和导出都算裁判的。"""
+    from engine.judge import JudgeVerdict, MentionJudge
+    from tests.unit.test_judge import CONFIG, adapters
+
+    judge = MentionJudge(CONFIG, adapters(), ledger=lambda r: None, locale="zh-CN", offline=True)
+    judge.preload({"jd1": JudgeVerdict(mentioned=True, spans=["美的"], first_position=0, confidence=0.9,
+                                       sentiment=None, reason="说的是家电品牌")})
+    job = _medium_job(storage, "美的很常见。", "jd1", judge)
+    html = _client(job).get(f"/jobs/{job.job_id}/responses/jd1?lang=zh").text
+    assert "提到了" in html and "说不准" not in html and "AI 裁判" in html
 
 
 def test_unreadable_citations_link_to_the_error_code_guide(storage):

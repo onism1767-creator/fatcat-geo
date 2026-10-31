@@ -1,12 +1,13 @@
 """L2 收尾件的单元测试:配置装载一致性防线、题型层聚合(v0.4.26 S2:计数 + 比例,逐题并列,题目覆盖率)。"""
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
 import yaml
 
-from engine.aggregate import rate_metric
+from engine.aggregate import measure_target, rate_metric
 from engine.loader import DEFAULT_SURFACES_PATH, build_adapters, load_surface_registry
 from engine.models import (
     Answer,
@@ -132,6 +133,20 @@ def test_rate_metric_pools_hits_per_prompt_and_reports_coverage():
     assert (metric.prompt_coverage.k, metric.prompt_coverage.n) == (1, 3)
     assert metric.accounting.n_total == 7 and metric.accounting.n_valid == 6
     assert metric.stop_reasons == [StopReason.COMPLETED] and metric.intent is PromptIntent.CATEGORY_DISCOVERY
+
+
+def test_unsure_answers_stay_out_of_the_mention_rate():
+    """BR4(用户定 Q3):说不准不进分母,原话里单独标出来。"""
+    observations = [make_obs("q1", 1), make_obs("q1", 2, mentioned=False), make_obs("q1", 3)]
+    unsure = BrandMentionObservation(run_id="q1-3", detector_name="m", detector_version=1, mentioned=None)
+    observations[2] = replace(observations[2], mention=unsure)
+    metric = rate_metric(TARGET, "test_provider", PromptIntent.CATEGORY_DISCOVERY, observations, ["q1"],
+                         _hit, metric_label="brand_mention", stop_reason=StopReason.COMPLETED)
+    assert (metric.rate.k, metric.rate.n) == (1, 2)
+    measured = measure_target(TARGET, "test_provider", PromptIntent.CATEGORY_DISCOVERY, observations, ["q1"],
+                              stop_reason=StopReason.COMPLETED, competitor_names=[], exposes_retrieval=False)
+    assert [(q.run_index, q.mentioned, q.unsure) for q in measured.quotes] == [(1, True, False), (2, False, False),
+                                                                               (3, None, True)]
 
 
 def test_rate_metric_without_valid_samples_has_no_rate():

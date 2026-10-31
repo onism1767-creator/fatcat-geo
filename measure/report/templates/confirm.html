@@ -69,6 +69,8 @@
     </div>
     {#- 准确率对比(S9.4):只写自动校准数出来的计数;没跑过就说没跑过 -#}
     {% if calibration_text %}<p class="kv">{{ calibration_text }}</p>{% else %}<p class="kv muted">{{ t["tier_accuracy_note"] }}</p>{% endif %}
+    {#- 名字有风险(BR4):太短或是常用词,先把会记「说不准」讲清楚 -#}
+    {% if name_risky %}<p class="kv">{{ t["name_risky_note"] }}</p>{% endif %}
 
     {#- 自定义(用户定 T8):以选中的档位为起点改型号与次数;「提到你」怎么认跟起点档走 -#}
     <details>
@@ -115,7 +117,7 @@
 // 预估公式只在服务端(report/estimate.py):每次勾选变化把整张表单发过去,这里只负责显示(v0.4.24 审查 #3)。
 // 档位(S9.1):选一档就把该档的型号与次数填进自定义区;用户再改就按自定义算(服务端判)。
 const TIERS = {{ tier_defaults|tojson }};
-const WORDS = {calls: {{ t["est_calls_word"]|tojson }}, min: {{ t["est_min_word"]|tojson }}, judge: {{ t["est_judge"]|tojson }}};
+const WORDS = {calls: {{ t["est_calls_word"]|tojson }}, min: {{ t["est_min_word"]|tojson }}, judge: {{ t["est_judge"]|tojson }}, judgeUpto: {{ t["est_judge_upto"]|tojson }}};
 const form = document.getElementById('confirm-form');
 function applyTier(name) {
   const spec = TIERS[name];
@@ -124,7 +126,7 @@ function applyTier(name) {
   form.querySelector('input[name=runs]').value = spec.runs;
 }
 form.querySelectorAll('input[name=tier]').forEach(r => r.addEventListener('change', () => applyTier(r.value)));
-function judgeNote(e) { return WORDS.judge.replace('{n}', e.judge_calls).replace('{cost}', e.judge_cost_usd.toFixed(2)); }
+function judgeNote(e) { return (e.judge_upto ? WORDS.judgeUpto : WORDS.judge).replace('{n}', e.judge_calls).replace('{cost}', e.judge_cost_usd.toFixed(2)); }
 function fmt(e) {
   return e.calls + ' ' + WORDS.calls + ' · ≈ $' + e.cost_usd.toFixed(2) + ' · ≈ ' + e.minutes.toFixed(1) + ' ' + WORDS.min
     + (e.judge_calls ? ' · ' + judgeNote(e) : '');

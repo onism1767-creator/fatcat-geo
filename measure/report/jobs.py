@@ -43,6 +43,7 @@ from engine.tiers import TierChoice
 log = structlog.get_logger("report.jobs")
 
 PLAN_CONCURRENCY = 3  # 采样计划并发路数(16.1)
+MAX_UNSURE_JUDGED = 300  # 中档一单最多请裁判判几条说不准的回答:每条约 $0.0004,封顶约 $0.12(BR4)
 POLICY = SamplingPolicy()  # 重试 / 熔断参数(13.2);每题次数由档位给(S9.1,DiagnosisJob.policy()),预算上限按单另加
 STALL_MARGIN_MINUTES = 5
 
@@ -95,6 +96,7 @@ class SamplingNote(FrozenModel):
     n_runs: int  # 开卷提问次数(含失败 / 拒答)
     n_valid: int  # 有效回答数
     n_offline_runs: int  # 闭卷对照次数(检索依赖,0 = 没开),单独算
+    n_unsure: int = 0  # 说不准的回答条数(BR4):只出现了这个词,看不出是不是你,不进提及率分母
     n_cached: int  # 其中几条回答来自回答缓存(别的单里 cache_hours 小时内问过的,S11.2),不算本单花费
     cache_hours: int
     fresh: bool  # 「修好后再测」:一律重新提问、没用缓存(S11.3)
@@ -105,7 +107,7 @@ class SamplingNote(FrozenModel):
     domains_unconfirmed: int  # 待用户确认几个
     domains_at: datetime | None  # 名单日期
     method_version: str  # engine/method.py::METHOD_VERSION,生成时冻结
-    judge_targets: list[Target]  # 高档的 AI 裁判(主 + 备用;S9.3),没用裁判为空
+    judge_targets: list[Target]  # AI 裁判(主 + 备用;S9.3,中档只判说不准的),没用裁判为空
 
 
 class ReportPayload(FrozenModel):

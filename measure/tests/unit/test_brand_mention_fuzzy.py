@@ -11,6 +11,7 @@ from engine.detectors.sentiment import SentimentDetector
 from engine.models import (
     Answer,
     BrandSpec,
+    MentionContext,
     Outcome,
     RunError,
     RunErrorType,
@@ -18,7 +19,7 @@ from engine.models import (
     SearchTrace,
     SurfaceRun,
 )
-from engine.observe import ObserveContext, mention_detector, observe, persist_observations
+from engine.observe import ObserveContext, observe, persist_observations
 from engine.tiers import MentionMethod
 
 BRAND = BrandSpec(name="极光CRM", aliases=["AuroraCRM", "Aurora CRM"], domains=["aurora-crm.com"])
@@ -47,7 +48,7 @@ def test_exact_hits_match_the_rules_detector_and_say_so():
     assert obs is not None and rules is not None
     assert (obs.mentioned, obs.matched_alias, obs.first_position) == (True, "极光CRM", rules.first_position)
     assert (obs.match_kind, obs.matched_text, obs.edit_distance) == ("exact", "极光CRM", 0)
-    assert obs.detector_name == "brand_mention_fuzzy" and obs.detector_version == 3
+    assert obs.detector_name == "brand_mention_fuzzy" and obs.detector_version == 4
 
 
 @pytest.mark.parametrize("text, snippet", [
@@ -148,7 +149,8 @@ def test_a_letter_changed_in_the_middle_is_another_word():
     assert detect("I tried AuroxaCRM once.").mentioned is False
     columbia = BrandSpec(name="Columbia")
     assert detect("Great coffee comes from Colombia.", columbia).mentioned is False
-    assert detect("Columbia jackets are warm.", columbia).mentioned is True
+    jackets = FuzzyBrandMentionDetector(MentionContext(category="jackets"))
+    assert jackets.detect(run_with("Columbia jackets are warm."), columbia).mentioned is True
 
 
 @pytest.mark.parametrize("name, text", [
@@ -168,8 +170,9 @@ def test_tails_are_a_closed_list_and_common_words_are_out(name: str, text: str):
 
 
 def test_a_common_word_tail_does_not_hide_a_later_real_tail():
-    obs = detect("Both notions and the notiones plan.", BrandSpec(name="Notion"))
-    assert obs.mentioned and obs.match_kind == "fuzzy" and obs.matched_text == "notiones"
+    obs = FuzzyBrandMentionDetector(MentionContext(category="plan")).detect(
+        run_with("Both notions and the Notiones plan."), BrandSpec(name="Notion"))
+    assert obs.mentioned and obs.match_kind == "fuzzy" and obs.matched_text == "Notiones"
 
 
 def test_possessive_and_plural_tails_are_still_recognised():
@@ -263,9 +266,9 @@ def test_tier_method_picks_the_main_detector_and_sentiment_follows_it():
     assert fuzzy.mention.detector_name == "brand_mention_fuzzy"
     assert fuzzy.sentiment is not None and fuzzy.sentiment.sentiment.value == "positive"  # 情感句跟主判定器定位
     assert ObserveContext(competitors=[]).mention_method is MentionMethod.RULES
-    assert mention_detector(MentionMethod.RULES).name == "brand_mention_rules"
-    with pytest.raises(ValueError, match="裁判"):
-        mention_detector(MentionMethod.RULES_FUZZY_JUDGE)  # 高档没装配裁判:明确报错,不静默退回
+    assert rules.mention.detector_name == "brand_mention_rules"
+    with pytest.raises(ValueError, match="裁判"):  # 高档没装配裁判:明确报错,不静默退回
+        observe(run, BRAND, ObserveContext(competitors=[], mention_method=MentionMethod.RULES_FUZZY_JUDGE))
 
 
 def test_both_mention_detectors_are_archived_side_by_side():
@@ -275,12 +278,12 @@ def test_both_mention_detectors_are_archived_side_by_side():
     persist_observations(store, [observe(run, BRAND, context)])
     mentions = {(o.detector_name, o.detector_version): o.mentioned for o in store.rows
                 if o.detector_name.startswith("brand_mention")}
-    assert mentions == {("brand_mention_rules", 2): False, ("brand_mention_fuzzy", 3): True}
+    assert mentions == {("brand_mention_rules", 3): False, ("brand_mention_fuzzy", 4): True}
     tones = [o for o in store.rows if o.detector_name == "sentiment_lexicon"]
     assert len(tones) == 1 and tones[0].detector_version == 3  # 情感随主判定器(模糊)找到了句子
     # 判定器版本第一次出现在库里:落审计(13.5;审核 2026-10-27 黄 8);再存一遍版本都见过了,不再落
     assert {(e["detector_name"], e["version_from"], e["version_to"], e["trigger_kind"]) for e in store.events} >= {
-        ("brand_mention_rules", None, 2, "job"), ("brand_mention_fuzzy", None, 3, "job")}
+        ("brand_mention_rules", None, 3, "job"), ("brand_mention_fuzzy", None, 4, "job")}
     seen = len(store.events)
     persist_observations(store, [observe(run, BRAND, context)], note="job-x")
     assert len(store.events) == seen

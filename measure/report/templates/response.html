@@ -10,10 +10,11 @@
   <p><b>{{ t["resp_question"] }}:</b>{{ view.prompt_text }}</p>
   <p class="kv">{{ t["resp_meta"].format(i=run.run_index, ai=target_name(run.surface, run.model), time=run.timestamp|local_time) }}</p>
   <p><b>{{ t["resp_mentioned_word"] }}:</b>
-    {% if not view.valid %}{% set why = t["resp_blank"] if run.outcome.value == "SUCCESS" else t["outcome_" ~ run.outcome.value] %}{{ t["resp_invalid"].format(why=why) }}{% elif view.mentioned is none %}{{ t["resp_no_record"] }}{% elif view.mentioned %}{{ t["resp_yes"] }}{% else %}{{ t["resp_no"] }}{% endif %}</p>
+    {% if not view.valid %}{% set why = t["resp_blank"] if run.outcome.value == "SUCCESS" else t["outcome_" ~ run.outcome.value] %}{{ t["resp_invalid"].format(why=why) }}{% elif view.unsure %}{{ t["resp_unsure"].format(text=view.matched_text or view.matched_alias or "—") }}{% elif view.mentioned is none %}{{ t["resp_no_record"] }}{% elif view.mentioned %}{{ t["resp_yes"] }}{% else %}{{ t["resp_no"] }}{% endif %}</p>
   {% if view.excerpt %}<p><b>{{ t["resp_excerpt"] }}:</b>「{{ view.excerpt }}」</p>{% endif %}
   {#- 怎么认出来的(S9.2,模糊判定器起才记;规则判定器的记录没有这一行) -#}
-  {% if view.match_kind %}<p class="kv">{{ t["resp_match_" ~ view.match_kind].format(text=view.matched_text or "—", alias=view.matched_alias or "—", d=view.edit_distance) }}</p>{% endif %}
+  {% if view.match_kind and not view.unsure %}<p class="kv">{{ t["resp_match_" ~ view.match_kind].format(text=view.matched_text or "—", alias=view.matched_alias or "—", d=view.edit_distance) }}</p>{% endif %}
+  {% if view.clue %}<p class="kv">{{ t["resp_clue"].format(clue=view.clue) }}</p>{% endif %}
   {% if view.tone %}<p><b>{{ t["resp_tone"] }}:</b>{{ t["sentiment_" ~ view.tone] }}</p>{% endif %}
 </div>
 

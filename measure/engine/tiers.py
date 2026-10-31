@@ -30,9 +30,9 @@ class ModelRule(StrEnum):
 class MentionMethod(StrEnum):
     """「提到你」怎么认(判定器组合);自定义跟起点档走,不单独选(用户定 2026-10-14)。"""
 
-    RULES = "rules"  # 别名表 + 词边界(判定器 v2)
-    RULES_FUZZY = "rules_fuzzy"  # + 模糊匹配(S9.2)
-    RULES_FUZZY_JUDGE = "rules_fuzzy_judge"  # + AI 裁判(S9.3)
+    RULES = "rules"  # 别名表 + 词边界;说不准就是说不准
+    RULES_FUZZY = "rules_fuzzy"  # + 模糊匹配(S9.2);说不准的请 AI 裁判(BR4)
+    RULES_FUZZY_JUDGE = "rules_fuzzy_judge"  # + AI 裁判判每一条(S9.3)
 
 
 class TierSpec(FrozenModel):

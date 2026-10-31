@@ -34,7 +34,15 @@ from engine.envfile import load_env_file  # noqa: E402
 from engine.hard_cases import REAL_KINDS, load_hard_brands, load_real_brands, prompts_of  # noqa: E402
 from engine.judge import JudgeConfig, MentionJudge, load_judges  # noqa: E402
 from engine.loader import build_adapters  # noqa: E402
-from engine.models import Answer, BrandSpec, Outcome, SearchMode, SearchTrace, SurfaceRun  # noqa: E402
+from engine.models import (  # noqa: E402
+    Answer,
+    BrandSpec,
+    MentionContext,
+    Outcome,
+    SearchMode,
+    SearchTrace,
+    SurfaceRun,
+)
 from engine.storage import Storage, default_dsn  # noqa: E402
 
 DOCS_DIR = Path(__file__).resolve().parents[1] / "docs" / "校准"
@@ -74,7 +82,8 @@ def load_old_samples(dsn: str) -> tuple[list[Sample], str]:
                     search_trace=SearchTrace(), raw_payload={}, timestamp=ts, latency_ms=latency or 0,
                     cost_usd=cost or 0.0,
                 )
-                samples.append(Sample(run=run, brand=brand, competitors=[c for c in competitors if c]))
+                samples.append(Sample(run=run, brand=brand, competitors=[c for c in competitors if c],
+                                      category=snap.get("category", "")))
                 count += 1
             parts.append(f"{brand.name}({job_id},{count} 条)")
     return samples, "旧库 geo_tool:" + "、".join(parts)
@@ -86,8 +95,9 @@ def load_real_samples(dsn: str) -> tuple[list[RealSample], str]:
     with Storage(dsn) as storage:
         for real_brand in load_real_brands():
             brand = BrandSpec(name=real_brand.name, aliases=real_brand.aliases)
+            context = MentionContext(category=real_brand.category, peers=real_brand.peers)
             for prompt in prompts_of(real_brand):
-                samples += [RealSample(run=run, brand=brand, kind=REAL_KINDS[prompt.intent])
+                samples += [RealSample(run=run, brand=brand, kind=REAL_KINDS[prompt.intent], context=context)
                             for run in storage.runs_for_prompt(prompt.prompt_id)
                             if run.outcome is Outcome.SUCCESS and run.answer and run.answer.answer_text.strip()]
     return samples, f"新库 geo_toast 难品牌回答 {len(samples)} 条"

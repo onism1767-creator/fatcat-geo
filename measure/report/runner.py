@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import os
+import random
 import threading
 from collections import Counter
 from collections.abc import Callable
@@ -54,7 +55,14 @@ from engine.models import (
     SurfaceRun,
     Target,
 )
-from engine.observe import ObserveContext, RunObservations, observe, persist_observations
+from engine.observe import (
+    ObserveContext,
+    RunObservations,
+    is_unsure_for_fuzzy,
+    mention_context,
+    observe,
+    persist_observations,
+)
 from engine.official_domains import official_candidates
 from engine.page_check import PageChecker, PageIndex, PageRequest, normalize_url
 from engine.resolve import ResolutionContext, UrlResolver
@@ -71,6 +79,7 @@ from engine.tiers import MentionMethod
 from engine.validity import is_valid_answer
 from report.archive import attach_latest_report
 from report.jobs import (
+    MAX_UNSURE_JUDGED,
     PLAN_CONCURRENCY,
     ClassReport,
     DiagnosisJob,
@@ -216,10 +225,10 @@ def _execute(
                                         heartbeat=lambda: setattr(job, "last_result_at", datetime.now(UTC)))
         all_runs = [run for runs in runs_by.values() for run in runs]
         pages = _check_pages(job, storage, all_runs, resolution)
-        judge = _judge_for(job, adapters, storage, all_runs, judges,  # 高档:装配裁判、装回库里的判定、并行预判(S9.3)
+        judge = _judge_for(job, adapters, storage, all_runs, judges,  # 装配裁判、装回库里的判定、并行预判(S9.3、BR4)
                            offline=replay)  # 只重算时不再请裁判(第二轮)
         context = ObserveContext(competitors=job.competitors, resolution=resolution, pages=pages,
-                                 mention_method=job.frozen_tier().mention_method, judge=judge)
+                                 mention_method=job.frozen_tier().mention_method, judge=judge, category=job.category)
         observations = {
             key: [observe(run, job.brand, context) for run in runs] for key, runs in runs_by.items()
         }
@@ -262,7 +271,9 @@ def _execute(
         # 采样后:回答里出现、名单外的同名域名再查一次,标 B1 / B2——只提示,用户确认后才算官网(S5)
         job.adopt_domain_list(_look_alikes(job, all_runs, resolution))
         truncated = any(r.stop_reason in _TRUNCATION_REASONS for r in results.values())
-        sampling = _sampling_note(job, runs_by, offline_runs_by, judge, storage)
+        n_unsure = sum(o.mention is not None and o.mention.mentioned is None for batch in observations.values()
+                       for o in batch)
+        sampling = _sampling_note(job, runs_by, offline_runs_by, judge, storage, n_unsure)
         _finish(job, storage, truncated=truncated, sampling=sampling)
 
 
@@ -323,7 +334,7 @@ def _fill_from_cache(job: DiagnosisJob, storage: Storage, adapter_of: dict[Targe
 
 def _sampling_note(
     job: DiagnosisJob, runs_by: dict[RunsKey, list[SurfaceRun]], offline_runs_by: dict[RunsKey, list[SurfaceRun]],
-    judge: MentionJudge | None, storage: Storage,
+    judge: MentionJudge | None, storage: Storage, n_unsure: int,
 ) -> SamplingNote:
     """报告顶部的采样说明(S8.2):本单实际问了多少、有效多少、测了哪些接口与型号、官网名单情况、方法版本。
     结束时刻由 _finish 落定后再填。"""
@@ -333,7 +344,7 @@ def _sampling_note(
         n_cached=storage.cache_reuse_count(job.job_id), cache_hours=CACHE_HOURS, fresh=job.fresh,
         n_prompts=len(job.prompts), n_targets=len(job.targets), tier=job.frozen_tier(),
         n_runs=len(runs), n_valid=sum(is_valid_answer(run) for run in runs),
-        n_offline_runs=sum(len(batch) for batch in offline_runs_by.values()),
+        n_offline_runs=sum(len(batch) for batch in offline_runs_by.values()), n_unsure=n_unsure,
         started_at=job.started_at, finished_at=None, targets=list(job.targets),
         domains_confirmed=len(dl.confirmed_domains) if dl is not None else 0,
         domains_unconfirmed=len(dl.unconfirmed_domains) if dl is not None else 0,
@@ -349,9 +360,18 @@ def _judge_for(
     *,
     offline: bool = False,
 ) -> MentionJudge | None:
-    """高档才有(S9.3):按 config/judges.yaml 装配裁判(型号没加载就明确报错);库里已有的裁判判定先装回(续跑 / 重算不花钱);
-    其余有效回答并行预判,进度给任务页;裁判花费记进辅助调用账本(主线程落库:psycopg 连接非线程安全)。"""
-    if job.frozen_tier().mention_method is not MentionMethod.RULES_FUZZY_JUDGE:
+    """高档每条有效回答都判(S9.3);中档只判模糊判定器说不准的,最多 MAX_UNSURE_JUDGED 条,一条都没有就不装配
+    (BR4,用户定 Q3)。按 config/judges.yaml 装配裁判:高档型号没加载就明确报错,中档请不到裁判就照旧记说不准,不停单;
+    库里已有的裁判判定先装回(续跑 / 重算不花钱);其余并行预判,进度给任务页;
+    裁判花费记进辅助调用账本(主线程落库:psycopg 连接非线程安全)。"""
+    method = job.frozen_tier().mention_method
+    if method is MentionMethod.RULES:
+        return None
+    every_answer = method is MentionMethod.RULES_FUZZY_JUDGE
+    clues = mention_context(job.category, job.competitors)
+    wanted = [run for run in runs
+              if is_valid_answer(run) and (every_answer or is_unsure_for_fuzzy(run, job.brand, clues))]
+    if not every_answer and not wanted:
         return None
     ledger_lock = threading.Lock()
     ledger_runs: list[SurfaceRun] = []
@@ -362,10 +382,19 @@ def _judge_for(
             job.spent_usd += run.cost_usd
             job.last_result_at = datetime.now(UTC)
 
-    judge = MentionJudge(judges or load_judges(), adapters, ledger=ledger, locale=job.locale,
-                         competitors=[c.name for c in job.competitors], offline=offline)
+    try:
+        judge = MentionJudge(judges or load_judges(), adapters, ledger=ledger, locale=job.locale,
+                             competitors=[c.name for c in job.competitors], offline=offline)
+    except JudgeUnavailable as exc:
+        if every_answer:
+            raise
+        log.warning("unsure_answers_left_unjudged", job_id=job.job_id, unsure=len(wanted), error=str(exc))
+        return None
     judge.preload(_stored_verdicts(storage, runs))
-    pending = [run for run in runs if is_valid_answer(run) and not judge.has(run.run_id)]
+    pending = [run for run in wanted if not judge.has(run.run_id)]
+    if not every_answer:  # 超过上限的抽一批判:按单号定随机数,续跑抽到的还是这批
+        room = max(0, MAX_UNSURE_JUDGED - (len(wanted) - len(pending)))
+        pending = random.Random(job.job_id).sample(pending, min(room, len(pending)))
     job.phase = "phase_judging"
     job.judge_total, job.judge_done = len(pending), 0
 
@@ -378,6 +407,8 @@ def _judge_for(
     finally:
         for run in ledger_runs:
             storage.insert_aux_call(job_id=job.job_id, task="裁判", run=run)
+    if not every_answer:
+        judge.stop_asking()
     job.phase = "phase_scoring"
     log.info("judging_done", job_id=job.job_id, judged=len(pending), unavailable=judge.unavailable,
              calls=len(ledger_runs))

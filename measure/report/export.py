@@ -22,14 +22,14 @@ from engine.detectors import citation
 from engine.detectors import source_class as source_class_detector
 from engine.detectors.matching import mention_sentence, url_host
 from engine.models import SurfaceRun
-from engine.observe import mention_detector_name, sentiment_detector_name
+from engine.observe import sentiment_detector_name
 from engine.storage import Storage
-from engine.tiers import TierChoice
+from engine.tiers import MentionMethod, TierChoice
 from report.clock import local_date, local_time
 from report.i18n import INTENT_LABELS, MESSAGES, STATUS_LABELS
 from report.jobs import DiagnosisJob
 from report.narrative import action_card_lines, action_text, api_line_text, wrap_up_text
-from report.response_view import citation_rows, latest_observation
+from report.response_view import citation_rows, latest_observation, mention_row
 from report.summary import ReportSummary, TargetNamer
 
 FILES = ("prompts.csv", "responses.jsonl", "citations.csv", "brand-domains.json", "summary.md")
@@ -99,22 +99,22 @@ def _responses_and_citations(
     ]
     observations = storage.observations_for_runs([run.run_id for _, run in runs])  # 判定行一次取齐,不逐条查库
     method = job.frozen_tier().mention_method  # 「提到没提到」与情感按本单档位的判定器读(不需要裁判;第二轮红 3)
-    mention_name, tone_name = mention_detector_name(method), sentiment_detector_name(method)
+    tone_name = sentiment_detector_name(method)
     responses: list[dict[str, Any]] = []
     rows: list[list[Any]] = []
     for no, run in runs:
         ai = name_of(run.surface, run.model)
         recorded = observations.get(run.run_id, [])
-        responses.append(_response_record(run, no, ai, recorded, mention_name, tone_name))
+        responses.append(_response_record(run, no, ai, recorded, method, tone_name))
         rows.extend(_citation_rows(run, no, ai, recorded))
     return responses, rows
 
 
 def _response_record(
-    run: SurfaceRun, prompt_no: int, ai: str, observations: list[dict[str, Any]], mention_name: str,
+    run: SurfaceRun, prompt_no: int, ai: str, observations: list[dict[str, Any]], method: MentionMethod,
     tone_name: str,
 ) -> dict[str, Any]:
-    mention = latest_observation(observations, mention_name)
+    mention = mention_row(observations, method)
     cited = latest_observation(observations, citation.DETECTOR_NAME)
     tone = latest_observation(observations, tone_name)
     excerpt = None
@@ -136,6 +136,8 @@ def _response_record(
                               if isinstance(trace.retrieved_sources, list) else None),
         "judgements": {  # 出报告时存下的判定行;没有就 None(不现算)
             "mentioned": mention.get("mentioned") if mention else None,
+            "unsure": mention is not None and mention.get("mentioned") is None,  # BR4:只出现了这个词,看不出是不是你
+            "clue": mention.get("clue") if mention else None,
             "matched_alias": mention.get("matched_alias") if mention else None,
             "matched_text": mention.get("matched_text") if mention else None,  # S9.2:怎么认出来的
             "match_kind": mention.get("match_kind") if mention else None,
@@ -191,10 +193,13 @@ def _summary_md(
         start=local_time(sn.started_at) if sn.started_at else "—",
         end=local_time(sn.finished_at) if sn.finished_at else "—"))
     lines.append("- " + t["sampling_targets_pre"] + ";".join(name_of(x.surface, x.model) for x in sn.targets))
-    if sn.judge_targets:  # S9.3:高档的 AI 裁判
+    if sn.judge_targets:  # S9.3:AI 裁判;中档只判说不准的(BR4)
         primary, backup = sn.judge_targets[0], sn.judge_targets[1]
-        lines.append("- " + t["sampling_judges"].format(primary=name_of(primary.surface, primary.model),
-                                                         backup=name_of(backup.surface, backup.model)))
+        every_answer = sn.tier.mention_method is MentionMethod.RULES_FUZZY_JUDGE
+        lines.append("- " + t["sampling_judges" if every_answer else "sampling_judges_unsure"].format(
+            primary=name_of(primary.surface, primary.model), backup=name_of(backup.surface, backup.model)))
+    if sn.n_unsure:  # BR4:不进提及率分母,单独说清
+        lines.append("- " + t["sampling_unsure"].format(n=sn.n_unsure))
     lines.append("- " + t["sampling_domains"].format(
         confirmed=sn.domains_confirmed, unconfirmed=sn.domains_unconfirmed,
         date=local_date(sn.domains_at) if sn.domains_at else "—"))

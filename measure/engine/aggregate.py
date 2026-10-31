@@ -248,7 +248,7 @@ def _mentioned(obs: RunObservations) -> bool | None:
 
 def _quotes(observations: list[RunObservations], prompt_ids: list[str]) -> list[AnswerQuote]:
     """每道题按采样顺序取前 QUOTES_PER_PROMPT 次回答,不挑:提到你 → 第一次提到的那一句;
-    没提到 → 只记没提到;无效回答 → None。"""
+    没提到 → 只记没提到;无效回答和说不准 → None,说不准另带 unsure。"""
     quotes: list[AnswerQuote] = []
     for no, prompt_id in enumerate(prompt_ids, start=1):
         runs = sorted((o for o in observations if o.run.prompt_id == prompt_id), key=lambda o: o.run.run_index)
@@ -259,7 +259,8 @@ def _quotes(observations: list[RunObservations], prompt_ids: list[str]) -> list[
             if mentioned and mention is not None and mention.first_position is not None and o.run.answer is not None:
                 sentence = mention_sentence(o.run.answer.answer_text, mention.first_position).strip()
             quotes.append(AnswerQuote(prompt_id=prompt_id, prompt_no=no, run_index=o.run.run_index,
-                                      run_id=o.run.run_id, mentioned=mentioned, sentence=sentence))
+                                      run_id=o.run.run_id, mentioned=mentioned, sentence=sentence,
+                                      unsure=mention is not None and mentioned is None))
     return quotes
 
 
@@ -419,7 +420,8 @@ def measure_target(
             competitor_citations.append((name, Rate(k=sum(flags), n=len(flags))))
     competitor_mentions: list[tuple[str, Rate]] = []
     for name in competitor_names:
-        hits = [m.mentioned for o in observations if (m := o.competitor_mentions.get(name)) is not None]
+        hits = [m.mentioned for o in observations
+                if (m := o.competitor_mentions.get(name)) is not None and m.mentioned is not None]
         if hits:
             competitor_mentions.append((name, Rate(k=sum(hits), n=len(hits))))
     return TargetMeasurement(

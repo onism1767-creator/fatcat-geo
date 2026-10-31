@@ -19,7 +19,7 @@ from engine.calibration import (
     variants_of,
 )
 from engine.hard_cases import NAMING, HardBrand
-from engine.models import Answer, BrandSpec, Outcome, SearchMode, SearchTrace, SurfaceRun
+from engine.models import Answer, BrandSpec, MentionContext, Outcome, SearchMode, SearchTrace, SurfaceRun
 from report.app import create_app
 from report.narrative import calibration_text
 from tests.unit.test_report_page import REGISTRY, DummyAdapter
@@ -191,10 +191,11 @@ def test_a_swapped_name_that_still_contains_a_registered_name_is_not_a_negative(
 
 
 def _hard_report() -> CalibrationReport:
-    answers = [sample("常见选择包括 Alpha 和 Beta。", "r1"), sample("这是一次完美的旅行。第二句。", "r2")]
+    answers = [sample("常见选择包括 Alpha 和 Beta。", "r1"), sample("美的空调卖得好。第二句。", "r2")]
     hard = [
         HardBrand(name="기아", positives={"带助词": ["기아는 자동차 회사입니다."]}),
-        HardBrand(name="美的", negatives={"中文词中词": ["甜美的笑容。"]}, positives={"语境里的品牌": ["美的空调。"]}),
+        HardBrand(name="美的", category="空调", negatives={"中文词中词": ["甜美的笑容。"]},
+                  positives={"语境里的品牌": ["美的空调。"]}),
     ]
     return calibrate(answers, source="测试", hard=hard, now=datetime(2026, 10, 30, tzinfo=UTC))
 
@@ -209,18 +210,23 @@ def test_hard_cases_are_counted_by_kind_and_kept_apart_from_the_old_totals():
     assert cells[("rules", "韩文近形", False)] == (6, 6)  # 3 条 × 2 个底本,规则不认
     assert cells[("fuzzy", "韩文近形", False)] == (6, 6)
     assert cells[("rules", "带助词", True)] == (2, 2) and cells[("fuzzy", "带助词", True)] == (2, 2)
-    # 美的的底本只剩 r1:r2 里的「完美的」本来就被认出,不能拿来塞难题,否则分不清是谁惹的
-    assert cells[("rules", "中文词中词", False)] == (1, 0) and cells[("rules", "语境里的品牌", True)] == (1, 1)
+    # 美的的底本只剩 r1:r2 里本来就有美的,不能拿来塞难题,否则分不清是谁惹的;「甜美的」BR4 起不算你了
+    assert cells[("rules", "中文词中词", False)] == (1, 1) and cells[("rules", "语境里的品牌", True)] == (1, 1)
     totals = report.hard_totals("fuzzy")
-    assert (totals["neg_n"], totals["neg_false"]) == (7, 1) and (totals["pos_n"], totals["pos_hit"]) == (3, 3)
+    assert (totals["neg_n"], totals["neg_false"]) == (7, 0) and (totals["pos_n"], totals["pos_hit"]) == (3, 3)
 
 
 def test_real_answers_of_hard_brands_are_counted_apart_by_brand_kind_and_method():
     """BR3:点名题列没认出的,反例题列认出的;不混进前面几样的合计。"""
     brand = BrandSpec(name="美的")
-    real = [RealSample(run=sample("美的空调很省电。", "n1").run, brand=brand, kind=NAMING),
-            RealSample(run=sample("这款空调很省电。", "n2").run, brand=brand, kind=NAMING),
-            RealSample(run=sample("这是一次完美的旅行。", "c1").run, brand=brand, kind="反例")]
+    context = MentionContext(category="空调")
+
+    def real_sample(text: str, run_id: str, kind: str) -> RealSample:
+        return RealSample(run=sample(text, run_id).run, brand=brand, kind=kind, context=context)
+
+    real = [real_sample("美的空调很省电。", "n1", NAMING), real_sample("这款空调很省电。", "n2", NAMING),
+            real_sample("这是一次完美的旅行。", "c1", "反例"), real_sample("美的空调很常见。", "c2", "反例"),
+            real_sample("美的很常见。", "u1", "不点名")]
 
     report = calibrate([sample("常见选择包括 Alpha。", "r1")], source="测试", real=real)
     plain = calibrate([sample("常见选择包括 Alpha。", "r1")], source="测试")
@@ -228,10 +234,11 @@ def test_real_answers_of_hard_brands_are_counted_apart_by_brand_kind_and_method(
     cells = {(s.kind, s.method): s for s in report.real}
     assert (cells[(NAMING, "rules")].n, cells[(NAMING, "rules")].hits) == (2, 1)
     assert [e.split(":")[0] for e in cells[(NAMING, "rules")].examples] == ["n2"]
-    assert (cells[("反例", "fuzzy")].n, cells[("反例", "fuzzy")].hits) == (1, 1)
-    assert [e.split(":")[0] for e in cells[("反例", "fuzzy")].examples] == ["c1"]
+    assert (cells[("反例", "fuzzy")].n, cells[("反例", "fuzzy")].hits) == (2, 1)
+    assert [e.split(":")[0] for e in cells[("反例", "fuzzy")].examples] == ["c2"]
+    assert (cells[("不点名", "fuzzy")].hits, cells[("不点名", "fuzzy")].unsure) == (0, 1)  # BR4:说不准单独数
     assert report.synthetic == plain.synthetic and plain.real == []
-    assert "| 美的 | 反例 | fuzzy | 1 | 1/1(100%) |" in render_markdown(report)
+    assert "| 美的 | 反例 | fuzzy | 2 | 1/2(50%) | 0 |" in render_markdown(report)
 
 
 def test_other_brands_answers_as_bases_are_listed_for_checking():
@@ -239,7 +246,7 @@ def test_other_brands_answers_as_bases_are_listed_for_checking():
     report = _hard_report()
     cross = {(c.brand, c.method): c for c in report.cross}
     assert (cross[("美的", "rules")].n, cross[("美的", "rules")].hits) == (2, 1)
-    assert cross[("美的", "rules")].examples == ["r2:这是一次完美的旅行。第二句。"]
+    assert cross[("美的", "rules")].examples == ["r2:美的空调卖得好。第二句。"]
     assert (cross[("기아", "fuzzy")].n, cross[("기아", "fuzzy")].hits) == (2, 0)
     md = render_markdown(report)
     assert "## ④ 难题" in md and "| fuzzy | 韩文近形 | 否 | 6 | 6/6(100%) |" in md
@@ -263,8 +270,8 @@ def test_versions_are_recorded_and_a_changed_detector_is_flagged(tmp_path: Path,
     zh, en = calibration_text(report, "zh"), calibration_text(report, "en")
     assert "判法改过了" not in zh and "has changed since" not in en
     assert "裁判这次没测" in zh and "the judge was not tested this time" in en
-    assert "规则误认 1/7,模糊误认 1/7" in zh and "规则认出 3/3,模糊认出 3/3" in zh
-    assert "rules false alarms 1/7, fuzzy 1/7" in en and "rules recognised 3/3, fuzzy 3/3" in en
+    assert "规则误认 0/7,模糊误认 0/7" in zh and "规则认出 3/3,模糊认出 3/3" in zh
+    assert "rules false alarms 0/7, fuzzy 0/7" in en and "rules recognised 3/3, fuzzy 3/3" in en
 
     newer = {**current_versions(), "fuzzy": report.detector_versions["fuzzy"] + 1}
     monkeypatch.setattr("engine.calibration.current_versions", lambda: newer)

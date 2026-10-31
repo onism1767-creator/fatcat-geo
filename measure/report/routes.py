@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 from importlib.metadata import version as _package_version
+from typing import Any
 from urllib.parse import quote
 
 import structlog
@@ -13,6 +14,7 @@ from fastapi.responses import HTMLResponse, JSONResponse, Response
 
 from adapters.base import SurfaceAdapter
 from engine.ai_task import TaskFailed
+from engine.detectors.name_risk import is_risky
 from engine.drafting import PromptCandidate, draft_prompt_candidates
 from engine.models import Target
 from engine.page_check import BUDGET_S as VERIFY_BUDGET_S
@@ -35,7 +37,7 @@ from report.forms import (
     website_host,
 )
 from report.i18n import MESSAGES
-from report.jobs import STALL_MINUTES, DiagnosisJob, JobState, PendingDraft
+from report.jobs import MAX_UNSURE_JUDGED, STALL_MINUTES, DiagnosisJob, JobState, PendingDraft
 from report.narrative import calibration_text, stop_detail_text
 from report.response_view import build_response_view, run_belongs_to
 from report.summary import summarize
@@ -230,6 +232,7 @@ def confirm_page(request: Request, job_id: str, error: str = ""):
                       est_basis=" ".join(basis), verify_minutes=round(VERIFY_MAX_MINUTES),
                       calibration_text=(calibration_text(ctx.calibration, lang_of(request))
                                         if ctx.calibration is not None else None),
+                      name_risky=is_risky(job.brand),
                       error=error_text(request, error, min=str(tiers.custom_runs.min), max=str(tiers.custom_runs.max)))
 
 
@@ -257,16 +260,21 @@ def confirm_estimate(
     n_prompts = count_prompts(job, prompts_selected, custom)
     prices = unit_prices(ctx.adapters, ctx.call_stats())
 
-    def judge_cost(method: MentionMethod) -> float | None:  # 高档每条回答另请 AI 裁判判一次(S9.3)
-        return ctx.judges.primary.est_cost_per_call_usd if method is MentionMethod.RULES_FUZZY_JUDGE else None
+    def judging(method: MentionMethod) -> dict[str, Any]:
+        """裁判的钱:高档每条回答判一次(S9.3);中档名字有风险时按上限算,只判说不准的(BR4);其余不请。"""
+        price = ctx.judges.primary.est_cost_per_call_usd
+        if method is MentionMethod.RULES_FUZZY_JUDGE:
+            return {"judge_cost_per_call": price}
+        if method is MentionMethod.RULES_FUZZY and is_risky(job.brand):
+            return {"judge_cost_per_call": price, "judge_limit": MAX_UNSURE_JUDGED}
+        return {}
 
     estimate = estimate_job(n_prompts=n_prompts, runs_per_prompt=choice.runs_per_prompt, targets=targets,
-                            dependency=bool(dependency), prices=prices,
-                            judge_cost_per_call=judge_cost(choice.mention_method))
+                            dependency=bool(dependency), prices=prices, **judging(choice.mention_method))
     per_tier = {
         spec.name: estimate_job(n_prompts=n_prompts, runs_per_prompt=spec.runs_per_prompt,
                                 targets=tier_targets(spec, ctx.adapters), dependency=bool(dependency), prices=prices,
-                                judge_cost_per_call=judge_cost(spec.mention_method))
+                                **judging(spec.mention_method))
         for spec in ctx.tiers.tiers
     }
     breakdown = [{"display": ctx.target_name(t.surface, t.model), "cost_usd": cost} for t, cost in estimate.per_target]
@@ -279,9 +287,11 @@ def confirm_estimate(
         "custom": choice.custom,
         "judge_calls": estimate.judge_calls,
         "judge_cost_usd": estimate.judge_cost_usd,
+        "judge_upto": estimate.judge_upto,
         "breakdown": breakdown,
         "tiers": {name: {"calls": e.calls, "cost_usd": round(e.cost_usd, 4), "minutes": round(e.minutes, 1),
-                         "judge_calls": e.judge_calls, "judge_cost_usd": round(e.judge_cost_usd, 4)}
+                         "judge_calls": e.judge_calls, "judge_cost_usd": round(e.judge_cost_usd, 4),
+                         "judge_upto": e.judge_upto}
                   for name, e in per_tier.items()},
     })
 

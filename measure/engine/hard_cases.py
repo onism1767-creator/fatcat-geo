@@ -42,6 +42,8 @@ class HardBrand(FrozenModel):
     negatives: dict[str, list[str]] = {}
     positives: dict[str, list[str]] = {}
     tone_language: str | None = None
+    category: str = ""
+    peers: list[str] = []
 
 
 class HardCase(FrozenModel):
@@ -57,6 +59,8 @@ class RealBrand(FrozenModel):
     name: str
     aliases: list[str] = []
     locale: str
+    category: str = ""
+    peers: list[str] = []
     naming: list[str]
     counter: list[str]
     open: list[str]

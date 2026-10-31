@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Iterator
 from urllib.parse import urlsplit
 
 import tldextract
@@ -43,6 +44,15 @@ def matches_any_brand_domain(candidate: str, brand: BrandSpec) -> bool:
 
 
 _SENTENCE_SPLIT = re.compile(r"[。!?;\n]|[.!?;](?=\s|$)")
+
+
+def sentence_spans(text: str) -> list[tuple[int, int]]:
+    """逐句的(起点, 终点),分句规则与 mention_sentence 相同;句号后面跟换行切出来的空段不算一句;至少有一句。"""
+    bounds = [(0, len(text))]
+    for match in _SENTENCE_SPLIT.finditer(text):
+        bounds[-1] = (bounds[-1][0], match.start())
+        bounds.append((match.end(), len(text)))
+    return [(start, end) for start, end in bounds if text[start:end].strip()] or [(0, len(text))]
 
 
 def mention_sentence(text: str, position: int) -> str:
@@ -117,19 +127,22 @@ def count_alias(text: str, alias: str) -> int:
     return count
 
 
-def find_first_alias(text: str, brand: BrandSpec) -> tuple[int, str] | None:
-    """在文本中定位最早出现的品牌名/别名。返回 (字符偏移, 命中别名) 或 None。
+def find_all_aliases(text: str, brand: BrandSpec) -> Iterator[tuple[int, str]]:
+    """文本里每一处品牌名/别名:(字符偏移, 命中别名),按别名逐个找,不排序。
     不区分大小写;拉丁字母的名字按词边界,中文等不以空格分词的文字按子串(D18,v2)。
     用 lower() 而非 casefold():保证偏移与原文一一对应。"""
     lowered = text.lower()
-    best: tuple[int, str] | None = None
     for alias in dict.fromkeys([brand.name, *brand.aliases]):
         needle = alias.strip().lower()
         if not needle:
             continue
         pos = lowered.find(needle)
-        while pos >= 0 and not bounded_at(lowered, pos, needle):
+        while pos >= 0:
+            if bounded_at(lowered, pos, needle):
+                yield pos, alias
             pos = lowered.find(needle, pos + 1)
-        if pos >= 0 and (best is None or pos < best[0]):
-            best = (pos, alias)
-    return best
+
+
+def find_first_alias(text: str, brand: BrandSpec) -> tuple[int, str] | None:
+    """在文本中定位最早出现的品牌名/别名。返回 (字符偏移, 命中别名) 或 None。规则见 find_all_aliases。"""
+    return min(find_all_aliases(text, brand), key=lambda found: found[0], default=None)

@@ -323,6 +323,75 @@ def test_high_tier_asks_a_judge_once_per_answer_and_reuses_it_on_replay(storage,
     assert len(judges["judge_a"].requests) == 6  # 重新生成报告:裁判判定从库里装回,一次都没多问
 
 
+class CommonWordAdapter(TwoModelAdapter):
+    """回答里只出现「美的」两个字,没有任何线索:模糊判定器说不准。"""
+
+    def ask(self, request: AskRequest) -> SurfaceRun:
+        return super().ask(request).model_copy(update={"answer": Answer(
+            answer_text=f"美的很常见({request.run_index})。", citations_available=True)})
+
+
+def _medium_job(text: str) -> DiagnosisJob:
+    from engine.tiers import MentionMethod, TierChoice
+
+    job, _ = _new_job(text)
+    job.brand = BrandSpec(name="美的", domains=["midea.com"])
+    job.website = "https://midea.com"
+    job.tier = TierChoice(name="medium", runs_per_prompt=3, mention_method=MentionMethod.RULES_FUZZY, custom=False)
+    return job
+
+
+def _judges() -> tuple:
+    from engine.judge import JudgeConfig, JudgeModel
+    from tests.unit.test_judge import ScriptedJudge
+
+    def says_yes(answer: str) -> dict:
+        return {"mentioned": True, "spans": ["美的"], "confidence": 0.9, "sentiment": "neutral", "reason": "家电"}
+
+    judges = {"judge_a": ScriptedJudge("judge_a", "vendor_a", "ja", says_yes),
+              "judge_b": ScriptedJudge("judge_b", "vendor_b", "jb", says_yes)}
+    config = JudgeConfig(primary=JudgeModel(surface="judge_a", model="ja", est_cost_per_call_usd=0.001),
+                         backup=JudgeModel(surface="judge_b", model="jb", est_cost_per_call_usd=0.001))
+    return judges, config
+
+
+def test_medium_tier_judges_only_unsure_answers_up_to_the_cap(storage, offline, monkeypatch):
+    """BR4(用户定 Q3):中档只判说不准的;超过上限的还是说不准,报告写明条数,一分钱不多花。"""
+    monkeypatch.setattr(runner, "MAX_UNSURE_JUDGED", 2)
+    job = _medium_job("家用空调哪个牌子好?")
+    judges, config = _judges()
+    adapters = {"two_model": CommonWordAdapter(), **judges}
+
+    runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry(), judges=config)
+
+    assert job.state is JobState.DONE, job.error
+    assert len(judges["judge_a"].requests) == 2 and job.judge_total == 2  # 6 条说不准,上限 2 条
+    note = job.sampling
+    assert note is not None and note.n_unsure == 4 and [t.key for t in note.judge_targets][0] == "judge_a::ja"
+
+
+def test_medium_tier_needs_no_judge_when_nothing_is_unsure(storage, offline):
+    job, _ = _new_job("中小团队用什么 CRM 好?")
+    from engine.tiers import MentionMethod, TierChoice
+
+    job.tier = TierChoice(name="medium", runs_per_prompt=3, mention_method=MentionMethod.RULES_FUZZY, custom=False)
+    judges, config = _judges()
+    runner.execute_job(job=job, adapters={"two_model": TwoModelAdapter(), **judges}, dsn=TEST_DSN,
+                       evidence=load_evidence_registry(), judges=config)
+    assert job.state is JobState.DONE, job.error
+    assert judges["judge_a"].requests == [] and job.sampling.judge_targets == [] and job.sampling.n_unsure == 0
+
+
+def test_medium_tier_goes_on_without_a_judge_and_keeps_answers_unsure(storage, offline):
+    """裁判没加载(缺 key):中档不停单,说不准的照旧说不准;高档才停(请不到裁判的情形归 BR6)。"""
+    job = _medium_job("家用空调怎么选?")
+    _, config = _judges()
+    runner.execute_job(job=job, adapters={"two_model": CommonWordAdapter()}, dsn=TEST_DSN,
+                       evidence=load_evidence_registry(), judges=config)
+    assert job.state is JobState.DONE, job.error
+    assert job.sampling.n_unsure == 6 and job.sampling.judge_targets == []
+
+
 class SickAdapter(TwoModelAdapter):
     """开跑前预检用:healthcheck 抛账户问题或报不可用;ask 一旦被调就是预检没拦住。"""
 

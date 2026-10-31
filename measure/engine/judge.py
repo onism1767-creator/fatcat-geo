@@ -212,6 +212,10 @@ class MentionJudge:
                 return adapter, spec
         return None
 
+    def stop_asking(self) -> None:
+        """预判完了:后面只读缓存,没判过的记「裁判看不到」,不再花钱(中档有上限,BR4)。"""
+        self._offline = True
+
     def has(self, run_id: str) -> bool:
         with self._lock:
             return run_id in self._cache

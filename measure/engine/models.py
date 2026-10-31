@@ -122,6 +122,12 @@ class BrandSpec(FrozenModel):
     official_channels: list[str] = []  # 官方渠道匹配键「主机名 + 路径前缀」,如 brand.tmall.com/(单列,不算官网)
 
 
+class MentionContext(FrozenModel):
+    """一单给提及判定器的线索(BR4):品类和同一张名单里的别家。判定器的业务输入,不进入 SurfaceRun 原始层。"""
+
+    category: str = ""
+    peers: list[str] = []
+
 
 
 
@@ -282,7 +288,7 @@ class DerivedObservation(FrozenModel):
 
 
 class BrandMentionObservation(DerivedObservation):
-    mentioned: bool
+    mentioned: bool | None  # None = 说不准:字面出现了,看不出是不是你,不进分母(BR4;说不准时下面记的是那一处)
     matched_alias: str | None = None  # 命中的品牌名/别名/错写
     first_position: int | None = None  # 回答文本中的首次出现字符偏移
     brand_rank: int | None = None  # 回答列举多个品牌时的名次,1 起;不适用为 None
@@ -292,6 +298,7 @@ class BrandMentionObservation(DerivedObservation):
     edit_distance: int | None = None  # 模糊匹配时差几个字母
     confidence: float | None = None  # 裁判的置信度(S9.3,0–1;其他判定器不填)
     reason: str | None = None  # 裁判的一句理由(S9.3)
+    clue: str | None = None  # 有风险的名字靠什么线索算你(BR4):附近的别家名、品类词、别的登记名或官网
 
 
 class CitationObservation(DerivedObservation):
@@ -372,7 +379,8 @@ class SourceAttributionObservation(DerivedObservation):
 
 class AnswerQuote(FrozenModel):
     """AI 原话(S7,用户定:只进证据区、不挑不改):一道题的一次回答里第一次提到你的那一句。
-    mentioned None = 这次没有有效回答(拒答 / 失败 / 空白);False = 有效回答但没提到你(不放原话,用户定 Q1)。"""
+    mentioned None = 这次没有有效回答(拒答 / 失败 / 空白)或说不准(unsure);
+    False = 有效回答但没提到你(不放原话,用户定 Q1)。"""
 
     prompt_id: str
     prompt_no: int  # 题目在本题型里的序号(1 起,与报告里的题目清单同序)
@@ -380,6 +388,7 @@ class AnswerQuote(FrozenModel):
     run_id: str
     mentioned: bool | None
     sentence: str | None = None
+    unsure: bool = False  # 只出现了这个词,看不出是不是你(BR4)
 
 
 class ResolutionStatus(StrEnum):
