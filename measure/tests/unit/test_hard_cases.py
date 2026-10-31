@@ -2,16 +2,43 @@
 
 from __future__ import annotations
 
+from engine.detectors.brand_mention_fuzzy import find_mention
 from engine.hard_cases import (
     HardBrand,
     cases_of,
     kana_neighbours,
     korean_neighbours,
     load_hard_brands,
+    load_real_brands,
+    prompts_of,
     punctuation_splits,
     strip_marks,
     tone_neighbour,
 )
+from engine.models import BrandSpec, PromptIntent
+
+
+def test_real_questions_cover_six_chinese_and_english_brands():
+    brands = load_real_brands()
+    assert [b.name for b in brands] == ["On", "Notion", "Canvas", "Meta AI", "小米", "美的"]
+    assert {b.locale for b in brands} == {"en-US", "zh-CN"}  # 用户 2026-10-30 定:先只跑中英文
+    assert all((len(b.naming), len(b.counter), len(b.open)) == (3, 2, 3) for b in brands)
+
+
+def test_naming_questions_name_the_brand_and_open_questions_do_not():
+    for brand in load_real_brands():
+        spec = BrandSpec(name=brand.name, aliases=brand.aliases)
+        assert all(find_mention(q, spec, brand.locale) is not None for q in brand.naming), brand.name
+        assert all(find_mention(q, spec, brand.locale) is None for q in brand.open), brand.name
+
+
+def test_real_prompts_keep_their_ids_so_a_rerun_does_not_ask_again():
+    brand = load_real_brands()[0]
+    first, second = prompts_of(brand), prompts_of(brand)
+    assert [p.prompt_id for p in first] == [p.prompt_id for p in second]
+    assert len({p.prompt_id for p in first}) == 8
+    assert all(p.locale == brand.locale for p in first)
+    assert [p.intent for p in first[:3]] == [PromptIntent.BRAND_FACT] * 3
 
 
 def test_korean_names_get_a_final_consonant_added_or_removed():

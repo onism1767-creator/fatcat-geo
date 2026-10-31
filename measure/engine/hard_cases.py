@@ -3,6 +3,7 @@
 
 只量判法会不会犯这类错,不是真实回答上错多少(CheckList 的提醒);真实底本要跑几单难品牌(BR3)。
 难名字和常用词是配置资产(config/calibration_hard.yaml),机械变形在这里:韩文收音、日文浊点、越南文声调、跨标点。
+BR3 的题目也在这里读(config/calibration_real.yaml):题怎么出决定答案,不靠人工。
 本模块无厂商名,不连库。
 """
 
@@ -11,12 +12,15 @@ from __future__ import annotations
 import re
 import unicodedata
 from pathlib import Path
+from uuid import NAMESPACE_URL, uuid5
 
 import yaml
 
-from engine.models import FrozenModel
+from engine.models import FrozenModel, Prompt, PromptIntent, PromptOrigin
 
 DEFAULT_HARD_PATH = Path(__file__).resolve().parents[1] / "config" / "calibration_hard.yaml"
+DEFAULT_REAL_PATH = Path(__file__).resolve().parents[1] / "config" / "calibration_real.yaml"
+_REAL_PROMPTS = uuid5(NAMESPACE_URL, "geo-toast/calibration-real")
 
 _HANGUL_FIRST, _HANGUL_COUNT, _FINALS = 0xAC00, 11172, 28  # 韩文音节 = 声母 × 588 + 韵母 × 28 + 收音
 _ADDED_FINALS = (17, 4, 16)  # 没有收音时加的收音:ㅂ、ㄴ、ㅁ(기아 → 기압、기안、기암)
@@ -44,9 +48,36 @@ class HardCase(FrozenModel):
     locale: str | None = None  # 这条按哪种回答语言判(越南文的口径看语言,Q2);None = 底本原样
 
 
+class RealBrand(FrozenModel):
+    """一个要拿真实回答的难名字(BR3)。字段说明见 config/calibration_real.yaml 文件头。"""
+
+    name: str
+    aliases: list[str] = []
+    locale: str
+    naming: list[str]
+    counter: list[str]
+    open: list[str]
+
+
 def load_hard_brands(path: Path = DEFAULT_HARD_PATH) -> list[HardBrand]:
     data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
     return [HardBrand.model_validate(entry) for entry in data["brands"]]
+
+
+def load_real_brands(path: Path = DEFAULT_REAL_PATH) -> list[RealBrand]:
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    return [RealBrand.model_validate(entry) for entry in data["brands"]]
+
+
+def prompts_of(brand: RealBrand) -> list[Prompt]:
+    """一个难名字的全部题。题号由品牌和题面算出来:再跑一遍还是这几道题,已问过的不重问;改了题面就是新题。"""
+    def prompt(text: str, intent: PromptIntent) -> Prompt:
+        return Prompt(prompt_id=str(uuid5(_REAL_PROMPTS, f"{brand.name}\n{text}")), text=text, intent=intent,
+                      origin=PromptOrigin.ASSISTED, locale=brand.locale)
+
+    return ([prompt(text, PromptIntent.BRAND_FACT) for text in brand.naming]
+            + [prompt(text, PromptIntent.PROBLEM_SOLUTION) for text in brand.counter]
+            + [prompt(text, PromptIntent.CATEGORY_DISCOVERY) for text in brand.open])
 
 
 def strip_marks(name: str) -> str:

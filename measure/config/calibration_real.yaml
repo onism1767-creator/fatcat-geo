@@ -1,0 +1,97 @@
+# 校准真实底本的题目(BR3;scripts/collect_hard_answers.py 读)。这些不是用户的品牌,是专门挑的难名字。
+# 先只跑中文和英文(用户 2026-10-30 定);韩文、日文的难名字仍只有程序造的难题(config/calibration_hard.yaml)。
+#
+# name / aliases:当成被测品牌的名字
+# locale:提问语言
+# naming:点名题,回答在说这个品牌,答案 = 提到了(量漏认)
+# counter:反例题,问这个词的普通意思或相近的东西,答案 = 没提到(量误认)
+# open:不点名题,没有现成答案,是产品的主要场景(给 BR4 看「说不准」有多少)
+# 答案由题目决定,不靠人工;反例题偶尔真提到品牌时算题目没出好,不算判法的错。
+brands:
+  - name: "On"  # 不加引号 YAML 会读成布尔值 true
+    aliases: [On Running]
+    locale: en-US
+    naming:
+      - Are On running shoes worth the price?
+      - How does the On Cloudmonster compare with the Hoka Clifton?
+      - What is the Swiss sportswear company On known for?
+    counter:
+      - How can I stay focused on one task when I work from home?
+      - What should I check before turning on a gas heater for the first time this winter?
+    open:
+      - What are the best running shoes for beginners?
+      - Which running shoe brands do marathon runners prefer right now?
+      - What lightweight sneakers work well for both walking and travel?
+
+  - name: Notion
+    locale: en-US
+    naming:
+      - Is Notion a good tool for managing a small team's projects?
+      - What are the main differences between Notion and Obsidian for note-taking?
+      - How much does Notion cost for a five-person team?
+    counter:
+      - Where did the notion of human rights come from?
+      - What did Plato mean by the notion of justice?
+    open:
+      - What are the best note-taking apps for students?
+      - What tools do small startups use to keep a company wiki?
+      - Which apps work best as an all-in-one workspace for a freelancer?
+
+  - name: Canvas
+    aliases: [Canvas LMS]
+    locale: en-US
+    naming:
+      - How do teachers grade assignments in Canvas LMS?
+      - "Canvas or Moodle: which learning management system suits a university better?"
+      - Who owns Canvas LMS and how much does it cost a school?
+    counter:
+      - What kind of canvas should a beginner buy for oil painting?
+      - Which free design tools are good for making social media graphics?  # 撞 Canva
+    open:
+      - What are the best learning management systems for universities?
+      - What online learning platforms do K-12 schools use?
+      - Which tools help teachers run online classes and collect homework?
+
+  - name: Meta AI
+    locale: en-US
+    naming:
+      - What can the Meta AI assistant do inside WhatsApp?
+      - How does Meta AI compare with ChatGPT for everyday questions?
+      - Is Meta AI free to use?
+    counter:
+      - How do researchers carry out a meta-analysis of clinical trials?
+      - How should I write meta descriptions for blog posts now that search results show AI summaries?
+    open:
+      - Which free AI assistants are best for everyday questions?
+      - What AI chatbots are built into social media and messaging apps?
+      - Which big tech companies offer open-weight AI models?
+
+  - name: 小米
+    aliases: [Xiaomi]
+    locale: zh-CN
+    naming:
+      - 小米手机值得买吗？
+      - 小米和华为的智能家居哪个好用？
+      - 小米 SU7 的口碑怎么样？
+    counter:
+      - 小米粥怎么煮才又香又稠？
+      - 小米椒和朝天椒有什么区别？
+    open:
+      - 三千元以内性价比高的手机有哪些？
+      - 新手搭全屋智能选什么品牌好？
+      - 年轻人买第一辆电动车怎么选？
+
+  - name: 美的
+    aliases: [Midea]
+    locale: zh-CN
+    naming:
+      - 美的空调质量怎么样？
+      - 美的和格力的空调哪个更省电？
+      - 美的集团旗下都有哪些品牌？
+    counter:
+      - 怎么写出优美的句子？
+      - 旅行照片怎么拍才有唯美的感觉？
+    open:
+      - 家用空调什么牌子性价比高？
+      - 小户型厨房电器怎么选？
+      - 三千元左右的洗衣机有哪些推荐？
