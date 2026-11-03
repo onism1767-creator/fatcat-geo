@@ -19,16 +19,20 @@ def _stop(n_attempts: int, reason: StopReason = StopReason.BUDGET_EXHAUSTED) -> 
                       n_attempts=n_attempts, n_valid=n_attempts, failure_counts={}, last_failure_message=None)
 
 
-def test_split_budget_follows_the_estimate_and_falls_back_to_even():
-    assert split_budget(10.0, {"a": 3.0, "b": 1.0}) == {"a": 7.5, "b": 2.5}
-    assert split_budget(10.0, {"a": 0.0, "b": 0.0}) == {"a": 5.0, "b": 5.0}
+def test_split_budget_follows_what_is_still_to_spend():
+    assert split_budget(10.0, {"a": 3.0, "b": 1.0}) == {"a": 7.5, "b": 2.5}  # 开跑:按预估比例
+    # 续跑:b 问完了(还要花 0)只保住已花的 1.5,提高的额度全给 a
+    assert split_budget(10.0, {"a": 3.0, "b": 0.0}, {"a": 2.0, "b": 1.5}) == {"a": 8.5, "b": 1.5}
+    assert split_budget(3.0, {"a": 0.0, "b": 0.0}, {"a": 2.0, "b": 1.5}) == {"a": 2.0, "b": 1.5}  # 没有还要花的
     assert split_budget(None, {"a": 1.0}) == {"a": None}
 
 
 def test_job_page_asks_whether_to_fill_the_rest_when_the_cap_stopped_a_model():
-    """跑完才问(用户定):弹窗写哪家、问了几次、错误码;建议上限 = 已花 0.5 + 没问的 2 次 × $0.005 × 1.1,向上取到 0.6。"""
+    """跑完才问(用户定):弹窗写哪家、问了几次、错误码;建议上限 = 已花 0.5 + 没问的 2 次 × $0.005 × 1.1,向上取到 0.6;
+    现有上限已经比这高(腿停在它那份、整单没花到上限)就填现有上限——上限只能往上调,填低了会被挡回来(小米真跑)。"""
     job = finished_job()
     job.state, job.stop_details, job.spent_usd = JobState.PARTIAL, [_stop(1)], 0.5
+    job.budget_usd = 0.4
     client = _client(job)
     html = client.get(f"/jobs/{job.job_id}?lang=zh").text
     text = visible_text(html)
@@ -36,6 +40,8 @@ def test_job_page_asks_whether_to_fill_the_rest_when_the_cap_stopped_a_model():
     assert "S1 · m1 到了费用上限,问了 1/3 次。" in text and "要补齐吗" in text and "就看现在的报告" in text
     assert 'name="budget"' in html and 'value="0.6"' in html
     assert "reached the spending cap after 1/3 asks" in client.get(f"/jobs/{job.job_id}?lang=en").text
+    job.budget_usd = 1.0
+    assert 'value="1.0"' in client.get(f"/jobs/{job.job_id}?lang=zh").text
 
 
 def test_other_stops_get_no_dialog_and_a_running_job_gets_a_notice_instead():

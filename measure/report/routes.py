@@ -470,7 +470,9 @@ def _cap_dialog(ctx: WebContext, job: DiagnosisJob, lang: str) -> dict[str, Any]
         table = prices.search_disabled if d.search_mode is SearchMode.SEARCH_DISABLED else prices.default
         extra += max(0, slots - d.n_attempts) * table.get(key, 0.0)
         lines.append(t["cap_line"].format(ai=ctx.api_name(d.surface), model=d.model, k=d.n_attempts, n=slots))
-    suggested = (int((job.spent_usd + extra * 1.1) * 10) + 1) / 10
+    # 现有上限已经够的(腿停在它那份、整单没花到上限,续跑时剩余额度全给没问完的腿)就不用提高:上限只能往上调,
+    # 填个比现在低的会被挡回来(小米真跑 2026-11-03:建议 $7.9、上限 $10,一点就 FORM_BAD_BUDGET)
+    suggested = max(job.budget_usd or 0.0, (int((job.spent_usd + extra * 1.1) * 10) + 1) / 10)
     return {"lines": lines, "suggested": suggested}
 
 

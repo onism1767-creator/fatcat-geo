@@ -487,14 +487,21 @@ def _sample(
     ]
     policy = job.policy()  # 每题次数按档位(S9.1)
     calls = len(job.prompts) * policy.runs_per_prompt
+    with Storage(dsn) as store:  # 幂等键 (题 × surface × 型号 × 模式) 下已存的运行,续跑直接复用槽位
+        prior = {plan: _prior_runs(store, job, plan) for plan in plans}
+    taken = {plan: sum(min(policy.runs_per_prompt, len({r.run_index for r in runs if not is_account_error(r)}))
+                       for runs in prior[plan].values()) for plan in plans}
+    spent = {plan: sum(r.cost_usd for runs in prior[plan].values() for r in runs) for plan in plans}
+    job.completed_runs += sum(taken.values())  # 复用的槽位也算进度,它们的钱也算已花费
+    job.spent_usd += sum(spent.values())
 
     def weight(plan: PlanKey) -> float:
-        """这条腿的预估费用(确认页同一份单价):费用上限按它的比例分(用户 2026-11-03 定)。"""
+        """这条腿还要花的预估(还要问的次数 × 确认页同一份单价):费用上限按它的比例分(用户 2026-11-03 定)。"""
         target, mode = plan
         table = prices.search_disabled if mode is SearchMode.SEARCH_DISABLED else prices.default
-        return calls * table[target.key]
+        return (calls - taken[plan]) * table[target.key]
 
-    budgets = split_budget(job.budget_usd, {plan: weight(plan) for plan in plans})
+    budgets = split_budget(job.budget_usd, {plan: weight(plan) for plan in plans}, spent)
     job.total_runs = calls * len(plans)
 
     job.phase = "phase_sampling"
@@ -509,24 +516,10 @@ def _sample(
         adapter = adapter_of[target]
         plan_storage = Storage(dsn)  # psycopg 连接非线程安全:每计划独立连接
         try:
-            prior = {  # 幂等键 (题 × surface × 型号 × 模式) 下已存的运行,续跑直接复用槽位
-                prompt.prompt_id: reinterpret_account_errors([
-                    r for r in plan_storage.runs_for_prompt(
-                        prompt.prompt_id, surface=target.surface, model=target.model)
-                    if r.search_mode == mode
-                ])
-                for prompt in job.prompts
-            }
-            with progress_lock:  # 复用的槽位也算进度(每题最多 runs_per_prompt 个),它们的钱也算已花费
-                job.completed_runs += sum(
-                    min(policy.runs_per_prompt, len({r.run_index for r in runs if not is_account_error(r)}))
-                    for runs in prior.values()
-                )
-                job.spent_usd += sum(r.cost_usd for runs in prior.values() for r in runs)
             sampler = RepeatSampler(_ProgressSink(plan_storage, job, progress_lock))
             plan_policy = policy.model_copy(update={"budget_usd": budgets[plan]})
             result = sampler.run_plan(adapter, job.prompts, policy=plan_policy, search_mode=mode, model=target.model,
-                                      locale=job.locale, prior_runs=prior, allow_new_calls=not replay)
+                                      locale=job.locale, prior_runs=prior[plan], allow_new_calls=not replay)
         except AccountProblem:
             halt.set()
             raise
@@ -540,6 +533,18 @@ def _sample(
     with ThreadPoolExecutor(max_workers=PLAN_CONCURRENCY) as pool:
         list(pool.map(run_one, plans))
     return results
+
+
+def _prior_runs(storage: Storage, job: DiagnosisJob, plan: PlanKey) -> dict[str, list[SurfaceRun]]:
+    """这条腿每道题已存的运行(账户问题的行按现在的解释重标),续跑直接复用槽位、算进度和已花费。"""
+    target, mode = plan
+    return {
+        prompt.prompt_id: reinterpret_account_errors([
+            r for r in storage.runs_for_prompt(prompt.prompt_id, surface=target.surface, model=target.model)
+            if r.search_mode == mode
+        ])
+        for prompt in job.prompts
+    }
 
 
 def _load_runs(

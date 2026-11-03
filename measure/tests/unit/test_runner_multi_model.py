@@ -329,6 +329,33 @@ def test_the_cap_is_split_in_proportion_to_each_models_estimate(storage, offline
     assert job.spent_usd == pytest.approx(3 * 0.01 + 3 * 0.001)
 
 
+class PricierThanDeclared(TwoModelAdapter):
+    """声明价两个型号都是 $0.01,实际一个 $0.02、一个 $0.001:预估和实际不一样时,上限怎么分才见分晓。"""
+
+    def meta(self) -> SurfaceMeta:
+        return super().meta().model_copy(update={"est_cost_per_call_usd": {CITES: 0.01, SILENT: 0.01}})
+
+    def ask(self, request: AskRequest) -> SurfaceRun:
+        return super().ask(request).model_copy(update={"cost_usd": 0.02 if request.model == CITES else 0.001})
+
+
+def test_resume_gives_the_raised_cap_to_the_legs_that_still_need_it(storage, offline):
+    """续跑时问完的腿不再占额度(小米真跑后 Claude 定的续跑算法,随用户定的「按预估比例分」):$0.04 两个型号各分 $0.02,
+    贵的问了 1 次就停、便宜的问完;把上限提到弹窗建议的 $0.045(已花 + 没问的 2 次 × 声明价 × 1.1),
+    剩下的额度全给贵的,补齐。照旧按全部预估分的话贵的只分到 $0.0225,多问 1 次又停。"""
+    job, _ = _new_job("中小团队用什么 CRM 好?")
+    job.budget_usd = 0.04
+    adapters = {"two_model": PricierThanDeclared()}
+    runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry())
+    assert job.state is JobState.PARTIAL, job.error
+    assert [(d.model, d.n_attempts) for d in job.stop_details if d.truncated] == [(CITES, 1)]
+    assert job.spent_usd == pytest.approx(0.02 + 0.003)
+    job.raise_budget(0.045)
+    runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry())
+    assert job.state is JobState.DONE, job.error
+    assert job.spent_usd == pytest.approx(0.06 + 0.003) and job.completed_runs == 6
+
+
 def test_high_tier_asks_a_judge_once_per_answer_and_reuses_it_on_replay(storage, offline):
     """S9.3 高档:另一家 AI 逐条复核;一条回答只判一次,费用进账本;重新生成报告时装回库里的判定,不再花钱。"""
     from engine.judge import JudgeConfig, JudgeModel

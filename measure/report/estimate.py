@@ -120,13 +120,19 @@ def estimate_job(
     )
 
 
-def split_budget[K](budget_usd: float | None, weights: dict[K, float]) -> dict[K, float | None]:
-    """费用上限按各条腿的预估费用比例分(用户 2026-11-03 定):预估 $6 时设 $10 全跑得完,总数仍不超上限。
-    原来每条腿平分,贵的型号先停、便宜的份额用不完(小米真跑:$10 分四份,Claude 问了 31/72 次就停,另外三家各用不到 $1)。
-    没设上限 → 每条腿都不限;预估全是 0(没法比)→ 平分。"""
+def split_budget[K](
+    budget_usd: float | None, weights: dict[K, float], spent: dict[K, float] | None = None,
+) -> dict[K, float | None]:
+    """费用上限按各条腿「还要花的预估」比例分(用户 2026-11-03 定):每条腿的上限 = 它已花的 + 剩余额度里按比例分到的一份。
+    开跑时谁都没花,就是按预估比例分:预估 $6 时设 $10 全跑得完,总数仍不超上限。续跑时问完的腿不再占额度,
+    提高的上限全给还没问完的腿——任务页弹窗建议的新上限就是按这个算的(照旧按全部预估分的话,问完的腿白占一份,
+    补不齐)。原来每条腿平分,贵的型号先停、便宜的份额用不完(小米真跑:$10 分四份,Claude 问了 33/72 次就停)。
+    没设上限 → 每条腿都不限;没有还要花的 → 各腿就是已花的数。"""
     if budget_usd is None:
         return dict.fromkeys(weights)
+    spent = spent or dict.fromkeys(weights, 0.0)
+    left = max(0.0, budget_usd - sum(spent.values()))
     total = sum(weights.values())
     if total <= 0:
-        return dict.fromkeys(weights, budget_usd / len(weights))
-    return {key: budget_usd * weight / total for key, weight in weights.items()}
+        return {key: spent[key] for key in weights}
+    return {key: spent[key] + left * weight / total for key, weight in weights.items()}
