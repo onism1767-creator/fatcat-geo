@@ -87,6 +87,7 @@ from engine.storage import Storage, StorageUnavailable
 from engine.tiers import MentionMethod
 from engine.validity import is_valid_answer
 from report.archive import attach_latest_report
+from report.estimate import UnitPrices, split_budget, unit_prices
 from report.jobs import (
     MAX_UNSURE_JUDGED,
     PLAN_CONCURRENCY,
@@ -112,8 +113,9 @@ RunsKey = tuple[str, Target]  # (题, 被测对象)
 
 
 class _ProgressSink:
-    """包一层存储:每落一条样本就给任务盖个时间戳、进度加一,任务页据此显示进度与
-    「最近一次新结果在几分钟前」,超过阈值就报 JOB_STALLED(v0.4.22)。"""
+    """包一层存储:每落一条样本就给任务盖个时间戳、进度加一、花费加上这条的钱,任务页据此显示进度、已花费与
+    「最近一次新结果在几分钟前」,超过阈值就报 JOB_STALLED(v0.4.22)。原来花费要等一条腿跑完才整笔加,
+    页面看着像只花了一分钱(小米真跑 2026-11-03)。"""
 
     def __init__(self, storage: Storage, job: DiagnosisJob, lock: threading.Lock) -> None:
         self._storage, self._job, self._lock = storage, job, lock
@@ -122,6 +124,7 @@ class _ProgressSink:
         self._storage.insert_surface_run(run)
         with self._lock:
             self._job.completed_runs += 1
+            self._job.spent_usd += run.cost_usd
             self._job.last_result_at = datetime.now(UTC)
 
 
@@ -219,7 +222,8 @@ def _execute(
             storage.upsert_job_snapshot(job.to_snapshot())
         if not replay and not job.fresh:
             _fill_from_cache(job, storage, adapter_of)  # 回答缓存(S11.2):别的单 12 小时内同题同型号的回答先填进空槽位
-        results = _sample(job, dsn, adapter_of, replay=replay)
+        prices = unit_prices({t.surface: a for t, a in adapter_of.items()}, storage.call_stats())
+        results = _sample(job, dsn, adapter_of, prices=prices, replay=replay)
         job.stop_details = [StopDetail.from_result(r) for r in results.values()]  # 熔断要说清原因(S10.2)
 
         job.phase = "phase_verify"
@@ -456,6 +460,7 @@ def _reset_progress(job: DiagnosisJob) -> None:
     job.spent_usd = 0.0
     job.class_reports = []
     job.surface_verdicts = []
+    job.stop_details = []
     job.started_at = datetime.now(UTC)
     job.last_result_at = None
     job.verify_total = job.verify_done = 0
@@ -468,6 +473,7 @@ def _sample(
     dsn: str,
     adapter_of: dict[Target, SurfaceAdapter],
     *,
+    prices: UnitPrices,
     replay: bool,
 ) -> dict[PlanKey, SamplingResult]:
     # 检索依赖对照(第 9 章挂靠):启用时,为支持 search_disabled 的对象追加闭卷腿计划——
@@ -479,9 +485,17 @@ def _sample(
     plans: list[PlanKey] = [(target, SearchMode.DEFAULT) for target in adapter_of] + [
         (target, SearchMode.SEARCH_DISABLED) for target in dependency_targets
     ]
-    per_plan_budget = job.budget_usd / len(plans) if job.budget_usd else None
-    policy = job.policy().model_copy(update={"budget_usd": per_plan_budget})  # 每题次数按档位(S9.1)
-    job.total_runs = len(job.prompts) * policy.runs_per_prompt * len(plans)
+    policy = job.policy()  # 每题次数按档位(S9.1)
+    calls = len(job.prompts) * policy.runs_per_prompt
+
+    def weight(plan: PlanKey) -> float:
+        """这条腿的预估费用(确认页同一份单价):费用上限按它的比例分(用户 2026-11-03 定)。"""
+        target, mode = plan
+        table = prices.search_disabled if mode is SearchMode.SEARCH_DISABLED else prices.default
+        return calls * table[target.key]
+
+    budgets = split_budget(job.budget_usd, {plan: weight(plan) for plan in plans})
+    job.total_runs = calls * len(plans)
 
     job.phase = "phase_sampling"
     progress_lock = threading.Lock()
@@ -503,13 +517,15 @@ def _sample(
                 ])
                 for prompt in job.prompts
             }
-            with progress_lock:  # 复用的槽位也算进度(每题最多 runs_per_prompt 个)
+            with progress_lock:  # 复用的槽位也算进度(每题最多 runs_per_prompt 个),它们的钱也算已花费
                 job.completed_runs += sum(
                     min(policy.runs_per_prompt, len({r.run_index for r in runs if not is_account_error(r)}))
                     for runs in prior.values()
                 )
+                job.spent_usd += sum(r.cost_usd for runs in prior.values() for r in runs)
             sampler = RepeatSampler(_ProgressSink(plan_storage, job, progress_lock))
-            result = sampler.run_plan(adapter, job.prompts, policy=policy, search_mode=mode, model=target.model,
+            plan_policy = policy.model_copy(update={"budget_usd": budgets[plan]})
+            result = sampler.run_plan(adapter, job.prompts, policy=plan_policy, search_mode=mode, model=target.model,
                                       locale=job.locale, prior_runs=prior, allow_new_calls=not replay)
         except AccountProblem:
             halt.set()
@@ -518,7 +534,8 @@ def _sample(
             plan_storage.close()
         with progress_lock:
             results[plan] = result
-            job.spent_usd += result.total_cost_usd
+            # 一条腿一停就上任务页(用户 2026-11-03 定:撞上限要立刻通知),不等别的腿跑完
+            job.stop_details = [StopDetail.from_result(r) for r in results.values()]
 
     with ThreadPoolExecutor(max_workers=PLAN_CONCURRENCY) as pool:
         list(pool.map(run_one, plans))

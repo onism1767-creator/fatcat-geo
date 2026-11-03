@@ -144,6 +144,18 @@ def test_confirm_page_says_plainly_who_cannot_judge():
     assert "无法进行 AI 判断" not in client.get(_confirm_url(client)).text
 
 
+def test_the_estimate_breakdown_speaks_the_page_language():
+    """真跑小米时看到:中文确认页的费用明细里混进一行英文「AI judge」——页面要预估时没带语言,服务端按默认英文写。"""
+    client, _ = _client()
+    url = _confirm_url(client)
+    assert "/estimate?lang=zh" in client.get(url).text
+    path = url.split("?")[0].rsplit("/", 1)[0]
+    form = {"prompts_selected": ["0", "1"], "custom": "", "tier": "high", "runs": "7",
+            "targets_selected": ["s1::m1", "s2::m_cheap"]}
+    zh = client.post(f"{path}/estimate?lang=zh", data=form).json()["breakdown"]
+    assert zh[-1]["display"].startswith("AI 裁判")
+
+
 def test_estimate_prices_the_judge_each_target_would_really_get():
     """BR6:单价跟着这几个被测对象实际请到的裁判走,取最贵的;请到的是自家也算钱。"""
     client, _ = _client(JudgeConfig(candidates=[

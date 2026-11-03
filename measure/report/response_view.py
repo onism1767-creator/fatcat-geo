@@ -85,9 +85,11 @@ def _tier(domain_list: BrandDomainList | None, domain: str) -> str:
 
 def citation_rows(run: SurfaceRun, attribution: dict[str, Any] | None) -> list[CitationRow]:
     if attribution is not None and attribution.get("cited") is not None:
+        # 序号按引用顺序编;来源归属里的 position 是「第三方网页在标题 / 导语 / 正文哪里提到你」,不是序号——
+        # 原来拿它当序号,一碰到正文提到你的引用,单条回答页和结果文件就 500(小米真跑 2026-11-03)
         return [
             CitationRow(
-                position=entry.get("position") or i,
+                position=i,
                 url=entry["url"],
                 final_url=entry.get("final_url") if entry.get("final_url") != entry["url"] else None,
                 kind=entry["source_class"], competitor=entry.get("competitor"), reason=entry.get("reason"),

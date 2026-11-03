@@ -17,7 +17,7 @@ from engine.ai_task import TaskFailed
 from engine.detectors.name_risk import is_risky
 from engine.drafting import PromptCandidate, draft_prompt_candidates
 from engine.judge import cannot_judge, pick_judge, usable_judges
-from engine.models import Target
+from engine.models import SearchMode, StopReason, Target
 from engine.page_check import BUDGET_S as VERIFY_BUDGET_S
 from engine.page_check import PageChecker
 from engine.scheduler import AccountProblem
@@ -444,13 +444,34 @@ def job_status(request: Request, job_id: str):
                       elapsed_minutes=job.elapsed_minutes(now), eta_minutes=job.eta_minutes(now),
                       verify_remaining_minutes=job.verify_remaining_minutes(now, VERIFY_BUDGET_S),
                       error_text=failure, quiet_minutes=quiet, stalled_text=stalled,
-                      stop_texts=stop_texts(ctx, job, lang), form_error=form_error)
+                      stop_texts=stop_texts(ctx, job, lang), form_error=form_error,
+                      cap_dialog=_cap_dialog(ctx, job, lang))
 
 
 def stop_texts(ctx: WebContext, job: DiagnosisJob, lang: str) -> list[tuple[str, str]]:
     """提前停的腿各一句(码, 句子),任务页 / 报告 / 结果文件共用(S10.2)。"""
     return [(d.stop_reason.value, stop_detail_text(d, lang, ctx.errors, ctx.api_name(d.surface)))
             for d in job.stop_details if d.truncated]
+
+
+def _cap_dialog(ctx: WebContext, job: DiagnosisJob, lang: str) -> dict[str, Any] | None:
+    """跑完了、有型号是因为费用上限停的:任务页弹窗问要不要补齐(用户 2026-11-03 定「跑完再问」,别家不等、不多花钱)。
+    建议上限 = 已花的钱 + 没问完的次数 × 单价(确认页同一份),再留一成余量,向上取到 0.1 美元。"""
+    stops = [d for d in job.stop_details if d.stop_reason is StopReason.BUDGET_EXHAUSTED]
+    if job.state is not JobState.PARTIAL or not stops:
+        return None
+    t = MESSAGES[lang]
+    prices = unit_prices(ctx.adapters, ctx.call_stats())
+    slots = len(job.prompts) * job.frozen_tier().runs_per_prompt
+    extra = 0.0
+    lines = []
+    for d in stops:
+        key = Target(surface=d.surface, model=d.model).key
+        table = prices.search_disabled if d.search_mode is SearchMode.SEARCH_DISABLED else prices.default
+        extra += max(0, slots - d.n_attempts) * table.get(key, 0.0)
+        lines.append(t["cap_line"].format(ai=ctx.api_name(d.surface), model=d.model, k=d.n_attempts, n=slots))
+    suggested = (int((job.spent_usd + extra * 1.1) * 10) + 1) / 10
+    return {"lines": lines, "suggested": suggested}
 
 
 @router.get("/errors", response_class=HTMLResponse)

@@ -197,9 +197,9 @@ errors:
     scope: breaker
     resumable: true
     trigger: {zh: "某家 AI 的某个型号花费到了你设的费用上限", en: "A model reached the spending cap you set"}
-    causes: {zh: "你设的费用上限按「每家 AI 的每个型号」平摊,旗舰型号单价高,分到的份额先用完;或题数 × 次数 × 型号数本身超过了上限。", en: "Your cap is split evenly across each AI's models; flagship models cost more per ask and use their share first; or questions × repeats × models simply exceed the cap."}
+    causes: {zh: "你设的费用上限按各型号的预估费用比例分到每个型号,哪个型号的实际费用超出它那份就先停(AI 回答比预估长会这样);或题数 × 次数 × 型号数本身超过了上限。", en: "Your cap is split across the models in proportion to their estimated cost; a model stops when its real cost exceeds its share (answers longer than estimated do that); or questions × repeats × models simply exceed the cap."}
     message: {zh: "{ai} 的 {model} 提前停了:到了费用上限。", en: "{ai}'s {model} stopped early: the spending cap was reached."}
-    next_step: {zh: "在任务页填一个更高的上限再点「接着跑」补齐(只补空槽位);或就按部分完成的报告看。", en: "Enter a higher cap on the job page and press Resume to finish (only empty slots are asked); or read the partly completed report as is."}
+    next_step: {zh: "跑完后任务页会弹窗问要不要补齐,建议的新上限已经算好;也可以就按部分完成的报告看。补齐只补没问完的,已问过的不重问。", en: "When the run ends the job page asks whether to fill the rest, with a suggested new cap already worked out; or read the partly completed report as is. Filling only asks what was not asked."}
   - code: SURFACE_DISABLED
     scope: breaker
     resumable: false

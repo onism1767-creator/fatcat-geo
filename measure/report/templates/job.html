@@ -3,6 +3,21 @@
 {% block content %}
 {% if job.state.value in ("CONFIRMED", "RUNNING") %}<meta http-equiv="refresh" content="3">{% endif %}
 <h1>{{ t["job_title"] }} · {{ job.brand.name }}</h1>
+{#- 跑完了、有型号因为费用上限停了:弹窗问要不要补齐(用户 2026-11-03 定);建议上限由服务端算好 -#}
+{% if cap_dialog %}
+<dialog open class="card">
+  <h3 style="margin-top:0">{{ t["cap_title"] }}</h3>
+  {% for line in cap_dialog.lines %}<p>{{ line }} <a href="/errors?lang={{ lang }}#BUDGET_EXHAUSTED">{{ t["errors_link"].format(code="BUDGET_EXHAUSTED") }}</a></p>{% endfor %}
+  <p>{{ t["cap_ask"] }}</p>
+  <form method="post" action="/jobs/{{ job.job_id }}/resume?lang={{ lang }}">
+    <label>{{ t["cap_budget_label"] }}</label>
+    <input type="number" name="budget" step="0.1" min="0.1" value="{{ cap_dialog.suggested }}" style="max-width:160px">
+    <button type="submit">{{ t["cap_resume_btn"] }}</button>
+    <a href="/jobs/{{ job.job_id }}/report?lang={{ lang }}"><button type="button">{{ t["cap_report_btn"] }}</button></a>
+  </form>
+  <p class="muted" style="margin-bottom:0">{{ t["cap_hint"] }}</p>
+</dialog>
+{% endif %}
 <div class="card">
   {% set state = state_labels[job.state.value] %}{% set phase = t[job.phase] %}
   <p><b>{{ state }}</b>{% if phase != state %} · {{ phase }}{% endif %}
@@ -37,7 +52,8 @@
   {% if stalled_text %}<div class="err">{{ stalled_text }} <a href="/errors?lang={{ lang }}#JOB_STALLED">{{ t["errors_link"].format(code="JOB_STALLED") }}</a></div>{% endif %}
   {#- 提前停的腿(S10.2):错误库组句,码链到说明 -#}
   {% if stop_texts %}<div class="caution"><b>{{ t["breaker_title"] }}</b>
-    <ul class="ev">{% for code, text in stop_texts %}<li>{{ text }} <a href="/errors?lang={{ lang }}#{{ code }}">{{ t["errors_link"].format(code=code) }}</a></li>{% endfor %}</ul></div>{% endif %}
+    <ul class="ev">{% for code, text in stop_texts %}<li>{{ text }} <a href="/errors?lang={{ lang }}#{{ code }}">{{ t["errors_link"].format(code=code) }}</a></li>{% endfor %}</ul>
+    {% if job.state.value == "RUNNING" %}<p class="muted" style="margin:4px 0 0">{{ t["breaker_running_note"] }}</p>{% endif %}</div>{% endif %}
   {% if error_text %}<div class="err">{{ t["job_failed"] }}:{{ error_text }}{% if job.error_code %} <a href="/errors?lang={{ lang }}#{{ job.error_code }}">{{ t["errors_link"].format(code=job.error_code) }}</a>{% endif %}</div>{% endif %}
 </div>
 

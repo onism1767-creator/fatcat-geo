@@ -136,7 +136,7 @@ function fmt(e) {
 let seq = 0;
 async function recalc() {
   const mine = ++seq;
-  const resp = await fetch('/jobs/{{ job.job_id }}/estimate', {method: 'POST', body: new FormData(form)});
+  const resp = await fetch('/jobs/{{ job.job_id }}/estimate?lang={{ lang }}', {method: 'POST', body: new FormData(form)});
   if (!resp.ok || mine !== seq) return;
   const e = await resp.json();
   if (mine !== seq) return;  // 连续勾选时只显示最后一次的结果

@@ -118,3 +118,15 @@ def estimate_job(
         judge_cost_usd=judge_cost,
         judge_upto=judge_limit is not None,
     )
+
+
+def split_budget[K](budget_usd: float | None, weights: dict[K, float]) -> dict[K, float | None]:
+    """费用上限按各条腿的预估费用比例分(用户 2026-11-03 定):预估 $6 时设 $10 全跑得完,总数仍不超上限。
+    原来每条腿平分,贵的型号先停、便宜的份额用不完(小米真跑:$10 分四份,Claude 问了 31/72 次就停,另外三家各用不到 $1)。
+    没设上限 → 每条腿都不限;预估全是 0(没法比)→ 平分。"""
+    if budget_usd is None:
+        return dict.fromkeys(weights)
+    total = sum(weights.values())
+    if total <= 0:
+        return dict.fromkeys(weights, budget_usd / len(weights))
+    return {key: budget_usd * weight / total for key, weight in weights.items()}

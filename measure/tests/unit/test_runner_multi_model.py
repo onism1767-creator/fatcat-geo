@@ -317,6 +317,18 @@ def test_redirect_citations_are_judged_by_resolved_destination_not_title(storage
     assert [(item.params["domain"], item.params["k"]) for item in by_domain.params["items"]] == [("aurora-crm.com", 3)]
 
 
+def test_the_cap_is_split_in_proportion_to_each_models_estimate(storage, offline):
+    """用户 2026-11-03 定:上限按预估比例分。$0.04 里贵的型号(3 次 $0.03)分到约 $0.036、便宜的(3 次 $0.003)约 $0.004,
+    都问得完;原来平分每份 $0.02,贵的问到第 2 次就停,报告只有一半。"""
+    job, _ = _new_job("中小团队用什么 CRM 好?")
+    job.budget_usd = 0.04
+    runner.execute_job(job=job, adapters={"two_model": TwoModelAdapter()}, dsn=TEST_DSN,
+                       evidence=load_evidence_registry())
+    assert job.state is JobState.DONE, job.error
+    assert not any(d.truncated for d in job.stop_details)
+    assert job.spent_usd == pytest.approx(3 * 0.01 + 3 * 0.001)
+
+
 def test_high_tier_asks_a_judge_once_per_answer_and_reuses_it_on_replay(storage, offline):
     """S9.3 高档:另一家 AI 逐条复核;一条回答只判一次,费用进账本;重新生成报告时装回库里的判定,不再花钱。"""
     from engine.judge import JudgeConfig, JudgeModel
