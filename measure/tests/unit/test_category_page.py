@@ -33,7 +33,7 @@ def _client(check, adapter=None) -> tuple[TestClient, list[DiagnosisJob]]:
         seen.append(job)
         return check
 
-    app = create_app(call_stats=lambda: [], adapters={"s1": adapter or DummyAdapter()}, dsn="postgresql://unused",
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": adapter or DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=lambda **kw: None, calibration=None, category_check=checker)
     return TestClient(app), seen
 
@@ -130,7 +130,7 @@ def test_drafting_waits_until_the_category_is_settled(storage):
             raise AdapterAccountError("credit", error_type=RunErrorType.ACCOUNT_CREDIT, http_status=402)
 
     adapter = RecordingBrokeAdapter()
-    app = create_app(call_stats=lambda: [], adapters={"s1": adapter}, dsn=TEST_DSN, evidence=REGISTRY,
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": adapter}, dsn=TEST_DSN, evidence=REGISTRY,
                      job_runner=lambda **kw: None, calibration=None, category_check=lambda job: DIFFERENT)
     client = TestClient(app)
     resp = client.post("/jobs?lang=zh", data={**FORM, "questions": "", "generate": "1"}, follow_redirects=False)

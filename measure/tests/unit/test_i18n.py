@@ -54,7 +54,7 @@ def test_zh_locale_keeps_chinese_drafting_prompts():
 
 
 def test_ui_language_toggle():
-    app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=lambda **kw: None)
     client = TestClient(app)
     default = client.get("/").text
@@ -67,7 +67,7 @@ def test_ui_language_toggle():
 
 def test_report_page_fully_english():
     """v1.1:结论语句本身随界面语言渲染,英文报告不残留中文结论。"""
-    app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=lambda **kw: None)
     job = finished_job()
     app.state.ctx.registry.add(job)

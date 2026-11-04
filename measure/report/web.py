@@ -103,7 +103,7 @@ class WebContext:
 
     adapters: dict[str, SurfaceAdapter]
     dsn: str
-    call_stats: Callable[[], list[CallStat]]  # 预估用的历史统计
+    call_stats: Callable[[str | None], list[CallStat]]  # 预估用的历史统计:None = 全库;给品牌名 = 只看这个品牌的单(D5)
     registry: JobRegistry
     launcher: JobLauncher
     target_name: TargetNamer

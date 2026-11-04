@@ -21,6 +21,7 @@ from adapters.base import (
     AdapterPermanentError,
     AdapterTransientError,
     CapabilityNotSupportedError,
+    priced,
 )
 from adapters.openai_web_search import OpenAIWebSearchAdapter
 from engine.models import AskRequest, Outcome, RunErrorType, SearchMode
@@ -109,6 +110,18 @@ def test_success_with_citations_translates_field_by_field():
     assert sent["model"] == "gpt-5.6-luna"  # 未指定 model 时用 meta 默认(ChatGPT 免费版默认,用户定)
     assert sent["max_output_tokens"] == 4096
     assert sent["input"] == "中小团队用什么 CRM 好?"
+
+
+@respx.mock
+def test_usage_is_read_from_the_archive_and_prices_to_the_recorded_cost():
+    """成本调研②:计费用量从原始存档读(补老数据走同一条路),用量 × 牌价 = 记的费用;读不出就空,不臆造。"""
+    respx.post(RESP_URL).mock(return_value=httpx.Response(200, json=golden("success_with_citations.json")))
+    adapter = OpenAIWebSearchAdapter(api_key="test-key")
+    run = adapter.ask(make_request())
+    usage = adapter.usage_of(run.raw_payload)
+    assert usage == {"input_tokens": 9412.0, "output_tokens": 486.0, "searches": 1.0}
+    assert priced(adapter.meta().price_table[run.model], usage) == pytest.approx(run.cost_usd)
+    assert adapter.usage_of(None) == {} and adapter.usage_of("junk") == {}
 
 
 # ── 正常未检索:引用空是真实负观测 ────────────────────────────────────

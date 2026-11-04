@@ -23,6 +23,7 @@ from adapters.base import (
     AdapterPermanentError,
     AdapterTransientError,
     CapabilityNotSupportedError,
+    priced,
 )
 from adapters.gemini_grounding import GeminiGroundingAdapter
 from engine.models import NOT_OBSERVABLE, AskRequest, Outcome, SearchMode
@@ -108,6 +109,19 @@ def test_success_with_citations_translates_field_by_field():
     sent = json.loads(route.calls[0].request.content)
     assert sent["model"] == "gemini-3.8-flash"
     assert sent["input"] == "中小团队用什么 CRM 好?"
+
+
+@respx.mock
+def test_usage_is_read_from_the_archive_and_prices_to_the_recorded_cost():
+    """成本调研②:计费用量从原始存档读(思考 token 单列,按输出价),用量 × 牌价 = 记的费用;裁判型号也在牌价表里。"""
+    respx.post(API_URL).mock(return_value=httpx.Response(200, json=golden("success_with_citations.json")))
+    adapter = GeminiGroundingAdapter(api_key="test-key")
+    run = adapter.ask(make_request())
+    usage = adapter.usage_of(run.raw_payload)
+    assert usage == {"input_tokens": 197.0, "output_tokens": 2097.0, "thought_tokens": 925.0, "search_queries": 2.0}
+    assert priced(adapter.meta().price_table[run.model], usage) == pytest.approx(run.cost_usd)
+    assert set(adapter.meta().price_table) >= set(adapter.meta().models) | set(adapter.meta().helper_models)
+    assert adapter.usage_of(None) == {}
 
 
 # ── 正常未检索(实测行为):引用空是真实负观测 ─────────────────────────

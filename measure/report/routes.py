@@ -24,7 +24,7 @@ from engine.scheduler import AccountProblem
 from engine.spellings import suggest_spellings
 from engine.storage import STORAGE_DOWN_ERRORS, Storage
 from engine.tiers import MentionMethod, tier_targets
-from report.estimate import VERIFY_MAX_MINUTES, estimate_job, unit_prices
+from report.estimate import VERIFY_MAX_MINUTES, UnitPrices, estimate_job, unit_prices
 from report.export import build_bundle, content_disposition
 from report.forms import (
     brand_from_form,
@@ -207,7 +207,7 @@ def confirm_page(request: Request, job_id: str, error: str = ""):
         return redirect(request, f"/jobs/{job.job_id}/category")
     if job.drafting:  # AI 正在出题:显示等待页(自动刷新),不显示空的候选题(第二轮)
         return ctx.render(request, "drafting.html", job=job)
-    prices = unit_prices(ctx.adapters, ctx.call_stats())
+    prices = _prices(ctx, job)
     target_groups = [  # 自定义区按 AI 分组列出全部型号;默认勾选跟默认档位(S9.1)
         (ctx.display_names[name], [Target(surface=name, model=m) for m in ctx.adapters[name].meta().models])
         for name in sorted(ctx.adapters)
@@ -218,13 +218,10 @@ def confirm_page(request: Request, job_id: str, error: str = ""):
                      for spec, targets in tier_cards}
     default_keys = {x.key for spec, targets in tier_cards if spec.name == tiers.default for x in targets}
     t = MESSAGES[lang_of(request)]
-    basis = []
-    if prices.measured:
-        basis.append(t["est_basis_measured"].format(
-            names="、".join(ctx.target_name(x.surface, x.model) for x in prices.measured)))
-    if prices.declared:
-        basis.append(t["est_basis_declared"].format(
-            names="、".join(ctx.target_name(x.surface, x.model) for x in prices.declared)))
+    basis = [  # 每个型号的单价是怎么来的,按依据分组各说一句(成本调研②:没实测过的说清是借同家默认型号的用量算的)
+        t[f"est_basis_{kind.value}"].format(names="、".join(ctx.target_name(x.surface, x.model) for x in targets))
+        for kind, targets in prices.by_basis().items()
+    ]
     basis.append(t["est_basis_tail"])
     return ctx.render(request, "confirm.html", job=job, target_groups=target_groups,
                       tier_cards=tier_cards, tier_defaults=tier_defaults, default_tier=tiers.default,
@@ -261,7 +258,7 @@ def confirm_estimate(
         return JSONResponse({"error": chosen}, status_code=400)
     choice, targets = chosen
     n_prompts = count_prompts(job, prompts_selected, custom)
-    prices = unit_prices(ctx.adapters, ctx.call_stats())
+    prices = _prices(ctx, job)
     usable = usable_judges(ctx.judges, ctx.adapters)
 
     def judging(method: MentionMethod, chosen_targets: list[Target]) -> dict[str, Any]:
@@ -454,6 +451,12 @@ def stop_texts(ctx: WebContext, job: DiagnosisJob, lang: str) -> list[tuple[str,
             for d in job.stop_details if d.truncated]
 
 
+def _prices(ctx: WebContext, job: DiagnosisJob) -> UnitPrices:
+    """确认页、任务页弹窗、执行器同一份单价:同品牌各单(含本单已问的)的实测优先,再按这单语言的库里实测(成本调研②)。"""
+    return unit_prices(ctx.adapters, ctx.call_stats(None), locale=job.locale,
+                       brand_stats=ctx.call_stats(job.brand.name))
+
+
 def _cap_dialog(ctx: WebContext, job: DiagnosisJob, lang: str) -> dict[str, Any] | None:
     """跑完了、有型号是因为费用上限停的:任务页弹窗问要不要补齐(用户 2026-11-03 定「跑完再问」,别家不等、不多花钱)。
     建议上限 = 已花的钱 + 没问完的次数 × 单价(确认页同一份),再留一成余量,向上取到 0.1 美元。"""
@@ -461,14 +464,14 @@ def _cap_dialog(ctx: WebContext, job: DiagnosisJob, lang: str) -> dict[str, Any]
     if job.state is not JobState.PARTIAL or not stops:
         return None
     t = MESSAGES[lang]
-    prices = unit_prices(ctx.adapters, ctx.call_stats())
+    prices = _prices(ctx, job)  # 本单已问的那些次算进同品牌实测:建议值按这单真实的单价算
     slots = len(job.prompts) * job.frozen_tier().runs_per_prompt
     extra = 0.0
     lines = []
     for d in stops:
         key = Target(surface=d.surface, model=d.model).key
         table = prices.search_disabled if d.search_mode is SearchMode.SEARCH_DISABLED else prices.default
-        extra += max(0, slots - d.n_attempts) * table.get(key, 0.0)
+        extra += max(0, slots - d.n_attempts) * (table[key].cost_usd if key in table else 0.0)
         lines.append(t["cap_line"].format(ai=ctx.api_name(d.surface), model=d.model, k=d.n_attempts, n=slots))
     # 现有上限已经够的(腿停在它那份、整单没花到上限,续跑时剩余额度全给没问完的腿)就不用提高:上限只能往上调,
     # 填个比现在低的会被挡回来(小米真跑 2026-11-03:建议 $7.9、上限 $10,一点就 FORM_BAD_BUDGET)

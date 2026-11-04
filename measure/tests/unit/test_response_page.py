@@ -42,7 +42,7 @@ def _run(prompt_id: str, run_id: str = "r1", index: int = 2, text: str = ANSWER)
 
 
 def _client(job) -> TestClient:
-    app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn=TEST_DSN, evidence=REGISTRY,
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter()}, dsn=TEST_DSN, evidence=REGISTRY,
                      job_runner=lambda **_: None)
     app.state.ctx.registry.add(job)
     return TestClient(app)

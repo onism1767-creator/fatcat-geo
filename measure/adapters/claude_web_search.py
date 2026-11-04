@@ -53,6 +53,7 @@ from adapters.base import (
     CapabilityRegistry,
     SurfaceAdapter,
     SurfaceMeta,
+    priced,
 )
 from adapters.http_support import contract_post, domain_of, full_body, spent_on
 from engine.models import (
@@ -60,6 +61,7 @@ from engine.models import (
     Answer,
     AskRequest,
     Citation,
+    JsonValue,
     Outcome,
     RetrievedSource,
     RunError,
@@ -87,6 +89,11 @@ _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "claude-fable-5-1": (10.0, 50.0),
 }
 _SEARCH_USD_PER_USE = 10.0 / 1000.0  # web search $10 / 千次
+# 牌价(用量 × 牌价 = 费用;计费项与 _usage 读出的键一致):token 按每个 token 折,检索按每次
+_PRICE_TABLE: dict[str, dict[str, float]] = {
+    model: {"input_tokens": price_in / 1e6, "output_tokens": price_out / 1e6, "searches": _SEARCH_USD_PER_USE}
+    for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
+}
 _DEFAULT_MODEL = "claude-sonnet-5-5"
 # 型号标记(配置资产,用户定 2026-10-14):应用默认是 Sonnet 系(第三方资料:2026-06-30 起 Sonnet 5 为默认;
 # 5.5 上线后是否切换官方未写)→ 待核对
@@ -117,17 +124,21 @@ def _search_requests(data: dict[str, Any]) -> int:
     return server_tool_use.get("web_search_requests") or 0
 
 
-def _cost_usd(responses: list[dict[str, Any]], model: str) -> float:
-    """按官方价目从 usage 确定性折算(本 surface 不发 cache_control,无缓存计费项)。"""
-    in_price, out_price = _TOKEN_PRICES_PER_MTOK[model]
+def _usage(responses: list[dict[str, Any]]) -> dict[str, float]:
+    """这次调用的计费用量,pause_turn 各段加总:输入 token(检索回来的内容已计入)、输出 token(含思考)、检索次数。
+    本 surface 不发 cache_control,无缓存计费项。"""
     input_tokens = output_tokens = searches = 0
     for data in responses:
         usage = data.get("usage") or {}
         input_tokens += usage.get("input_tokens") or 0
         output_tokens += usage.get("output_tokens") or 0
         searches += _search_requests(data)
-    token_cost = input_tokens / 1e6 * in_price + output_tokens / 1e6 * out_price
-    return token_cost + searches * _SEARCH_USD_PER_USE
+    return {"input_tokens": float(input_tokens), "output_tokens": float(output_tokens), "searches": float(searches)}
+
+
+def _cost_usd(responses: list[dict[str, Any]], model: str) -> float:
+    """按官方价目从 usage 确定性折算:用量 × 牌价。"""
+    return priced(_PRICE_TABLE[model], _usage(responses))
 
 
 def _payload(request: AskRequest, model: str, search_disabled: bool) -> dict[str, Any]:
@@ -272,11 +283,7 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
             strongest_model=_STRONGEST_MODEL,
             models_checked=_MODELS_CHECKED,
             capabilities=_CAPABILITIES,
-            unit_prices={  # 默认模型口径;实际计费按所选模型价目折算
-                "input_usd_per_mtok": _TOKEN_PRICES_PER_MTOK[_DEFAULT_MODEL][0],
-                "output_usd_per_mtok": _TOKEN_PRICES_PER_MTOK[_DEFAULT_MODEL][1],
-                "search_usd_per_use": _SEARCH_USD_PER_USE,
-            },
+            price_table=_PRICE_TABLE,
             # 口径:推导上界,按型号各算(满额 MAX_USES 次检索;每次检索约 1.2 万输入
             # token 为 Potato 实测校准值),有足量实测后确认页改读实测均值:
             # 默认型号 (2000 + 3×12000)/1e6×$2 + 2000/1e6×$10 + 3×$0.01 ≈ $0.13
@@ -291,6 +298,10 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
                 for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
             },
         )
+
+    def usage_of(self, raw_payload: JsonValue) -> dict[str, float]:
+        responses = raw_payload.get("responses") if isinstance(raw_payload, dict) else None
+        return _usage([r for r in responses if isinstance(r, dict)]) if isinstance(responses, list) else {}
 
     def ask(self, request: AskRequest) -> SurfaceRun:
         """适配器只做两件事(CLAUDE.md 硬边界 3):AskRequest → 平台调用(_payload / _converse),

@@ -18,7 +18,7 @@ def _app_with_runner(calls: list):
     def runner(*, job, replay, **_):
         calls.append((job.job_id, replay))
 
-    app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=runner, calibration=None, category_check=lambda job: None)
     return app
 

@@ -46,15 +46,19 @@ _RUN_COLUMNS = (
 
 
 class CallStat(FrozenModel):
-    """一个 surface × 型号 × 模式的历史调用统计(v0.4.17;v0.4.19 加型号):
-    确认页预估用实测均值,不再拍脑袋。"""
+    """一个 surface × 型号 × 模式 × 语言的历史调用统计(v0.4.17;v0.4.19 加型号;2026-11-03 成本调研②加语言与用量):
+    确认页预估用实测,不再拍脑袋。usage = 平均用量(有用量记录的那 n_usage 次;键是该仪器的计费项),
+    预估按「平均用量 × 现牌价」算。"""
 
     surface: str
     model: str
     search_mode: str
+    locale: str
     n: int
     avg_cost_usd: float
     avg_latency_ms: float
+    usage: dict[str, float] = {}
+    n_usage: int = 0
 
 
 def _judgement(payload: dict[str, Any]) -> dict[str, Any]:
@@ -318,6 +322,32 @@ class Storage:
             (str(uuid4()), job_id, run_id, source_run_id, datetime.now(UTC), cache_age_s),
         )
 
+    def insert_call_usage(self, run_id: str, usage: dict[str, float]) -> None:
+        """一次调用的计费用量(派生表 call_usage,成本调研②):从 raw_payload 读出来的,可重算,所以同一条可以覆盖;
+        原始表 surface_run 一个字不动。"""
+        self._conn.execute(
+            "INSERT INTO call_usage (run_id, usage, extracted_at) VALUES (%s, %s, clock_timestamp()) "
+            "ON CONFLICT (run_id) DO UPDATE SET usage = EXCLUDED.usage, extracted_at = EXCLUDED.extracted_at",
+            (run_id, Jsonb(usage)),
+        )
+
+    def run_ids_without_usage(self) -> list[str]:
+        """成功了却还没有用量记录的运行,按时间序(补老数据的脚本用)。"""
+        rows = self._conn.execute(
+            "SELECT run_id FROM surface_run r WHERE outcome = %s "
+            "AND NOT EXISTS (SELECT 1 FROM call_usage u WHERE u.run_id = r.run_id) ORDER BY run_timestamp",
+            (Outcome.SUCCESS.value,),
+        ).fetchall()
+        return [row[0] for row in rows]
+
+    def brand_prompt_ids(self, brand_name: str) -> list[str]:
+        """同一个品牌名的全部单(含正在跑的这单)下的题:预估先看同品牌上一单的实测(成本调研 D5)。"""
+        return [
+            p["prompt_id"] for snapshot in self.load_job_snapshots()
+            if (snapshot.get("brand") or {}).get("name") == brand_name
+            for p in snapshot.get("prompts", [])
+        ]
+
     def cache_reuse_count(self, job_id: str) -> int:
         row = self._conn.execute("SELECT count(*) FROM cache_reuse WHERE job_id = %s", (job_id,)).fetchone()
         return int(row[0]) if row is not None else 0
@@ -337,18 +367,38 @@ class Storage:
 
     # ── 调用统计(v0.4.17 预估口径)──────────────────────────────────────
 
-    def call_stats(self) -> list[CallStat]:
-        """按 surface × 型号 × 模式的历史实测均价与均时,供确认页预估。只看成功的调用(v0.4.21):
-        预估的是「拿到一次有效回答要花多少」,失败行记的 $0 与含退避的耗时不代表这个价。"""
+    def call_stats(self, prompt_ids: Iterable[str] | None = None) -> list[CallStat]:
+        """按 surface × 型号 × 模式 × 语言的历史实测均价、均时与平均用量,供确认页预估。只看成功的调用(v0.4.21):
+        预估的是「拿到一次有效回答要花多少」,失败行记的 $0 与含退避的耗时不代表这个价。从别的单复制来的回答
+        (cache_reuse)花费记 0,不算(成本调研 D13)。prompt_ids 给了只统计这些题下的运行(同品牌上一单优先,D5)。"""
+        where = "r.outcome = %s AND NOT EXISTS (SELECT 1 FROM cache_reuse c WHERE c.run_id = r.run_id)"
+        params: list[Any] = [Outcome.SUCCESS.value]
+        if prompt_ids is not None:
+            where += " AND r.prompt_id = ANY(%s)"
+            params.append(list(prompt_ids))
         rows = self._conn.execute(
-            "SELECT surface, model, search_mode, count(*), avg(cost_usd), avg(latency_ms) "
-            "FROM surface_run WHERE outcome = %s GROUP BY surface, model, search_mode",
-            (Outcome.SUCCESS.value,),
+            "SELECT r.surface, r.model, r.search_mode, r.locale, count(*), avg(r.cost_usd), avg(r.latency_ms) "
+            f"FROM surface_run r WHERE {where} GROUP BY 1, 2, 3, 4",
+            params,
         ).fetchall()
+        usage_rows = self._conn.execute(
+            "SELECT r.surface, r.model, r.search_mode, r.locale, e.key, sum(e.value::float), count(DISTINCT r.run_id) "
+            "FROM surface_run r JOIN call_usage u ON u.run_id = r.run_id "
+            f"CROSS JOIN LATERAL jsonb_each_text(u.usage) e WHERE {where} GROUP BY 1, 2, 3, 4, 5",
+            params,
+        ).fetchall()
+        usage: dict[tuple[str, str, str, str], dict[str, float]] = {}
+        n_usage: dict[tuple[str, str, str, str], int] = {}
+        for surface, model, mode, locale, key, total, n in usage_rows:
+            group = (surface, model, mode, locale)
+            usage.setdefault(group, {})[key] = float(total) / n
+            n_usage[group] = max(n_usage.get(group, 0), n)
         return [
-            CallStat(surface=surface, model=model, search_mode=mode, n=n,
-                     avg_cost_usd=float(cost or 0.0), avg_latency_ms=float(latency or 0.0))
-            for surface, model, mode, n, cost, latency in rows
+            CallStat(surface=surface, model=model, search_mode=mode, locale=locale, n=n,
+                     avg_cost_usd=float(cost or 0.0), avg_latency_ms=float(latency or 0.0),
+                     usage=usage.get((surface, model, mode, locale), {}),
+                     n_usage=n_usage.get((surface, model, mode, locale), 0))
+            for surface, model, mode, locale, n, cost, latency in rows
         ]
 
     # ── 报告快照(v0.4.16,只追加)────────────────────────────────────────

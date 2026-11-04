@@ -91,6 +91,11 @@ def build_adapters(
                     f"{entry.name} 的 {label} 与型号清单不一致:报价 {sorted(prices)} vs "
                     f"型号 {sorted(meta.models)}——漏报的型号预估会静默漏计,禁止带病运行"
                 )
+        # 牌价表(成本调研②):确认页给没实测过的型号估价靠它,漏一个型号就静默退回声明价
+        missing_prices = [m for m in (*meta.models, *meta.helper_models) if m not in meta.price_table]
+        if missing_prices:
+            raise ValueError(f"{entry.name} 的牌价表(price_table)漏了型号 {missing_prices}"
+                             "——预估会静默漏计,禁止带病运行")
         if meta.default_model not in meta.models:
             raise ValueError(f"{entry.name} 的默认型号 {meta.default_model!r} 不在型号清单里")
         for label, tagged in (("消费端默认", meta.consumer_default_model), ("最强", meta.strongest_model)):

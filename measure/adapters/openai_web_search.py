@@ -48,12 +48,14 @@ from adapters.base import (
     CapabilityRegistry,
     SurfaceAdapter,
     SurfaceMeta,
+    priced,
 )
 from adapters.http_support import contract_post, domain_of, full_body, spent_on
 from engine.models import (
     Answer,
     AskRequest,
     Citation,
+    JsonValue,
     Outcome,
     RetrievedSource,
     RunError,
@@ -81,6 +83,11 @@ _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "gpt-6-astra": (10.0, 50.0),
 }
 _SEARCH_USD_PER_CALL = 10.0 / 1000.0  # web search $10 / 千次(仅 search 动作计费)
+# 牌价(用量 × 牌价 = 费用;计费项与 _usage 读出的键一致):token 按每个 token 折,检索按每次
+_PRICE_TABLE: dict[str, dict[str, float]] = {
+    model: {"input_tokens": price_in / 1e6, "output_tokens": price_out / 1e6, "searches": _SEARCH_USD_PER_CALL}
+    for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
+}
 _DEFAULT_MODEL = "gpt-5.6-luna"
 # 型号标记(配置资产,用户定 2026-10-14「消费端默认按免费版」):ChatGPT 免费版 / Go 默认 GPT-5.6 Luna(官方帮助中心);
 # 付费版默认是 GPT-6(Sol 跑 Instant / Medium / High),不取。最强 = GPT-6 Astra(官方「最强」)。
@@ -108,15 +115,20 @@ def _search_calls(output: list[Any]) -> int:
     )
 
 
-def _cost_usd(data: dict[str, Any], model: str) -> float:
-    """官方价目确定性折算:token 费(检索内容 token 已计入 input_tokens)+ 检索次数费。"""
-    in_price, out_price = _TOKEN_PRICES_PER_MTOK[model]
+def _usage(data: dict[str, Any]) -> dict[str, float]:
+    """这次调用的计费用量:输入 token(检索回来的内容已计入)、输出 token(平台已把推理 token 计入)、计费的检索动作数。
+    缓存命中的输入 token 仍按全价计(官方按 0.1 倍,要对一次账单再改:任务列表第十三节第 10 条)。"""
     usage = data.get("usage") or {}
-    token_cost = (
-        (usage.get("input_tokens") or 0) / 1e6 * in_price
-        + (usage.get("output_tokens") or 0) / 1e6 * out_price
-    )
-    return token_cost + _search_calls(data["output"]) * _SEARCH_USD_PER_CALL
+    return {
+        "input_tokens": float(usage.get("input_tokens") or 0),
+        "output_tokens": float(usage.get("output_tokens") or 0),
+        "searches": float(_search_calls(data.get("output") or [])),
+    }
+
+
+def _cost_usd(data: dict[str, Any], model: str) -> float:
+    """官方价目确定性折算:用量 × 牌价。"""
+    return priced(_PRICE_TABLE[model], _usage(data))
 
 
 def _payload(request: AskRequest, model: str, search_disabled: bool) -> dict[str, Any]:
@@ -272,11 +284,7 @@ class OpenAIWebSearchAdapter(SurfaceAdapter):
             strongest_model=_STRONGEST_MODEL,
             models_checked=_MODELS_CHECKED,
             capabilities=_CAPABILITIES,
-            unit_prices={  # 默认模型口径;实际计费按所选模型价目折算
-                "input_usd_per_mtok": _TOKEN_PRICES_PER_MTOK[_DEFAULT_MODEL][0],
-                "output_usd_per_mtok": _TOKEN_PRICES_PER_MTOK[_DEFAULT_MODEL][1],
-                "search_usd_per_call": _SEARCH_USD_PER_CALL,
-            },
+            price_table=_PRICE_TABLE,
             # 口径:推导上界,按型号各算(无检索次数上限参数,按 3 次检索、每次约 1.2 万
             # 检索内容 token 的 Potato 校准值估),有足量实测后确认页改读实测均值:
             # 默认型号 (2000 + 3×12000)/1e6×$2 + 2000/1e6×$12 + 3×$0.01 ≈ $0.13
@@ -291,6 +299,9 @@ class OpenAIWebSearchAdapter(SurfaceAdapter):
                 for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
             },
         )
+
+    def usage_of(self, raw_payload: JsonValue) -> dict[str, float]:
+        return _usage(raw_payload) if isinstance(raw_payload, dict) else {}
 
     def ask(self, request: AskRequest) -> SurfaceRun:
         """适配器只做两件事(CLAUDE.md 硬边界 3):AskRequest → 平台调用(_payload),平台返回 → SurfaceRun(_translate)。"""

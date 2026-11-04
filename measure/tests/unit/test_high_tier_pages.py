@@ -56,7 +56,7 @@ def test_high_tier_response_page_renders_the_judges_verdict(monkeypatch):
             return rows
 
     monkeypatch.setattr("report.routes.Storage", FakeStorage)
-    app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=lambda **kw: None, calibration=None)
     app.state.ctx.registry.add(job)
     client = TestClient(app)

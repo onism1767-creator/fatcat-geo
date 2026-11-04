@@ -12,8 +12,9 @@ SurfaceRun。不判定品牌提及、不算指标、不猜缺失字段、不自�
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
+from collections.abc import Mapping
 
-from engine.models import ACCOUNT_ERROR_TYPES, AskRequest, FrozenModel, RunErrorType, SearchMode, SurfaceRun
+from engine.models import ACCOUNT_ERROR_TYPES, AskRequest, FrozenModel, JsonValue, RunErrorType, SearchMode, SurfaceRun
 
 # ── 异常契约(13.1):适配器对外只允许抛以下三类 ─────────────────────────
 
@@ -141,7 +142,10 @@ class SurfaceMeta(FrozenModel):
     strongest_model: str
     models_checked: str
     capabilities: CapabilityRegistry
-    unit_prices: dict[str, float] = {}  # 计费单价,键为该 surface 的计费口径(如每千输入 token)
+    # 牌价(2026-11-03 成本调研②):型号 → 计费项 → 每单位美元;计费项的键和 usage_of 读出的用量一致,
+    # 费用 = Σ 用量 × 牌价(priced)。确认页给没实测过的型号估价就靠它:同家默认型号的用量 × 这个型号的牌价。
+    # 必须覆盖 models 与 helper_models 的每个型号(加载器校验);费用由平台自报的仪器也要列,预估按它算。
+    price_table: dict[str, dict[str, float]] = {}
     # 单次调用期望成本,确认页预估用(v0.4.6;v0.4.19 起按型号报价):键 = models 里的每个型号
     # (加载器强制全覆盖——型号是口径的一部分,各测各的,漏报一个预估就静默漏计)。
     # 由适配器自行声明,单一真相源;口径二选一且须在适配器内注明——实测均值 或 推导上界。
@@ -150,6 +154,11 @@ class SurfaceMeta(FrozenModel):
     # search_disabled 模式(检索依赖诊断闭卷腿)的单次期望成本(v0.4.7),同样按型号:
     # 声明 supports_search_disabled 的适配器必须报价(加载器强制),否则为 None。
     est_cost_per_call_search_disabled_usd: dict[str, float] | None = None
+
+
+def priced(prices: Mapping[str, float], usage: Mapping[str, float]) -> float:
+    """用量 × 牌价:各适配器算实际费用、确认页按用量形状估价,都是这一个公式。牌价里没有的计费项不计(不臆造)。"""
+    return sum(quantity * prices.get(key, 0.0) for key, quantity in usage.items())
 
 
 class SurfaceAdapter(ABC):
@@ -172,6 +181,12 @@ class SurfaceAdapter(ABC):
     def healthcheck(self) -> bool:
         """key 有效性、配额可用性(最小请求,成本近零)。账户问题(key 无效 / 额度不足)直接抛 AdapterAccountError——
         开跑前预检据此停单并说清是换 key 还是充值(S11.1);其余问题(服务不可用、网络)返回 False。"""
+
+    def usage_of(self, raw_payload: JsonValue) -> dict[str, float]:
+        """从原始存档里读出这次调用的计费用量(输入 / 输出 / 思考 token、搜了几次……),键与 meta().price_table 的计费项
+        一致;读不出就空。只翻译数字,不判定。真实适配器必须覆写(算费用与它共用一个解析);测试替身默认没有用量。
+        派生表 call_usage 存它,确认页按「用量 × 牌价」估价;老的回答能从 raw_payload 补出来(原始层不动)。"""
+        return {}
 
     def close(self) -> None:  # noqa: B027 —— 刻意的可选钩子,不设为抽象方法
         """释放底层连接。持有 httpx.Client 的适配器必须覆写;

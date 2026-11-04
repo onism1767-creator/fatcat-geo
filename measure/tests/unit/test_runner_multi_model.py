@@ -78,9 +78,12 @@ class TwoModelAdapter(SurfaceAdapter):
                 citations=[Citation(url="https://aurora-crm.com/a", domain="aurora-crm.com", position=1)]
                 if cites else [],
             ),
-            raw_payload={"model": request.model},
+            raw_payload={"model": request.model, "usage": {"tokens": 120 if cites else 12}},
             timestamp=datetime.now(UTC), latency_ms=1, cost_usd=0.01 if cites else 0.001,
         )
+
+    def usage_of(self, raw_payload):
+        return {"tokens": float(raw_payload["usage"]["tokens"])} if isinstance(raw_payload, dict) else {}
 
     def healthcheck(self) -> bool:
         return True
@@ -207,6 +210,9 @@ def test_two_models_of_one_surface_are_sampled_and_diagnosed_apart(storage, offl
     assert _citation_status(job) == {CITES: StageStatus.PASS, SILENT: StageStatus.FAIL}
     assert {(v.surface, v.model) for v in job.surface_verdicts} == {("two_model", CITES), ("two_model", SILENT)}
     assert job.spent_usd == pytest.approx(3 * 0.01 + 3 * 0.001)
+    # 每条回答的计费用量随手进派生表,确认页下次按「用量 × 牌价」估(成本调研②)
+    usage = {s.model: (s.n_usage, s.usage) for s in storage.call_stats() if s.surface == "two_model"}
+    assert usage == {CITES: (3, {"tokens": 120.0}), SILENT: (3, {"tokens": 12.0})}
     from engine.method import METHOD_VERSION
 
     note = job.sampling  # 采样说明(S8.2):实际问了多少、有效多少、测了谁、方法版本

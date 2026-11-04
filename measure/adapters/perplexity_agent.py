@@ -40,6 +40,7 @@ from engine.models import (
     Answer,
     AskRequest,
     Citation,
+    JsonValue,
     Outcome,
     RetrievedSource,
     SearchTrace,
@@ -57,6 +58,13 @@ _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "perplexity/sonar": (0.25, 2.50),
 }
 _WEB_SEARCH_USD_PER_CALL = 0.0025  # 工具费:web_search 每次调用(同页)
+# 牌价(计费项与 _usage 读出的键一致):实际费用仍按平台自报的 total_cost 记(下面 _cost_usd),这张表只给确认页按用量估价用;
+# 平台另按同样的输入价收一笔「缓存建立费」,已含在它报的 input_tokens 里,所以用量 × 牌价和自报总价对得上
+# (2026-11-03 对过一条)
+_PRICE_TABLE: dict[str, dict[str, float]] = {
+    model: {"input_tokens": price_in / 1e6, "output_tokens": price_out / 1e6, "searches": _WEB_SEARCH_USD_PER_CALL}
+    for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
+}
 _DEFAULT_MODEL = "perplexity/sonar"
 # 型号标记(配置资产,用户定 2026-10-14):官方帮助中心只列套餐可选型号、没写默认,
 # 按「默认搜索模式用 Sonar」(官方 2025-02 博客)填,待核对
@@ -122,6 +130,17 @@ def _citations(parts: list[dict[str, Any]], results: list[dict[str, Any]]) -> li
         seen.add(url)
         citations.append(Citation(url=url, domain=domain_of(url), title=title, position=len(citations) + 1))
     return citations
+
+
+def _usage(data: dict[str, Any]) -> dict[str, float]:
+    """这次调用的计费用量:输入 / 输出 token、web_search 调用次数(费用本身按平台自报,见 _cost_usd)。"""
+    usage = data.get("usage") or {}
+    searches = ((usage.get("tool_calls_details") or {}).get("search_web") or {}).get("invocation") or 0
+    return {
+        "input_tokens": float(usage.get("input_tokens") or 0),
+        "output_tokens": float(usage.get("output_tokens") or 0),
+        "searches": float(searches),
+    }
 
 
 def _cost_usd(data: dict[str, Any]) -> float:
@@ -197,11 +216,7 @@ class PerplexityAgentAdapter(SurfaceAdapter):
             strongest_model=_STRONGEST_MODEL,
             models_checked=_MODELS_CHECKED,
             capabilities=_CAPABILITIES,
-            unit_prices={
-                "input_usd_per_mtok": _TOKEN_PRICES_PER_MTOK[_DEFAULT_MODEL][0],
-                "output_usd_per_mtok": _TOKEN_PRICES_PER_MTOK[_DEFAULT_MODEL][1],
-                "web_search_usd_per_call": _WEB_SEARCH_USD_PER_CALL,
-            },
+            price_table=_PRICE_TABLE,
             # 口径:推导上界——官方样例一次搜索约 4,700 输入 token;按 6,000 输入 + 800 输出 + 1 次搜索:
             # (6000×$0.25 + 800×$2.5)/1e6 + $0.0025 ≈ $0.006;有足量实测后确认页改读实测均值
             est_cost_per_call_usd={
@@ -209,6 +224,9 @@ class PerplexityAgentAdapter(SurfaceAdapter):
                 for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
             },
         )
+
+    def usage_of(self, raw_payload: JsonValue) -> dict[str, float]:
+        return _usage(raw_payload) if isinstance(raw_payload, dict) else {}
 
     def ask(self, request: AskRequest) -> SurfaceRun:
         _CAPABILITIES.require_search_mode(request.search_mode)

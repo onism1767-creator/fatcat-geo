@@ -229,6 +229,15 @@ SCHEMA_STATEMENTS: tuple[str, ...] = (
         BEFORE TRUNCATE ON cache_reuse
         FOR EACH STATEMENT EXECUTE FUNCTION reject_mutation()
     """,
+    # 一次调用的计费用量(2026-11-03 成本调研②):从 raw_payload 用各适配器的 usage_of 读出来的派生表——可重算、可覆盖,
+    # 所以不挂只追加触发器;原始表 surface_run 一个字不动,老的回答由 scripts/backfill_call_usage.py 补。
+    """
+    CREATE TABLE IF NOT EXISTS call_usage (
+        run_id text PRIMARY KEY REFERENCES surface_run(run_id),
+        usage jsonb NOT NULL,
+        extracted_at timestamptz NOT NULL
+    )
+    """,
     # 报告快照(v0.4.16):派生层的档案——每次生成报告追加一版,永不改写;
     # payload 对 L2 不透明,结构由 L4 report/jobs.py 定义。原始层仍是唯一底账。
     """

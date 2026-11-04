@@ -71,6 +71,19 @@ def test_every_surface_asks_each_question_once_with_its_consumer_model_and_langu
     assert [r.locale for r in stored] == ["zh-CN"]
 
 
+def test_named_models_are_asked_instead_of_the_consumer_default(storage):
+    """成本调研①:--models 只问点名的型号(给没实测过的型号攒实测),上限按那个型号的声明价算。"""
+    questions = prompts("zh-CN", "zh-CN")
+    picky, skipped = FakeAdapter("picky_surface"), FakeAdapter("skipped_surface")
+
+    results, problems = collect({"picky_surface": picky, "skipped_surface": skipped}, questions, TEST_DSN, only=["top"])
+
+    assert problems == [] and {r.model for r in picky.asked} == {"top"} and len(picky.asked) == 2
+    assert {r.model for r in skipped.asked} == {"top"}  # 两家都有 top:各问各的
+    assert [(r.surface, r.model, r.n_attempts) for r in results] == [
+        ("picky_surface", "top", 2), ("skipped_surface", "top", 2)]
+
+
 def test_running_again_only_asks_what_is_missing(storage):
     questions = prompts("en-US", "en-US")
     first = FakeAdapter("rerun_surface")

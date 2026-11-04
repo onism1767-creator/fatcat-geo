@@ -38,7 +38,7 @@ def _client(judges: JudgeConfig = JUDGES) -> tuple[TestClient, list]:
     def stub_runner(*, job, adapters, dsn, evidence, replay):
         calls.append(job.job_id)
 
-    app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter(), "s2": TwoModelAdapter()},
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter(), "s2": TwoModelAdapter()},
                      dsn="postgresql://unused", evidence=REGISTRY, job_runner=stub_runner, judges=judges,
                      calibration=None)  # 页面测试不读本机的校准文件:「还没校准」的样子也要能测
     return TestClient(app), calls

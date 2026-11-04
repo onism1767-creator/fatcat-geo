@@ -17,6 +17,7 @@ from adapters.base import (
     AdapterPermanentError,
     AdapterTransientError,
     CapabilityNotSupportedError,
+    priced,
 )
 from adapters.perplexity_agent import PerplexityAgentAdapter
 from engine.models import NOT_OBSERVABLE, AskRequest, Outcome, SearchMode
@@ -73,6 +74,20 @@ def test_agent_success_with_citations_translates_field_by_field():
     assert sent["input"] == "中小团队用什么 CRM 好?"
     assert sent["tools"] == [{"type": "web_search"}] and sent["max_output_tokens"] == 4096
     assert route.calls[0].request.headers["authorization"] == "Bearer test-key"
+
+
+@respx.mock
+def test_agent_usage_is_read_from_the_archive_while_the_cost_stays_the_platforms_own():
+    """成本调研②:计费用量从原始存档读(token 数、web_search 次数)给确认页按牌价估;记的费用仍是平台自报的总价。"""
+    respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json=golden("perplexity_agent",
+                                                                            "success_with_citations.json")))
+    adapter = PerplexityAgentAdapter(api_key="test-key")
+    run = adapter.ask(make_request())
+    assert adapter.usage_of(run.raw_payload) == {"input_tokens": 4718.0, "output_tokens": 450.0, "searches": 1.0}
+    assert run.cost_usd == pytest.approx(0.03037)  # 平台自报,不是用量 × 牌价
+    assert set(adapter.meta().price_table) == set(adapter.meta().models)
+    assert priced(adapter.meta().price_table[run.model], {"searches": 2.0}) == pytest.approx(0.005)
+    assert adapter.usage_of(None) == {}
 
 
 @respx.mock

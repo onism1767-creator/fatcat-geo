@@ -46,7 +46,7 @@ ALLOWED_HOSTS: Final = ("127.0.0.1", "localhost")
 def create_app(
     *,
     adapters: dict[str, SurfaceAdapter] | None = None,
-    call_stats: Callable[[], list[CallStat]] | None = None,  # 预估用的历史统计;None = 查库
+    call_stats: Callable[[str | None], list[CallStat]] | None = None,  # 预估用的历史统计(全库 / 某品牌);None = 查库
     dsn: str | None = None,
     evidence: list[EvidenceEntry] | None = None,
     job_runner: JobRunner | None = None,
@@ -63,9 +63,9 @@ def create_app(
     resolved_dsn = dsn or default_dsn()
     resolved_judges = judges or load_judges()
 
-    def measured_call_stats() -> list[CallStat]:
+    def measured_call_stats(brand: str | None) -> list[CallStat]:
         with Storage(resolved_dsn) as store:
-            return store.call_stats()
+            return store.call_stats(store.brand_prompt_ids(brand) if brand is not None else None)
 
     app = FastAPI(title="GEO 诊断")
 

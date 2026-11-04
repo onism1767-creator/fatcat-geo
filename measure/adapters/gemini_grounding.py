@@ -47,6 +47,7 @@ from adapters.base import (
     CapabilityRegistry,
     SurfaceAdapter,
     SurfaceMeta,
+    priced,
 )
 from adapters.http_support import contract_post, domain_of, full_body, spent_on
 from engine.models import (
@@ -54,6 +55,7 @@ from engine.models import (
     Answer,
     AskRequest,
     Citation,
+    JsonValue,
     Outcome,
     SearchMode,
     SearchTrace,
@@ -80,6 +82,12 @@ _HELPER_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
 }
 _ALL_PRICES_PER_MTOK = {**_TOKEN_PRICES_PER_MTOK, **_HELPER_PRICES_PER_MTOK}
 _SEARCH_USD_PER_QUERY = 14.0 / 1000.0  # 接地检索 $14 / 千次查询(每月 5,000 次免费额度不计入预估)
+# 牌价(用量 × 牌价 = 费用;计费项与 _usage 读出的键一致):思考 token 按输出价;裁判型号也列,裁判费用同一公式
+_PRICE_TABLE: dict[str, dict[str, float]] = {
+    model: {"input_tokens": price_in / 1e6, "output_tokens": price_out / 1e6, "thought_tokens": price_out / 1e6,
+            "search_queries": _SEARCH_USD_PER_QUERY}
+    for model, (price_in, price_out) in _ALL_PRICES_PER_MTOK.items()
+}
 _DEFAULT_MODEL = "gemini-3.8-flash"
 # 型号标记(配置资产,用户定 2026-10-14):Gemini 应用默认官方未写(2025-12 起 3 Flash 为默认;
 # 3.8 Flash 是现行 Flash)→ 填 3.8,待核对;
@@ -105,16 +113,20 @@ def _queries(steps: list[Any]) -> list[str]:
     ]
 
 
-def _cost_usd(data: dict[str, Any], model: str) -> float:
-    """官方价目确定性折算:token 费(思考按输出价)+ 唯一非空查询数 × 检索单价。"""
-    in_price, out_price = _ALL_PRICES_PER_MTOK[model]
+def _usage(data: dict[str, Any]) -> dict[str, float]:
+    """这次调用的计费用量:输入 / 输出 / 思考 token、唯一非空检索词数(接地回来的内容平台不按 token 计)。"""
     usage = data.get("usage") or {}
-    token_cost = (
-        (usage.get("total_input_tokens") or 0) / 1e6 * in_price
-        + ((usage.get("total_output_tokens") or 0) + (usage.get("total_thought_tokens") or 0))
-        / 1e6 * out_price
-    )
-    return token_cost + len(set(_queries(data["steps"]))) * _SEARCH_USD_PER_QUERY
+    return {
+        "input_tokens": float(usage.get("total_input_tokens") or 0),
+        "output_tokens": float(usage.get("total_output_tokens") or 0),
+        "thought_tokens": float(usage.get("total_thought_tokens") or 0),
+        "search_queries": float(len(set(_queries(data.get("steps") or [])))),
+    }
+
+
+def _cost_usd(data: dict[str, Any], model: str) -> float:
+    """官方价目确定性折算:用量 × 牌价。"""
+    return priced(_PRICE_TABLE[model], _usage(data))
 
 
 def _payload(request: AskRequest, model: str, search_disabled: bool) -> dict[str, Any]:
@@ -240,11 +252,7 @@ class GeminiGroundingAdapter(SurfaceAdapter):
             strongest_model=_STRONGEST_MODEL,
             models_checked=_MODELS_CHECKED,
             capabilities=_CAPABILITIES,
-            unit_prices={  # 默认模型口径;实际计费按所选模型价目折算
-                "input_usd_per_mtok": _TOKEN_PRICES_PER_MTOK[_DEFAULT_MODEL][0],
-                "output_usd_per_mtok": _TOKEN_PRICES_PER_MTOK[_DEFAULT_MODEL][1],
-                "search_usd_per_query": _SEARCH_USD_PER_QUERY,
-            },
+            price_table=_PRICE_TABLE,
             # 口径:推导上界,按型号各算(3 条检索词 + 探针实测 token 量),有足量实测后
             # 确认页改读实测均值:默认型号 3×$0.014 + (200×$0.75 + 3000×$3.75)/1e6 ≈ $0.054
             est_cost_per_call_usd={
@@ -257,6 +265,9 @@ class GeminiGroundingAdapter(SurfaceAdapter):
                 for model, (_, price_out) in _TOKEN_PRICES_PER_MTOK.items()
             },
         )
+
+    def usage_of(self, raw_payload: JsonValue) -> dict[str, float]:
+        return _usage(raw_payload) if isinstance(raw_payload, dict) else {}
 
     def ask(self, request: AskRequest) -> SurfaceRun:
         """适配器只做两件事(CLAUDE.md 硬边界 3):AskRequest → 平台调用(_payload),平台返回 → SurfaceRun(_translate)。"""

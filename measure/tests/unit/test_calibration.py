@@ -132,7 +132,7 @@ def test_confirm_page_shows_measured_counts_only_after_calibration():
     })
 
     def page(calibration):
-        app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+        app = create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                          evidence=REGISTRY, job_runner=lambda **kw: None, calibration=calibration)
         client = TestClient(app)
         resp = client.post("/jobs?lang=zh", data={"brand_name": "X", "aliases": "", "website": "x.com", "category": "C",

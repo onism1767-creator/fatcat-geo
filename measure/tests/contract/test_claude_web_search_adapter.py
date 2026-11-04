@@ -21,6 +21,7 @@ from adapters.base import (
     AdapterPermanentError,
     AdapterTransientError,
     CapabilityNotSupportedError,
+    priced,
 )
 from adapters.claude_web_search import ClaudeWebSearchAdapter
 from engine.models import NOT_OBSERVABLE, AskRequest, Outcome, RunErrorType, SearchMode
@@ -105,6 +106,18 @@ def test_success_with_citations_translates_field_by_field():
     assert sent["model"] == "claude-sonnet-5-5"  # 未指定 model 时用 meta 默认
     assert sent["max_tokens"] == 4096
     assert sent["messages"] == [{"role": "user", "content": "中小团队用什么 CRM 好?"}]
+
+
+@respx.mock
+def test_usage_is_read_from_the_archive_and_prices_to_the_recorded_cost():
+    """成本调研②:计费用量从原始存档({"responses": [...]})读,用量 × 牌价 = 记的费用;读不出就空。"""
+    respx.post(MSG_URL).mock(return_value=httpx.Response(200, json=golden("success_with_citations.json")))
+    adapter = ClaudeWebSearchAdapter(api_key="test-key")
+    run = adapter.ask(make_request())
+    usage = adapter.usage_of(run.raw_payload)
+    assert usage == {"input_tokens": 8123.0, "output_tokens": 542.0, "searches": 1.0}
+    assert priced(adapter.meta().price_table[run.model], usage) == pytest.approx(run.cost_usd)
+    assert adapter.usage_of({"responses": "junk"}) == {} and adapter.usage_of(None) == {}
 
 
 # ── 正常未检索:引用空是真实负观测 ────────────────────────────────────

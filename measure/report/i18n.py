@@ -180,9 +180,11 @@ MESSAGES: dict[str, dict[str, str]] = {
         "est_min_word": "分钟",
         "est_note": "3 个同时进行",
         "est_verify": "含提问前的准备;提问完之后还要核对 AI 引用的网页,最多再 {minutes} 分钟,不在这个数里。",
+        "est_basis_brand": "{names} 按这个品牌上次实测的平均费用算。",
         "est_basis_measured": "预估按过去实测的平均费用和耗时算:{names}。",
+        "est_basis_borrowed": "{names} 还没实测过,按同一家默认型号的用量乘它自己的单价算。",
         "est_basis_declared": "{names} 还没有足够的历史记录,先按声明的单价算。",
-        "est_basis_tail": "实际费用随 AI 回答的长短浮动。",
+        "est_basis_tail": "实际费用主要随 AI 搜几次、回答多长浮动。",
         "est_balance_hint": "开始前请确认所选 AI 的 API 账户里都有足够余额。余额不足时检测会自动停下、不再花钱,"
                             "已采集的结果会保留,充值后点「接着跑」就能继续。",
         "confirm_submit": "确认,开始检测(从这里开始计费)",
@@ -587,9 +589,12 @@ MESSAGES: dict[str, dict[str, str]] = {
         "est_min_word": "min",
         "est_note": "3 run at once",
         "est_verify": "Includes the setup before questioning; checking the pages the AI cited comes after and can take up to {minutes} more minutes, not included here.",
+        "est_basis_brand": "{names} use the measured average cost from this brand's previous check.",
         "est_basis_measured": "Estimate uses the measured average cost and time from past runs: {names}.",
+        "est_basis_borrowed": "{names} have not been measured yet, so the estimate uses the same vendor's default model's "
+                              "usage at their own list price.",
         "est_basis_declared": "{names} have too little history yet, so their declared unit price is used.",
-        "est_basis_tail": "Actual cost varies with how long the AI's answers are.",
+        "est_basis_tail": "Actual cost varies mainly with how often the AI searches and how long its answers are.",
         "est_balance_hint": "Before starting, make sure each selected AI's API account has enough balance. "
                             "If a balance runs out the run stops by itself and spends nothing more; "
                             "results already collected are kept, and after topping up you can press Resume.",

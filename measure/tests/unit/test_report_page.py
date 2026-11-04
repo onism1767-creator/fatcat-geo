@@ -169,7 +169,7 @@ def client_and_job():
         job.state = JobState.DONE
         job.phase = "phase_done"
 
-    app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=stub_runner)
     job = finished_job()
     app.state.ctx.registry.add(job)
@@ -476,7 +476,7 @@ def test_retired_model_keeps_product_name_in_old_reports():
             return super().meta().model_copy(
                 update={"models": ["m-new"], "default_model": "m-new", "est_cost_per_call_usd": {"m-new": 0.005}})
 
-    app = create_app(call_stats=lambda: [], adapters={"s1": RetiredModelAdapter()}, dsn="postgresql://unused",
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": RetiredModelAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=lambda **_: None)
     job = finished_job()
     app.state.ctx.registry.add(job)
@@ -555,7 +555,7 @@ def test_confirm_estimate_prefers_measured_history():
     from engine.storage import CallStat
 
     def run(stats):
-        app = create_app(call_stats=lambda: stats, adapters={"s1": DummyAdapter()},
+        app = create_app(call_stats=lambda brand=None: [] if brand else stats, adapters={"s1": DummyAdapter()},
                          dsn="postgresql://unused", evidence=REGISTRY, job_runner=lambda **kw: None)
         client = TestClient(app)
         resp = client.post("/jobs?lang=zh", data={"brand_name": "极光CRM", "aliases": "", "website": "aurora-crm.com",
@@ -568,7 +568,7 @@ def test_confirm_estimate_prefers_measured_history():
         return page, estimate
 
     def stat(n: int) -> CallStat:
-        return CallStat(surface="s1", model="m1", search_mode="default", n=n,
+        return CallStat(surface="s1", model="m1", search_mode="default", locale="zh-CN", n=n,
                         avg_cost_usd=0.02, avg_latency_ms=15000)
 
     page, est = run([stat(12)])
@@ -583,11 +583,12 @@ def test_confirm_estimate_prefers_measured_history():
 
 
 def test_estimate_job_arithmetic():
-    from report.estimate import UnitPrices, estimate_job
+    from report.estimate import PriceBasis, UnitPrice, UnitPrices, estimate_job
 
     cheap, pricey = Target(surface="a", model="x"), Target(surface="b", model="y")
-    prices = UnitPrices(default={cheap.key: 0.005, pricey.key: 0.17}, search_disabled={pricey.key: 0.04},
-                        seconds_per_call=20.0, measured=[], declared=[cheap, pricey])
+    declared = lambda cost: UnitPrice(cost_usd=cost, basis=PriceBasis.DECLARED)  # noqa: E731
+    prices = UnitPrices(locale="zh-CN", default={cheap.key: declared(0.005), pricey.key: declared(0.17)},
+                        search_disabled={pricey.key: declared(0.04)}, seconds_per_call=20.0)
     # 按对象分价(v0.4.6):便宜通道与贵通道混选,成本逐个计价求和;次数固定(v0.4.26 S2)
     est = estimate_job(n_prompts=3, runs_per_prompt=3, targets=[cheap, pricey], dependency=False, prices=prices)
     assert est.calls == 18  # 3 题 × 3 次 × 2 对象
@@ -609,8 +610,9 @@ def test_estimate_job_arithmetic():
     one_leg = estimate_job(n_prompts=3, runs_per_prompt=3, targets=[cheap], dependency=False, prices=prices)
     assert one_leg.minutes == pytest.approx((PREP + 9 * 20) / 60)
     third = Target(surface="c", model="z")
-    wide = UnitPrices(default={cheap.key: 0.005, pricey.key: 0.17, third.key: 0.01}, search_disabled={pricey.key: 0.04},
-                      seconds_per_call=20.0, measured=[], declared=[cheap, pricey, third])
+    wide = UnitPrices(locale="zh-CN", default={cheap.key: declared(0.005), pricey.key: declared(0.17),
+                                                third.key: declared(0.01)},
+                      search_disabled={pricey.key: declared(0.04)}, seconds_per_call=20.0)
     four_legs = estimate_job(n_prompts=3, runs_per_prompt=3, targets=[cheap, pricey, third], dependency=True,
                              prices=wide)
     assert four_legs.calls == 36 and four_legs.minutes == pytest.approx((PREP + 2 * 9 * 20) / 60)
@@ -649,7 +651,7 @@ def _sync_app(monkeypatch, runs: list, job_runner=None):
             self._target(**self._kwargs)
 
     monkeypatch.setattr("report.launcher.threading.Thread", SyncThread)
-    return create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+    return create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                       evidence=REGISTRY, job_runner=job_runner or (lambda *, job, replay, **_: runs.append(replay)))
 
 
@@ -719,7 +721,7 @@ def test_resume_clicked_twice_launches_one_runner(monkeypatch):
 
     monkeypatch.setattr("report.launcher.threading.Thread", SyncThread)
     calls = []
-    app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=lambda *, job, **_: calls.append(job.job_id))
     job = finished_job()
     job.state = JobState.INTERRUPTED
@@ -997,7 +999,7 @@ def test_drafting_account_problem_sends_the_user_back_home_with_the_credit_sente
             raise AdapterAccountError("Your credit balance is too low", error_type=RunErrorType.ACCOUNT_CREDIT,
                                       http_status=402, response_body="{}")
 
-    app = create_app(call_stats=lambda: [], adapters={"s1": BrokeAdapter()}, dsn=TEST_DSN, evidence=REGISTRY,
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": BrokeAdapter()}, dsn=TEST_DSN, evidence=REGISTRY,
                      job_runner=lambda **kw: None, calibration=None)
     client = TestClient(app)
     resp = client.post("/jobs?lang=zh", data={"brand_name": "极光CRM", "aliases": "", "website": "aurora-crm.com",

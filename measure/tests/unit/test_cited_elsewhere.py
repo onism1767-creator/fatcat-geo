@@ -146,7 +146,7 @@ def test_report_lists_the_pages_in_both_languages_and_links_only_web_addresses()
     })
     job.class_reports = [cr.model_copy(update={"diagnosis": cr.diagnosis.model_copy(update={
         "surfaces": [first, *cr.diagnosis.surfaces[1:]]})}), *job.class_reports[1:]]
-    app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=lambda **kw: None, calibration=None)
     app.state.ctx.registry.add(job)
     client = TestClient(app)

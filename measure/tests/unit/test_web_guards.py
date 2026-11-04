@@ -18,7 +18,7 @@ FORM = {"brand_name": "极光CRM", "aliases": "", "website": "aurora-crm.com", "
 
 
 def _client() -> TestClient:
-    app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=lambda **kw: None, calibration=None,
                      category_check=lambda job: None)
     return TestClient(app)
@@ -107,7 +107,7 @@ def db_down(monkeypatch):
 
 
 def _down_client() -> TestClient:
-    app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=lambda **kw: None, calibration=None,
                      category_check=lambda job: None)
     return TestClient(app)

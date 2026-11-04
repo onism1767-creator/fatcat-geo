@@ -112,6 +112,46 @@ def test_models_of_one_surface_are_kept_apart(storage):
     assert stats["model-b"].n == 1 and stats["model-b"].avg_cost_usd == pytest.approx(0.50)
 
 
+def test_call_stats_keep_languages_apart_and_average_the_usage(storage):
+    """成本调研②:统计按语言分桶,平均用量来自派生表 call_usage;从别的单复制来的回答花费记 0,不算;
+    prompt_ids 只看这些题下的运行(同品牌上一单优先)。"""
+    for run_id, locale, cost, usage in (("run-u-zh1", "zh-CN", 0.02, {"input_tokens": 100.0, "searches": 1.0}),
+                                        ("run-u-zh2", "zh-CN", 0.04, {"input_tokens": 300.0, "searches": 2.0}),
+                                        ("run-u-en1", "en-US", 0.01, {"input_tokens": 50.0, "searches": 0.0})):
+        storage.insert_surface_run(make_run(run_id).model_copy(update={
+            "prompt_id": "prompt-u", "surface": "surface-u", "locale": locale, "cost_usd": cost}))
+        storage.insert_call_usage(run_id, usage)
+    stats = {s.locale: s for s in storage.call_stats() if s.surface == "surface-u"}
+    assert stats["zh-CN"].n == 2 and stats["zh-CN"].n_usage == 2
+    assert stats["zh-CN"].usage == {"input_tokens": 200.0, "searches": 1.5}
+    assert stats["zh-CN"].avg_cost_usd == pytest.approx(0.03)
+    assert stats["en-US"].usage == {"input_tokens": 50.0, "searches": 0.0}
+    assert storage.call_stats(prompt_ids=["no-such-prompt"]) == []
+    assert {s.locale for s in storage.call_stats(prompt_ids=["prompt-u"])} == {"zh-CN", "en-US"}
+    storage.insert_surface_run(make_run("run-u-copy").model_copy(update={
+        "prompt_id": "prompt-u", "surface": "surface-u", "locale": "en-US", "cost_usd": 0.0}))
+    storage.insert_cache_reuse(job_id="job-u", run_id="run-u-copy", source_run_id="run-u-en1", cache_age_s=60)
+    stats = {s.locale: s for s in storage.call_stats() if s.surface == "surface-u"}
+    assert stats["en-US"].n == 1 and stats["en-US"].avg_cost_usd == pytest.approx(0.01)
+    # 用量可以重算覆盖;补老数据只找还没有记录的
+    storage.insert_call_usage("run-u-zh1", {"input_tokens": 500.0, "searches": 1.0})
+    zh = next(s for s in storage.call_stats() if s.surface == "surface-u" and s.locale == "zh-CN")
+    assert zh.usage["input_tokens"] == 400.0
+    missing = storage.run_ids_without_usage()
+    assert "run-u-zh1" not in missing and "run-u-copy" in missing
+
+
+def test_brand_prompt_ids_cover_every_job_of_that_brand(storage):
+    # 测试库是整个会话共用的,别的测试也建「极光CRM」的单,这里用自己的品牌名
+    for job_id, brand, prompts in (("job-b1", "牌子甲", ["p-b1"]), ("job-b2", "牌子甲", ["p-b2", "p-b3"]),
+                                   ("job-b3", "牌子乙", ["p-x"])):
+        storage.upsert_job_snapshot({"job_id": job_id, "created_at": "2026-11-03T10:00:00+00:00", "state": "DONE",
+                                     "fingerprint": "f", "brand": {"name": brand},
+                                     "prompts": [{"prompt_id": p} for p in prompts]})
+    assert sorted(storage.brand_prompt_ids("牌子甲")) == ["p-b1", "p-b2", "p-b3"]
+    assert storage.brand_prompt_ids("没有的") == []
+
+
 def test_report_snapshot_is_versioned_and_append_only(storage):
     """报告快照(v0.4.16):同一任务多版并存,latest 取最新并报版本数;库层拒绝改写。"""
     assert storage.latest_report_snapshot("job-r1") is None

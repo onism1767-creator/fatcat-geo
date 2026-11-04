@@ -39,7 +39,7 @@ def _failed_job(code: str | None, text: str | None = None) -> DiagnosisJob:
 
 
 def _page(job: DiagnosisJob, lang: str) -> str:
-    app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=load_evidence_registry(), job_runner=lambda **kw: None)
     app.state.ctx.registry.add(job)
     return TestClient(app).get(f"/jobs/{job.job_id}?lang={lang}").text

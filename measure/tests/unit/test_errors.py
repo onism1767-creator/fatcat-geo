@@ -65,7 +65,7 @@ def test_broken_library_fails_at_load(tmp_path: Path):
         load_errors(missing)
 
 def _client() -> TestClient:
-    app = create_app(call_stats=lambda: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
                      evidence=REGISTRY, job_runner=lambda **kw: None, calibration=None)
     return TestClient(app)
 

@@ -127,6 +127,9 @@ class _ProgressSink:
             self._job.spent_usd += run.cost_usd
             self._job.last_result_at = datetime.now(UTC)
 
+    def insert_call_usage(self, run_id: str, usage: dict[str, float]) -> None:
+        self._storage.insert_call_usage(run_id, usage)
+
 
 # 执行器会写进 job.error_code 的码(S10.1):都在 config/errors.yaml 里(测试把守),文案由任务页从库里取
 RUNNER_CODES = ("ACCOUNT_AUTH", "ACCOUNT_CREDIT", "ACCOUNT_REGION", "ACCOUNT_RESTRICTED", "ACCOUNT_QUOTA",
@@ -222,7 +225,9 @@ def _execute(
             storage.upsert_job_snapshot(job.to_snapshot())
         if not replay and not job.fresh:
             _fill_from_cache(job, storage, adapter_of)  # 回答缓存(S11.2):别的单 12 小时内同题同型号的回答先填进空槽位
-        prices = unit_prices({t.surface: a for t, a in adapter_of.items()}, storage.call_stats())
+        # 单价和确认页同一份:同品牌各单(含本单已问的)的实测优先,再按这单语言的库里实测(成本调研②)
+        prices = unit_prices({t.surface: a for t, a in adapter_of.items()}, storage.call_stats(), locale=job.locale,
+                             brand_stats=storage.call_stats(storage.brand_prompt_ids(job.brand.name)))
         results = _sample(job, dsn, adapter_of, prices=prices, replay=replay)
         job.stop_details = [StopDetail.from_result(r) for r in results.values()]  # 熔断要说清原因(S10.2)
 
@@ -498,8 +503,7 @@ def _sample(
     def weight(plan: PlanKey) -> float:
         """这条腿还要花的预估(还要问的次数 × 确认页同一份单价):费用上限按它的比例分(用户 2026-11-03 定)。"""
         target, mode = plan
-        table = prices.search_disabled if mode is SearchMode.SEARCH_DISABLED else prices.default
-        return (calls - taken[plan]) * table[target.key]
+        return (calls - taken[plan]) * prices.cost(target.key, mode)
 
     budgets = split_budget(job.budget_usd, {plan: weight(plan) for plan in plans}, spent)
     job.total_runs = calls * len(plans)

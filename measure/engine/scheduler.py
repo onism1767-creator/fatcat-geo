@@ -94,6 +94,8 @@ class RunSink(Protocol):
 
     def insert_surface_run(self, run: SurfaceRun) -> None: ...
 
+    def insert_call_usage(self, run_id: str, usage: dict[str, float]) -> None: ...
+
 
 class SamplingPolicy(FrozenModel):
     """次数与重试/熔断参数(13.2,阈值可配)。"""
@@ -227,6 +229,10 @@ class RepeatSampler:
                 )
                 run = ask_with_retries(adapter, request, policy, sleep=self._sleep, rng=self._rng)
                 self._storage.insert_surface_run(run)
+                if run.outcome is Outcome.SUCCESS:
+                    usage = adapter.usage_of(run.raw_payload)  # 计费用量进派生表,确认页按它估价(成本调研②)
+                    if usage:
+                        self._storage.insert_call_usage(run.run_id, usage)
                 if is_account_error(run):  # 落库后立刻停:不进本计划的任何统计,也不再花一分钱
                     assert run.error is not None
                     raise AccountProblem(provider=meta.provider, surface=meta.surface, model=resolved_model,

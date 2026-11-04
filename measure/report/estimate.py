@@ -1,13 +1,19 @@
-"""L4 成本与时长预估(16.4;v0.4.17 起按库里实测;v0.4.19 按型号;v0.4.26 S2 次数固定)——全项目唯一一份预估公式。
+"""L4 成本与时长预估(16.4;v0.4.17 起按库里实测;v0.4.19 按型号;v0.4.26 S2 次数固定;2026-11-03 成本调研②起按
+「用量形状 × 牌价」、按语言分桶、同品牌上一单优先)——全项目唯一一份预估公式。
 
 确认页每次勾选变化都向服务端要一次结果(POST /jobs/{id}/estimate),页面脚本只负责显示,不再自带公式。
+每个型号的单价依次取:同品牌上一单(续跑时就是本单已问的)实测 → 本语言实测 → 不分语言实测 →
+同家默认型号的用量 × 这个型号自己的牌价 → 适配器声明的上界。实测的按「平均用量 × 现牌价」算(牌价变了不用重测);
+没牌价的仪器按实测均价。要如实说:它堵不住「这套题让某家多搜一次」那种差额,开跑前没法知道会搜几次。
 """
 
 from __future__ import annotations
 
 import math
+from collections.abc import Sequence
+from enum import StrEnum
 
-from adapters.base import SurfaceAdapter
+from adapters.base import SurfaceAdapter, priced
 from engine.models import FrozenModel, SearchMode, Target
 from engine.page_check import BUDGET_S as VERIFY_BUDGET_S
 from engine.storage import CallStat
@@ -24,45 +30,132 @@ PREP_SECONDS = 120.0
 VERIFY_MAX_MINUTES = VERIFY_BUDGET_S / 60
 
 
+class PriceBasis(StrEnum):
+    """一个单价是怎么来的(确认页据此说明预估依据;越靠前越贴近这单)。"""
+
+    BRAND = "brand"  # 同品牌上一单(续跑时就是本单已问的)的实测
+    MEASURED = "measured"  # 库里实测:本语言够数用本语言,不够就不分语言
+    BORROWED = "borrowed"  # 没实测过:同家默认型号的用量 × 这个型号自己的牌价
+    DECLARED = "declared"  # 适配器声明的推导上界
+
+
+class UnitPrice(FrozenModel):
+    cost_usd: float
+    basis: PriceBasis
+    shape_of: str | None = None  # BORROWED 时借的是哪个型号的用量
+
+
 class UnitPrices(FrozenModel):
-    """各被测对象的单次调用单价与平均耗时:有足量历史按实测均值,否则按适配器声明。"""
+    """各被测对象的单次调用单价与平均耗时(一单一种语言,按它算)。"""
 
-    default: dict[str, float]  # Target.key → 开卷单价
-    search_disabled: dict[str, float]  # 支持闭卷腿的对象 → 闭卷单价
+    locale: str
+    default: dict[str, UnitPrice]  # Target.key → 开卷单价
+    search_disabled: dict[str, UnitPrice]  # 支持闭卷腿的对象 → 闭卷单价
     seconds_per_call: float
-    measured: list[Target]  # 按实测计价的对象(确认页据此说明预估依据)
-    declared: list[Target]  # 历史不足、按声明单价计价的对象
+
+    def cost(self, key: str, mode: SearchMode) -> float:
+        table = self.search_disabled if mode is SearchMode.SEARCH_DISABLED else self.default
+        return table[key].cost_usd
+
+    def by_basis(self) -> dict[PriceBasis, list[Target]]:
+        """开卷单价按依据分组(确认页说明用),依据按可信度排,组内按对象原序。"""
+        groups: dict[PriceBasis, list[Target]] = {}
+        for basis in PriceBasis:
+            targets = [Target.parse(key) for key, price in self.default.items() if price.basis is basis]
+            if targets:
+                groups[basis] = targets
+        return groups
 
 
-def unit_prices(adapters: dict[str, SurfaceAdapter], stats: list[CallStat]) -> UnitPrices:
-    by_key = {(st.surface, st.model, st.search_mode): st for st in stats}
+class _Bucket(FrozenModel):
+    """几个统计桶合成的一桶(按次数加权)。"""
 
-    def price(target: Target, mode: SearchMode, declared: float) -> tuple[float, bool]:
-        stat = by_key.get((target.surface, target.model, mode.value))
-        if stat is not None and stat.n >= MIN_STAT_SAMPLES:
-            return stat.avg_cost_usd, True
-        return declared, False
+    n: int
+    n_usage: int
+    avg_cost_usd: float
+    avg_latency_ms: float
+    usage: dict[str, float]
 
-    default: dict[str, float] = {}
-    search_disabled: dict[str, float] = {}
-    measured: list[Target] = []
-    declared: list[Target] = []
+
+def _merge(stats: Sequence[CallStat]) -> _Bucket | None:
+    n = sum(st.n for st in stats)
+    if n == 0:
+        return None
+    n_usage = sum(st.n_usage for st in stats)
+    usage: dict[str, float] = {}
+    for st in stats:
+        for key, mean in st.usage.items():
+            usage[key] = usage.get(key, 0.0) + mean * st.n_usage
+    return _Bucket(
+        n=n, n_usage=n_usage,
+        avg_cost_usd=sum(st.avg_cost_usd * st.n for st in stats) / n,
+        avg_latency_ms=sum(st.avg_latency_ms * st.n for st in stats) / n,
+        usage={key: total / n_usage for key, total in usage.items()} if n_usage else {},
+    )
+
+
+def _bucket(
+    stats: Sequence[CallStat], target: Target, mode: SearchMode, locale: str, *, same_locale_only: bool = False,
+) -> _Bucket | None:
+    """够数(≥ MIN_STAT_SAMPLES 次)的实测桶:先本语言,不够再把各语言合成一桶(库里中文比英文贵 8–70%,调研 1.2 节)。"""
+    same = [st for st in stats if (st.surface, st.model, st.search_mode) == (target.surface, target.model, mode.value)]
+    for group in ([st for st in same if st.locale == locale], [] if same_locale_only else same):
+        bucket = _merge(group)
+        if bucket is not None and bucket.n >= MIN_STAT_SAMPLES:
+            return bucket
+    return None
+
+
+def _shape_price(bucket: _Bucket, prices: dict[str, float] | None) -> float:
+    """桶的单价:有牌价且用量够数按「平均用量 × 牌价」;没牌价(测试替身)或用量没补齐按实测均价。"""
+    if prices is not None and bucket.n_usage >= MIN_STAT_SAMPLES:
+        return priced(prices, bucket.usage)
+    return bucket.avg_cost_usd
+
+
+def _seconds_per_call(stats: Sequence[CallStat], locale: str) -> float:
+    """平均耗时同样先按语言(中文调用比英文慢 30–70%,调研 1.2 节 k),不够再不分语言,再兜底。"""
+    for group in ([st for st in stats if st.locale == locale], stats):
+        timed = [st for st in group if st.n >= MIN_STAT_SAMPLES]
+        if timed:
+            return round(sum(st.avg_latency_ms * st.n for st in timed) / sum(st.n for st in timed) / 1000, 1)
+    return AVG_SECONDS_PER_CALL
+
+
+def unit_prices(
+    adapters: dict[str, SurfaceAdapter], stats: Sequence[CallStat], *, locale: str,
+    brand_stats: Sequence[CallStat] = (),
+) -> UnitPrices:
+    """stats = 全库统计;brand_stats = 同品牌各单的统计(含本单已问的),有够数的就先用它(D5)。"""
+
+    def price(target: Target, mode: SearchMode, declared: float) -> UnitPrice:
+        meta = adapters[target.surface].meta()
+        table = meta.price_table.get(target.model)
+        own = _bucket(brand_stats, target, mode, locale, same_locale_only=True)
+        if own is not None:
+            return UnitPrice(cost_usd=_shape_price(own, table), basis=PriceBasis.BRAND)
+        measured = _bucket(stats, target, mode, locale)
+        if measured is not None:
+            return UnitPrice(cost_usd=_shape_price(measured, table), basis=PriceBasis.MEASURED)
+        if table is not None and target.model != meta.default_model:
+            lender = _bucket(stats, Target(surface=target.surface, model=meta.default_model), mode, locale)
+            if lender is not None and lender.n_usage >= MIN_STAT_SAMPLES:
+                return UnitPrice(cost_usd=priced(table, lender.usage), basis=PriceBasis.BORROWED,
+                                 shape_of=meta.default_model)
+        return UnitPrice(cost_usd=declared, basis=PriceBasis.DECLARED)
+
+    default: dict[str, UnitPrice] = {}
+    search_disabled: dict[str, UnitPrice] = {}
     for name in sorted(adapters):
         meta = adapters[name].meta()
         for model in meta.models:
             target = Target(surface=name, model=model)
-            default[target.key], is_measured = price(target, SearchMode.DEFAULT, meta.est_cost_per_call_usd[model])
-            (measured if is_measured else declared).append(target)
+            default[target.key] = price(target, SearchMode.DEFAULT, meta.est_cost_per_call_usd[model])
             if meta.est_cost_per_call_search_disabled_usd is not None:
                 search_disabled[target.key] = price(
-                    target, SearchMode.SEARCH_DISABLED, meta.est_cost_per_call_search_disabled_usd[model])[0]
-    timed = [st for st in stats if st.n >= MIN_STAT_SAMPLES]
-    seconds = (
-        sum(st.avg_latency_ms * st.n for st in timed) / sum(st.n for st in timed) / 1000
-        if timed else AVG_SECONDS_PER_CALL
-    )
-    return UnitPrices(default=default, search_disabled=search_disabled, seconds_per_call=round(seconds, 1),
-                      measured=measured, declared=declared)
+                    target, SearchMode.SEARCH_DISABLED, meta.est_cost_per_call_search_disabled_usd[model])
+    return UnitPrices(locale=locale, default=default, search_disabled=search_disabled,
+                      seconds_per_call=_seconds_per_call(stats, locale))
 
 
 class Estimate(FrozenModel):
@@ -93,10 +186,10 @@ def estimate_job(
     per_target: list[tuple[Target, float]] = []
     legs = 0
     for target in targets:
-        cost = prices.default[target.key] * per_leg_calls
+        cost = prices.cost(target.key, SearchMode.DEFAULT) * per_leg_calls
         legs += 1
         if dependency and target.key in prices.search_disabled:
-            cost += prices.search_disabled[target.key] * per_leg_calls
+            cost += prices.cost(target.key, SearchMode.SEARCH_DISABLED) * per_leg_calls
             legs += 1
         per_target.append((target, cost))
     calls = per_leg_calls * legs
