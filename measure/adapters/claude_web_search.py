@@ -44,18 +44,8 @@ from typing import Any
 
 import httpx
 
-from adapters.base import (
-    AdapterAccountError,
-    AdapterError,
-    AdapterPermanentError,
-    AdapterTransientError,
-    CapabilityNotSupportedError,
-    CapabilityRegistry,
-    SurfaceAdapter,
-    SurfaceMeta,
-    priced,
-)
-from adapters.http_support import contract_post, domain_of, full_body, spent_on
+from adapters.base import AdapterError, AdapterTransientError, CapabilityRegistry, SurfaceMeta, known_model, priced
+from adapters.http_support import STRUCTURE_ERRORS, HttpAdapter, domain_of, full_body, malformed, require_list, spent_on
 from engine.models import (
     NOT_OBSERVABLE,
     Answer,
@@ -112,10 +102,7 @@ _CAPABILITIES = CapabilityRegistry(
 
 def _blocks(data: Any) -> list[Any]:
     """取响应的 content 块列表;形状不对按 Permanent 上抛(平台改格式须显式暴露)。"""
-    if not isinstance(data, dict) or not isinstance(data.get("content"), list):
-        raise AdapterPermanentError(f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 content 列表",
-                                    response_body=full_body(data))
-    return data["content"]
+    return require_list(data, "content")
 
 
 def _search_requests(data: dict[str, Any]) -> int:
@@ -212,10 +199,8 @@ def _translate(
                             )
                     else:  # HTTP 200 + 错误块(平台的工具级错误通道)
                         tool_error = (content or {}).get("error_code") or "unknown"
-    except (KeyError, TypeError, AttributeError, ValueError) as exc:  # 列表项不是 dict、字段类型怪:也算结构不符
-        raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}",
-                                    response_body=full_body({"responses": responses}),
-                                    cost_usd=spent_on(lambda: _cost_usd(responses, model))) from exc
+    except STRUCTURE_ERRORS as exc:  # 列表项不是 dict、字段类型怪:也算结构不符
+        raise malformed(exc, {"responses": responses}, lambda: _cost_usd(responses, model)) from exc
 
     if tool_error is not None and tool_error != "max_uses_exceeded":  # 平台回了话、钱照计:花费随失败行落(第二轮 26)
         raise AdapterTransientError(f"web_search 工具错误块: {tool_error}",
@@ -266,10 +251,9 @@ def _translate(
     return SurfaceRun(outcome=Outcome.SUCCESS, **run_fields)
 
 
-class ClaudeWebSearchAdapter(SurfaceAdapter):
+class ClaudeWebSearchAdapter(HttpAdapter):
     def __init__(self, api_key: str, client: httpx.Client | None = None) -> None:
-        self._client = client or httpx.Client()
-        self._headers = {"x-api-key": api_key, "anthropic-version": API_VERSION}
+        super().__init__(headers={"x-api-key": api_key, "anthropic-version": API_VERSION}, client=client)
 
     def meta(self) -> SurfaceMeta:
         return SurfaceMeta(
@@ -306,17 +290,9 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
     def ask(self, request: AskRequest) -> SurfaceRun:
         """适配器只做两件事(CLAUDE.md 硬边界 3):AskRequest → 平台调用(_payload / _converse),
         平台返回 → SurfaceRun(_translate)。"""
-        _CAPABILITIES.require_search_mode(request.search_mode)
+        _CAPABILITIES.require_request(request)
         search_disabled = request.search_mode is SearchMode.SEARCH_DISABLED
-        if request.region is not None and search_disabled:
-            raise CapabilityNotSupportedError(
-                "search_disabled 模式无法钉地区:user_location 挂在检索工具上,该模式不带工具"
-            )
-        model = request.model or _DEFAULT_MODEL
-        if model not in _TOKEN_PRICES_PER_MTOK:
-            raise AdapterPermanentError(
-                f"未知模型 {model!r},本 surface 支持: {list(_TOKEN_PRICES_PER_MTOK)}"
-            )
+        model = known_model(request.model, _DEFAULT_MODEL, _TOKEN_PRICES_PER_MTOK)
         responses, latency_ms, started_at = self._converse(request, _payload(request, model, search_disabled))
         return _translate(request, model, search_disabled, responses, latency_ms, started_at)
 
@@ -326,13 +302,8 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
         """发请求;遇 pause_turn 按协议续传(有界),返回全部响应段、总耗时、开始时刻。
         续传途中失败(续传请求报错、或续传回包结构不对):前几段已经计费,花费带在异常上随失败行落(第二轮审核 26)。"""
         model = payload["model"]
-        data, latency_ms, started_at = contract_post(
-            self._client,
-            f"{BASE_URL}/v1/messages",
-            headers=self._headers,
-            payload=payload,
-            timeout_s=request.timeout_s,
-        )
+        data, latency_ms, started_at = self._post(f"{BASE_URL}/v1/messages", payload=payload,
+                                                  timeout_s=request.timeout_s)
         _blocks(data)  # 结构防线:每段响应必须有 content 列表
         responses: list[dict[str, Any]] = [data]
         total_latency = latency_ms
@@ -348,13 +319,8 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
                         {"role": "assistant", "content": [b for r in responses for b in _blocks(r)]},
                     ],
                 )
-                data, latency_ms, _ = contract_post(
-                    self._client,
-                    f"{BASE_URL}/v1/messages",
-                    headers=self._headers,
-                    payload=continuation,
-                    timeout_s=request.timeout_s,
-                )
+                data, latency_ms, _ = self._post(f"{BASE_URL}/v1/messages", payload=continuation,
+                                                 timeout_s=request.timeout_s)
                 _blocks(data)
                 responses.append(data)
                 total_latency += latency_ms
@@ -369,23 +335,8 @@ class ClaudeWebSearchAdapter(SurfaceAdapter):
         return responses, total_latency, started_at
 
     def healthcheck(self) -> bool:
-        try:
-            contract_post(
-                self._client,
-                f"{BASE_URL}/v1/messages",
-                headers=self._headers,
-                payload={
-                    "model": _DEFAULT_MODEL,
-                    "max_tokens": 1,  # 不带检索工具的最小请求:验 key 与配额,成本近零
-                    "messages": [{"role": "user", "content": "ping"}],
-                },
-                timeout_s=15.0,
-            )
-        except AdapterAccountError:
-            raise  # 账户问题要说清是换 key 还是充值:开跑前预检据此停单(S11.1)
-        except AdapterError:
-            return False
-        return True
-
-    def close(self) -> None:
-        self._client.close()
+        return self._probe(f"{BASE_URL}/v1/messages", payload={
+            "model": _DEFAULT_MODEL,
+            "max_tokens": 1,  # 不带检索工具的最小请求:验 key 与配额,成本近零
+            "messages": [{"role": "user", "content": "ping"}],
+        })

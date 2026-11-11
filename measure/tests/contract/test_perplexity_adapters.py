@@ -185,7 +185,7 @@ def test_agent_undeclared_capabilities_raise_explicitly():
 
 
 def test_unknown_model_is_rejected_before_any_call():
-    with pytest.raises(AdapterPermanentError, match="不在本适配器清单"):
+    with pytest.raises(AdapterPermanentError, match="未知模型"):
         PerplexityAgentAdapter(api_key="test-key", client=httpx.Client()).ask(make_request(model="perplexity/nope"))
 
 

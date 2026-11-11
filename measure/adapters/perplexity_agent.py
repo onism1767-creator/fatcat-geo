@@ -11,7 +11,7 @@
   搜了、但两条通道都是空的 → citations_available=False:平台没把回答和来源对上,「看不到」;
   不得记成「引用 0 条」(2026-10-14 实测 perplexity/sonar 三次都是 annotations=[] 且正文无标记,见错误日志)。
   没搜 → 没有来源可引,citations=[] 且 citations_available=True(真实的「没引」)。
-  SearchTrace.retrieved_sources = 全部检索结果(按 id 顺序,rank = 顺序)、generated_queries = 检索词:
+  SearchTrace.retrieved_sources = 全部检索结果(按平台返回的顺序,rank = 顺序)、generated_queries = 检索词:
   两者 Agent API 都暴露,所以本 surface 自 S9.0 起 supports_query_trace=True(旧接口时期标「看不到」是因为平台不给)。
 - 没有机器可读的拒答信号(旧接口的 finish_reason=content_filter 在 Agent API 里没有对应):
   不从正文猜「算不算拒答」(属 L2)。
@@ -26,15 +26,8 @@ from typing import Any
 
 import httpx
 
-from adapters.base import (
-    AdapterAccountError,
-    AdapterError,
-    AdapterPermanentError,
-    CapabilityRegistry,
-    SurfaceAdapter,
-    SurfaceMeta,
-)
-from adapters.http_support import contract_post, domain_of, full_body, spent_on
+from adapters.base import AdapterPermanentError, CapabilityRegistry, SurfaceMeta, known_model
+from adapters.http_support import STRUCTURE_ERRORS, HttpAdapter, domain_of, full_body, malformed, require_list, spent_on
 from engine.models import (
     NOT_OBSERVABLE,
     Answer,
@@ -80,10 +73,7 @@ _MARKER = re.compile(r"\[(?:web:)?(\d+)\]")  # 正文里的引用标记:[3] 或 
 
 def _output_items(data: Any) -> list[dict[str, Any]]:
     """取 output 项列表;形状不对按 Permanent 上抛(平台改格式须显式暴露)。"""
-    if not isinstance(data, dict) or not isinstance(data.get("output"), list):
-        raise AdapterPermanentError(f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 output 列表",
-                                    response_body=full_body(data))
-    return [item for item in data["output"] if isinstance(item, dict)]
+    return [item for item in require_list(data, "output") if isinstance(item, dict)]
 
 
 def _text_parts(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
@@ -199,10 +189,9 @@ def _translate(
     )
 
 
-class PerplexityAgentAdapter(SurfaceAdapter):
+class PerplexityAgentAdapter(HttpAdapter):
     def __init__(self, api_key: str, client: httpx.Client | None = None) -> None:
-        self._client = client or httpx.Client()
-        self._headers = {"Authorization": f"Bearer {api_key}"}
+        super().__init__(headers={"Authorization": f"Bearer {api_key}"}, client=client)
 
     def meta(self) -> SurfaceMeta:
         return SurfaceMeta(
@@ -229,21 +218,15 @@ class PerplexityAgentAdapter(SurfaceAdapter):
         return _usage(raw_payload) if isinstance(raw_payload, dict) else {}
 
     def ask(self, request: AskRequest) -> SurfaceRun:
-        _CAPABILITIES.require_search_mode(request.search_mode)
-        if request.region is not None:
-            _CAPABILITIES.require("supports_region")
-        model = request.model or _DEFAULT_MODEL
-        if model not in _TOKEN_PRICES_PER_MTOK:
-            raise AdapterPermanentError(f"型号 {model!r} 不在本适配器清单里(清单与价目同步维护)")
+        _CAPABILITIES.require_request(request)
+        model = known_model(request.model, _DEFAULT_MODEL, _TOKEN_PRICES_PER_MTOK)
         payload = {
             "model": model,
             "input": request.prompt_text,
             "tools": [{"type": "web_search"}],
             "max_output_tokens": MAX_OUTPUT_TOKENS,
         }
-        data, latency_ms, started_at = contract_post(
-            self._client, AGENT_URL, headers=self._headers, payload=payload, timeout_s=request.timeout_s,
-        )
+        data, latency_ms, started_at = self._post(AGENT_URL, payload=payload, timeout_s=request.timeout_s)
         items = _output_items(data)
         status = data.get("status")
         if status not in _SUCCESS_STATUSES:  # 平台回了话、钱照计,却报失败:花费随失败行落(第二轮审核 26)
@@ -252,24 +235,8 @@ class PerplexityAgentAdapter(SurfaceAdapter):
                                         response_body=full_body(data), cost_usd=spent_on(lambda: _cost_usd(data)))
         try:
             return _translate(request, model, items, data, latency_ms, started_at)
-        except (KeyError, TypeError, AttributeError, ValueError) as exc:
-            # 结构防线(第二轮审核 26:原来这家没有):字段类型怪(标题不是字符串、位置不是数字、成本不是数……)也算
-            # 结构不符,带整份响应按 Permanent 上抛——不让原始异常冒出去成了「契约之外的异常」、连响应都没存
-            raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}", response_body=full_body(data),
-                                        cost_usd=spent_on(lambda: _cost_usd(data))) from exc
+        except STRUCTURE_ERRORS as exc:  # 字段类型怪(标题不是字符串、位置不是数字、成本不是数……):也算结构不符
+            raise malformed(exc, data, lambda: _cost_usd(data)) from exc
 
     def healthcheck(self) -> bool:
-        try:
-            contract_post(
-                self._client, AGENT_URL, headers=self._headers,
-                payload={"model": _DEFAULT_MODEL, "input": "ping", "max_output_tokens": 16},
-                timeout_s=15.0,
-            )
-        except AdapterAccountError:
-            raise  # 账户问题要说清是换 key 还是充值:开跑前预检据此停单(S11.1)
-        except AdapterError:
-            return False
-        return True
-
-    def close(self) -> None:
-        self._client.close()
+        return self._probe(AGENT_URL, payload={"model": _DEFAULT_MODEL, "input": "ping", "max_output_tokens": 16})

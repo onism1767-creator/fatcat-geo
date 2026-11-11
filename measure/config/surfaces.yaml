@@ -23,8 +23,7 @@ surfaces:
       supports_forced_search: false
       supports_search_disabled: false
 
-  # 2026-09-08 落地核对(暂定值修订):supports_offline 改 false(v1 未定义语义,
-  # 平台的 external_web_access 仅缓存模式存在但无消费方,不虚报)。
+  # 2026-09-08 落地核对。平台的 external_web_access 仅缓存模式存在但无消费方,未接入。
   - name: openai_web_search
     provider: openai
     aliases: [gpt, chatgpt, oai]
@@ -37,11 +36,9 @@ surfaces:
       supports_region: true           # user_location(approximate country)
       supports_forced_search: true    # tool_choice=required——全链首个强制检索 surface
       supports_search_disabled: true  # 不带工具调用,测参数化知识
-      supports_offline: false
 
-  # 2026-09-08 落地核对(暂定值修订):supports_offline 改 false(v1 未定义语义,
-  # 不虚报)。候选集平台不暴露(search_result 仅搜索建议组件),retrieved_sources
-  # 记 NOT_OBSERVABLE;引用 URL 为平台跳转链,真实域名在 title 字段(见适配器注)。
+  # 2026-09-08 落地核对。候选集平台不暴露(search_result 仅搜索建议组件),retrieved_sources
+  # 记 NOT_OBSERVABLE;引用 URL 为平台跳转链,domain 记跳转服务主机名,引擎采样后还原终点再判(S4,见适配器注)。
   - name: gemini_grounding
     provider: gemini
     aliases: [google, bard, vertexai]
@@ -54,11 +51,9 @@ surfaces:
       supports_region: false          # 接地工具无地区参数
       supports_forced_search: false   # 平台无强制检索开关
       supports_search_disabled: true  # 不带工具调用,测参数化知识
-      supports_offline: false
       citation_urls_redirect: true    # 引用是平台跳转链(vertexaisearch…/grounding-api-redirect),引擎采样后还原终点(S4)
 
-  # 2026-08-25 落地核对(暂定值修订):supports_offline 改 false——v1 未定义该
-  # 能力语义,不虚报;候选集可观测(进 retrieved_sources 存档),走生成端检索链路口径,收敛判据仍是引用。
+  # 2026-08-25 落地核对。候选集可观测(进 retrieved_sources 存档),走生成端检索链路口径,收敛判据仍是引用。
   - name: claude_web_search
     provider: anthropic
     aliases: [claude]
@@ -71,4 +66,3 @@ surfaces:
       supports_region: true           # user_location(approximate country)
       supports_forced_search: false   # 平台无强制检索开关
       supports_search_disabled: true  # 不带工具调用,测参数化知识
-      supports_offline: false

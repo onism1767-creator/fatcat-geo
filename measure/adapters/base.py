@@ -12,7 +12,7 @@ SurfaceRun。不判定品牌提及、不算指标、不猜缺失字段、不自�
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 
 from engine.models import ACCOUNT_ERROR_TYPES, AskRequest, FrozenModel, JsonValue, RunErrorType, SearchMode, SurfaceRun
 
@@ -104,7 +104,6 @@ class CapabilityRegistry(FrozenModel):
     supports_region: bool = False
     supports_forced_search: bool = False
     supports_search_disabled: bool = False
-    supports_offline: bool = False
     # 该仪器给的引用是平台跳转链,链接主机名是跳转服务不是来源:适配器照旧只翻译(domain = 链接主机名),
     # 引擎采样后跟随跳转还原终点再判(v0.4.26 S4,C2)
     citation_urls_redirect: bool = False
@@ -116,11 +115,21 @@ class CapabilityRegistry(FrozenModel):
             raise CapabilityNotSupportedError(f"该 surface 未声明能力: {capability}")
 
     def require_search_mode(self, mode: SearchMode) -> None:
-        """适配器在 ask() 入口调用,校验请求的检索模式是否在声明能力内。"""
+        """校验请求的检索模式是否在声明能力内。"""
         if mode is SearchMode.FORCED_SEARCH:
             self.require("supports_forced_search")
         elif mode is SearchMode.SEARCH_DISABLED:
             self.require("supports_search_disabled")
+
+    def require_request(self, request: AskRequest) -> None:
+        """适配器在 ask() 入口调用:检索模式与地区都要在声明能力内。闭卷(search_disabled)钉不了地区——
+        地区参数随检索工具一起下发,该模式不带工具(四家一样,原来两家各写一份)。"""
+        self.require_search_mode(request.search_mode)
+        if request.region is None:
+            return
+        self.require("supports_region")
+        if request.search_mode is SearchMode.SEARCH_DISABLED:
+            raise CapabilityNotSupportedError("search_disabled 模式无法钉地区:地区参数随检索工具下发,该模式不带工具")
 
 
 # ── SurfaceMeta 与接口(6.1)──────────────────────────────────────────
@@ -156,6 +165,15 @@ class SurfaceMeta(FrozenModel):
     est_cost_per_call_search_disabled_usd: dict[str, float] | None = None
 
 
+def known_model(requested: str | None, default: str, allowed: Iterable[str]) -> str:
+    """请求的型号(没给就用默认)必须在本仪器的清单里:清单与价目同步维护,清单外的型号算不出钱,不能带病跑。
+    四家适配器共用这一处(原来各写一份、两种措辞)。"""
+    model = requested or default
+    if model not in allowed:
+        raise AdapterPermanentError(f"未知模型 {model!r},本 surface 支持: {list(allowed)}")
+    return model
+
+
 def priced(prices: Mapping[str, float], usage: Mapping[str, float]) -> float:
     """用量 × 牌价:各适配器算实际费用、确认页按用量形状估价,都是这一个公式。牌价里没有的计费项不计(不臆造)。"""
     return sum(quantity * prices.get(key, 0.0) for key, quantity in usage.items())
@@ -180,7 +198,8 @@ class SurfaceAdapter(ABC):
     @abstractmethod
     def healthcheck(self) -> bool:
         """key 有效性、配额可用性(最小请求,成本近零)。账户问题(key 无效 / 额度不足)直接抛 AdapterAccountError——
-        开跑前预检据此停单并说清是换 key 还是充值(S11.1);其余问题(服务不可用、网络)返回 False。"""
+        开跑前预检据此停单并说清是换 key 还是充值(S11.1);其余问题(服务不可用、网络)返回 False。
+        走 HTTP 的适配器用 adapters/http_support.HttpAdapter._probe,四家一样。"""
 
     def usage_of(self, raw_payload: JsonValue) -> dict[str, float]:
         """从原始存档里读出这次调用的计费用量(输入 / 输出 / 思考 token、搜了几次……),键与 meta().price_table 的计费项

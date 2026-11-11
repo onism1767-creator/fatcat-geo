@@ -39,18 +39,8 @@ from typing import Any
 
 import httpx
 
-from adapters.base import (
-    AdapterAccountError,
-    AdapterError,
-    AdapterPermanentError,
-    AdapterTransientError,
-    CapabilityNotSupportedError,
-    CapabilityRegistry,
-    SurfaceAdapter,
-    SurfaceMeta,
-    priced,
-)
-from adapters.http_support import contract_post, domain_of, full_body, spent_on
+from adapters.base import AdapterTransientError, CapabilityRegistry, SurfaceMeta, known_model, priced
+from adapters.http_support import STRUCTURE_ERRORS, HttpAdapter, domain_of, full_body, malformed, require_list, spent_on
 from engine.models import (
     Answer,
     AskRequest,
@@ -159,10 +149,7 @@ def _translate(
     started_at: datetime,
 ) -> SurfaceRun:
     """平台返回 → SurfaceRun。只翻译,不判定;结构不对按 Permanent 上抛(平台改格式须显式暴露)。"""
-    if not isinstance(data, dict) or not isinstance(data.get("output"), list):
-        raise AdapterPermanentError(
-            f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 output 列表", response_body=full_body(data),
-        )
+    output = require_list(data, "output")
     if data.get("status") == "failed":  # 平台回了话、钱照计,却报失败:花费随失败行落(第二轮审核 26)
         raise AdapterTransientError(f"响应 status=failed: {data.get('error')}", response_body=full_body(data),
                                     cost_usd=spent_on(lambda: _cost_usd(data, model)))
@@ -177,7 +164,7 @@ def _translate(
     search_observed = False
     refusal_text: str | None = None
     try:
-        for item in data["output"]:
+        for item in output:
             item_type = item.get("type")
             if item_type == "web_search_call":
                 search_observed = True
@@ -219,9 +206,8 @@ def _translate(
                             )
                     elif part_type == "refusal":
                         refusal_text = part.get("refusal") or "refusal"
-    except (KeyError, TypeError, AttributeError, ValueError) as exc:  # 列表项不是 dict、字段类型怪:也算结构不符
-        raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}", response_body=full_body(data),
-                                    cost_usd=spent_on(lambda: _cost_usd(data, model))) from exc
+    except STRUCTURE_ERRORS as exc:  # 列表项不是 dict、字段类型怪:也算结构不符
+        raise malformed(exc, data, lambda: _cost_usd(data, model)) from exc
 
     answer_text = "".join(answer_parts)
     run_fields: dict[str, Any] = dict(
@@ -267,10 +253,9 @@ def _translate(
     return SurfaceRun(outcome=Outcome.SUCCESS, **run_fields)
 
 
-class OpenAIWebSearchAdapter(SurfaceAdapter):
+class OpenAIWebSearchAdapter(HttpAdapter):
     def __init__(self, api_key: str, client: httpx.Client | None = None) -> None:
-        self._client = client or httpx.Client()
-        self._headers = {"Authorization": f"Bearer {api_key}"}
+        super().__init__(headers={"Authorization": f"Bearer {api_key}"}, client=client)
 
     def meta(self) -> SurfaceMeta:
         return SurfaceMeta(
@@ -287,13 +272,13 @@ class OpenAIWebSearchAdapter(SurfaceAdapter):
             price_table=_PRICE_TABLE,
             # 口径:推导上界,按型号各算(无检索次数上限参数,按 3 次检索、每次约 1.2 万
             # 检索内容 token 的 Potato 校准值估),有足量实测后确认页改读实测均值:
-            # 默认型号 (2000 + 3×12000)/1e6×$2 + 2000/1e6×$12 + 3×$0.01 ≈ $0.13
+            # 默认型号 gpt-5.6-luna (2000 + 3×12000)/1e6×$0.2 + 2000/1e6×$1.2 + 3×$0.01 ≈ $0.04
             est_cost_per_call_usd={
                 model: round((2000 + 3 * 12000) / 1e6 * price_in + 2000 / 1e6 * price_out
                              + 3 * _SEARCH_USD_PER_CALL, 3)
                 for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
             },
-            # 闭卷腿口径:同源推导上界,无检索项:默认型号 (2000×$2 + 2000×$12)/1e6 ≈ $0.03
+            # 闭卷腿口径:同源推导上界,无检索项:默认型号 (2000×$0.2 + 2000×$1.2)/1e6 ≈ $0.003
             est_cost_per_call_search_disabled_usd={
                 model: round((2000 * price_in + 2000 * price_out) / 1e6, 3)
                 for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
@@ -305,45 +290,18 @@ class OpenAIWebSearchAdapter(SurfaceAdapter):
 
     def ask(self, request: AskRequest) -> SurfaceRun:
         """适配器只做两件事(CLAUDE.md 硬边界 3):AskRequest → 平台调用(_payload),平台返回 → SurfaceRun(_translate)。"""
-        _CAPABILITIES.require_search_mode(request.search_mode)
+        _CAPABILITIES.require_request(request)
         search_disabled = request.search_mode is SearchMode.SEARCH_DISABLED
-        if request.region is not None and search_disabled:
-            raise CapabilityNotSupportedError(
-                "search_disabled 模式无法钉地区:user_location 挂在检索工具上,该模式不带工具"
-            )
-        model = request.model or _DEFAULT_MODEL
-        if model not in _TOKEN_PRICES_PER_MTOK:
-            raise AdapterPermanentError(
-                f"未知模型 {model!r},本 surface 支持: {list(_TOKEN_PRICES_PER_MTOK)}"
-            )
-        data, latency_ms, started_at = contract_post(
-            self._client,
-            f"{BASE_URL}/v1/responses",
-            headers=self._headers,
-            payload=_payload(request, model, search_disabled),
-            timeout_s=request.timeout_s,
+        model = known_model(request.model, _DEFAULT_MODEL, _TOKEN_PRICES_PER_MTOK)
+        data, latency_ms, started_at = self._post(
+            f"{BASE_URL}/v1/responses", payload=_payload(request, model, search_disabled), timeout_s=request.timeout_s,
         )
         return _translate(request, model, search_disabled, data, latency_ms, started_at)
 
     def healthcheck(self) -> bool:
-        try:
-            contract_post(
-                self._client,
-                f"{BASE_URL}/v1/responses",
-                headers=self._headers,
-                payload={
-                    "model": _DEFAULT_MODEL,
-                    "input": "ping",
-                    "max_output_tokens": 16,  # 平台下限;不带检索工具,成本近零
-                    "store": False,
-                },
-                timeout_s=15.0,
-            )
-        except AdapterAccountError:
-            raise  # 账户问题要说清是换 key 还是充值:开跑前预检据此停单(S11.1)
-        except AdapterError:
-            return False
-        return True
-
-    def close(self) -> None:
-        self._client.close()
+        return self._probe(f"{BASE_URL}/v1/responses", payload={
+            "model": _DEFAULT_MODEL,
+            "input": "ping",
+            "max_output_tokens": 16,  # 平台下限;不带检索工具,成本近零
+            "store": False,
+        })

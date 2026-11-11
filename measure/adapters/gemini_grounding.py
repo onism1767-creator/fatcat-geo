@@ -27,9 +27,8 @@
 - 终态:status=completed/incomplete → SUCCESS(截断的回答也是回答);
   failed/cancelled 及其余状态按瞬时错误上抛;google_search_result 的
   is_error=true 视为检索基础设施污染本次采样,同样上抛;
-- 计费(价目 2026-09-08:促销价至 2026-12-31,2027 起翻倍,届时同步):
-  思考 token 按输出价计费;检索按「执行的唯一非空查询数」计费
-  $14/千条(每月 5000 条免费额度全家共享,预估不指望免费额度)。
+- 计费(价目与到期日见下面价目表的注释,以那里为准):思考 token 按输出价计费;
+  检索按「执行的唯一非空查询数」计费 $14/千条(每月 5000 条免费额度全家共享,预估不指望免费额度)。
 """
 
 from __future__ import annotations
@@ -39,17 +38,8 @@ from typing import Any
 
 import httpx
 
-from adapters.base import (
-    AdapterAccountError,
-    AdapterError,
-    AdapterPermanentError,
-    AdapterTransientError,
-    CapabilityRegistry,
-    SurfaceAdapter,
-    SurfaceMeta,
-    priced,
-)
-from adapters.http_support import contract_post, domain_of, full_body, spent_on
+from adapters.base import AdapterTransientError, CapabilityRegistry, SurfaceMeta, known_model, priced
+from adapters.http_support import STRUCTURE_ERRORS, HttpAdapter, domain_of, full_body, malformed, require_list, spent_on
 from engine.models import (
     NOT_OBSERVABLE,
     Answer,
@@ -150,10 +140,7 @@ def _translate(
     started_at: datetime,
 ) -> SurfaceRun:
     """平台返回 → SurfaceRun。只翻译,不判定;结构不对按 Permanent 上抛(平台改格式须显式暴露)。"""
-    if not isinstance(data, dict) or not isinstance(data.get("steps"), list):
-        raise AdapterPermanentError(
-            f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 steps 列表", response_body=full_body(data),
-        )
+    steps = require_list(data, "steps")
     status = data.get("status")
     if status not in _SUCCESS_STATUSES:  # 平台回了话、钱照计,却报失败:花费随失败行落(第二轮审核 26)
         raise AdapterTransientError(f"互动终态异常 status={status!r}", response_body=full_body(data),
@@ -165,8 +152,8 @@ def _translate(
     cited_urls: set[str] = set()
     search_observed = False
     try:
-        queries = _queries(data["steps"])
-        for step in data["steps"]:
+        queries = _queries(steps)
+        for step in steps:
             step_type = step.get("type")
             if step_type == "google_search_call":
                 search_observed = True
@@ -194,9 +181,8 @@ def _translate(
                                 position=len(citations) + 1,
                             )
                         )
-    except (KeyError, TypeError, AttributeError, ValueError) as exc:  # 列表项不是 dict、字段类型怪:也算结构不符
-        raise AdapterPermanentError(f"响应结构不符合预期: {exc!r}", response_body=full_body(data),
-                                    cost_usd=spent_on(lambda: _cost_usd(data, model))) from exc
+    except STRUCTURE_ERRORS as exc:  # 列表项不是 dict、字段类型怪:也算结构不符
+        raise malformed(exc, data, lambda: _cost_usd(data, model)) from exc
 
     answer_text = "".join(answer_parts)
     run = SurfaceRun(
@@ -234,10 +220,9 @@ def _translate(
     return run
 
 
-class GeminiGroundingAdapter(SurfaceAdapter):
+class GeminiGroundingAdapter(HttpAdapter):
     def __init__(self, api_key: str, client: httpx.Client | None = None) -> None:
-        self._client = client or httpx.Client()
-        self._headers = {"x-goog-api-key": api_key}
+        super().__init__(headers={"x-goog-api-key": api_key}, client=client)
 
     def meta(self) -> SurfaceMeta:
         return SurfaceMeta(
@@ -271,38 +256,15 @@ class GeminiGroundingAdapter(SurfaceAdapter):
 
     def ask(self, request: AskRequest) -> SurfaceRun:
         """适配器只做两件事(CLAUDE.md 硬边界 3):AskRequest → 平台调用(_payload),平台返回 → SurfaceRun(_translate)。"""
-        _CAPABILITIES.require_search_mode(request.search_mode)
-        if request.region is not None:
-            _CAPABILITIES.require("supports_region")
+        _CAPABILITIES.require_request(request)
         search_disabled = request.search_mode is SearchMode.SEARCH_DISABLED
-        model = request.model or _DEFAULT_MODEL
-        if model not in _ALL_PRICES_PER_MTOK:
-            raise AdapterPermanentError(
-                f"未知模型 {model!r},本 surface 支持: {list(_ALL_PRICES_PER_MTOK)}"
-            )
-        data, latency_ms, started_at = contract_post(
-            self._client,
-            f"{BASE_URL}/v1beta/interactions",
-            headers=self._headers,
-            payload=_payload(request, model, search_disabled),
+        model = known_model(request.model, _DEFAULT_MODEL, _ALL_PRICES_PER_MTOK)
+        data, latency_ms, started_at = self._post(
+            f"{BASE_URL}/v1beta/interactions", payload=_payload(request, model, search_disabled),
             timeout_s=request.timeout_s,
         )
         return _translate(request, model, search_disabled, data, latency_ms, started_at)
 
     def healthcheck(self) -> bool:
-        try:
-            contract_post(
-                self._client,
-                f"{BASE_URL}/v1beta/interactions",
-                headers=self._headers,
-                payload={"model": _DEFAULT_MODEL, "input": "ping", "store": False},
-                timeout_s=30.0,
-            )
-        except AdapterAccountError:
-            raise  # 账户问题要说清是换 key 还是充值:开跑前预检据此停单(S11.1)
-        except AdapterError:
-            return False
-        return True
-
-    def close(self) -> None:
-        self._client.close()
+        return self._probe(f"{BASE_URL}/v1beta/interactions",
+                           payload={"model": _DEFAULT_MODEL, "input": "ping", "store": False}, timeout_s=30.0)

@@ -15,7 +15,13 @@ from urllib.parse import urlsplit
 
 import httpx
 
-from adapters.base import AdapterAccountError, AdapterPermanentError, AdapterTransientError
+from adapters.base import (
+    AdapterAccountError,
+    AdapterError,
+    AdapterPermanentError,
+    AdapterTransientError,
+    SurfaceAdapter,
+)
 from engine.models import RunErrorType
 
 # 平台把"账户没钱"塞在 400 或 429 里时,靠响应体里的这些标记辨认(v0.4.21)。只认结构化错误码或官方文档写明的
@@ -59,6 +65,8 @@ _ACCOUNT_QUOTA_MARKERS = (  # 这个周期的额度用完:重试没用,等重置
 
 # HTTP 错误页只留头尾各这么多字:代理 / 网关可能吐一整张网页,平台的错误说明常在开头,结尾常是请求号(第二轮审核 26)
 _ERROR_BODY_KEEP: Final = 8000
+# 翻译平台返回时「字段类型怪」会抛的异常(列表项不是 dict、标题不是字符串、位置不是数字……):一律算结构不符
+STRUCTURE_ERRORS: Final = (KeyError, TypeError, AttributeError, ValueError)
 
 
 def domain_of(url: str) -> str:
@@ -83,6 +91,21 @@ def clipped(text: str) -> str:
         return text
     dropped = len(text) - 2 * _ERROR_BODY_KEEP
     return f"{text[:_ERROR_BODY_KEEP]}\n…[中间省略 {dropped} 字]…\n{text[-_ERROR_BODY_KEEP:]}"
+
+
+def require_list(data: Any, key: str) -> list[Any]:
+    """响应顶层必须是带 key 列表的字典(各家正文都挂在这样一个列表下);不是就按 Permanent 上抛——平台改格式须显式暴露,
+    不能静默翻译成空回答。四家共用(原来各写一份)。"""
+    if not isinstance(data, dict) or not isinstance(data.get(key), list):
+        raise AdapterPermanentError(f"响应结构不符合预期: 顶层为 {type(data).__name__},缺 {key} 列表",
+                                    response_body=full_body(data))
+    return data[key]
+
+
+def malformed(exc: Exception, body: Any, cost: Callable[[], float]) -> AdapterPermanentError:
+    """翻译途中抛了 STRUCTURE_ERRORS:带整份响应与这次已花的钱按 Permanent 上抛(第二轮审核 26)——不让原始异常冒出去
+    成了「契约之外的异常」、连响应都没存。调用方 `raise malformed(...) from exc`。"""
+    return AdapterPermanentError(f"响应结构不符合预期: {exc!r}", response_body=full_body(body), cost_usd=spent_on(cost))
 
 
 def spent_on(compute: Callable[[], float]) -> float:
@@ -219,3 +242,29 @@ def contract_post(
             f"HTTP {status} 响应体不是合法 JSON(疑似网关或代理插了一张网页,引擎会重试)",
             http_status=status, response_body=clipped(response.text),
         ) from exc
+
+
+class HttpAdapter(SurfaceAdapter):
+    """走 HTTP 的适配器的公共骨架:持有一个 httpx.Client 和这家的请求头;发请求、开跑前预检、关连接四家一样
+    (第三轮审核 B1,原来各抄一份)。翻译平台返回的部分仍各写各的——那才是每家不同的地方。"""
+
+    def __init__(self, *, headers: dict[str, str], client: httpx.Client | None = None) -> None:
+        self._client = client or httpx.Client()
+        self._headers = headers
+
+    def _post(self, url: str, *, payload: dict[str, Any], timeout_s: float) -> tuple[Any, int, datetime]:
+        return contract_post(self._client, url, headers=self._headers, payload=payload, timeout_s=timeout_s)
+
+    def _probe(self, url: str, *, payload: dict[str, Any], timeout_s: float = 15.0) -> bool:
+        """healthcheck 的实现:打一次最小请求(不带检索工具,成本近零)。账户问题不吞——开跑前预检据此停单并说清是
+        换 key 还是充值(S11.1);其余问题(服务不可用、网络、限流)返回 False。"""
+        try:
+            self._post(url, payload=payload, timeout_s=timeout_s)
+        except AdapterAccountError:
+            raise
+        except AdapterError:
+            return False
+        return True
+
+    def close(self) -> None:
+        self._client.close()
