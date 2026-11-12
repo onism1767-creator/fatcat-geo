@@ -586,7 +586,7 @@ def test_estimate_job_arithmetic():
     from report.estimate import PriceBasis, UnitPrice, UnitPrices, estimate_job
 
     cheap, pricey = Target(surface="a", model="x"), Target(surface="b", model="y")
-    declared = lambda cost: UnitPrice(cost_usd=cost, basis=PriceBasis.DECLARED)  # noqa: E731
+    declared = lambda cost: UnitPrice(cost_usd=cost, basis=PriceBasis.DECLARED, high_cost_usd=cost)  # noqa: E731
     prices = UnitPrices(locale="zh-CN", default={cheap.key: declared(0.005), pricey.key: declared(0.17)},
                         search_disabled={pricey.key: declared(0.04)}, seconds_per_call=20.0)
     # 按对象分价(v0.4.6):便宜通道与贵通道混选,成本逐个计价求和;次数固定(v0.4.26 S2)

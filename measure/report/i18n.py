@@ -185,6 +185,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "est_basis_borrowed": "{names} 还没实测过,按同一家默认型号的用量乘它自己的单价算。",
         "est_basis_declared": "{names} 还没有足够的历史记录,先按声明的单价算。",
         "est_basis_tail": "实际费用主要随 AI 搜几次、回答多长浮动。",
+        "est_high": "贵的时候约 ${cost}",
         "est_balance_hint": "开始前请确认所选 AI 的 API 账户里都有足够余额。余额不足时检测会自动停下、不再花钱,"
                             "已采集的结果会保留,充值后点「接着跑」就能继续。",
         "confirm_submit": "确认,开始检测(从这里开始计费)",
@@ -260,7 +261,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "cap_budget_label": "把上限提高到(美元)",
         "cap_resume_btn": "接着跑",
         "cap_report_btn": "就看现在的报告",
-        "cap_hint": "建议值 = 已花的钱 + 补齐大约还要的钱,再留一成余量;实际费用随 AI 回答的长短浮动。",
+        "cap_hint": "建议值 = 已花的钱 + 按「贵的时候」的单价补齐还要的钱(和确认页同一个算法);实际费用随 AI 回答的长短浮动。",
         "breaker_last": "最后一条平台原话:{last}",
         "breaker_offline_leg": "(不联网对照)",
         "breaker_code_AI_PROVIDER_ERROR": "{c} 次接口错误(超时 / 服务端错误)",
@@ -595,6 +596,7 @@ MESSAGES: dict[str, dict[str, str]] = {
                               "usage at their own list price.",
         "est_basis_declared": "{names} have too little history yet, so their declared unit price is used.",
         "est_basis_tail": "Actual cost varies mainly with how often the AI searches and how long its answers are.",
+        "est_high": "when pricey, about ${cost}",
         "est_balance_hint": "Before starting, make sure each selected AI's API account has enough balance. "
                             "If a balance runs out the run stops by itself and spends nothing more; "
                             "results already collected are kept, and after topping up you can press Resume.",
@@ -664,7 +666,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "cap_budget_label": "Raise the cap to (USD)",
         "cap_resume_btn": "Resume",
         "cap_report_btn": "Read the report as it is",
-        "cap_hint": "Suggested = what is spent + roughly what the rest costs, plus a tenth as margin; actual cost varies with answer length.",
+        "cap_hint": "Suggested = what is spent + the rest at the “when pricey” unit price (same formula as the confirm page); actual cost varies with answer length.",
         "breaker_last": "Last platform message: {last}",
         "breaker_offline_leg": " (search-off control)",
         "breaker_code_AI_PROVIDER_ERROR": "{c} API errors (timeout / server error)",

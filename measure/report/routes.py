@@ -289,6 +289,7 @@ def confirm_estimate(
     return JSONResponse({
         "calls": estimate.calls,
         "cost_usd": estimate.cost_usd,
+        "high_cost_usd": estimate.high_cost_usd,  # 「贵的时候约 $N」(Q1,用户定只多这一句)
         "minutes": estimate.minutes,
         "custom": choice.custom,
         "judge_calls": estimate.judge_calls,
@@ -459,7 +460,8 @@ def _prices(ctx: WebContext, job: DiagnosisJob) -> UnitPrices:
 
 def _cap_dialog(ctx: WebContext, job: DiagnosisJob, lang: str) -> dict[str, Any] | None:
     """跑完了、有型号是因为费用上限停的:任务页弹窗问要不要补齐(用户 2026-11-03 定「跑完再问」,别家不等、不多花钱)。
-    建议上限 = 已花的钱 + 没问完的次数 × 单价(确认页同一份),再留一成余量,向上取到 0.1 美元。"""
+    建议上限 = 已花的钱 + 没问完的次数 × 「贵的时候」的单价(和确认页「贵的时候约 $N」同一个数,用户定 Q7 乙;
+    原来用平常单价再留一成余量),向上取到 0.1 美元。"""
     stops = [d for d in job.stop_details if d.stop_reason is StopReason.BUDGET_EXHAUSTED]
     if job.state is not JobState.PARTIAL or not stops:
         return None
@@ -471,11 +473,11 @@ def _cap_dialog(ctx: WebContext, job: DiagnosisJob, lang: str) -> dict[str, Any]
     for d in stops:
         key = Target(surface=d.surface, model=d.model).key
         table = prices.search_disabled if d.search_mode is SearchMode.SEARCH_DISABLED else prices.default
-        extra += max(0, slots - d.n_attempts) * (table[key].cost_usd if key in table else 0.0)
+        extra += max(0, slots - d.n_attempts) * (table[key].high_cost_usd if key in table else 0.0)
         lines.append(t["cap_line"].format(ai=ctx.api_name(d.surface), model=d.model, k=d.n_attempts, n=slots))
     # 现有上限已经够的(腿停在它那份、整单没花到上限,续跑时剩余额度全给没问完的腿)就不用提高:上限只能往上调,
     # 填个比现在低的会被挡回来(小米真跑 2026-11-03:建议 $7.9、上限 $10,一点就 FORM_BAD_BUDGET)
-    suggested = max(job.budget_usd or 0.0, (int((job.spent_usd + extra * 1.1) * 10) + 1) / 10)
+    suggested = max(job.budget_usd or 0.0, (int((job.spent_usd + extra) * 10) + 1) / 10)
     return {"lines": lines, "suggested": suggested}
 
 

@@ -107,6 +107,7 @@
       ≈ <b><span id="est-min">–</span> {{ t["est_min_word"] }}</b>({{ t["est_note"] }})
       <span class="muted">{{ t["est_verify"].format(minutes=verify_minutes) }}</span>
       <span id="est-judge" class="muted" style="display:none"></span>
+      <span id="est-high" class="muted"></span>
       <span id="est-custom" class="muted" style="display:none">· {{ t["est_custom_note"] }}</span></p>
     <p class="kv muted">{{ t["est_breakdown"] }}<span id="est-breakdown">–</span></p>
     <p class="kv muted">{{ est_basis }}</p>
@@ -119,7 +120,7 @@
 // 预估公式只在服务端(report/estimate.py):每次勾选变化把整张表单发过去,这里只负责显示(v0.4.24 审查 #3)。
 // 档位(S9.1):选一档就把该档的型号与次数填进自定义区;用户再改就按自定义算(服务端判)。
 const TIERS = {{ tier_defaults|tojson }};
-const WORDS = {calls: {{ t["est_calls_word"]|tojson }}, min: {{ t["est_min_word"]|tojson }}, judge: {{ t["est_judge"]|tojson }}, judgeUpto: {{ t["est_judge_upto"]|tojson }}};
+const WORDS = {calls: {{ t["est_calls_word"]|tojson }}, min: {{ t["est_min_word"]|tojson }}, judge: {{ t["est_judge"]|tojson }}, judgeUpto: {{ t["est_judge_upto"]|tojson }}, high: {{ t["est_high"]|tojson }}};
 const form = document.getElementById('confirm-form');
 function applyTier(name) {
   const spec = TIERS[name];
@@ -147,6 +148,7 @@ async function recalc() {
   const judge = document.getElementById('est-judge');
   judge.textContent = e.judge_calls ? '· ' + judgeNote(e) : '';
   judge.style.display = e.judge_calls ? '' : 'none';
+  document.getElementById('est-high').textContent = '· ' + WORDS.high.replace('{cost}', e.high_cost_usd.toFixed(2));
   document.getElementById('est-breakdown').textContent = e.breakdown.length
     ? e.breakdown.map(b => b.display + ' ≈ $' + b.cost_usd.toFixed(2)).join('; ') : '–';
   for (const [name, est] of Object.entries(e.tiers)) {

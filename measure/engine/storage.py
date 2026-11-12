@@ -59,6 +59,10 @@ class CallStat(FrozenModel):
     avg_latency_ms: float
     usage: dict[str, float] = {}
     n_usage: int = 0
+    # 最贵的一成调用(按记的费用排,十等分的最后一档)的平均用量与条数:确认页「贵的时候约 $N」与续跑弹窗的建议值按它算
+    # (用户 2026-11-03 定 Q1 乙 / Q7 乙);不足 10 次分不出一成,空
+    usage_high: dict[str, float] = {}
+    n_high: int = 0
 
 
 def _judgement(payload: dict[str, Any]) -> dict[str, Any]:
@@ -395,17 +399,35 @@ class Storage:
             f"CROSS JOIN LATERAL jsonb_each_text(u.usage) e WHERE {where} GROUP BY 1, 2, 3, 4, 5",
             params,
         ).fetchall()
-        usage: dict[tuple[str, str, str, str], dict[str, float]] = {}
-        n_usage: dict[tuple[str, str, str, str], int] = {}
-        for surface, model, mode, locale, key, total, n in usage_rows:
-            group = (surface, model, mode, locale)
-            usage.setdefault(group, {})[key] = float(total) / n
-            n_usage[group] = max(n_usage.get(group, 0), n)
+        # 最贵的一成(Q1 / Q7):每桶按记的费用十等分,只取最后一档的用量平均;不足 10 次没有第 10 档
+        high_rows = self._conn.execute(
+            "WITH ranked AS (SELECT r.run_id, r.surface, r.model, r.search_mode, r.locale, "
+            "ntile(10) OVER (PARTITION BY r.surface, r.model, r.search_mode, r.locale ORDER BY r.cost_usd) AS decile "
+            f"FROM surface_run r WHERE {where}) "
+            "SELECT k.surface, k.model, k.search_mode, k.locale, e.key, sum(e.value::float), count(DISTINCT k.run_id) "
+            "FROM ranked k JOIN call_usage u ON u.run_id = k.run_id CROSS JOIN LATERAL jsonb_each_text(u.usage) e "
+            "WHERE k.decile = 10 GROUP BY 1, 2, 3, 4, 5",
+            params,
+        ).fetchall()
+
+        def averaged(found: list[tuple]) -> tuple[dict[tuple, dict[str, float]], dict[tuple, int]]:
+            means: dict[tuple, dict[str, float]] = {}
+            counts: dict[tuple, int] = {}
+            for surface, model, mode, locale, key, total, n in found:
+                group = (surface, model, mode, locale)
+                means.setdefault(group, {})[key] = float(total) / n
+                counts[group] = max(counts.get(group, 0), n)
+            return means, counts
+
+        usage, n_usage = averaged(usage_rows)
+        usage_high, n_high = averaged(high_rows)
         return [
             CallStat(surface=surface, model=model, search_mode=mode, locale=locale, n=n,
                      avg_cost_usd=float(cost or 0.0), avg_latency_ms=float(latency or 0.0),
                      usage=usage.get((surface, model, mode, locale), {}),
-                     n_usage=n_usage.get((surface, model, mode, locale), 0))
+                     n_usage=n_usage.get((surface, model, mode, locale), 0),
+                     usage_high=usage_high.get((surface, model, mode, locale), {}),
+                     n_high=n_high.get((surface, model, mode, locale), 0))
             for surface, model, mode, locale, n, cost, latency in rows
         ]
 

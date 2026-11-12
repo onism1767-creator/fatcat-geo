@@ -37,9 +37,37 @@ cheap, pricey = Target(surface="priced", model=CHEAP), Target(surface="priced", 
 
 
 def stat(model: str, locale: str, n: int, *, usage: dict[str, float], cost: float = 0.0, latency_ms: float = 10000,
-         mode: str = "default", n_usage: int | None = None) -> CallStat:
+         mode: str = "default", n_usage: int | None = None, usage_high: dict[str, float] | None = None) -> CallStat:
     return CallStat(surface="priced", model=model, search_mode=mode, locale=locale, n=n, avg_cost_usd=cost,
-                    avg_latency_ms=latency_ms, usage=usage, n_usage=n if n_usage is None else n_usage)
+                    avg_latency_ms=latency_ms, usage=usage, n_usage=n if n_usage is None else n_usage,
+                    usage_high=usage_high or {}, n_high=max(1, n // 10) if usage_high else 0)
+
+
+HIGH = {"input_tokens": 30000.0, "output_tokens": 2000.0, "searches": 3.0}  # 最贵的一成调用的用量形状
+
+
+def test_the_pricey_tenth_gives_a_second_unit_price_for_the_when_pricey_line():
+    """用户 2026-11-03 定 Q1 乙:确认页只多一句「贵的时候约 $N」——每个型号按实测最贵的一成的用量 × 牌价;
+    没实测过的本来就按声明上界,不另加;借用量的也借最贵一成的形状。"""
+    measured = unit_prices(ADAPTERS, [stat(CHEAP, "zh-CN", 20, usage=SHAPE, usage_high=HIGH)], locale="zh-CN")
+    unit = measured.default[cheap.key]
+    assert unit.cost_usd == pytest.approx(10000 * 1e-6 + 1000 * 2e-6 + 1.5 * 0.01)
+    assert unit.high_cost_usd == pytest.approx(30000 * 1e-6 + 2000 * 2e-6 + 3.0 * 0.01)
+    borrowed = measured.default[pricey.key]
+    assert borrowed.basis is PriceBasis.BORROWED
+    assert borrowed.high_cost_usd == pytest.approx(30000 * 10e-6 + 2000 * 50e-6 + 3.0 * 0.01)
+    # 分不出一成(没有 usage_high)→ 和平常一样;声明价本来就是上界
+    plain = unit_prices(ADAPTERS, [stat(CHEAP, "zh-CN", 12, usage=SHAPE)], locale="zh-CN")
+    assert plain.default[cheap.key].high_cost_usd == plain.default[cheap.key].cost_usd
+    declared = unit_prices(ADAPTERS, [], locale="zh-CN")
+    assert declared.default[pricey.key].high_cost_usd == 0.5 == declared.default[pricey.key].cost_usd
+    # 整单的「贵的时候」= 各腿按贵的单价加总(裁判费照加)
+    from report.estimate import estimate_job
+
+    est = estimate_job(n_prompts=2, runs_per_prompt=3, targets=[cheap], dependency=False, prices=measured,
+                       judge_cost_per_call=0.001)
+    assert est.cost_usd == pytest.approx(6 * unit.cost_usd + 6 * 0.001)
+    assert est.high_cost_usd == pytest.approx(6 * unit.high_cost_usd + 6 * 0.001)
 
 
 def test_measured_price_is_average_usage_times_current_list_price():
@@ -116,10 +144,12 @@ def test_confirm_page_says_which_models_borrow_the_default_models_usage():
     assert "预估按过去实测的平均费用和耗时算:假 AI · m-cheap" in page
     assert "假 AI · m-pricey 还没实测过,按同一家默认型号的用量乘它自己的单价算" in page
     assert "实际费用主要随 AI 搜几次、回答多长浮动" in page
+    assert 'id="est-high"' in page and "e.high_cost_usd" in page  # 只多这一句(Q1 乙),页面脚本填数;文案进了 JSON 被转义
     job_id = resp.headers["location"].split("/")[2]
     est = client.post(f"/jobs/{job_id}/estimate?lang=zh", data={
         "prompts_selected": ["0"], "targets_selected": [pricey.key], "tier": "low", "runs": "3"}).json()
     assert est["cost_usd"] == pytest.approx(3 * (10000 * 10e-6 + 1000 * 50e-6 + 1.5 * 0.01))
+    assert est["high_cost_usd"] == pytest.approx(est["cost_usd"])  # 这桶分不出最贵的一成:和平常一样
 
 
 def test_a_bucket_without_usage_records_uses_the_recorded_average_and_lends_nothing():

@@ -124,6 +124,7 @@ def test_call_stats_keep_languages_apart_and_average_the_usage(storage):
     stats = {s.locale: s for s in storage.call_stats() if s.surface == "surface-u"}
     assert stats["zh-CN"].n == 2 and stats["zh-CN"].n_usage == 2
     assert stats["zh-CN"].usage == {"input_tokens": 200.0, "searches": 1.5}
+    assert stats["zh-CN"].usage_high == {} and stats["zh-CN"].n_high == 0  # 不足 10 次分不出「最贵的一成」
     assert stats["zh-CN"].avg_cost_usd == pytest.approx(0.03)
     assert stats["en-US"].usage == {"input_tokens": 50.0, "searches": 0.0}
     assert storage.call_stats(prompt_ids=["no-such-prompt"]) == []
@@ -141,6 +142,19 @@ def test_call_stats_keep_languages_apart_and_average_the_usage(storage):
     assert "run-u-zh1" not in missing and "run-u-copy" in missing
     redo = storage.success_run_ids("surface-u")  # 记账规则改了整台重算(Q8):成功的都列,有没有用量记录都算
     assert {"run-u-zh1", "run-u-copy"} <= set(redo) and "run-stat-1" not in redo
+
+
+def test_call_stats_average_the_priciest_tenth_separately(storage):
+    """确认页「贵的时候约 $N」与续跑弹窗的建议值(用户 2026-11-03 定 Q1 乙 / Q7 乙):每桶按记的费用十等分,
+    最后一档的平均用量单独给;20 次里最贵的 2 次就是「最贵的一成」。"""
+    for i in range(1, 21):
+        run_id = f"run-h-{i}"
+        storage.insert_surface_run(make_run(run_id).model_copy(update={
+            "prompt_id": "prompt-h", "surface": "surface-h", "cost_usd": i / 100}))
+        storage.insert_call_usage(run_id, {"input_tokens": float(100 * i), "searches": float(i % 2)})
+    st = next(s for s in storage.call_stats() if s.surface == "surface-h")
+    assert st.n == 20 and st.n_usage == 20 and st.usage == {"input_tokens": 1050.0, "searches": 0.5}
+    assert st.n_high == 2 and st.usage_high == {"input_tokens": 1950.0, "searches": 0.5}  # 第 19、20 次
 
 
 def test_brand_prompt_ids_cover_every_job_of_that_brand(storage):

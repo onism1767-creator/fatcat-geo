@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from enum import StrEnum
 
 from adapters.base import SurfaceAdapter, priced
@@ -43,6 +43,9 @@ class UnitPrice(FrozenModel):
     cost_usd: float
     basis: PriceBasis
     shape_of: str | None = None  # BORROWED 时借的是哪个型号的用量
+    # 「贵的时候」的单价(用户 2026-11-03 定 Q1 乙 / Q7 乙):实测最贵的一成调用的平均用量 × 现牌价;没实测过的就是声明上界,
+    # 不另加。确认页只多一句「贵的时候约 $N」,续跑弹窗的建议值用同一个数
+    high_cost_usd: float
 
 
 class UnitPrices(FrozenModel):
@@ -56,6 +59,11 @@ class UnitPrices(FrozenModel):
     def cost(self, key: str, mode: SearchMode) -> float:
         table = self.search_disabled if mode is SearchMode.SEARCH_DISABLED else self.default
         return table[key].cost_usd
+
+    def high(self, key: str, mode: SearchMode) -> float:
+        """「贵的时候」的单价(Q1 / Q7)。"""
+        table = self.search_disabled if mode is SearchMode.SEARCH_DISABLED else self.default
+        return table[key].high_cost_usd
 
     def by_basis(self) -> dict[PriceBasis, list[Target]]:
         """开卷单价按依据分组(确认页说明用),依据按可信度排,组内按对象原序。"""
@@ -75,6 +83,8 @@ class _Bucket(FrozenModel):
     avg_cost_usd: float
     avg_latency_ms: float
     usage: dict[str, float]
+    n_high: int  # 最贵的一成有几次(Q1 / Q7)
+    usage_high: dict[str, float]
 
 
 def _merge(stats: Sequence[CallStat]) -> _Bucket | None:
@@ -82,15 +92,22 @@ def _merge(stats: Sequence[CallStat]) -> _Bucket | None:
     if n == 0:
         return None
     n_usage = sum(st.n_usage for st in stats)
-    usage: dict[str, float] = {}
-    for st in stats:
-        for key, mean in st.usage.items():
-            usage[key] = usage.get(key, 0.0) + mean * st.n_usage
+    n_high = sum(st.n_high for st in stats)
+
+    def weighted(means_of: Callable[[CallStat], dict[str, float]], weight_of: Callable[[CallStat], int],
+                 total_weight: int) -> dict[str, float]:
+        totals: dict[str, float] = {}
+        for st in stats:
+            for key, mean in means_of(st).items():
+                totals[key] = totals.get(key, 0.0) + mean * weight_of(st)
+        return {key: total / total_weight for key, total in totals.items()} if total_weight else {}
+
     return _Bucket(
-        n=n, n_usage=n_usage,
+        n=n, n_usage=n_usage, n_high=n_high,
         avg_cost_usd=sum(st.avg_cost_usd * st.n for st in stats) / n,
         avg_latency_ms=sum(st.avg_latency_ms * st.n for st in stats) / n,
-        usage={key: total / n_usage for key, total in usage.items()} if n_usage else {},
+        usage=weighted(lambda st: st.usage, lambda st: st.n_usage, n_usage),
+        usage_high=weighted(lambda st: st.usage_high, lambda st: st.n_high, n_high),
     )
 
 
@@ -113,6 +130,14 @@ def _shape_price(bucket: _Bucket, prices: dict[str, float] | None) -> float:
     return bucket.avg_cost_usd
 
 
+def _high_price(bucket: _Bucket, prices: dict[str, float] | None, usual: float) -> float:
+    """「贵的时候」的单价(Q1 / Q7):最贵的一成调用的平均用量 × 牌价;分不出一成(或没牌价、用量没补齐)就等于平常的单价,
+    不臆造;至少不低于平常的单价。"""
+    if prices is not None and bucket.n_usage >= MIN_STAT_SAMPLES and bucket.n_high and bucket.usage_high:
+        return max(usual, priced(prices, bucket.usage_high))
+    return usual
+
+
 def _seconds_per_call(stats: Sequence[CallStat], locale: str) -> float:
     """平均耗时同样先按语言(中文调用比英文慢 30–70%,调研 1.2 节 k),不够再不分语言,再兜底。"""
     for group in ([st for st in stats if st.locale == locale], stats):
@@ -133,16 +158,20 @@ def unit_prices(
         table = meta.price_table.get(target.model)
         own = _bucket(brand_stats, target, mode, locale, same_locale_only=True)
         if own is not None:
-            return UnitPrice(cost_usd=_shape_price(own, table), basis=PriceBasis.BRAND)
+            usual = _shape_price(own, table)
+            return UnitPrice(cost_usd=usual, basis=PriceBasis.BRAND, high_cost_usd=_high_price(own, table, usual))
         measured = _bucket(stats, target, mode, locale)
         if measured is not None:
-            return UnitPrice(cost_usd=_shape_price(measured, table), basis=PriceBasis.MEASURED)
+            usual = _shape_price(measured, table)
+            return UnitPrice(cost_usd=usual, basis=PriceBasis.MEASURED,
+                             high_cost_usd=_high_price(measured, table, usual))
         if table is not None and target.model != meta.default_model:
             lender = _bucket(stats, Target(surface=target.surface, model=meta.default_model), mode, locale)
             if lender is not None and lender.n_usage >= MIN_STAT_SAMPLES:
-                return UnitPrice(cost_usd=priced(table, lender.usage), basis=PriceBasis.BORROWED,
-                                 shape_of=meta.default_model)
-        return UnitPrice(cost_usd=declared, basis=PriceBasis.DECLARED)
+                usual = priced(table, lender.usage)  # 借默认型号的用量形状,「贵的时候」也借它最贵一成的形状
+                return UnitPrice(cost_usd=usual, basis=PriceBasis.BORROWED, shape_of=meta.default_model,
+                                 high_cost_usd=_high_price(lender, table, usual))
+        return UnitPrice(cost_usd=declared, basis=PriceBasis.DECLARED, high_cost_usd=declared)  # 声明的本来就是上界
 
     default: dict[str, UnitPrice] = {}
     search_disabled: dict[str, UnitPrice] = {}
@@ -161,6 +190,7 @@ def unit_prices(
 class Estimate(FrozenModel):
     calls: int
     cost_usd: float
+    high_cost_usd: float  # 「贵的时候约 $N」(Q1):各腿按「贵的时候」的单价算,裁判费照加
     minutes: float
     per_target: list[tuple[Target, float]]  # 各对象的花费(含闭卷腿),与勾选同序
     judge_calls: int  # AI 裁判要判几条回答:高档 = 提问次数;中档 = 最多判几条(名字没风险时 0);低档 0
@@ -185,11 +215,14 @@ def estimate_job(
     per_leg_calls = n_prompts * runs_per_prompt
     per_target: list[tuple[Target, float]] = []
     legs = 0
+    high = 0.0
     for target in targets:
         cost = prices.cost(target.key, SearchMode.DEFAULT) * per_leg_calls
+        high += prices.high(target.key, SearchMode.DEFAULT) * per_leg_calls
         legs += 1
         if dependency and target.key in prices.search_disabled:
             cost += prices.cost(target.key, SearchMode.SEARCH_DISABLED) * per_leg_calls
+            high += prices.high(target.key, SearchMode.SEARCH_DISABLED) * per_leg_calls
             legs += 1
         per_target.append((target, cost))
     calls = per_leg_calls * legs
@@ -205,6 +238,7 @@ def estimate_job(
     return Estimate(
         calls=calls,
         cost_usd=sum(cost for _, cost in per_target) + judge_cost,
+        high_cost_usd=high + judge_cost,
         minutes=(PREP_SECONDS + sampling_s + judging_s) / 60,  # 核对网页不在里面(上限另写,见 VERIFY_MAX_MINUTES)
         per_target=per_target,
         judge_calls=judge_calls,

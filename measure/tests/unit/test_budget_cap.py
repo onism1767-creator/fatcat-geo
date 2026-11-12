@@ -28,7 +28,8 @@ def test_split_budget_follows_what_is_still_to_spend():
 
 
 def test_job_page_asks_whether_to_fill_the_rest_when_the_cap_stopped_a_model():
-    """跑完才问(用户定):弹窗写哪家、问了几次、错误码;建议上限 = 已花 0.5 + 没问的 2 次 × $0.005 × 1.1,向上取到 0.6;
+    """跑完才问(用户定):弹窗写哪家、问了几次、错误码;建议上限 = 已花 0.5 + 没问的 2 次 × 「贵的时候」的单价
+    (没实测就是声明价 $0.005;Q7 乙,和确认页同一个数、不再另留余量),向上取到 0.6;
     现有上限已经比这高(腿停在它那份、整单没花到上限)就填现有上限——上限只能往上调,填低了会被挡回来(小米真跑)。"""
     job = finished_job()
     job.state, job.stop_details, job.spent_usd = JobState.PARTIAL, [_stop(1)], 0.5
@@ -42,6 +43,28 @@ def test_job_page_asks_whether_to_fill_the_rest_when_the_cap_stopped_a_model():
     assert "reached the spending cap after 1/3 asks" in client.get(f"/jobs/{job.job_id}?lang=en").text
     job.budget_usd = 1.0
     assert 'value="1.0"' in client.get(f"/jobs/{job.job_id}?lang=zh").text
+
+
+def test_the_suggested_cap_uses_the_when_pricey_unit_price():
+    """用户 2026-11-03 定 Q7 乙:弹窗建议值和确认页「贵的时候约 $N」同一个数——有实测时按最贵一成的用量 × 牌价,
+    不是平常的均价再加一成。已花 0.5 + 没问的 2 次 × $0.064 = 0.628 → 向上取到 0.7(按平常单价 $0.027 只到 0.6)。"""
+    from fastapi.testclient import TestClient
+
+    from report.app import create_app
+    from tests.unit.test_estimate_prices import CHEAP, HIGH, SHAPE, PricedAdapter, stat
+    from tests.unit.test_report_page import REGISTRY
+
+    stats = [stat(CHEAP, "zh-CN", 20, usage=SHAPE, usage_high=HIGH)]
+    app = create_app(call_stats=lambda brand=None: stats, adapters={"priced": PricedAdapter()},
+                     dsn="postgresql://unused", evidence=REGISTRY, job_runner=lambda **kw: None)
+    job = finished_job()
+    job.state, job.spent_usd, job.budget_usd = JobState.PARTIAL, 0.5, 0.4
+    job.stop_details = [StopDetail(surface="priced", model=CHEAP, search_mode=SearchMode.DEFAULT,
+                                   stop_reason=StopReason.BUDGET_EXHAUSTED, n_attempts=1, n_valid=1,
+                                   failure_counts={}, last_failure_message=None)]
+    app.state.ctx.registry.add(job)
+    html = TestClient(app).get(f"/jobs/{job.job_id}?lang=zh").text
+    assert "<dialog open" in html and 'value="0.7"' in html
 
 
 def test_other_stops_get_no_dialog_and_a_running_job_gets_a_notice_instead():
