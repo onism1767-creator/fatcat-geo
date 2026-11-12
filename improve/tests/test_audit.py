@@ -97,12 +97,12 @@ def test_visible_date_other_cases():
     none = visible_date.check([ex("<html><body><p>no dates</p></body></html>")], snap_of(), NOW)
     assert [f.level for f in none] == ["not_checkable", "not_checkable"]
 
-    hidden_date = ex('<html><head><script type="application/ld+json">{"@type":"Article","headline":"h",'
+    hidden_date = ex('<html><head><script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","headline":"h",'
                      '"datePublished":"2026-01-02","dateModified":"2026-02-03"}</script></head><body><p>x</p></body></html>')
     found = visible_date.check([hidden_date], snap_of(), NOW)
     assert (found[0].level, found[0].entry_id) == ("notice", ids.FRESHNESS_VISIBLE_DATE)
 
-    consistent = ex('<html><head><script type="application/ld+json">{"@type":"Article","headline":"h",'
+    consistent = ex('<html><head><script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","headline":"h",'
                     '"dateModified":"2026-02-03"}</script></head><body><p>Last updated: February 3, 2026</p></body></html>')
     assert visible_date.check([consistent], snap_of(), NOW)[0].level == "pass"
 
@@ -208,7 +208,7 @@ def test_number_in_text(number, text, expected):
 
 
 def test_jsonld_price_mismatch_and_thin_pages():
-    ld = '<script type="application/ld+json">{"@type":"Product","name":"Mug","offers":{"@type":"Offer","price":"19.00","priceCurrency":"USD"}}</script>'
+    ld = '<script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"Mug","offers":{"@type":"Offer","price":"19.00","priceCurrency":"USD"}}</script>'
     wrong = ex(f"<html><head>{ld}</head><body><h1>Mug</h1>{FILLER}<p>Only $25 today.</p></body></html>")
     found = jsonld_consistency.check([wrong], "x.test")
     assert [f.level for f in found] == ["problem"] and "19.00" in found[0].message
@@ -220,10 +220,47 @@ def test_jsonld_price_mismatch_and_thin_pages():
 
 def test_clean_page_passes_everything():
     html = ('<html lang="en"><head><title>Mug | Shop</title><script type="application/ld+json">'
-            '{"@type":"Product","name":"Blue Mug","offers":{"@type":"Offer","price":"12.50","priceCurrency":"EUR"}}'
+            '{"@context":"https://schema.org","@type":"Product","name":"Blue Mug","offers":{"@type":"Offer","price":"12.50","priceCurrency":"EUR"}}'
             f'</script></head><body><h1>Blue Mug</h1>{FILLER}<p>Price: 12.50 EUR.</p></body></html>')
     report = run_audit(snap_of(), [ex(html)], run_id="t", now=NOW)
     page_levels = {f.check: f.level for f in report.findings if f.page_url}
     assert page_levels == {"meta_robots": "pass", "visible_date": "not_checkable", "numeric_traceability": "pass",
                            "hidden_text": "pass", "jsonld_consistency": "pass"}
     assert report.limitations
+
+
+# ── 结构化数据自身写错(2026-11-12 真实运行 yuwell-eu.com 时发现漏报后补的) ──
+
+REAL_WORLD_BROKEN_LD = (
+    '<html lang="en"><head><title>Example Medical Official Website</title>'
+    '<script type="application/ld+json">{"@context": "https://https://www.x.test/", "@type": "Website", '
+    '"name": "Example Medical Official Website", "url": "https://https://www.x.test/"}</script>'
+    '</head><body><div id="app"></div></body></html>')
+
+
+def test_broken_jsonld_is_reported_even_when_the_page_has_no_text():
+    found = jsonld_consistency.check([ex(REAL_WORLD_BROKEN_LD)], "x.test")
+    by_location = {f.evidence.get("location", ""): f for f in found}
+    context = by_location["jsonld[0].@context"]
+    assert context.level == "problem" and "不是 https://schema.org" in context.message
+    kind = next(f for f in found if "WebSite" in f.message)
+    assert kind.level == "notice" and kind.evidence["observed"] == "Website" and kind.evidence["expected"] == "WebSite"
+    url = next(f for f in found if "不是一个可用的网址" in f.message)
+    assert url.level == "problem" and url.evidence["observed"] == "https://https://www.x.test/"
+    thin = [f for f in found if f.level == "not_checkable"]
+    assert len(thin) == 1 and "比不了" in thin[0].message, "正文太少:和正文的比对仍记查不了"
+    assert all(f.entry_id == "EVIDENCE_STRUCT_V1" for f in found)
+
+
+def test_jsonld_context_variants():
+    def levels(context_json: str) -> list[str]:
+        block = f'{{{context_json}"@type":"Organization","name":"Acme","url":"https://x.test/"}}'
+        html = (f'<html><head><title>Acme</title><script type="application/ld+json">{block}</script></head>'
+                f"<body><h1>Acme</h1>{FILLER}</body></html>")
+        return [f.level for f in jsonld_consistency.check([ex(html)], "x.test")]
+
+    for fine in ('"@context":"https://schema.org",', '"@context":"http://schema.org/",', '"@context":"https://www.schema.org",',
+                 '"@context":["https://schema.org",{"ex":"https://x.test/ns#"}],', '"@context":{"@vocab":"https://schema.org/"},'):
+        assert levels(fine) == ["pass"], fine
+    assert levels("") == ["problem"], "没写 @context"
+    assert levels('"@context":"https://example.org/vocab",') == ["problem"]

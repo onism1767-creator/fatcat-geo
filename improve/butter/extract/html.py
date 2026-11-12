@@ -411,6 +411,8 @@ def extract_page(page: FetchedPage, sitemap_by_key: dict[str, SitemapEntry] | No
 
 
 def extract_site(pages: list[FetchedPage], sitemap_entries: list[SitemapEntry]) -> list[PageExtract]:
-    """只处理拿到了 HTML 的页面;sitemap 的 lastmod 按地址配到对应页面上。"""
+    """只处理拿到了 HTML 的页面;sitemap 的 lastmod 按地址配到对应页面上。
+    联网抓的要 2xx;本地导入的文件没有 HTTP 状态,有内容就处理。"""
     by_key = {page_key(e.loc): e for e in sitemap_entries if e.loc}
-    return [extract_page(p, by_key) for p in pages if p.html and p.status is not None and 200 <= p.status < 300]
+    return [extract_page(p, by_key) for p in pages
+            if p.html and (p.local_file or (p.status is not None and 200 <= p.status < 300))]

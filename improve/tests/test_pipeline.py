@@ -85,6 +85,40 @@ def test_untrusted_page_text_is_neutralised_in_reports(tmp_path):
     assert "<img src=x" not in facts and "&lt;img src=x" in facts
 
 
+def test_challenged_run_claims_nothing_about_the_site(tmp_path):
+    """真实运行里出过:第一个请求就被人机验证拦下,一页都没看到。这时不能说「站上没有」,也不凭空造页面。"""
+    from butter.contracts import FetchedPage, RobotsFetch, SiteSnapshot
+
+    wall = FetchedPage(url="https://blocked.test/", final_url="https://blocked.test/", role="given", status=403,
+                       content_type="text/html", headers={"cf-mitigated": "challenge"},
+                       html="<html><title>Just a moment...</title><body>Verify you are human</body></html>", fetched_at=NOW)
+    snap = SiteSnapshot(site_url="https://blocked.test/", host="blocked.test", origin="https://blocked.test",
+                        fetched_at=NOW, user_agent="ua", pages=[wall], stop_reason="challenge",
+                        robots=RobotsFetch(url="https://blocked.test/robots.txt", state="unreadable", note="没有抓到这一步"),
+                        notes=["https://blocked.test/ 返回了人机验证页"])
+    result = process_snapshot(snap, RunOptions(out_root=tmp_path), now=lambda: NOW, run_id="wall")
+
+    assert [g.code for g in result.factbase.gaps] == ["NO_PAGES"]
+    assert not result.factbase.entity.name.values, "验证页的标题不能当品牌名"
+    findings = result.audit.findings
+    assert [f.check for f in findings] == ["meta_robots", "visible_date", "numeric_traceability", "hidden_text",
+                                           "jsonld_consistency"]
+    assert all(f.level == "not_checkable" and f.entry_id.startswith("EVIDENCE_") for f in findings)
+    package = result.bundle.package
+    assert package.items == [], "一页都没看到,不该有任何改动"
+    assert {"robots.txt 三段式", "Organization / Product JSON-LD", "事实页与价格 / 规格 / 对比表事实块",
+            "标题 / H1 / H2 / meta 建议"} == {n.what for n in package.not_generated}
+    produced = {p.relative_to(result.run_dir / "change-package").as_posix()
+                for p in (result.run_dir / "change-package").rglob("*") if p.is_file()}
+    assert produced == {"README.md", "manifest.json", "reference/ua-table.md", "reference/excluded-vendors.md"}
+    for name in ("factbase.md", "audit.md", "change-package/README.md"):
+        text = (result.run_dir / name).read_text(encoding="utf-8")
+        assert "站上现在没有" not in text and "站上没有机器可读" not in text, name
+    readme = (result.run_dir / "change-package" / "README.md").read_text(encoding="utf-8")
+    assert "可分析的 0 个" in readme and "遇到人机验证" in readme and "本次没有产出任何改动" in readme
+    assert any("查不了" in w for w in result.warnings)
+
+
 def test_store_refuses_path_tricks(tmp_path):
     for bad in ("../escape.txt", "/abs.txt", "a/../../b", "C:\\x.txt", ""):
         with pytest.raises(ValueError):

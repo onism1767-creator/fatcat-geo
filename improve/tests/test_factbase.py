@@ -101,7 +101,7 @@ def test_no_price_is_ever_pulled_from_body_text():
 
 def test_product_without_price_reports_the_gap():
     snap, ex = site('<html><head><title>Shop</title><script type="application/ld+json">'
-                    '{"@type":"Product","name":"Mug"}</script></head><body><h1>Mug</h1></body></html>')
+                    '{"@context":"https://schema.org","@type":"Product","name":"Mug"}</script></head><body><h1>Mug</h1></body></html>')
     fb = build(snap, ex)
     assert fb.products[0].price.values == []
     messages = [g.message for g in fb.gaps if g.code == "PRODUCT_NO_PRICE"]
@@ -168,3 +168,27 @@ def test_merge_toast_brand_domains(tmp_path, acme_snapshot, acme_extracts):
 def test_pages_and_host(acme_factbase):
     assert acme_factbase.host == HOST
     assert [p.url.rsplit("/", 1)[-1] for p in acme_factbase.pages] == ["", "classic", "about", "boil-time"]
+
+
+def test_canonical_on_another_host_is_flagged_for_a_human():
+    """真实运行里出过(yuwell-eu.com 首页的 canonical 写的是 yuwell.com):官网域名按给的网址填,但要提醒人确认。"""
+    from butter.contracts import FetchedPage, RobotsFetch, SiteSnapshot
+    from butter.extract.html import extract_site
+    from butter.render import factbase_md
+
+    html = ('<html><head><title>Shop</title><link rel="canonical" href="https://www.other-brand.test/en">'
+            '<meta property="og:site_name" content="Shop"></head><body><h1>Shop</h1></body></html>')
+    page = FetchedPage(url="https://www.shop.test/", final_url="https://www.shop.test/", role="given", status=200,
+                       content_type="text/html", html=html, fetched_at=NOW)
+    snap = SiteSnapshot(site_url="https://www.shop.test/", host="www.shop.test", origin="https://www.shop.test",
+                        fetched_at=NOW, user_agent="ua", pages=[page],
+                        robots=RobotsFetch(url="https://www.shop.test/robots.txt", state="missing"))
+    fb = build_factbase(snap, extract_site(snap.pages, []), platforms=sources.load_platforms(), run_id="t", now=NOW)
+    gap = next(g for g in fb.gaps if g.code == "CANONICAL_OTHER_HOST")
+    assert "https://www.other-brand.test/en" in gap.message
+    assert fb.entity.official_domain.values[0].value == "shop.test", "不替用户改官网域名"
+    assert "CANONICAL_OTHER_HOST" in factbase_md(fb)
+    same = page.model_copy(update={"html": html.replace("www.other-brand.test", "shop.test")})
+    fb2 = build_factbase(snap.model_copy(update={"pages": [same]}), extract_site([same], []),
+                         platforms=sources.load_platforms(), run_id="t", now=NOW)
+    assert not any(g.code == "CANONICAL_OTHER_HOST" for g in fb2.gaps), "www 有无算同一个站"

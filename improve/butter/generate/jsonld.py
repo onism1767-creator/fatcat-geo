@@ -25,14 +25,17 @@ SNIPPETS_FILE = "jsonld/snippets.html"
 
 
 def to_json(data: Any) -> str:
-    return json.dumps(data, ensure_ascii=False, indent=2)
+    """值来自不可信的网页,而这段 JSON 是要贴进 <script> 的:把 < > & 和行分隔符写成 \\uXXXX。
+    解析出来的值一字不差,但字符串里再也凑不出 </script> 或任何标签。"""
+    text = json.dumps(data, ensure_ascii=False, indent=2)
+    for ch in ("<", ">", "&", " ", " "):
+        text = text.replace(ch, f"\\u{ord(ch):04x}")
+    return text
 
 
 def to_script(data: Any) -> str:
-    """可直接贴进页面的 <script>。值来自不可信的网页:把能提前结束 script 的字符序列转义掉。"""
-    body = (to_json(data).replace("</", "<\\/").replace("<!--", "<\\!--")
-            .replace("\u2028", "\\u2028").replace("\u2029", "\\u2029"))
-    return f'<script type="application/ld+json">\n{body}\n</script>'
+    """可直接贴进页面的 <script>。"""
+    return f'<script type="application/ld+json">\n{to_json(data)}\n</script>'
 
 
 def _first(field: FactField) -> str | None:
@@ -211,7 +214,7 @@ def _existing_product(extracts: list[PageExtract], p: ProductFacts) -> Structure
     return None
 
 
-_ACTION_TEXT = {"add": "站上现在没有这段 JSON-LD,新增。",
+_ACTION_TEXT = {"add": "本次读到的页面的 HTML 里没有这段 JSON-LD,新增。",
                 "replace": "站上已有这段 JSON-LD,下面列出它与事实库不同或缺少的字段;在现有那段里改这些字段即可。",
                 "none": "站上已有,且与事实库一致,无需改动(文件仅供对照)。"}
 _KEEP_EXISTING = ("生成稿只含事实库里有的字段。站上现有那段里的其他字段(如 image、评分)不在生成稿里:"
@@ -243,6 +246,8 @@ def build_jsonld(
                          "确认是官方账号的可以手动加上。")
         if action == "replace":
             needs.insert(0, _KEEP_EXISTING + (f"现有的 Organization 在 {existing_url}。" if existing_url else ""))
+        if action == "add" and not any(page_key(p.url) == page_key(f"{origin}/") for p in extracts):
+            needs.insert(0, "本次没有读到首页:放之前请先看一眼首页源码,确认上面没有 Organization JSON-LD,免得重复。")
         items.append(ChangeItem(
             item_id="jsonld-organization", kind="jsonld_organization", entry_id=STRUCT, action=action,  # type: ignore[arg-type]
             target=f"首页 {origin}/ 的 <head>", files=["jsonld/organization.json", SNIPPETS_FILE],
@@ -271,7 +276,8 @@ def build_jsonld(
             facts_used=refs, validation_state="假设", needs_human=notes))
     if not fb.products:
         missing.append(NotGenerated(what="Product JSON-LD",
-                                    reason="事实库里没有商品(站上没有机器可读的商品数据),没有生成。Butter 不从正文里抽价格规格。"))
+                                    reason="事实库里没有商品(本次读到的页面里没有机器可读的商品数据),没有生成。"
+                                           "Butter 不从正文里抽价格规格。"))
     if len(snippets) > 2:
         files[SNIPPETS_FILE] = "\n".join(snippets)
     return files, items, missing

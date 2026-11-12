@@ -24,10 +24,13 @@ from urllib.parse import urljoin, urlsplit
 import httpx
 
 from butter.contracts import FetchedPage, PageRole, RobotsFetch, SitemapEntry, SiteSnapshot, StopReason
+from butter.extract.challenge import REFUSAL_STATUSES as _REFUSAL_STATUSES
+from butter.extract.challenge import looks_like_challenge  # noqa: F401  (测试和命令行从这里取)
 from butter.extract.html import extract_page  # 只用它取页面上的链接;纯函数
 from butter.extract.robots import RobotsParsed, parse_robots, rules_allow
 from butter.extract.sitemap import parse_sitemap
-from butter.util import host_of, page_key, safe_http_url, same_site
+from butter.util import decode_html as _decode
+from butter.util import host_of, normalize_site_url, page_key, safe_http_url, same_site
 
 # 与 Toast crawler/fetch.py 的 BROWSER_UA 同一串(产品文档 D13:固定版本的 Chrome 浏览器 UA)
 BROWSER_UA: Final = (
@@ -35,20 +38,9 @@ BROWSER_UA: Final = (
     "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 _KEPT_HEADERS: Final = ("content-type", "x-robots-tag", "last-modified", "location", "cf-mitigated")
-_REFUSAL_STATUSES: Final = (401, 403, 429, 503)
 _NON_HTML_EXT: Final = re.compile(
     r"\.(?:pdf|jpe?g|png|gif|webp|svg|ico|css|js|json|xml|rss|atom|zip|gz|rar|7z|mp[34]|mov|avi|webm|woff2?|ttf|"
     r"eot|docx?|xlsx?|pptx?|exe|dmg|apk|txt)$", re.IGNORECASE)
-# 人机验证页的标记(小写比对)。只认明确的验证 / 质询字样,不把普通的 403 当验证码。
-_CHALLENGE_MARKERS: Final = (
-    "just a moment...", "cf-chl-", "challenge-platform", "cf-turnstile", "attention required! | cloudflare",
-    "g-recaptcha", "recaptcha/api", "hcaptcha.com", "h-captcha", "geetest", "verify you are human",
-    "verifying you are human", "are you a robot", "captcha-delivery", "px-captcha", "人机验证", "安全验证",
-    "滑动验证", "请完成验证", "验证码", "acw_sc__v2",
-)
-_SCRIPTS: Final = re.compile(r"<(script|style|noscript)\b.*?</\1\s*>", re.IGNORECASE | re.DOTALL)
-_TAGS: Final = re.compile(r"<[^>]*>")
-_META_CHARSET: Final =re.compile(rb"<meta[^>]+charset\s*=\s*[\"']?\s*([\w-]+)", re.IGNORECASE)
 
 
 @dataclass(frozen=True)
@@ -62,49 +54,6 @@ class FetchLimits:
     max_child_sitemaps: int = 3
     max_sitemap_bytes: int = 5_000_000
     max_robots_bytes: int = 512_000
-
-
-def normalize_site_url(url: str) -> str:
-    url = url.strip()
-    if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://", url):
-        # 没写协议就补 https;但「javascript:…」「mailto:…」这类不是网址(example.com:8080 这种主机加端口的放行)
-        if re.match(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:(?!\d+(?:/|$))", url):
-            raise ValueError(f"不是可用的 http / https 网址:{url!r}")
-        url = "https://" + url
-    safe = safe_http_url(url)
-    if safe is None:
-        raise ValueError(f"不是可用的 http / https 网址:{url!r}")
-    return safe
-
-
-def looks_like_challenge(status: int | None, headers: dict[str, str], body: str) -> str | None:
-    """像不像人机验证页。返回认出的标记;不像返回 None。"""
-    if headers.get("cf-mitigated", "").lower() == "challenge":
-        return "cf-mitigated: challenge"
-    head = body[:20_000].lower()
-    refused = status in _REFUSAL_STATUSES
-    # 正常返回的页面里也会带验证码组件(联系表单、登录框):只有「被拒」或「页面几乎没有正文」才算被验证页挡住
-    thin = len(body) < 20_000 and len(_TAGS.sub("", _SCRIPTS.sub("", body)).strip()) < 400
-    if refused or thin:
-        for marker in _CHALLENGE_MARKERS:
-            if marker in head:
-                return marker
-    return None
-
-
-def _decode(raw: bytes, content_type: str) -> str:
-    match = re.search(r"charset\s*=\s*[\"']?([\w-]+)", content_type, re.IGNORECASE)
-    declared = match.group(1) if match else None
-    if declared is None and (meta := _META_CHARSET.search(raw[:4096])):
-        declared = meta.group(1).decode("ascii", "replace")
-    for encoding in (declared, "utf-8", "gb18030"):
-        if not encoding:
-            continue
-        try:
-            return raw.decode(encoding)
-        except (UnicodeDecodeError, LookupError):
-            continue
-    return raw.decode("utf-8", "replace")
 
 
 @dataclass
@@ -256,6 +205,9 @@ def fetch_site(
             pass
         elif given.status in (301, 302, 303, 307, 308):  # 跳转没跟完 = 目的地在别的主机
             stop = "off_host"
+            target = safe_http_url(given.headers.get("location", ""), site_url)
+            notes.append("Butter 只抓你给的那个主机,所以到此为止。"
+                         + (f"如果 {target} 也是你的站,请直接用这个网址重跑。" if target else ""))
         elif given.status in (401, 403, 503):
             stop = "refused"
             notes.append(f"用户给的网址被拒({given.status}),没有继续抓这个站的其他页面。")
@@ -319,10 +271,17 @@ def fetch_site(
                     notes.append(f"sitemap {sm_url}:{parsed.error}。")
                     continue
                 sitemap_urls.append(sm_url)
+                kept_before = len(sitemap_entries)
                 for loc, lastmod in parsed.entries:
                     safe = safe_http_url(loc)
                     if safe and same_site(host_of(safe), host):
                         sitemap_entries.append(SitemapEntry(loc=safe, lastmod=lastmod, source_url=sm_url))
+                dropped = len(parsed.entries) - (len(sitemap_entries) - kept_before)
+                if dropped:
+                    notes.append(f"sitemap {sm_url} 里有 {len(parsed.entries)} 个地址,其中 {dropped} 个在别的主机上"
+                                 "(或不是网址),没有采用。")
+                elif not parsed.entries and not parsed.children:
+                    notes.append(f"sitemap {sm_url} 读到了,但里面没有地址。")
                 if parsed.truncated:
                     notes.append(f"sitemap {sm_url} 条目太多,只读了前 {len(parsed.entries)} 条。")
                 queue.extend(u for u in (safe_http_url(c) for c in parsed.children)
@@ -369,6 +328,9 @@ def fetch_site(
                     refusals = 0
             if blocked_by_robots:
                 notes.append(f"有 {blocked_by_robots} 个站内地址被该站 robots.txt 对 * 的规则挡住,没有抓。")
+            if stop == "completed" and not any(p.role == "discovered" for p in pages):
+                notes.append("没有找到可以接着抓的站内页面(已抓页面的原始 HTML 里没有可用的站内链接,"
+                             "sitemap 里也没有本站的地址),所以只看了这 " f"{len(pages)} 页。")
     finally:
         if own_client:
             client.close()

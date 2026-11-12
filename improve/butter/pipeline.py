@@ -19,6 +19,7 @@ from butter.extract.html import extract_site
 from butter.factbase import build_factbase
 from butter.generate import build_package
 from butter.render import audit_md, factbase_md
+from butter.util import stop_label
 
 
 @dataclass(frozen=True)
@@ -66,9 +67,10 @@ def process_snapshot(
 
     warnings: list[str] = []
     if not extracts:
-        warnings.append("没有拿到任何可分析的页面:事实库和改动包基本是空的,请看 run.json 里的抓取备注。")
+        warnings.append("没有拿到任何可分析的页面:事实库只有网址和本机文件里的值,五项审计都记「查不了」,"
+                        "改动包不含 JSON-LD 和事实页。请看 run.json 里的抓取备注。")
     if snapshot.stop_reason != "completed":
-        warnings.append(f"抓取没有走完(原因:{snapshot.stop_reason}),产出只基于已抓到的部分。")
+        warnings.append(f"抓取没有走完(原因:{stop_label(snapshot.stop_reason)}),产出只基于已抓到的部分。")
 
     run_dir = store.new_run_dir(options.out_root, snapshot.host, run_id)
     store.save_snapshot(run_dir, snapshot)
@@ -77,10 +79,12 @@ def process_snapshot(
     run_meta = {
         "run_id": run_id, "tool": "butter", "tool_version": butter.__version__, "site_url": snapshot.site_url,
         "host": snapshot.host, "generated_at": moment.isoformat(timespec="seconds"),
-        "snapshot_source": snapshot_source, "fetched_at": snapshot.fetched_at.isoformat(timespec="seconds"),
+        "snapshot_source": snapshot_source, "source": snapshot.source,
+        "fetched_at": snapshot.fetched_at.isoformat(timespec="seconds"),
         "user_agent": snapshot.user_agent, "stop_reason": snapshot.stop_reason, "fetch_notes": snapshot.notes,
         "pages": [{"url": p.url, "final_url": p.final_url, "role": p.role, "status": p.status,
-                   "html_chars": len(p.html), "error": p.error} for p in snapshot.pages],
+                   "html_chars": len(p.html), "error": p.error, "local_file": p.local_file or None,
+                   "rendered_dom": p.rendered_dom} for p in snapshot.pages],
         "robots": {"url": snapshot.robots.url, "state": snapshot.robots.state, "status": snapshot.robots.status,
                    "note": snapshot.robots.note},
         "sitemaps_read": snapshot.sitemap_urls, "sitemap_entries": len(snapshot.sitemap_entries),

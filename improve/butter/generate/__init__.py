@@ -16,7 +16,7 @@ from butter.generate.headings import build_headings
 from butter.generate.jsonld import build_jsonld
 from butter.generate.pages import build_pages
 from butter.generate.robots import build_robots
-from butter.util import md_cell
+from butter.util import md_cell, stop_label
 
 FORBIDDEN_OUTPUTS = ("llms.txt", "llms-full.txt")
 KIND_LABEL = {
@@ -27,6 +27,8 @@ ACTION_LABEL = {"add": "新增", "replace": "修改现有", "none": "无需改",
 PURPOSE_LABEL = {"search_index": "搜索 / 引用", "training": "训练", "user_fetch": "用户触发取页",
                  "ai_uses_token": "训练用途令牌(不抓取)"}
 _MAX_FACTS_SHOWN = 12
+_NO_PAGES_REASON = ("本次没有抓到任何可分析的页面,不知道站上现在有什么;为免和站上已有的内容重复或冲突,没有生成。"
+                    "换一个能读到的网址,或拿一份能读到的快照重跑。")
 
 
 def _cell(text: str) -> str:
@@ -98,15 +100,22 @@ def readme_md(package: ChangePackage, fb: FactBase, snapshot: SiteSnapshot) -> s
     lines += ["", "## 附:UA 表", "",
               "- `reference/ua-table.md`:robots 三段式用到的 UA,每条带官方文档地址与核对日期。",
               "- `reference/excluded-vendors.md`:未纳入的厂商与原因。", "",
-              "## 本次抓取", "",
-              f"- 用的是固定版本的 Chrome 浏览器 UA,没有冒充任何爬虫:`{snapshot.user_agent}`",
-              f"- 抓到 {len([p for p in snapshot.pages if p.html])} 个页面;结束原因:{snapshot.stop_reason}"]
-    lines += [f"- {note}" for note in snapshot.notes]
+              ]
+    if snapshot.source == "local_files":
+        lines += ["## 本次读取(本地导入)", "",
+                  "- Butter 这次没有向你的站发任何请求。",
+                  f"- 导入了 {len(snapshot.pages)} 个文件,其中可分析的 {len(fb.pages)} 个。"]
+    else:
+        lines += ["## 本次抓取", "",
+                  f"- 用的是固定版本的 Chrome 浏览器 UA,没有冒充任何爬虫:`{snapshot.user_agent}`",
+                  f"- 收到 {len(snapshot.pages)} 个页面响应,其中可分析的 {len(fb.pages)} 个;"
+                  f"结束原因:{stop_label(snapshot.stop_reason)}"]
+    lines += [f"- {md_cell(note, 700)}" for note in snapshot.notes]
     lines += ["", "## 已知限制", "",
               "- Butter 不执行页面脚本:原始 HTML 里没有的内容看不到。",
               "- 价格、规格只取结构化数据和 meta 里已有的,不从正文里抽;事实库里没有的字段,生成的文件里就没有。",
               "- 不产出 llms.txt。",
-              "- 只看了本次抓到的页面,不代表全站。", ""]
+              "- 只看了本次读到的页面,不代表全站。", ""]
     return "\n".join(lines)
 
 
@@ -128,10 +137,19 @@ def build_package(
     files: dict[str, str] = {}
     items: list[ChangeItem] = []
     missing: list[NotGenerated] = []
+    read_date = snapshot.fetched_at.date().isoformat()
+    read_note = (f"页面来自你存在本机的文件:页脚的读取日期 {read_date} 取的是文件的修改时间,"
+                 "和你实际保存页面的日子不一样的话请改。" if snapshot.source == "local_files" else "")
+    if ordered:
+        content_parts = (build_jsonld(fb, ordered, snapshot.origin),
+                         build_pages(fb, snapshot.origin, read_date, reference_hosts, read_note))
+    else:  # 一页都没看到:不知道站上现有什么,不能说「站上没有」,也不凭本机文件里的一个名字造页面
+        content_parts = (({}, [], [
+            NotGenerated(what="Organization / Product JSON-LD", reason=_NO_PAGES_REASON),
+            NotGenerated(what="事实页与价格 / 规格 / 对比表事实块", reason=_NO_PAGES_REASON)]),)
     for part_files, part_items, part_missing in (
         build_robots(snapshot.robots, ua_table, training=training, sitemap_urls=snapshot.sitemap_urls, today=today),
-        build_jsonld(fb, ordered, snapshot.origin),
-        build_pages(fb, snapshot.origin, snapshot.fetched_at.date().isoformat(), reference_hosts),
+        *content_parts,
         build_headings(fb, board),
     ):
         files.update(part_files)

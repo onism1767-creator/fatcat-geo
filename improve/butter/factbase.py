@@ -489,6 +489,9 @@ def match_potato_brand(brands: PotatoBrands, host: str) -> PotatoBrand | None:
 
 
 def _gaps(entity: EntityFacts, products: list[ProductFacts], pages: list[PageExtract]) -> list[Gap]:
+    if not pages:  # 一页都没拿到:空缺是「没看到」,不能写成「站上没有」
+        return [Gap(code="NO_PAGES", message="本次没有抓到任何可分析的页面。上面空着的字段是「没看到」,不代表站上没有;"
+                                             "已有的值只来自你给的网址和本机文件。")]
     gaps: list[Gap] = []
     if not entity.name.values:
         gaps.append(Gap(code="NO_NAME", message="未找到名称(结构化数据、og:site_name、标题里都没有)。"))
@@ -514,6 +517,11 @@ def _gaps(entity: EntityFacts, products: list[ProductFacts], pages: list[PageExt
         gaps.append(Gap(code="NO_COMPARISON", message="对比主张没有机器可读的来源,留空;Butter 不从正文里抽对比。"))
     if pages and not any(p.dates for p in pages):
         gaps.append(Gap(code="NO_DATES", message="抓到的页面上没有找到任何日期。"))
+    first = pages[0]  # 首页(或你给的那一页):它自己声明的正式地址如果在别的主机上,官网域名这一栏就要人来确认
+    if first.canonical and not same_site(host_of(first.canonical), host_of(first.url)):
+        gaps.append(Gap(code="CANONICAL_OTHER_HOST",
+                        message=f"{first.url} 的 canonical 写的是别的主机上的地址 {first.canonical}。"
+                                "「官网域名」是按你给的网址填的;请确认哪个才是正式地址。"))
     return gaps
 
 

@@ -75,6 +75,9 @@ def test_off_host_redirect_is_not_followed():
     assert snap.stop_reason == "off_host"
     assert {r.url.host for r in rec.requests} == {HOST}
     assert any("elsewhere.example" in n for n in snap.notes)
+    assert len(rec.requests) == 1, "给定页跳去别的主机:到此为止,连 robots.txt 也不再抓"
+    assert any("请直接用这个网址重跑" in n and "https://elsewhere.example/landing" in n for n in snap.notes), \
+        "真实运行里出过(yuwell.com → yuwell-eu.com):要告诉用户下一步怎么办"
 
 
 def test_same_host_redirect_is_followed():
@@ -137,3 +140,21 @@ def test_decode_handles_gbk_pages():
     assert "水壶" in _decode(raw, "text/html")
     assert "水壶" in _decode("水壶".encode("gb18030"), "text/html; charset=gb2312")
     assert "水壶" in _decode("水壶".encode("utf-8"), "")
+
+
+def test_script_rendered_home_and_foreign_sitemap_are_explained():
+    """真实运行里出过(yuwell-eu.com):首页是空壳、sitemap 里全是别的主机的地址,只抓到一页却没说为什么。"""
+    shell = '<html><head><title>App</title></head><body><div id="app"></div><script src="/app.js"></script></body></html>'
+    sitemap = ('<?xml version="1.0"?><urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">'
+               "<url><loc>https://www.elsewhere.example/a</loc></url><url><loc>https://www.elsewhere.example/b</loc></url></urlset>")
+    rec = Recorder({}, ACME, {
+        "/": lambda r: httpx.Response(200, text=shell, headers={"content-type": "text/html"}),
+        "/robots.txt": lambda r: httpx.Response(200, text="User-agent: *\nDisallow:\n", headers={"content-type": "text/plain"}),
+        "/sitemap.xml": lambda r: httpx.Response(200, text=sitemap, headers={"content-type": "application/xml"}),
+    })
+    snap = fetch_with(rec)
+    assert snap.stop_reason == "completed" and rec.paths == ["/", "/robots.txt", "/sitemap.xml"]
+    assert snap.sitemap_entries == []
+    notes = "\n".join(snap.notes)
+    assert "有 2 个地址,其中 2 个在别的主机上" in notes
+    assert "没有找到可以接着抓的站内页面" in notes and "只看了这 1 页" in notes

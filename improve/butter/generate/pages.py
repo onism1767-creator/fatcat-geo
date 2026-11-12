@@ -139,7 +139,7 @@ def product_rows(p: ProductFacts, labels: dict[str, str]) -> tuple[list[tuple[st
 
 
 def build_pages(
-    fb: FactBase, origin: str, read_date: str, reference_hosts: frozenset[str] = frozenset(),
+    fb: FactBase, origin: str, read_date: str, reference_hosts: frozenset[str] = frozenset(), read_note: str = "",
 ) -> tuple[dict[str, str], list[ChangeItem], list[NotGenerated]]:
     files: dict[str, str] = {}
     items: list[ChangeItem] = []
@@ -202,6 +202,8 @@ def build_pages(
     needs = ["这是一张新页面:放上去之前请通读一遍,确认每一条都与现实一致;以后事实变了要跟着改。",
              "页面底部写的是信息读取日期,不是「最后更新」。想显示更新日期,请写你真实更新的那天。",
              "建议路径 /facts(或你站上已有的「关于」页);页面样式沿用你站点的模板即可,这里只给内容骨架。"]
+    if read_note:
+        needs.insert(2, read_note)
     needs += [f"entity.{f.key}:{f.conflict_note}" for f in (e.name, e.description) if f.conflict and f.conflict_note]
     items.append(ChangeItem(
         item_id="fact-page", kind="fact_page", entry_id=FACT_PAGE, action="add", target="新页面,建议路径 /facts",

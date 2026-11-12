@@ -135,6 +135,7 @@ def test_no_effect_claims_anywhere(acme_bundle):
 
 
 def numbers_in(text: str) -> set[str]:
+    text = re.sub(r"\\u([0-9a-fA-F]{4})", lambda m: chr(int(m[1], 16)), text)  # < 是转义的 <,不是数字
     return {re.sub(r"\.0+$", "", n) for n in re.findall(r"\d+(?:\.\d+)?", text)}
 
 
@@ -179,8 +180,11 @@ def test_generated_jsonld_matches_factbase_and_drops_ratings(acme_bundle):
 def test_untrusted_strings_cannot_break_out(acme_bundle):
     snippets = acme_bundle.files["jsonld/snippets.html"]
     assert snippets.count("</script>") == snippets.count('<script type="application/ld+json">') == 2
-    assert "<\\/script><script>alert" in snippets
-    assert "</script>" not in to_script({"x": "</script><!--  "}).split("\n", 1)[1].rsplit("\n", 1)[0]
+    assert "\\u003c/script\\u003e\\u003cscript\\u003ealert" in snippets
+    inner = to_script({"x": "</script><!-- & \u2028"}).split("\n", 1)[1].rsplit("\n", 1)[0]
+    assert not any(ch in inner for ch in "<>&\u2028") and json.loads(inner) == {"x": "</script><!-- & \u2028"}
+    raw = json.loads(acme_bundle.files["jsonld/product-acme-classic-kettle.json"])
+    assert raw["description"] == "Whistles when ready. </script><script>alert('x')</script>", "值本身一字不差"
     page = acme_bundle.files["pages/facts.html"]
     assert "<script>alert" not in page and "&lt;/script&gt;&lt;script&gt;alert" in page
 
@@ -206,7 +210,20 @@ def test_empty_site_generates_nothing_it_cannot_back_up(acme_snapshot):
                            training="keep", now=NOW)
     assert {i.kind for i in bundle.package.items} == {"robots"}
     missing = {n.what for n in bundle.package.not_generated}
-    assert {"Organization JSON-LD", "Product JSON-LD", "事实页 HTML"} <= missing
+    assert {"Organization / Product JSON-LD", "事实页与价格 / 规格 / 对比表事实块", "标题 / H1 / H2 / meta 建议"} <= missing
+    assert not any(name.startswith(("jsonld/", "pages/", "blocks/")) for name in bundle.files)
+
+
+def test_org_jsonld_flags_an_unseen_home_page(acme_snapshot, acme_extracts, acme_factbase):
+    """只抓到内页、没抓到首页时:不能当作首页上没有 Organization,要提醒先看一眼。"""
+    from butter.generate.jsonld import build_jsonld
+    inner = [p for p in acme_extracts if p.url.rstrip("/") != acme_snapshot.origin
+             and not any("Organization" in n.types for n in p.nodes)]
+    assert inner, "夹具里应当有不带 Organization 的内页"
+    _, items, _ = build_jsonld(acme_factbase, inner, acme_snapshot.origin)
+    org = next(i for i in items if i.kind == "jsonld_organization")
+    assert org.action == "add" and "没有读到首页" in org.needs_human[0]
+    assert "站上现在没有" not in org.rationale and "本次读到的页面" in org.rationale
 
 
 # ── 标题建议 ──
@@ -252,3 +269,20 @@ def test_tokens_handle_both_languages():
 def test_reference_tables_ship_with_the_package(acme_bundle, name):
     text = acme_bundle.files[name]
     assert "核对日期" in text and "2026-11-" in text
+
+
+def test_board_with_no_matching_question_is_one_line_not_fifty_rows(acme_factbase):
+    """真实运行里出过:50 题的题板和站点无关,报告里列了 50 行「没有页面对得上」。"""
+    from butter.contracts import Question, QuestionBoard
+    from butter.generate.headings import build_headings
+
+    questions = [Question(id=f"q{i:02d}", intent="discovery", text=f"Which zeppelin harbour number {i} is nicest?")
+                 for i in range(40)]
+    board = QuestionBoard(path="questions.yml", prompt_version="v1", locale="en-US", questions=questions)
+    files, items, missing = build_headings(acme_factbase, board)
+    md = files["suggestions/titles.md"]
+    assert "| 题号 |" not in md and md.count("zeppelin") == 0, "对不上的题不逐行列"
+    assert "有 40 道题和本次读到的页面在字面上完全对不上" in md and "q00、q01" in md and " 等。" in md
+    assert len(json.loads(files["suggestions/titles.json"])["questions"]) == 40, "完整清单留在 JSON 里"
+    assert any(n.what == "按题板的标题复述建议" and "40 题" in n.reason for n in missing)
+    assert not any(i.entry_id == ids.TITLE_QUERY_MATCH for i in items)

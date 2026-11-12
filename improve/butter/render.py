@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from butter.contracts import AuditReport, FactBase, FactField, SiteSnapshot
 from butter.factbase import KIND_LABEL
-from butter.util import collapse_ws, md_cell
+from butter.util import collapse_ws, md_cell, stop_label
 
 LEVEL_LABEL = {"problem": "问题", "notice": "提示", "pass": "通过", "not_checkable": "查不了"}
 CHECK_LABEL = {
@@ -55,7 +55,8 @@ def factbase_md(fb: FactBase) -> str:
     lines.append("")
     lines += ["## 可选层(按产品)", ""]
     if not fb.products:
-        lines += ["没有找到机器可读的商品数据。", ""]
+        lines += ["本次抓到的页面里没有找到机器可读的商品数据。" if fb.pages
+                  else "本次没有抓到可分析的页面,没有商品数据可填。", ""]
     for p in fb.products:
         title = p.name.values[0].value if p.name.values else p.product_id
         lines += [f"### {_cell(title)}", "", f"所在页面:{p.page_url}", "", *head]
@@ -69,7 +70,7 @@ def factbase_md(fb: FactBase) -> str:
             lines.append("| 规格 | (空缺) | | | |")
         lines.append("")
     lines += ["## 空缺清单", ""]
-    lines += [f"- `{g.code}` {g.message}" for g in fb.gaps] or ["- 无。"]
+    lines += [f"- `{g.code}` {_cell(g.message, 400)}" for g in fb.gaps] or ["- 无。"]  # 消息里会带页面上的名称和地址
     lines += ["", "## 合并的本机文件", ""]
     lines += [f"- {KIND_LABEL[m.kind]} `{m.path}`:{'已合并' if m.status == 'merged' else '未合并'}。{m.note}"
               for m in fb.merged_inputs] or ["- 本次没有给 brands.yml 或 brand-domains.json。"]
@@ -84,12 +85,15 @@ def audit_md(report: AuditReport, snapshot: SiteSnapshot) -> str:
     counts = {level: sum(1 for f in report.findings if f.level == level) for level in LEVEL_LABEL}
     lines = [f"# 审计报告 · {snapshot.host}", "", f"- 网址:{report.site_url}", f"- 运行号:{report.run_id}",
              f"- 生成时间:{report.generated_at.isoformat(timespec='seconds')}",
-             f"- 检查了 {len(report.pages_checked)} 个页面;抓取结束原因:{snapshot.stop_reason}", "",
+             f"- 检查了 {len(report.pages_checked)} 个页面;"
+             + ("来源:你存在本机的 HTML 文件(没有联网)" if snapshot.source == "local_files"
+                else f"抓取结束原因:{stop_label(snapshot.stop_reason)}"), "",
              f"**合计:问题 {counts['problem']} · 提示 {counts['notice']} · 通过 {counts['pass']} · 查不了 {counts['not_checkable']}**", "",
              "五项检查都是规则判断,没有用模型。每条发现挂一个证据注册表条目 ID。"
              "robots 放行、可达性、CDN、服务端渲染的判定不在这里(Toast 负责)。", ""]
     if snapshot.notes:
-        lines += ["抓取备注:", *[f"- {n}" for n in snapshot.notes], ""]
+        lines += ["导入备注:" if snapshot.source == "local_files" else "抓取备注:",
+                  *[f"- {_cell(n, 700)}" for n in snapshot.notes], ""]
     for check, label in CHECK_LABEL.items():
         group = [f for f in report.findings if f.check == check]
         tally = " · ".join(f"{LEVEL_LABEL[lv]} {sum(1 for f in group if f.level == lv)}" for lv in LEVEL_LABEL)

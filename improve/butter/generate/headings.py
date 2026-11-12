@@ -115,7 +115,8 @@ def build_headings(
         page_tok = {p.url: _page_tokens(p) for p in pages}
         assigned: dict[str, list[tuple[float, Question, int, int]]] = {}
         md += ["## 题板对照", "", f"题板:`{board.path}`(prompt_version:{board.prompt_version or '未标'}),共 {len(board.questions)} 题。",
-               "", "| 题号 | 题目 | 最接近的页面 | 字面重合 | 情况 |", "|---|---|---|---|---|"]
+               ""]
+        rows: list[str] = []
         for q in board.questions:
             q_tok = tokens(q.text)
             best_url, best_hit = None, 0
@@ -128,13 +129,21 @@ def build_headings(
             label = {"none": "没有页面对得上", "covered": "已复述", "partial": "部分重合"}[coverage]
             report["questions"].append({"id": q.id, "intent": q.intent, "text": q.text, "best_page": best_url,
                                         "overlap": f"{best_hit}/{total}", "coverage": coverage})
-            md.append(f"| {q.id} | {_cell(q.text)} | {best_url or '—'} | {best_hit}/{total} | {label} |")
+            if best_url:  # 对不上的题不逐行列(题板常有几十题,大多和这个站无关),下面合成一句
+                rows.append(f"| {q.id} | {_cell(q.text)} | {best_url} | {best_hit}/{total} | {label} |")
             if best_url and coverage == "partial":
                 assigned.setdefault(best_url, []).append((best_hit / total if total else 0.0, q, best_hit, total))
-        md.append("")
+        if rows:
+            md += ["| 题号 | 题目 | 最接近的页面 | 字面重合 | 情况 |", "|---|---|---|---|---|", *rows, ""]
         unmatched = [q for q in report["questions"] if q["coverage"] == "none"]
         if unmatched:
-            md += [f"有 {len(unmatched)} 道题没有任何页面在字面上对得上。Butter 不自动生成新页面;要不要为它们单独写页面由你定。", ""]
+            ids = "、".join(q["id"] for q in unmatched[:12]) + (" 等" if len(unmatched) > 12 else "")
+            md += [f"有 {len(unmatched)} 道题和本次读到的页面在字面上完全对不上(页面的标题、H1、H2 里没有题目里的词):{ids}。"
+                   f"完整清单在 `{JSON_FILE}`。Butter 不自动生成新页面;要不要为它们单独写页面由你定。", ""]
+        if not rows:
+            missing.append(NotGenerated(
+                what="按题板的标题复述建议",
+                reason=f"题板 {len(board.questions)} 题里没有一题和本次读到的页面在字面上对得上,没有给复述建议(不硬凑)。"))
 
         md += ["## 建议", ""]
         for p in pages:

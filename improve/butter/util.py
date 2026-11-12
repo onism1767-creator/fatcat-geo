@@ -8,6 +8,16 @@ from urllib.parse import urljoin, urlsplit, urlunsplit
 
 _WS = re.compile(r"\s+")
 
+# 抓取结束原因的中文说法(报告和命令行用;机器可读的文件里仍写英文代码)
+STOP_REASON_LABEL = {
+    "completed": "正常走完", "challenge": "遇到人机验证,已停", "refused": "被站点拒绝,已停",
+    "time_budget": "到了总时长上限", "off_host": "跳去了别的主机", "error": "网络或读取出错",
+}
+
+
+def stop_label(reason: str) -> str:
+    return f"{STOP_REASON_LABEL.get(reason, reason)}({reason})"
+
 
 def collapse_ws(text: str) -> str:
     return _WS.sub(" ", text).strip()
@@ -75,6 +85,39 @@ def safe_http_url(url: str, base: str | None = None) -> str | None:
     if parts.scheme not in ("http", "https") or not parts.hostname:
         return None
     return urlunsplit((parts.scheme, parts.netloc, parts.path or "/", parts.query, ""))
+
+
+def normalize_site_url(url: str) -> str:
+    """用户给的网址:没写协议就补 https,不是 http / https 就拒收。"""
+    url = url.strip()
+    if not re.match(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://", url):
+        # 没写协议就补 https;但「javascript:…」「mailto:…」这类不是网址(example.com:8080 这种主机加端口的放行)
+        if re.match(r"^[a-zA-Z][a-zA-Z0-9+.\-]*:(?!\d+(?:/|$))", url):
+            raise ValueError(f"不是可用的 http / https 网址:{url!r}")
+        url = "https://" + url
+    safe = safe_http_url(url)
+    if safe is None:
+        raise ValueError(f"不是可用的 http / https 网址:{url!r}")
+    return safe
+
+
+_META_CHARSET = re.compile(rb"<meta[^>]+charset\s*=\s*[\"']?\s*([\w-]+)", re.IGNORECASE)
+
+
+def decode_html(raw: bytes, content_type: str = "") -> str:
+    """字节 → 文字:先信响应头里的 charset,再信页面里的 <meta charset>,再试 utf-8、gb18030。"""
+    match = re.search(r"charset\s*=\s*[\"']?([\w-]+)", content_type, re.IGNORECASE)
+    declared = match.group(1) if match else None
+    if declared is None and (meta := _META_CHARSET.search(raw[:4096])):
+        declared = meta.group(1).decode("ascii", "replace")
+    for encoding in (declared, "utf-8", "gb18030"):
+        if not encoding:
+            continue
+        try:
+            return raw.decode(encoding)
+        except (UnicodeDecodeError, LookupError):
+            continue
+    return raw.decode("utf-8", "replace")
 
 
 def page_key(url: str) -> str:
