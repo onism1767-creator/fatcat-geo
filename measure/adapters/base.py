@@ -196,8 +196,9 @@ class SurfaceAdapter(ABC):
     """统一适配器接口。实现者自查清单:
     - ask() 入口先 require_search_mode,不支持即抛 CapabilityNotSupportedError;
     - 平台原生错误只翻译为 AdapterTransientError / AdapterPermanentError;
-    - 机器可读的显式拒答(如内容过滤终止信号)翻译为 outcome=REFUSED 的
-      SurfaceRun 返回,不抛错;从回答文本猜测"算不算拒答"属 L2 判定器,不做;
+    - 整条不肯答的机器可读信号(如 stop_reason=refusal)翻译为 outcome=REFUSED 的
+      SurfaceRun 返回,不抛错;已给出部分正文、中途被内容过滤截断的仍是 SUCCESS(用户 2026-11-11 定);
+      从回答文本猜测"算不算拒答"属 L2 判定器,不做;
     - raw_payload 全量存档;不可观测字段记 NOT_OBSERVABLE;
     - 禁止 sleep/重试/退避(归引擎调度器)。
     """
