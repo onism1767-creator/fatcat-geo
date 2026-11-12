@@ -1,0 +1,29 @@
+[project]
+name = "butter-geo"
+version = "0.2.0"
+description = "Butter (FatCat GEO Improve): deterministic fact base, audit and change package for one site."
+requires-python = ">=3.12"
+dependencies = [
+    "httpx==0.28.1",
+    "beautifulsoup4==4.15.0",
+    "lxml==6.1.1",
+    "pydantic==2.13.5",
+    "PyYAML==6.0.3",
+    "Jinja2==3.1.6",
+]
+
+[project.optional-dependencies]
+dev = ["pytest==9.1.1"]
+
+[project.scripts]
+butter = "butter.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["butter*"]
+
+[tool.setuptools.package-data]
+butter = ["data/*.yaml", "templates/*.j2"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

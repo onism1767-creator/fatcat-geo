@@ -1,0 +1,60 @@
+# 已知平台清单:用来判断首页上的外链是不是 sameAs 候选(品牌在第三方平台上的官方页面)。
+#
+# 这是 Toast `config/platforms.yaml` 的只读快照,快照日期 2026-11-11(Toast 文件自注核对日期 2026-10-13 / 2026-10-29);
+# 去掉了 Butter 用不到的 oembed 字段,其余原样。Toast 那边改了不会自动同步过来,需人工再拍一次快照。
+#
+# 匹配规则:主机名等于 host,或是它的子域(brand.tmall.com 命中 tmall.com)。
+# kind:marketplace_store 电商店铺 / social_account 社交账号 / app_store 应用商店页 / developer_platform 开发者平台主页 /
+#   reference 百科与企业名录。reference 类只有站点自己写进结构化数据 sameAs 时才采用;
+#   光是首页上链了一下百科,不当作它在声明"这是我"。
+
+platforms:
+  - {name: 天猫, kind: marketplace_store, hosts: [tmall.com, tmall.hk]}
+  - {name: 淘宝, kind: marketplace_store, hosts: [taobao.com]}
+  - {name: 京东, kind: marketplace_store, hosts: [jd.com, jd.hk]}
+  - {name: 拼多多, kind: marketplace_store, hosts: [pinduoduo.com, yangkeduo.com]}
+  - {name: 抖音, kind: social_account, hosts: [douyin.com]}
+  - {name: 快手, kind: social_account, hosts: [kuaishou.com]}
+  - {name: 小红书, kind: social_account, hosts: [xiaohongshu.com, xhslink.com]}
+  - {name: 微博, kind: social_account, hosts: [weibo.com, weibo.cn]}
+  - {name: 微信公众号, kind: social_account, hosts: [mp.weixin.qq.com]}
+  - {name: 知乎, kind: social_account, hosts: [zhihu.com]}
+  - {name: 哔哩哔哩, kind: social_account, hosts: [bilibili.com, b23.tv]}
+  - name: Amazon
+    kind: marketplace_store
+    hosts: [amazon.com, amazon.cn, amazon.co.jp, amazon.co.uk, amazon.de, amazon.fr, amazon.ca, amazon.com.au, amazon.in]
+  - {name: AliExpress / Alibaba, kind: marketplace_store, hosts: [aliexpress.com, alibaba.com, 1688.com]}
+  - name: Shopee
+    kind: marketplace_store
+    hosts: [shopee.com, shopee.sg, shopee.tw, shopee.co.id, shopee.com.my, shopee.ph, shopee.vn, shopee.co.th]
+  - name: Lazada
+    kind: marketplace_store
+    hosts: [lazada.com, lazada.sg, lazada.com.my, lazada.co.id, lazada.co.th, lazada.vn, lazada.com.ph]
+  - {name: Rakuten, kind: marketplace_store, hosts: [rakuten.co.jp]}
+  - {name: eBay, kind: marketplace_store, hosts: [ebay.com, ebay.co.uk, ebay.de]}
+  - {name: Etsy, kind: marketplace_store, hosts: [etsy.com]}
+  - {name: Walmart, kind: marketplace_store, hosts: [walmart.com]}
+  - {name: Instagram, kind: social_account, hosts: [instagram.com]}
+  - {name: Facebook, kind: social_account, hosts: [facebook.com, fb.com]}
+  - {name: X (Twitter), kind: social_account, hosts: [x.com, twitter.com]}
+  - {name: YouTube, kind: social_account, hosts: [youtube.com, youtu.be]}
+  - {name: TikTok, kind: social_account, hosts: [tiktok.com]}
+  - {name: LinkedIn, kind: social_account, hosts: [linkedin.com]}
+  - {name: Pinterest, kind: social_account, hosts: [pinterest.com]}
+  - {name: Threads, kind: social_account, hosts: [threads.net, threads.com]}
+  - {name: Reddit, kind: social_account, hosts: [reddit.com, redd.it]}
+  - {name: App Store, kind: app_store, hosts: [apps.apple.com]}
+  - {name: Google Play, kind: app_store, hosts: [play.google.com]}
+  - {name: GitHub, kind: developer_platform, hosts: [github.com]}
+  # ── 参考页(kind: reference) ──
+  - {name: 维基百科, kind: reference, hosts: [wikipedia.org]}
+  - {name: 维基数据, kind: reference, hosts: [wikidata.org]}
+  - {name: 维基媒体, kind: reference, hosts: [wikimedia.org]}
+  - {name: DBpedia, kind: reference, hosts: [dbpedia.org]}
+  - {name: Crunchbase, kind: reference, hosts: [crunchbase.com]}
+  - {name: OpenCorporates, kind: reference, hosts: [opencorporates.com]}
+  - {name: Bloomberg, kind: reference, hosts: [bloomberg.com]}
+  - {name: ZoomInfo, kind: reference, hosts: [zoominfo.com]}
+  - {name: Glassdoor, kind: reference, hosts: [glassdoor.com]}
+  - {name: 百度百科, kind: reference, hosts: [baike.baidu.com]}
+  - {name: 快懂百科, kind: reference, hosts: [baike.com]}

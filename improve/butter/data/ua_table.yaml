@@ -1,0 +1,328 @@
+# UA 表:robots 三段式生成器用的 AI 爬虫名单。
+#
+# 进表的唯一条件(组件形态决策 决定 5):厂商有官方的爬虫说明文档。按规则不按地区。
+# 每条带官方文档地址(docs_url)与核对日期(checked_on);没有官方文档的厂商见 excluded_vendors.yaml。
+# 不采用第三方名单里用途不明的 UA。
+#
+# 核对记录:research/verification/v-ua-table.md(2026-11-11;11 家用 WebFetch 逐页打开读到正文,
+#   Bing 的说明页正文靠脚本渲染,改用浏览器打开读到)。种子:Toast config/crawlers.yaml + research/04 §2(2026-11-03)。
+#
+# 字段:
+#   purpose             search_index 搜索 / 引用索引 · training 训练 · user_fetch 用户触发取页 · ai_uses_token 只是 robots 令牌、不抓取
+#   robots_stance       官方对「是否遵守 robots.txt」的说法,中文转述(不是原文引语)
+#   user_agent_checked  verbatim 当日整段照抄 · stitched 分段取回后拼接、未在浏览器里逐字对照 · short_form 只确认了短串 ·
+#                       not_given 文档没给完整串 · unverified 出自旧文档、是否现行未核
+#   生成 robots.txt 只用 robots_token;user_agent 仅供对照日志,标 stitched / unverified 的用前请自己对一遍官方页。
+#
+# 没进表的同厂商 UA(与三段式无关):OpenAI 的 OAI-AdsBot(校验广告落地页)、Meta 的 Meta-ExternalAds 与
+#   FacebookExternalHit(分享预览)、Anthropic 页面提到的 Claude-Agent(托管浏览器标识)、Google 的其他专用爬虫。
+
+entries:
+  # ── OpenAI ──
+  - vendor: OpenAI
+    name: OAI-SearchBot
+    robots_token: OAI-SearchBot
+    user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36; compatible; OAI-SearchBot/1.4; +https://openai.com/searchbot"
+    user_agent_checked: stitched
+    purpose: search_index
+    robots_stance: 页面没有直接写「遵守」;建议在 robots.txt 里允许它,改动约 24 小时后在搜索结果侧生效
+    docs_url: https://developers.openai.com/api/docs/bots
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文
+    note: 页面注明 UA 串是示例,版本号可能变化
+  - vendor: OpenAI
+    name: GPTBot
+    robots_token: GPTBot
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; GPTBot/1.4; +https://openai.com/gptbot"
+    user_agent_checked: verbatim
+    purpose: training
+    robots_stance: 页面没有直接写「遵守」;说 disallow GPTBot 表示该站内容不应用于训练
+    docs_url: https://developers.openai.com/api/docs/bots
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文
+  - vendor: OpenAI
+    name: ChatGPT-User
+    robots_token: ChatGPT-User
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; ChatGPT-User/1.0; +https://openai.com/bot"
+    user_agent_checked: verbatim
+    purpose: user_fetch
+    robots_stance: 用户发起的操作,robots.txt 规则可能不适用
+    docs_url: https://developers.openai.com/api/docs/bots
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文
+
+  # ── Anthropic ──
+  - vendor: Anthropic
+    name: Claude-SearchBot
+    robots_token: Claude-SearchBot
+    user_agent: null
+    user_agent_checked: not_given
+    purpose: search_index
+    robots_stance: 遵循 robots.txt 的业界标准指令,支持 Crawl-delay;屏蔽它可能降低在搜索结果里的可见度
+    docs_url: https://support.claude.com/en/articles/8896518
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文
+    note: 页面只给令牌名,不给完整 UA 串
+  - vendor: Anthropic
+    name: ClaudeBot
+    robots_token: ClaudeBot
+    user_agent: null
+    user_agent_checked: not_given
+    purpose: training
+    robots_stance: 遵循 robots.txt 的业界标准指令,支持 Crawl-delay
+    docs_url: https://support.claude.com/en/articles/8896518
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文
+  - vendor: Anthropic
+    name: Claude-User
+    robots_token: Claude-User
+    user_agent: null
+    user_agent_checked: not_given
+    purpose: user_fetch
+    robots_stance: 页面对三个 UA 用同一句总括说法(遵循 robots.txt),没有单独说它是否例外;屏蔽后无法为用户查询取回该站内容
+    docs_url: https://support.claude.com/en/articles/8896518
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文
+
+  # ── Perplexity ──
+  - vendor: Perplexity
+    name: PerplexityBot
+    robots_token: PerplexityBot
+    user_agent: "Mozilla/5.0 (compatible; PerplexityBot/1.0; +https://perplexity.ai/perplexitybot)"
+    user_agent_checked: verbatim
+    purpose: search_index
+    robots_stance: 页面没有直接写「遵守」;建议在 robots.txt 里允许它
+    docs_url: https://docs.perplexity.ai/guides/bots
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文
+    note: 页面称它不用于为 AI 基础模型抓取内容;Perplexity 没有单独的训练爬虫
+  - vendor: Perplexity
+    name: Perplexity-User
+    robots_token: Perplexity-User
+    user_agent: "Mozilla/5.0 (compatible; Perplexity-User/1.0; +https://perplexity.ai/perplexity-user)"
+    user_agent_checked: verbatim
+    purpose: user_fetch
+    robots_stance: 用户请求的取页,通常忽略 robots.txt 规则
+    docs_url: https://docs.perplexity.ai/guides/bots
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文
+
+  # ── Google ──
+  - vendor: Google
+    name: Googlebot
+    robots_token: Googlebot
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Googlebot/2.1; +http://www.google.com/bot.html) Chrome/W.X.Y.Z Safari/537.36"
+    user_agent_checked: stitched
+    purpose: search_index
+    robots_stance: 常见爬虫在自动抓取时始终遵守 robots.txt 规则
+    docs_url: https://developers.google.com/crawling/docs/crawlers-fetchers/google-common-crawlers
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文(新旧两个路径都取到同标题内容)
+    note: 这是桌面串,W.X.Y.Z 是 Chrome 版本占位符;页面另有移动串和两条少见的短串。AI Overviews / AI Mode 用的是 Google 搜索索引
+  - vendor: Google
+    name: Google-Extended
+    robots_token: Google-Extended
+    user_agent: null
+    user_agent_checked: not_given
+    purpose: ai_uses_token
+    robots_stance: 它本身是 robots.txt 令牌,没有单独的 UA;只控制内容可否用于训练 Gemini 模型与 grounding,不影响 Google 搜索收录和排名
+    docs_url: https://developers.google.com/crawling/docs/crawlers-fetchers/google-common-crawlers
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文
+
+  # ── Microsoft Bing ──
+  - vendor: Microsoft Bing
+    name: bingbot
+    robots_token: bingbot
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; bingbot/2.0; +http://www.bing.com/bingbot.htm) Chrome/W.X.Y.Z Safari/537.36"
+    user_agent_checked: verbatim
+    purpose: search_index
+    robots_stance: 页面没有针对 bingbot 明说「遵守」;只泛指可以用 robots.txt 告诉 Bing 的爬虫如何与网站交互
+    docs_url: https://www.bing.com/webmasters/help/which-crawlers-does-bing-use-8c184ec0
+    checked_on: "2026-11-11"
+    checked_how: 当日用浏览器打开读到正文(正文靠脚本渲染,WebFetch 只取到标题)
+    note: 页面称它是 Bing 的标准爬虫,承担绝大部分抓取;W.X.Y.Z 是 Edge 版本占位符,页面另有一条旧式短串和一条移动串。页面没有单列 robots.txt 令牌,这里的令牌取自 UA 串里的产品名 bingbot
+
+  # ── Meta ──
+  - vendor: Meta
+    name: meta-webindexer
+    robots_token: meta-webindexer
+    user_agent: "meta-webindexer/1.1"
+    user_agent_checked: short_form
+    purpose: search_index
+    robots_stance: 页面没有说它是否遵守;只说在 robots.txt 里允许它有助于 Meta AI 的回答引用并链接你的内容
+    docs_url: https://developers.facebook.com/docs/sharing/webmasters/web-crawlers/
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文
+    note: 页面的 robots.txt 示例里没有这个 UA 的示例行,令牌取自 UA 串;带括号的完整串里的地址当日没能确认
+  - vendor: Meta
+    name: meta-externalagent
+    robots_token: meta-externalagent
+    user_agent: "meta-externalagent/1.1"
+    user_agent_checked: short_form
+    purpose: training
+    robots_stance: 页面没有明说遵守;说要屏蔽就在 robots.txt 里加对应的 disallow
+    docs_url: https://developers.facebook.com/docs/sharing/webmasters/web-crawlers/
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文
+    note: 页面把「训练基础 AI 模型」与「改进产品」并列为它的用途
+  - vendor: Meta
+    name: meta-externalfetcher
+    robots_token: meta-externalfetcher
+    user_agent: "meta-externalfetcher/1.1"
+    user_agent_checked: short_form
+    purpose: user_fetch
+    robots_stance: 应用户请求抓取单个链接,可能绕过 robots.txt
+    docs_url: https://developers.facebook.com/docs/sharing/webmasters/web-crawlers/
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文
+    note: 页面的 robots.txt 示例里没有这个 UA 的示例行,令牌取自 UA 串
+
+  # ── Apple ──
+  - vendor: Apple
+    name: Applebot
+    robots_token: Applebot
+    user_agent: "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.4 Safari/605.1.15 (Applebot/0.1; +http://www.apple.com/go/applebot)"
+    user_agent_checked: stitched
+    purpose: search_index
+    robots_stance: 遵守标准 robots.txt 指令;robots 里没提 Applebot 但提了 Googlebot 时,跟随 Googlebot 的指令
+    docs_url: https://support.apple.com/en-us/119829
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文(页面日期 Published Date September 04, 2026)
+    note: 这是页面给的桌面示例。页面说 Applebot 抓到的数据也可能用于训练 Apple 的基础模型;不想被用于训练用 Applebot-Extended 控制
+  - vendor: Apple
+    name: Applebot-Extended
+    robots_token: Applebot-Extended
+    user_agent: null
+    user_agent_checked: not_given
+    purpose: ai_uses_token
+    robots_stance: 它不抓取网页,只用来声明内容不用于训练;disallow 它的网页仍可出现在搜索结果里
+    docs_url: https://support.apple.com/en-us/119829
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文(页面日期 Published Date September 04, 2026)
+
+  # ── Amazon ──
+  - vendor: Amazon
+    name: Amzn-SearchBot
+    robots_token: Amzn-SearchBot
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Amzn-SearchBot/0.1) Chrome/W.X.Y.Z Safari/537.36"
+    user_agent_checked: verbatim
+    purpose: search_index
+    robots_stance: 遵守 Robots Exclusion Protocol;robots.txt 没提它但允许其他搜索 bot 时,按给其他搜索 bot 的指令走
+    docs_url: https://developer.amazon.com/amazonbot
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文(页面日期 Last updated Oct 26, 2026)
+    note: 页面称它不为生成式 AI 训练抓取内容;不支持 crawl-delay
+  - vendor: Amazon
+    name: Amazonbot
+    robots_token: Amazonbot
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Amazonbot/0.1) Chrome/W.X.Y.Z Safari/537.36"
+    user_agent_checked: verbatim
+    purpose: training
+    robots_stance: 自动抓取遵守 Robots Exclusion Protocol,不支持 crawl-delay
+    docs_url: https://developer.amazon.com/amazonbot
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文(页面日期 Last updated Oct 26, 2026)
+    note: 页面把「改进产品与服务」与「可能用于训练 Amazon AI 模型」并列为它的用途
+  - vendor: Amazon
+    name: Amzn-User
+    robots_token: Amzn-User
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; Amzn-User/0.1) Chrome/W.X.Y.Z Safari/537.36"
+    user_agent_checked: verbatim
+    purpose: user_fetch
+    robots_stance: 可由用户发起,可能不遵循全部 robots.txt 指令
+    docs_url: https://developer.amazon.com/amazonbot
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文(页面日期 Last updated Oct 26, 2026)
+
+  # ── DuckDuckGo ──
+  - vendor: DuckDuckGo
+    name: DuckAssistBot
+    robots_token: DuckAssistBot
+    user_agent: "DuckAssistBot/1.2; (+http://duckduckgo.com/duckassistbot.html)"
+    user_agent_checked: verbatim
+    purpose: search_index
+    robots_stance: 页面没有直接写「遵守」;说在 robots.txt 里 disallow 后 72 小时生效
+    docs_url: https://duckduckgo.com/duckduckgo-help-pages/results/duckassistbot/
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文
+    note: 页面原意是为 AI 辅助回答实时抓取页面并标注来源,且不用于训练;这里归入搜索 / 引用类
+
+  # ── You.com ──
+  - vendor: You.com
+    name: YouBot
+    robots_token: YouBot
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; YouBot/1.0; +https://docs.you.com/youbot; env:prod) Chrome/X.X.X.X Safari/537.36"
+    user_agent_checked: stitched
+    purpose: search_index
+    robots_stance: 完全遵守 robots.txt,包括针对特定 UA 的规则和 crawl-delay
+    docs_url: https://you.com/docs/youbot
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文
+    note: X.X.X.X 是 Chrome 版本占位符;页面没有说抓到的内容是否用于模型训练
+
+  # ── Mistral ──
+  - vendor: Mistral
+    name: MistralAI-Index
+    robots_token: MistralAI-Index
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; MistralAI-Index/1.0; +https://docs.mistral.ai/robots)"
+    user_agent_checked: verbatim
+    purpose: search_index
+    robots_stance: 页面未说明
+    docs_url: https://docs.mistral.ai/robots
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文
+    note: 页面称它只为索引抓取,内容不用于生成式 AI 训练
+  - vendor: Mistral
+    name: MistralAI-Training
+    robots_token: MistralAI-Training
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; MistralAI-Training/1.0; +https://docs.mistral.ai/robots)"
+    user_agent_checked: verbatim
+    purpose: training
+    robots_stance: 页面没有明说遵守;说站长可以在 robots.txt 里 disallow 它
+    docs_url: https://docs.mistral.ai/robots
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文
+  - vendor: Mistral
+    name: MistralAI-User
+    robots_token: MistralAI-User
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko; compatible; MistralAI-User/1.0; +https://docs.mistral.ai/robots)"
+    user_agent_checked: verbatim
+    purpose: user_fetch
+    robots_stance: 页面未说明
+    docs_url: https://docs.mistral.ai/robots
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文
+
+  # ── Kimi(月之暗面):国内唯一有官方爬虫文档的厂商 ──
+  - vendor: Kimi(月之暗面)
+    name: Kimi-SearchBot
+    robots_token: Kimi-SearchBot
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; Kimi-SearchBot/1.0; +https://www.kimi.com/policies/kimi-crawlers"
+    user_agent_checked: stitched
+    purpose: search_index
+    robots_stance: 页面称使用业界标准的 robots.txt 指令;disallow 它会让网站不出现在 Kimi 搜索结果里
+    docs_url: https://www.kimi.ai/policies/kimi-crawlers
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文(kimi.com 的同路径 302 跳到此地址)
+    note: 页面要求按子域分别放 robots.txt(每个子域算一个独立来源)
+  - vendor: Kimi(月之暗面)
+    name: KimiBot
+    robots_token: KimiBot
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; KimiBot/1.0; +https://www.kimi.com/policies/kimi-crawlers"
+    user_agent_checked: stitched
+    purpose: training
+    robots_stance: 页面称使用业界标准的 robots.txt 指令;disallow 它表示内容不应用于模型训练
+    docs_url: https://www.kimi.ai/policies/kimi-crawlers
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文(kimi.com 的同路径 302 跳到此地址)
+  - vendor: Kimi(月之暗面)
+    name: Kimi-User
+    robots_token: Kimi-User
+    user_agent: "Mozilla/5.0 AppleWebKit/537.36 (KHTML, like Gecko); compatible; Kimi-User/1.0; +https://www.kimi.com/policies/kimi-crawlers"
+    user_agent_checked: stitched
+    purpose: user_fetch
+    robots_stance: 操作由用户触发,robots.txt 规则可能不直接适用
+    docs_url: https://www.kimi.ai/policies/kimi-crawlers
+    checked_on: "2026-11-11"
+    checked_how: 当日打开读到正文(kimi.com 的同路径 302 跳到此地址)

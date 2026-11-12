@@ -1,0 +1,65 @@
+# 未纳入厂商与原因。
+#
+# 进 UA 表的唯一条件是「有官方的爬虫说明文档」(组件形态决策 决定 5)。下面这些厂商调研时没有找到可以打开的官方爬虫文档,
+# 所以不进表;Butter 也不采用第三方名单里用途不明的 UA。厂商发布官方文档后即可纳入。
+#
+# checked_on 是调研 / 核验当天的日期,不是今天:这张表本周没有重新逐家核对,只是把已有的调研结论落成数据。
+# 依据:research/04-platform-official-docs-and-standards.md §3.6 / §3.7(2026-11-03);
+#       research/verification/v-domestic.md(2026-11-04)。
+# 「没找到」只说明当时查过的地方没有,不等于厂商一定没有文档。
+
+vendors:
+  - vendor: 字节跳动
+    products: 豆包 / 头条搜索(Bytespider)
+    reason: 没有找到说明 Bytespider 用途或 robots.txt 处理方式的官方页面;第三方目录里的 Doubaobot 标着「未验证」
+    looked_at: 头条搜索站长平台 zhanzhang.toutiao.com(只有站长工具菜单,没有爬虫 UA 说明)
+    checked_on: "2026-11-04"
+    source: research/04 §3.7;v-domestic.md「字节豆包 / 头条搜索站长平台」
+  - vendor: 腾讯
+    products: 元宝 / 微信搜一搜 / 搜狗
+    reason: 没有找到腾讯官方的站长页、爬虫 UA 或退出说明;搜狗站长帮助只写 sogou spider 支持 robots 协议,不列 UA 字符串,也不提元宝和 AI
+    looked_at: sogou.com/docs/help/webmasters.htm;搜索未定位到腾讯官方站长页
+    checked_on: "2026-11-04"
+    source: research/04 §3.7;v-domestic.md「腾讯元宝 / 微信搜一搜」
+  - vendor: 百度
+    products: 百度 AI 搜索 / 文心(Baiduspider)
+    reason: 站长平台有 robots 工具页,但未登录只能看部分内容,没有 UA 列表;AI 搜索的爬虫与引用规则官方未说明
+    looked_at: ziyuan.baidu.com/robots/index;ziyuan.baidu.com/college/;help.baidu.com 的 Baiduspider 页只返回导航
+    checked_on: "2026-11-04"
+    source: research/04 §3.7;v-domestic.md「百度 AI 搜索 / 百度搜索资源平台」
+  - vendor: 阿里巴巴
+    products: 夸克 / 通义 / 神马(YisouSpider)
+    reason: 神马站长平台只有服务条款与导航,没有 UA 字符串说明;YisouSpider 只见于第三方记录,归属有争议
+    looked_at: zhanzhang.sm.cn
+    checked_on: "2026-11-04"
+    source: research/04 §3.7;v-domestic.md「阿里 夸克 / 通义 / 神马站长平台」
+  - vendor: DeepSeek
+    products: DeepSeek
+    reason: 没有找到官方的爬虫或站长文档;第三方目录里的 DeepSeekBot 标着「未验证」
+    looked_at: 搜索未定位到官方页
+    checked_on: "2026-11-03"
+    source: research/04 §3.7
+  - vendor: 智谱
+    products: 智谱清言
+    reason: 没有找到官方的爬虫或站长文档
+    looked_at: 搜索未定位到官方页
+    checked_on: "2026-11-03"
+    source: research/04 §3.7
+  - vendor: MiniMax
+    products: MiniMax
+    reason: 没有找到官方的爬虫或站长文档
+    looked_at: 搜索未定位到官方页
+    checked_on: "2026-11-03"
+    source: research/04 §3.7
+  - vendor: xAI
+    products: Grok
+    reason: 没有找到 x.ai / docs.x.ai 的官方爬虫页;第三方目录给出的几个令牌互相矛盾,且标着「未验证」
+    looked_at: x.ai、docs.x.ai
+    checked_on: "2026-11-03"
+    source: research/04 §3.6
+  - vendor: Brave
+    products: Brave Search / Answer with AI
+    reason: 只找到两篇产品博客(说明回答基于自家搜索索引并标注来源),没有找到面向站长的爬虫控制说明
+    looked_at: brave.com/blog/ai-summarizer/、brave.com/blog/answer-with-ai/
+    checked_on: "2026-11-03"
+    source: research/04 §3.6
