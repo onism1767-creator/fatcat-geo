@@ -124,6 +124,13 @@ errors:
     causes: {zh: "平台故障或维护;本地网络不通;接口地址变了(平台改版,适配器还打旧地址)。", en: "Platform outage or maintenance; local network down; the API endpoint changed (platform revamp, adapter still calling the old one)."}
     message: {zh: "开跑前检查没通过:{names} 的接口现在不可用,检测没有开始,没有花钱。", en: "The pre-run check failed: {names} is not reachable right now. The run did not start and nothing was spent."}
     next_step: {zh: "稍后点「接着跑」重试;持续不通就看这家的服务状态页,或在确认页去掉它再开一单。", en: "Press Resume later; if it stays down, check that provider's status page, or start a new job without it."}
+  - code: PRECHECK_REJECTED
+    scope: job
+    resumable: true
+    trigger: {zh: "开跑前的预检:某家接口把最小请求当非法请求拒绝了(HTTP 4xx;不是账户问题,也不是限流),一次采样都没发、没花钱", en: "Pre-run check: an AI's API rejected the minimal probe request as invalid (HTTP 4xx; not an account problem, not rate limiting); no sampling was sent and nothing was spent"}
+    causes: {zh: "型号下线或改名(本工具清单里的默认型号平台已不认);接口地址或请求格式变了(平台改版,本工具还按旧的发)。", en: "The model was retired or renamed (the platform no longer accepts the default model in this tool's list); the API endpoint or request format changed (platform revamp, this tool still sends the old shape)."}
+    message: {zh: "开跑前检查没通过:{names} 的接口拒绝了请求,重试没用,检测没有开始,没有花钱。", en: "The pre-run check failed: {names} rejected the request; retrying will not help. The run did not start and nothing was spent."}
+    next_step: {zh: "这不是等一等能好的:要更新这家的型号清单或接口地址(平台原话在任务页的折叠区里),改好后再点「接着跑」;急着测可以在确认页去掉它另开一单。", en: "Waiting will not fix this: update that provider's model list or API endpoint (the platform's own words are in the task page's details section), then press Resume; to test now, start a new job without it."}
   - code: JOB_STALLED
     scope: job
     resumable: true

@@ -15,7 +15,8 @@
   两者 Agent API 都暴露,所以本 surface 自 S9.0 起 supports_query_trace=True(旧接口时期标「看不到」是因为平台不给)。
 - 没有机器可读的拒答信号(旧接口的 finish_reason=content_filter 在 Agent API 里没有对应):
   不从正文猜「算不算拒答」(属 L2)。
-  status=failed → AdapterPermanentError;status=incomplete(截断)→ 回答仍有效,SUCCESS。
+  status=failed(平台回了话却没办成,golden 里是「模型过载」)→ AdapterTransientError 交调度器重试,与另两家同口径
+  (第三轮审核 A9;原来记永久失败不重试、还进熔断窗口);status=incomplete(截断)→ 回答仍有效,SUCCESS。
 """
 
 from __future__ import annotations
@@ -26,7 +27,7 @@ from typing import Any
 
 import httpx
 
-from adapters.base import AdapterPermanentError, CapabilityRegistry, SurfaceMeta, known_model
+from adapters.base import AdapterTransientError, CapabilityRegistry, SurfaceMeta, known_model
 from adapters.http_support import STRUCTURE_ERRORS, HttpAdapter, domain_of, full_body, malformed, require_list, spent_on
 from engine.models import (
     NOT_OBSERVABLE,
@@ -231,7 +232,7 @@ class PerplexityAgentAdapter(HttpAdapter):
         status = data.get("status")
         if status not in _SUCCESS_STATUSES:  # 平台回了话、钱照计,却报失败:花费随失败行落(第二轮审核 26)
             error = data.get("error") if isinstance(data.get("error"), dict) else {}
-            raise AdapterPermanentError(f"平台返回 status={status!r}: {error.get('message') or '无说明'}",
+            raise AdapterTransientError(f"平台返回 status={status!r}: {error.get('message') or '无说明'}",
                                         response_body=full_body(data), cost_usd=spent_on(lambda: _cost_usd(data)))
         try:
             return _translate(request, model, items, data, latency_ms, started_at)

@@ -257,10 +257,11 @@ class HttpAdapter(SurfaceAdapter):
 
     def _probe(self, url: str, *, payload: dict[str, Any], timeout_s: float = 15.0) -> bool:
         """healthcheck 的实现:打一次最小请求(不带检索工具,成本近零)。账户问题不吞——开跑前预检据此停单并说清是
-        换 key 还是充值(S11.1);其余问题(服务不可用、网络、限流)返回 False。"""
+        换 key 还是充值(S11.1);4xx 永久错误(型号下线、接口地址没了)也不吞——重试没用,预检据此说要改适配器
+        (第三轮审核 A23,原来和网络不通一起压成 False、叫用户稍后重试);其余问题(服务不可用、网络、限流)返回 False。"""
         try:
             self._post(url, payload=payload, timeout_s=timeout_s)
-        except AdapterAccountError:
+        except AdapterPermanentError:  # 含账户问题(子类)
             raise
         except AdapterError:
             return False

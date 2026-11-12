@@ -983,6 +983,9 @@ def test_partial_job_can_resume_to_fill_gaps_and_raise_the_cap(monkeypatch):
     bad = client.post(f"/jobs/{job.job_id}/resume?lang=zh", data={"budget": "0.5"}, follow_redirects=False)
     assert "error=FORM_BAD_BUDGET" in bad.headers["location"] and job.budget_usd == 5.0 and runs == [False]
     assert "预算填得不对" in client.get(bad.headers["location"]).text
+    for odd in ("nan", "inf"):  # 续跑提高上限同样不收 nan / inf(第三轮审核 A12)
+        odd_resp = client.post(f"/jobs/{job.job_id}/resume?lang=zh", data={"budget": odd}, follow_redirects=False)
+        assert "error=FORM_BAD_BUDGET" in odd_resp.headers["location"] and job.budget_usd == 5.0, odd
     job.state = JobState.DONE
     client.post(f"/jobs/{job.job_id}/resume?lang=zh", follow_redirects=False)
     assert runs == [False, True]  # 全部完成的单:重新生成报告,不提问

@@ -157,7 +157,7 @@ def _translate(
     sources: list[RetrievedSource] = []
     citations: list[Citation] = []
     cited_urls: set[str] = set()
-    tool_error: str | None = None
+    tool_errors: list[str] = []  # 每个工具错误块的错误码(第三轮审核 A11:原来只留最后一个,前面的被盖掉)
     search_observed = False
     try:
         for response in responses:
@@ -198,12 +198,13 @@ def _translate(
                                 )
                             )
                     else:  # HTTP 200 + 错误块(平台的工具级错误通道)
-                        tool_error = (content or {}).get("error_code") or "unknown"
+                        tool_errors.append((content or {}).get("error_code") or "unknown")
     except STRUCTURE_ERRORS as exc:  # 列表项不是 dict、字段类型怪:也算结构不符
         raise malformed(exc, {"responses": responses}, lambda: _cost_usd(responses, model)) from exc
 
-    if tool_error is not None and tool_error != "max_uses_exceeded":  # 平台回了话、钱照计:花费随失败行落(第二轮 26)
-        raise AdapterTransientError(f"web_search 工具错误块: {tool_error}",
+    polluted = [code for code in tool_errors if code != "max_uses_exceeded"]  # max_uses 是配额内的正常有界检索
+    if polluted:  # 平台回了话、钱照计:花费随失败行落(第二轮 26)
+        raise AdapterTransientError(f"web_search 工具错误块: {', '.join(polluted)}",
                                     response_body=full_body({"responses": responses}),
                                     cost_usd=_cost_usd(responses, model))
 

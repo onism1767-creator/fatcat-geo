@@ -204,6 +204,9 @@ def test_tier_and_runs_are_validated_with_plain_errors():
     assert "每题次数请填 3 到 10" in page
     not_int = client.post(url, data={**base, "tier": "low", "runs": "three"}, follow_redirects=False)
     assert "error=FORM_RUNS_RANGE" in not_int.headers["location"]
+    for odd in ("nan", "inf", "1e400", "-0"):  # 费用上限收 nan 会让每条腿一次没问就「到上限」(第三轮审核 A12)
+        bad = client.post(url, data={**base, "tier": "low", "runs": "3", "budget": odd}, follow_redirects=False)
+        assert "error=FORM_BAD_BUDGET" in bad.headers["location"], odd
 
 
 def test_fingerprint_changes_with_tier_runs():

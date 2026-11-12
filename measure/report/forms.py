@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import math
 from urllib.parse import urlsplit, urlunsplit
 
 import idna
@@ -173,8 +174,8 @@ def confirm_choice(
         budget_usd = float(budget) if budget.strip() else None
     except ValueError:
         return "FORM_BAD_BUDGET"
-    if budget_usd is not None and budget_usd <= 0:
-        return "FORM_BAD_BUDGET"
+    if budget_usd is not None and (not math.isfinite(budget_usd) or budget_usd <= 0):
+        return "FORM_BAD_BUDGET"  # nan 比不出大小,会让每条腿一次没问就「到上限」(第三轮审核 A12)
     competitors = [
         BrandSpec(name=c.name, domains=[c.domain])
         for i in competitors_selected if 0 <= i < len(job.competitors_suggested)

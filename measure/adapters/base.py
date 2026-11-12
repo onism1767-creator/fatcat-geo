@@ -198,7 +198,9 @@ class SurfaceAdapter(ABC):
     @abstractmethod
     def healthcheck(self) -> bool:
         """key 有效性、配额可用性(最小请求,成本近零)。账户问题(key 无效 / 额度不足)直接抛 AdapterAccountError——
-        开跑前预检据此停单并说清是换 key 还是充值(S11.1);其余问题(服务不可用、网络)返回 False。
+        开跑前预检据此停单并说清是换 key 还是充值(S11.1);永久错误(HTTP 4xx:型号下线、接口地址没了)直接抛
+        AdapterPermanentError——重试没用,预检据此说要改适配器(PRECHECK_REJECTED,第三轮审核 A23);
+        其余问题(服务不可用、网络、限流)返回 False。
         走 HTTP 的适配器用 adapters/http_support.HttpAdapter._probe,四家一样。"""
 
     def usage_of(self, raw_payload: JsonValue) -> dict[str, float]:

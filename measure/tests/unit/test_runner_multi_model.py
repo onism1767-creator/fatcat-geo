@@ -12,7 +12,7 @@ from uuid import uuid4
 import pytest
 from conftest import TEST_DSN
 
-from adapters.base import AdapterAccountError, CapabilityRegistry, SurfaceAdapter, SurfaceMeta
+from adapters.base import AdapterAccountError, AdapterPermanentError, CapabilityRegistry, SurfaceAdapter, SurfaceMeta
 from diagnosis.findings import Stage, StageStatus
 from diagnosis.recommender import load_evidence_registry
 from engine.detectors.matching import registrable
@@ -556,6 +556,12 @@ def test_precheck_stops_the_job_before_any_sampling(storage, offline):
     runner.execute_job(job=job2, adapters={"two_model": down}, dsn=TEST_DSN, evidence=load_evidence_registry())
     assert job2.state is JobState.FAILED and job2.error_code == "PRECHECK_FAILED"
     assert job2.error_params == {"names": "假 AI"} and down.asks == 0
+
+    gone = SickAdapter(AdapterPermanentError("The model does not exist", http_status=404, response_body="{}"))
+    job3, _ = _new_job("中小团队用什么 CRM 好?")
+    runner.execute_job(job=job3, adapters={"two_model": gone}, dsn=TEST_DSN, evidence=load_evidence_registry())
+    assert job3.state is JobState.FAILED and job3.error_code == "PRECHECK_REJECTED"  # 4xx:重试没用,要改适配器(A23)
+    assert job3.error_params == {"names": "假 AI"} and gone.asks == 0
 
     runner.execute_job(job=job2, adapters={"two_model": down}, dsn=TEST_DSN, evidence=load_evidence_registry(),
                        replay=True)  # 重算不提问,也就不预检

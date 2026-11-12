@@ -25,6 +25,9 @@
 - 显式拒答仅认机器可读信号:message 内容含 {"type": "refusal"} 部件 → REFUSED;
 - 顶层 status="incomplete"(如 max_output_tokens 截断)仍是 SUCCESS(截断的
   回答也是回答,细节在 raw_payload);status="failed" 按瞬时错误上抛;
+- 检索动作本身失败(web_search_call.status == "failed",官方枚举 in_progress / searching /
+  completed / failed)= 本次采样被检索基础设施污染,同样按瞬时错误上抛,与 Claude 工具错误块、
+  Gemini is_error 同口径(第三轮审核 A10;原来记成「搜了、没候选、回答有效」还计检索费);
 - 平台不报美元成本:cost_usd = usage token × 官方价目 + 检索动作数 × $0.01
   ($10/千次,检索内容 token 计入 input_tokens 按模型价,确定性折算);
 - 平台无检索次数上限参数(无 claude 的 max_uses 类比):成本保险丝是
@@ -168,6 +171,10 @@ def _translate(
             item_type = item.get("type")
             if item_type == "web_search_call":
                 search_observed = True
+                if item.get("status") == "failed":  # 检索动作本身失败:本次采样被检索基础设施污染,交调度器重采
+                    raise AdapterTransientError(f"web_search_call 检索动作失败(status=failed,id={item.get('id')!r})",
+                                                response_body=full_body(data),
+                                                cost_usd=spent_on(lambda: _cost_usd(data, model)))
                 action = item.get("action") or {}
                 action_type = action.get("type")
                 if action_type == "search":

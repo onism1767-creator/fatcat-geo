@@ -7,7 +7,7 @@ import httpx
 import pytest
 import respx
 
-from crawler.fetch import MAX_PAGE_BYTES, RobotsRules, get_as_browser, robots_parser
+from crawler.fetch import MAX_PAGE_BYTES, RobotsRules, fetch_page, get_as_browser, robots_parser
 
 
 @pytest.mark.parametrize("robots, token, path, allowed", [
@@ -66,6 +66,16 @@ def test_get_as_browser_caps_the_body_and_keeps_status_url_and_history():
         assert respx.calls.last.request.headers["User-Agent"].startswith("Mozilla/5.0")
         whole = get_as_browser(client, "https://big.test/", max_bytes=MAX_PAGE_BYTES + 100)
         assert whole.extensions["truncated"] is False and len(whole.content) == MAX_PAGE_BYTES + 10
+
+
+@respx.mock
+def test_manual_redirect_following_treats_a_3xx_without_location_as_final():
+    """手动跟跳转(第三方站要逐站查 robots)时,3xx 没带 Location 头当终态,与 httpx 自动跟随一致;
+    原来硬取 headers["location"] 抛 KeyError,网页核实把它当单页崩溃(第三轮审核 A16)。"""
+    respx.get("https://odd.test/").mock(return_value=httpx.Response(302, headers={"content-type": "text/html"}))
+    with httpx.Client() as client:
+        response, text, truncated = fetch_page(client, "https://odd.test/", may_visit=lambda url: True)
+    assert response.status_code == 302 and text == "" and truncated is False
 
 
 # ── 第二轮审核(2026-10-28)───────────────────────────────────────────────────────────────

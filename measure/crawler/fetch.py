@@ -134,7 +134,9 @@ def fetch_page(
         hops = 0
         while True:
             response = client.send(request, stream=True, follow_redirects=False)
-            if not response.is_redirect:
+            # 3xx 没带 Location(300 多选、配置错的站)当终态,与自动跟随一致;
+            # 原来硬取 headers["location"] 会 KeyError(第三轮审核 A16)
+            if not response.has_redirect_location:
                 break
             target = str(response.url.join(response.headers["location"]))
             response.close()

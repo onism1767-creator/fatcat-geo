@@ -208,6 +208,17 @@ def test_search_tool_error_block_raises_transient():
 
 
 @respx.mock
+def test_an_error_block_before_max_uses_exceeded_still_raises_transient():
+    """先一块 unavailable、后一块 max_uses_exceeded:原来只认最后一块,污染的采样记成 SUCCESS(第三轮审核 A11)。"""
+    body = golden("success_max_uses_exceeded.json")
+    body["content"] = golden("tool_error_unavailable.json")["content"][:2] + body["content"]
+    respx.post(MSG_URL).mock(return_value=httpx.Response(200, json=body))
+    with pytest.raises(AdapterTransientError, match="unavailable"):
+        ClaudeWebSearchAdapter(api_key="test-key").ask(make_request())
+
+
+
+@respx.mock
 def test_max_uses_exceeded_is_bounded_search_success():
     """max_uses 拦下第 N+1 次检索是配额内的正常行为:已检索结果与回答有效。"""
     body = golden("success_max_uses_exceeded.json")

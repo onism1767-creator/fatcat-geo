@@ -308,8 +308,9 @@ class DiagnosisJob:
 
     def raise_budget(self, budget_usd: float) -> None:
         """接着跑前提高费用上限(S10.3):只许往上调(预算截断的腿才补得齐),指纹随之更新;不是口径,样本照旧复用。"""
-        if budget_usd <= 0 or (self.budget_usd is not None and budget_usd < self.budget_usd):
-            raise ValueError("费用上限只能往上调,且必须是正数")
+        lower = self.budget_usd is not None and budget_usd < self.budget_usd
+        if not math.isfinite(budget_usd) or budget_usd <= 0 or lower:
+            raise ValueError("费用上限只能往上调,且必须是正数(nan / inf 不收,第三轮审核 A12)")
         self.budget_usd = budget_usd
         self._refingerprint()
 

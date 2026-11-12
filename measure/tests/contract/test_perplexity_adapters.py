@@ -134,10 +134,12 @@ def test_agent_no_search_is_recorded_as_not_triggered():
 
 
 @respx.mock
-def test_agent_failed_status_raises_permanent_with_platform_message():
+def test_agent_failed_status_raises_transient_with_platform_message():
+    """平台回了话却报 failed(golden 里是「模型过载」):瞬时错误交调度器重试,与 OpenAI / Gemini 同口径
+    (第三轮审核 A9;原来记永久失败不重试、还进熔断窗口)。"""
     body = golden("perplexity_agent", "failed_status.json")
     respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json=body))
-    with pytest.raises(AdapterPermanentError, match="status='failed'") as exc_info:
+    with pytest.raises(AdapterTransientError, match="status='failed'") as exc_info:
         PerplexityAgentAdapter(api_key="test-key").ask(make_request())
     assert '"status": "failed"' in (exc_info.value.response_body or "")  # 失败的证据随失败行存档
 
@@ -211,7 +213,7 @@ def test_agent_reported_failure_carries_the_cost_the_platform_reported():
     body = golden("perplexity_agent", "failed_status.json")
     body["usage"]["cost"]["total_cost"] = 0.004
     respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json=body))
-    with pytest.raises(AdapterPermanentError) as exc_info:
+    with pytest.raises(AdapterTransientError) as exc_info:  # A9 起瞬时,钱照记
         PerplexityAgentAdapter(api_key="test-key").ask(make_request())
     assert exc_info.value.cost_usd == pytest.approx(0.004)
 

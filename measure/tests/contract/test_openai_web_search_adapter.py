@@ -228,6 +228,21 @@ def test_failed_status_raises_transient():
     assert '"status": "failed"' in (exc_info.value.response_body or "")  # 失败的证据随失败行存档
 
 
+@respx.mock
+def test_failed_search_action_raises_transient():
+    """检索动作本身失败(web_search_call.status=failed):原来记成「搜了、没候选、回答有效」还计检索费(第三轮审核 A10),
+    现在与 Claude 工具错误块、Gemini is_error 同口径——本次采样被污染,交调度器重采。"""
+    body = golden("success_with_citations.json")
+    assert body["output"][1]["type"] == "web_search_call"
+    body["output"][1]["status"] = "failed"
+    respx.post(RESP_URL).mock(return_value=httpx.Response(200, json=body))
+    with pytest.raises(AdapterTransientError, match="检索动作失败") as exc_info:
+        OpenAIWebSearchAdapter(api_key="test-key").ask(make_request())
+    assert '"status": "failed"' in (exc_info.value.response_body or "")  # 失败的证据随失败行存档
+    assert exc_info.value.cost_usd > 0  # 平台回了话、钱照计:花费随失败行落
+
+
+
 # ── 错误翻译与能力边界 ────────────────────────────────────────────────
 
 
@@ -295,6 +310,12 @@ def test_healthcheck_minimal_request_without_tools():
     respx.post(RESP_URL).mock(return_value=httpx.Response(401, json=bad))
     with pytest.raises(AdapterAccountError):  # 账户问题不吞:开跑前预检靠它停单并说清换 key / 充值(S11.1)
         OpenAIWebSearchAdapter(api_key="bad-key").healthcheck()
+
+    gone = {"error": {"message": "The model `gpt-5.6-luna` does not exist", "type": "invalid_request_error",
+                      "param": "model", "code": "model_not_found"}}
+    respx.post(RESP_URL).mock(return_value=httpx.Response(404, json=gone))
+    with pytest.raises(AdapterPermanentError):  # 4xx 永久错误也不吞:型号下线 / 接口地址变了,重试没用(第三轮 A23)
+        OpenAIWebSearchAdapter(api_key="test-key").healthcheck()
 
 
 @respx.mock

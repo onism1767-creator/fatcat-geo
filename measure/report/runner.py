@@ -19,7 +19,7 @@ from datetime import UTC, datetime
 
 import structlog
 
-from adapters.base import AdapterAccountError, SurfaceAdapter
+from adapters.base import AdapterAccountError, AdapterPermanentError, SurfaceAdapter
 from crawler.reddit_api import RedditFetcher
 from crawler.render import PlaywrightRenderer, playwright_available
 from crawler.wayback import WaybackClient
@@ -133,15 +133,17 @@ class _ProgressSink:
 
 # 执行器会写进 job.error_code 的码(S10.1):都在 config/errors.yaml 里(测试把守),文案由任务页从库里取
 RUNNER_CODES = ("ACCOUNT_AUTH", "ACCOUNT_CREDIT", "ACCOUNT_REGION", "ACCOUNT_RESTRICTED", "ACCOUNT_QUOTA",
-                "DB_UNREACHABLE", "JOB_CRASHED", "PRECHECK_FAILED")
+                "DB_UNREACHABLE", "JOB_CRASHED", "PRECHECK_FAILED", "PRECHECK_REJECTED")
 
 
 class PrecheckFailed(Exception):
-    """开跑前预检(S11.1):某家接口不可用(不是账户问题),一次采样都没发;names = 不可用的 AI 产品名。"""
+    """开跑前预检(S11.1):某家接口有问题(不是账户问题),一次采样都没发;names = 出问题的 AI 产品名。
+    code = PRECHECK_FAILED(接口不通、限流:稍后重试)或 PRECHECK_REJECTED(最小请求被当非法请求拒绝:型号下线、
+    接口地址变了,重试没用,要改适配器;第三轮审核 A23)。"""
 
-    def __init__(self, names: list[str]) -> None:
+    def __init__(self, names: list[str], *, code: str = "PRECHECK_FAILED") -> None:
         super().__init__(", ".join(names))
-        self.names = names
+        self.names, self.code = names, code
 
 
 def execute_job(
@@ -174,10 +176,10 @@ def execute_job(
         job.error_code, job.error_params, job.error = "DB_UNREACHABLE", {"detail": str(exc)}, None
         job.phase = "phase_failed"
         _persist_failure(job, dsn)
-    except PrecheckFailed as exc:  # S11.1:开跑前接口不通,没花钱就停
-        log.error("job_halted_precheck_failed", job_id=job.job_id, names=exc.names)
+    except PrecheckFailed as exc:  # S11.1:开跑前接口不通 / 请求被拒,没花钱就停
+        log.error("job_halted_precheck_failed", job_id=job.job_id, code=exc.code, names=exc.names)
         job.state = JobState.FAILED
-        job.error_code, job.error_params, job.error = "PRECHECK_FAILED", {"names": ", ".join(exc.names)}, None
+        job.error_code, job.error_params, job.error = exc.code, {"names": ", ".join(exc.names)}, None
         job.phase = "phase_failed"
         _persist_failure(job, dsn)
     except Exception as exc:  # 失败不静默:状态页如实展示,也给码(S10.1)
@@ -306,6 +308,7 @@ def _precheck(
             if picked is not None:
                 to_check.setdefault(picked.spec.surface, picked.adapter)
     unavailable: list[str] = []
+    rejected: list[str] = []  # 最小请求被当非法请求拒绝(4xx):型号下线、接口地址变了,重试没用(第三轮审核 A23)
     for surface, adapter in to_check.items():
         meta = adapter.meta()
         try:
@@ -313,8 +316,15 @@ def _precheck(
         except AdapterAccountError as exc:
             raise AccountProblem(provider=meta.provider, surface=surface, model=meta.default_model,
                                  error_type=exc.error_type, message=str(exc)) from exc
+        except AdapterPermanentError as exc:
+            log.error("precheck_rejected", job_id=job.job_id, surface=surface, http_status=exc.http_status,
+                      error=str(exc))
+            rejected.append(meta.display_name)
+            continue
         if not healthy:
             unavailable.append(meta.display_name)
+    if rejected:
+        raise PrecheckFailed(rejected, code="PRECHECK_REJECTED")
     if unavailable:
         raise PrecheckFailed(unavailable)
     log.info("precheck_passed", job_id=job.job_id, surfaces=sorted(to_check))
