@@ -79,12 +79,18 @@ _PRICE_TABLE: dict[str, dict[str, float]] = {
     for model, (price_in, price_out) in _ALL_PRICES_PER_MTOK.items()
 }
 _DEFAULT_MODEL = "gemini-3.8-flash"
-# 型号标记(配置资产,用户定 2026-10-14):Gemini 应用默认官方未写(2025-12 起 3 Flash 为默认;
-# 3.8 Flash 是现行 Flash)→ 填 3.8,待核对;
-# 最强 = Gemini 4 Argon(官方「旗舰推理模型」,2026-10-13 起向 Pro / Ultra 用户推)
+# 型号标记(配置资产,用户定 2026-10-14;2026-11-03 定 ③「主力 = 付费版默认」):
+# 2026-11-11 核对官方帮助中心「About Gemini models」:没有付费方案的用户默认「自动选型」(多数提问走 Flash-Lite,
+# 要推理的用 Flash;关掉自动就全是 Flash-Lite);Google AI Pro 可选 Flash-Lite / Flash / Pro / 4 Argon,同样默认自动选型,
+# 官方没有单独的「付费版默认型号」;Ultra 另有 4 Carbon(官方「最强」),接口清单里没有。
+# 主力按 Pro 档可选的最高一档 4 Argon 填(10-13 发布说明:向 Pro / Ultra 推出的「前沿型号」;也是成本调研的建议),待用户定。
+# 消费端默认也要重看:官方写免费版多数提问走 Flash-Lite,本仓库低档仍按 3.8 Flash(Flash-Lite 现在只当裁判),
+# 待用户定要不要换。
 _CONSUMER_DEFAULT_MODEL = "gemini-3.8-flash"
-_STRONGEST_MODEL = "gemini-4-argon"
-_MODELS_CHECKED = "2026-10-14 官方型号页 + 价目页 + 应用更新日志;消费端默认按现行 Flash 填 3.8,待核对"
+_MAIN_MODEL = "gemini-4-argon"
+_MODELS_CHECKED = ("2026-10-14 官方型号页 + 价目页 + 应用更新日志;2026-11-11 官方帮助中心「About Gemini models」:"
+                   "免费与付费都默认自动选型(多数走 Flash-Lite);主力按 Pro 档最高的 4 Argon 填、"
+                   "消费端默认仍填 3.8 Flash,都待核对")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
@@ -234,7 +240,7 @@ class GeminiGroundingAdapter(HttpAdapter):
             helper_models=list(_HELPER_PRICES_PER_MTOK),
             default_model=_DEFAULT_MODEL,
             consumer_default_model=_CONSUMER_DEFAULT_MODEL,
-            strongest_model=_STRONGEST_MODEL,
+            main_model=_MAIN_MODEL,
             models_checked=_MODELS_CHECKED,
             capabilities=_CAPABILITIES,
             price_table=_PRICE_TABLE,

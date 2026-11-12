@@ -98,7 +98,7 @@ def build_adapters(
                              "——预估会静默漏计,禁止带病运行")
         if meta.default_model not in meta.models:
             raise ValueError(f"{entry.name} 的默认型号 {meta.default_model!r} 不在型号清单里")
-        for label, tagged in (("消费端默认", meta.consumer_default_model), ("最强", meta.strongest_model)):
+        for label, tagged in (("消费端默认", meta.consumer_default_model), ("主力", meta.main_model)):
             if tagged not in meta.models:  # 档位按标记选型号(S9):标记指向清单外的型号 = 配置资产坏了,禁止带病运行
                 raise ValueError(f"{entry.name} 的「{label}」型号 {tagged!r} 不在型号清单里")
         adapters[entry.name] = adapter

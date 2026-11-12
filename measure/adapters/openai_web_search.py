@@ -99,12 +99,16 @@ _CACHE_BILLING_NOTE = BillingNote(
        "Recorded figures are kept as they were.",
 )
 _DEFAULT_MODEL = "gpt-5.6-luna"
-# 型号标记(配置资产,用户定 2026-10-14「消费端默认按免费版」):ChatGPT 免费版 / Go 默认 GPT-5.6 Luna(官方帮助中心);
-# 付费版默认是 GPT-6(Sol 跑 Instant / Medium / High),不取。最强 = GPT-6 Astra(官方「最强」)。
+# 型号标记(配置资产,用户定 2026-10-14「消费端默认按免费版」;2026-11-03 定 ③「主力 = 付费版默认」):
+# 2026-11-11 核对官方帮助中心「GPT-6 and other models in ChatGPT」(页面标注约 10-30 更新):免费版 / Go 默认 GPT-5.6 Luna;
+# GPT-6 是 Plus / Pro / Business / Enterprise 普通聊天的当前默认,Instant 到 Extra High 都由 GPT-6 Sol 驱动,
+# Astra 只在 Pro 档的「Pro」思考档(GPT-6 Pro);GPT-6.1 Sol / Terra 只在 Work 与 Codex,不在聊天里。
+# 所以主力 = gpt-6-sol;最强的 Astra 不再是中档标记,高档「全部型号」与自定义仍会测它。
 _CONSUMER_DEFAULT_MODEL = "gpt-5.6-luna"
-_STRONGEST_MODEL = "gpt-6-astra"
-_MODELS_CHECKED = ("2026-10-14 官方型号页 + 价目页 + 帮助中心「GPT-6 and other models in ChatGPT」;"
-                   "消费端默认按免费版(用户定)")
+_MAIN_MODEL = "gpt-6-sol"
+_MODELS_CHECKED = ("2026-11-11 官方帮助中心「GPT-6 and other models in ChatGPT」:免费版默认 GPT-5.6 Luna、"
+                   "付费版聊天默认 GPT-6(Sol);"
+                   "型号清单与价目仍按 2026-10-14 官方型号页 + 价目页")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
@@ -296,7 +300,7 @@ class OpenAIWebSearchAdapter(HttpAdapter):
             models=list(_TOKEN_PRICES_PER_MTOK),  # 以官方模型页为准,与价目表同步核对
             default_model=_DEFAULT_MODEL,
             consumer_default_model=_CONSUMER_DEFAULT_MODEL,
-            strongest_model=_STRONGEST_MODEL,
+            main_model=_MAIN_MODEL,
             models_checked=_MODELS_CHECKED,
             capabilities=_CAPABILITIES,
             price_table=_PRICE_TABLE,

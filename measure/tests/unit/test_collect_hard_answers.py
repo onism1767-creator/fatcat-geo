@@ -28,7 +28,7 @@ class FakeAdapter(SurfaceAdapter):
     def meta(self) -> SurfaceMeta:
         return SurfaceMeta(
             display_name=self._surface, api_name=self._surface, provider=f"{self._surface}_co", surface=self._surface,
-            models=["daily", "top"], default_model="top", consumer_default_model="daily", strongest_model="top",
+            models=["daily", "top"], default_model="top", consumer_default_model="daily", main_model="top",
             models_checked="test", capabilities=CapabilityRegistry(supports_citations=True),
             est_cost_per_call_usd={"daily": 0.01, "top": 0.5},
         )

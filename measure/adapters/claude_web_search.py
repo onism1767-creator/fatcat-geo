@@ -85,11 +85,16 @@ _PRICE_TABLE: dict[str, dict[str, float]] = {
     for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
 }
 _DEFAULT_MODEL = "claude-sonnet-5-5"
-# 型号标记(配置资产,用户定 2026-10-14):应用默认是 Sonnet 系(第三方资料:2026-06-30 起 Sonnet 5 为默认;
-# 5.5 上线后是否切换官方未写)→ 待核对
+# 型号标记(配置资产,用户定 2026-10-14;2026-11-03 定 ③「主力 = 付费版默认」):
+# 消费端默认:应用默认是 Sonnet 系(第三方资料:2026-06-30 起 Sonnet 5 为默认;5.5 上线后是否切换官方未写)→ 待核对。
+# 主力(付费版默认)——待核对:2026-11-11 查官方帮助中心「What is the Pro plan?」「Claude Fable models on your plan」
+# 「Covered Models」,都没写付费版默认型号;只写明 Fable 系(5 / 5.1 / 5.2)在 Pro 档不含在套餐用量里、要另买用量,
+# Max / Ultra 含到周用量的一半。所以 Pro 套餐内最高一档是 Opus 5.5,按成本调研建议记为主力(用户可改成 Sonnet 5.5)。
+# 另:官方「Covered Models」页写 Claude Fable 5.2 已于 2026-11-09 正式可用,本清单(10-14)还没收,入清单前要冒烟。
 _CONSUMER_DEFAULT_MODEL = "claude-sonnet-5-5"
-_STRONGEST_MODEL = "claude-fable-5-1"  # 官方:Mythos 级,高于 Opus
-_MODELS_CHECKED = "2026-10-14 官方型号页 + 价目页;消费端默认按应用默认 Sonnet 系填 5.5,待核对"
+_MAIN_MODEL = "claude-opus-5-5"
+_MODELS_CHECKED = ("2026-10-14 官方型号页 + 价目页;消费端默认按应用默认 Sonnet 系填 5.5,待核对;"
+                   "主力 2026-11-11 查官方帮助中心没写付费版默认,按 Pro 套餐内最高档填 Opus 5.5,待核对")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
@@ -265,7 +270,7 @@ class ClaudeWebSearchAdapter(HttpAdapter):
             models=list(_TOKEN_PRICES_PER_MTOK),  # 以官方模型页为准,与价目表同步核对
             default_model=_DEFAULT_MODEL,
             consumer_default_model=_CONSUMER_DEFAULT_MODEL,
-            strongest_model=_STRONGEST_MODEL,
+            main_model=_MAIN_MODEL,
             models_checked=_MODELS_CHECKED,
             capabilities=_CAPABILITIES,
             price_table=_PRICE_TABLE,

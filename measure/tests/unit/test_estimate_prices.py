@@ -20,7 +20,7 @@ class PricedAdapter(SurfaceAdapter):
     def meta(self) -> SurfaceMeta:
         return SurfaceMeta(display_name="假 AI", api_name="假 AI", provider="test_provider", surface="priced",
                            models=[CHEAP, PRICEY], default_model=CHEAP, consumer_default_model=CHEAP,
-                           strongest_model=PRICEY, models_checked="test",
+                           main_model=PRICEY, models_checked="test",
                            capabilities=CapabilityRegistry(supports_search_disabled=True), price_table=PRICES,
                            est_cost_per_call_usd={CHEAP: 0.05, PRICEY: 0.5},
                            est_cost_per_call_search_disabled_usd={CHEAP: 0.01, PRICEY: 0.1})

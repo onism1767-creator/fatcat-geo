@@ -48,7 +48,7 @@ class ScriptedJudge(SurfaceAdapter):
     def meta(self) -> SurfaceMeta:
         return SurfaceMeta(display_name=self._surface, api_name=self._surface, provider=self._provider,
                            surface=self._surface, models=[self._model], default_model=self._model,
-                           consumer_default_model=self._model, strongest_model=self._model, models_checked="test",
+                           consumer_default_model=self._model, main_model=self._model, models_checked="test",
                            capabilities=CapabilityRegistry(supports_citations=True,
                                                            supports_search_disabled=self._offline),
                            est_cost_per_call_usd={self._model: 0.01},

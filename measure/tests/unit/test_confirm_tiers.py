@@ -13,12 +13,12 @@ from tests.unit.test_report_page import REGISTRY, UI_FORBIDDEN, DummyAdapter, vi
 
 
 class TwoModelAdapter(SurfaceAdapter):
-    """两个型号:m_cheap 是消费端默认、m_top 是最强——三档挑出来的型号不一样,卡片才有区别。"""
+    """两个型号:m_cheap 是消费端默认、m_top 是主力(付费版默认)——三档挑出来的型号不一样,卡片才有区别。"""
 
     def meta(self) -> SurfaceMeta:
         return SurfaceMeta(display_name="S2", api_name="S2 API", provider="test_provider2", surface="s2",
                            models=["m_cheap", "m_top"], default_model="m_cheap",
-                           consumer_default_model="m_cheap", strongest_model="m_top", models_checked="test",
+                           consumer_default_model="m_cheap", main_model="m_top", models_checked="test",
                            capabilities=CapabilityRegistry(supports_citations=True, supports_search_disabled=True),
                            est_cost_per_call_usd={"m_cheap": 0.01, "m_top": 0.10})
 
@@ -61,7 +61,7 @@ def test_confirm_page_shows_three_tier_cards_with_medium_selected():
     assert 'name="tier" value="low"' in html and 'name="tier" value="high"' in html
     assert 'name="tier" value="medium" checked' in html  # 默认「中」(用户定)
     assert "低档" in html and "中档" in html and "高档" in html
-    # 低档每家一个消费端默认型号;中档 s2 两个(最强 + 默认)、s1 一个;高档全部
+    # 低档每家一个消费端默认型号;中档 s2 两个(主力 + 默认)、s1 一个;高档全部
     assert "测 2 个 AI 型号:S1 · m1;S2 API · m_cheap" in html
     assert "测 3 个 AI 型号:S1 · m1;S2 API · m_top;S2 API · m_cheap" in html
     assert "每道题原样问 5 次" in html and "每道题原样问 7 次" in html

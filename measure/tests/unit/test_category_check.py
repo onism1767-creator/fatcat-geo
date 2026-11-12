@@ -103,7 +103,7 @@ class ScriptedAdapter(SurfaceAdapter):
                            surface=self._surface, models=self._models, default_model=self._models[0],
                            capabilities=CapabilityRegistry(supports_citations=True,
                                                            supports_search_disabled=self._search_disabled),
-                           consumer_default_model=self._models[0], strongest_model=self._models[-1],
+                           consumer_default_model=self._models[0], main_model=self._models[-1],
                            models_checked="test", est_cost_per_call_usd=dict.fromkeys(self._models, 0.0004))
 
     def ask(self, request):

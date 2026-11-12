@@ -1,5 +1,6 @@
 """档位配置(S9.1,架构书附录 v0.4.27 + 2026-10-14 拍板):三档参数从 config/tiers.yaml 读;
-型号按各适配器 meta 的标记选(消费端默认 / 最强);新档位 = 加一段配置,代码零改动(硬边界 10 同款验收)。零网络零数据库。"""
+型号按各适配器 meta 的标记选(消费端默认 / 主力 = 付费版默认,用户 2026-11-03 定 ③);
+新档位 = 加一段配置,代码零改动(硬边界 10 同款验收)。零网络零数据库。"""
 
 from pathlib import Path
 
@@ -11,10 +12,10 @@ from engine.tiers import MentionMethod, ModelRule, TierChoice, load_tiers, tier_
 
 
 class FakeAdapter(SurfaceAdapter):
-    def __init__(self, surface: str, models: list[str], consumer: str, strongest: str) -> None:
+    def __init__(self, surface: str, models: list[str], consumer: str, main: str) -> None:
         self._meta = SurfaceMeta(
             provider=f"{surface}_vendor", surface=surface, display_name=surface.upper(), api_name=f"{surface} API",
-            models=models, default_model=models[0], consumer_default_model=consumer, strongest_model=strongest,
+            models=models, default_model=models[0], consumer_default_model=consumer, main_model=main,
             models_checked="test", capabilities=CapabilityRegistry(supports_citations=True),
             est_cost_per_call_usd={m: 0.01 for m in models},
         )
@@ -30,9 +31,9 @@ class FakeAdapter(SurfaceAdapter):
 
 
 ADAPTERS = {
-    "a": FakeAdapter("a", ["a1", "a2", "a3"], consumer="a1", strongest="a3"),  # 最强 ≠ 消费端默认
-    "b": FakeAdapter("b", ["b1"], consumer="b1", strongest="b1"),  # 只有一个型号
-    "c": FakeAdapter("c", ["c1", "c2"], consumer="c2", strongest="c2"),  # 同一个型号,且是清单最后一个
+    "a": FakeAdapter("a", ["a1", "a2", "a3"], consumer="a1", main="a3"),  # 主力 ≠ 消费端默认
+    "b": FakeAdapter("b", ["b1"], consumer="b1", main="b1"),  # 只有一个型号
+    "c": FakeAdapter("c", ["c1", "c2"], consumer="c2", main="c2"),  # 同一个型号,且是清单最后一个
 }
 
 
@@ -40,7 +41,7 @@ def test_config_has_three_tiers_with_the_decided_numbers():
     config = load_tiers()
     assert [t.name for t in config.tiers] == ["low", "medium", "high"] and config.default == "medium"
     assert [t.runs_per_prompt for t in config.tiers] == [3, 5, 7]  # 用户拍板 T5
-    assert [t.models for t in config.tiers] == [ModelRule.CONSUMER_DEFAULT, ModelRule.STRONGEST_AND_CONSUMER_DEFAULT,
+    assert [t.models for t in config.tiers] == [ModelRule.CONSUMER_DEFAULT, ModelRule.MAIN_AND_CONSUMER_DEFAULT,
                                                 ModelRule.ALL]
     # 低档规则;中档规则 + 模糊(S9.2);高档再加 AI 裁判(S9.3)
     assert [t.mention_method for t in config.tiers] == [MentionMethod.RULES, MentionMethod.RULES_FUZZY,
@@ -55,7 +56,7 @@ def test_tier_targets_follow_the_model_marks():
     low, medium, high = (config.get(n) for n in ("low", "medium", "high"))
     assert tier_targets(low, ADAPTERS) == [Target(surface="a", model="a1"), Target(surface="b", model="b1"),
                                            Target(surface="c", model="c2")]
-    # 中档 = 最强 + 消费端默认;b 只有一个就一个;c 两者同一个 → 补清单里紧挨着的(c2 是最后一个 → 补前面的 c1)
+    # 中档 = 主力(付费版默认)+ 消费端默认;b 只有一个就一个;c 两者同一个 → 补清单里紧挨着的(c2 是最后一个 → 补前面的 c1)
     assert tier_targets(medium, ADAPTERS) == [
         Target(surface="a", model="a3"), Target(surface="a", model="a1"),
         Target(surface="b", model="b1"),

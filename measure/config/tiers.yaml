@@ -3,8 +3,10 @@
 #
 # models(型号从各适配器 meta 的标记里选;标记是配置资产,来源与核对日期写在各适配器里):
 #   consumer_default                 每家消费端默认型号一个(该家聊天产品界面默认用的那个)
-#   strongest_and_consumer_default   每家最强 + 消费端默认各一个;同一个型号只算一个,再补清单里紧挨着它的下一个
-#                                    (排在它后面的第一个;它已是最后一个就补前面那个;清单只有一个就不补)
+#   main_and_consumer_default        每家主力(付费版默认)+ 消费端默认各一个;同一个型号只算一个,再补清单里紧挨着它的下一个
+#                                    (排在它后面的第一个;它已是最后一个就补前面那个;清单只有一个就不补)。
+#                                    用户 2026-11-03 定 ③:原来是「最强 + 消费端默认」,最强 = Mythos 级,占中档预估 87%;
+#                                    Mythos 级留给高档(all)与自定义
 #   all                              每家全部当前一代型号
 # mention_method(「提到你」怎么认;自定义跟起点档走,不单独选):
 #   rules              别名表 + 词边界精确匹配(判定器 brand_mention_rules v3);常用词和太短的名字看大小写和线索,看不出来记说不准
@@ -24,7 +26,7 @@ tiers:
     mention_method: rules
   - name: medium
     runs_per_prompt: 5
-    models: strongest_and_consumer_default
+    models: main_and_consumer_default
     mention_method: rules_fuzzy    # S9.2 起;BR4 起说不准的请裁判,费用按 judges.yaml 另计,名字没风险时一般不花这笔钱
   - name: high
     runs_per_prompt: 7

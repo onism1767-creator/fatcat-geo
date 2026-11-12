@@ -1,7 +1,7 @@
 """档位(S9.1;架构书附录 v0.4.27 + 2026-10-14 拍板):一套冻结的测量参数——型号怎么选 × 每题几次 × 「提到你」怎么认。
 
 配置在 config/tiers.yaml;新档位 = 加一段配置,本模块与 L2 / L3 其余代码零改动(硬边界 10 同款验收)。
-型号按各适配器 meta 的标记选(消费端默认 / 最强,配置资产,来源与日期在适配器里);本模块不含任何厂商名。
+型号按各适配器 meta 的标记选(消费端默认 / 主力 = 付费版默认,配置资产,来源与日期在适配器里);本模块不含任何厂商名。
 档位不是分数:不改判定线、不改口径写法、不改题目;一单一档,中途不换;档位名与参数写进报告「这次是怎么测的」。
 """
 
@@ -23,7 +23,7 @@ class ModelRule(StrEnum):
     """档位怎么从每家的清单里挑型号。"""
 
     CONSUMER_DEFAULT = "consumer_default"
-    STRONGEST_AND_CONSUMER_DEFAULT = "strongest_and_consumer_default"
+    MAIN_AND_CONSUMER_DEFAULT = "main_and_consumer_default"  # 用户 2026-11-03 定 ③:原 strongest_and_consumer_default
     ALL = "all"
 
 
@@ -106,11 +106,11 @@ def pick_models(rule: ModelRule, meta: SurfaceMeta) -> list[str]:
         return list(meta.models)
     if rule is ModelRule.CONSUMER_DEFAULT:
         return [meta.consumer_default_model]
-    picked = [meta.strongest_model]
-    if meta.consumer_default_model != meta.strongest_model:
+    picked = [meta.main_model]
+    if meta.consumer_default_model != meta.main_model:
         picked.append(meta.consumer_default_model)
     else:  # 同一个型号只算一个,再补清单里紧挨着它的下一个(它已是最后一个就补前面那个;只有一个就不补)
-        i = meta.models.index(meta.strongest_model)
+        i = meta.models.index(meta.main_model)
         neighbour = meta.models[i + 1] if i + 1 < len(meta.models) else (meta.models[i - 1] if i > 0 else None)
         if neighbour is not None:
             picked.append(neighbour)

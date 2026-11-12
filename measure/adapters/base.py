@@ -155,11 +155,12 @@ class SurfaceMeta(FrozenModel):
     models: list[str]
     helper_models: list[str] = []  # 只做裁判这类辅助调用、不被测的型号(BR6):不进档位、不上确认页、不算报价覆盖
     default_model: str
-    # 型号标记(配置资产,S9.0;用户定 2026-10-14):「消费端默认」= 该家聊天产品界面默认用的型号;
-    # 「最强」= 该家公认最强的型号。两个都必须在 models 里(加载器校验)。
+    # 型号标记(配置资产,S9.0;用户定 2026-10-14):「消费端默认」= 该家聊天产品(免费版)界面默认用的型号;
+    # 「主力」= 该家付费版聊天产品默认用的型号(用户 2026-11-03 定 ③:原来这一格是「最强」= Mythos 级,中档按它选,
+    # 两个型号占中档预估 87%;Mythos 级留给高档「全部型号」与自定义)。两个都必须在 models 里(加载器校验)。
     # 来源与核对日期写在 models_checked,查不到官方说法的写明「待核对」,不猜(铁律 7)。
     consumer_default_model: str
-    strongest_model: str
+    main_model: str
     models_checked: str
     capabilities: CapabilityRegistry
     # 牌价(2026-11-03 成本调研②):型号 → 计费项 → 每单位美元;计费项的键和 usage_of 读出的用量一致,
