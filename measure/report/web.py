@@ -122,6 +122,16 @@ class WebContext:
         """接口名(报告里「各 AI 一句话」的主语;没加载的旧仪器如实用内部名)。"""
         return self.api_names.get(surface, surface)
 
+    def billing_notes(self, job: DiagnosisJob, lang: str) -> list[str]:
+        """记账规则改过的说明(Q8,用户 2026-11-03 定「旧单的报告注明记高」):本单建单早于某家改规则的日子,就把那家
+        声明的说明(adapters 的 SurfaceMeta.billing_notes)按界面语言列出来;按建单时间算,续跑不会把起测时间重置掉。"""
+        return [
+            getattr(note, lang)
+            for surface in dict.fromkeys(target.surface for target in job.targets)
+            if surface in self.adapters
+            for note in self.adapters[surface].meta().billing_notes if job.created_at < note.since
+        ]
+
     def render(self, request: Request, name: str, **context) -> HTMLResponse:
         lang = lang_of(request)
         context.setdefault("lang", lang)

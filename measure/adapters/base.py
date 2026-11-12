@@ -13,6 +13,7 @@ from __future__ import annotations
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable, Mapping
+from datetime import datetime
 
 from engine.models import ACCOUNT_ERROR_TYPES, AskRequest, FrozenModel, JsonValue, RunErrorType, SearchMode, SurfaceRun
 
@@ -135,6 +136,16 @@ class CapabilityRegistry(FrozenModel):
 # ── SurfaceMeta 与接口(6.1)──────────────────────────────────────────
 
 
+class BillingNote(FrozenModel):
+    """这家的记账规则改过一次(配置资产,由适配器声明):since 之前建的单,它的费用是按旧规则记的。
+    用户 2026-11-03 定(Q8):已落库的 cost_usd 不改(原始层只追加),旧单的报告注明;文案 zh / en 两套,
+    报告层按界面语言通用渲染(report/web.py),不认厂商名。"""
+
+    since: datetime
+    zh: str
+    en: str
+
+
 class SurfaceMeta(FrozenModel):
     provider: str
     surface: str
@@ -163,6 +174,7 @@ class SurfaceMeta(FrozenModel):
     # search_disabled 模式(检索依赖诊断闭卷腿)的单次期望成本(v0.4.7),同样按型号:
     # 声明 supports_search_disabled 的适配器必须报价(加载器强制),否则为 None。
     est_cost_per_call_search_disabled_usd: dict[str, float] | None = None
+    billing_notes: list[BillingNote] = []  # 记账规则改过的说明(Q8);没改过就空
 
 
 def known_model(requested: str | None, default: str, allowed: Iterable[str]) -> str:

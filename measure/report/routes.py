@@ -501,7 +501,8 @@ def job_report(request: Request, job_id: str):
                       truncated={(d.surface, d.model) for d in job.stop_details if d.truncated},
                       # 再测(S11.3):本单对照的上一单 + 本单已有的再测,报告页互相链到好对照
                       parent=ctx.registry.get(job.parent_job_id) if job.parent_job_id else None,
-                      retests=ctx.registry.retests_of(job.job_id))
+                      retests=ctx.registry.retests_of(job.job_id),
+                      billing_notes=ctx.billing_notes(job, lang_of(request)))  # 旧单注明记账规则改过(Q8)
 
 
 @router.get("/jobs/{job_id}/responses/{run_id}", response_class=HTMLResponse)

@@ -119,7 +119,8 @@ def test_usage_is_read_from_the_archive_and_prices_to_the_recorded_cost():
     adapter = OpenAIWebSearchAdapter(api_key="test-key")
     run = adapter.ask(make_request())
     usage = adapter.usage_of(run.raw_payload)
-    assert usage == {"input_tokens": 9412.0, "output_tokens": 486.0, "searches": 1.0}
+    assert usage == {"input_tokens": 9412.0, "cached_input_tokens": 0.0, "cache_write_tokens": 0.0,
+                     "output_tokens": 486.0, "searches": 1.0}  # 缓存分档(Q8);golden 里没命中缓存
     assert priced(adapter.meta().price_table[run.model], usage) == pytest.approx(run.cost_usd)
     assert adapter.usage_of(None) == {} and adapter.usage_of("junk") == {}
 
@@ -240,6 +241,27 @@ def test_failed_search_action_raises_transient():
         OpenAIWebSearchAdapter(api_key="test-key").ask(make_request())
     assert '"status": "failed"' in (exc_info.value.response_body or "")  # 失败的证据随失败行存档
     assert exc_info.value.cost_usd > 0  # 平台回了话、钱照计:花费随失败行落
+
+
+
+@respx.mock
+def test_cached_input_tokens_are_priced_at_their_own_rates():
+    """输入 token 分三档记账(Q8,2026-11-03 对账单核过):没命中缓存的全价、命中缓存的 0.1 倍、写入缓存的 1.25 倍,
+    三者都含在平台报的 input_tokens 里;原来一律按全价,最贵的型号一天记高 19%。"""
+    body = golden("success_with_citations.json")
+    body["usage"] = {"input_tokens": 10000, "input_tokens_details": {"cached_tokens": 4000, "cache_write_tokens": 500},
+                     "output_tokens": 400, "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": 10400}
+    respx.post(RESP_URL).mock(return_value=httpx.Response(200, json=body))
+    adapter = OpenAIWebSearchAdapter(api_key="test-key")
+    run = adapter.ask(make_request())  # 默认型号 gpt-5.6-luna:$0.2 / $1.2 每百万;golden 里 1 次检索
+    assert adapter.usage_of(run.raw_payload) == {
+        "input_tokens": 5500.0, "cached_input_tokens": 4000.0, "cache_write_tokens": 500.0,
+        "output_tokens": 400.0, "searches": 1.0,
+    }
+    expected = (5500 * 0.2 + 4000 * 0.2 * 0.1 + 500 * 0.2 * 1.25 + 400 * 1.2) / 1e6 + 0.01
+    assert run.cost_usd == pytest.approx(expected)
+    assert run.cost_usd < (10000 * 0.2 + 400 * 1.2) / 1e6 + 0.01  # 比原来按全价记的少
+    assert set(adapter.meta().price_table["gpt-5.6-luna"]) == set(adapter.usage_of(run.raw_payload))  # 键一致
 
 
 

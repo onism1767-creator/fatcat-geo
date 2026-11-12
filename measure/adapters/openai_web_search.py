@@ -29,7 +29,9 @@
   completed / failed)= 本次采样被检索基础设施污染,同样按瞬时错误上抛,与 Claude 工具错误块、
   Gemini is_error 同口径(第三轮审核 A10;原来记成「搜了、没候选、回答有效」还计检索费);
 - 平台不报美元成本:cost_usd = usage token × 官方价目 + 检索动作数 × $0.01
-  ($10/千次,检索内容 token 计入 input_tokens 按模型价,确定性折算);
+  ($10/千次,检索内容 token 计入 input_tokens 按模型价,确定性折算);输入 token 分三档:
+  没命中缓存的全价、命中缓存的 0.1 倍、写入缓存的 1.25 倍(三者都含在平台报的 input_tokens 里;
+  2026-11-03 对 astra 一天的账单逐行核过,一分不差;2026-11-11 起这样记,之前一律全价、记高,Q8);
 - 平台无检索次数上限参数(无 claude 的 max_uses 类比):成本保险丝是
   max_output_tokens 与调度器预算闸门;
 - external_web_access(仅缓存模式)存在但 v1 无消费方,未接入。
@@ -37,12 +39,12 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import UTC, datetime
 from typing import Any
 
 import httpx
 
-from adapters.base import AdapterTransientError, CapabilityRegistry, SurfaceMeta, known_model, priced
+from adapters.base import AdapterTransientError, BillingNote, CapabilityRegistry, SurfaceMeta, known_model, priced
 from adapters.http_support import STRUCTURE_ERRORS, HttpAdapter, domain_of, full_body, malformed, require_list, spent_on
 from engine.models import (
     Answer,
@@ -76,11 +78,26 @@ _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "gpt-6-astra": (10.0, 50.0),
 }
 _SEARCH_USD_PER_CALL = 10.0 / 1000.0  # web search $10 / 千次(仅 search 动作计费)
+# 输入 token 的缓存分档(官方价目;2026-11-03 对 astra 一天的账单逐行核过,一分不差——任务列表第十四节第 5 条):
+# 命中缓存的输入按 0.1 倍,写入缓存的按 1.25 倍;两者都含在平台报的 input_tokens 里,算全价那份时要扣掉
+_CACHED_INPUT_FACTOR = 0.1
+_CACHE_WRITE_FACTOR = 1.25
 # 牌价(用量 × 牌价 = 费用;计费项与 _usage 读出的键一致):token 按每个 token 折,检索按每次
 _PRICE_TABLE: dict[str, dict[str, float]] = {
-    model: {"input_tokens": price_in / 1e6, "output_tokens": price_out / 1e6, "searches": _SEARCH_USD_PER_CALL}
+    model: {"input_tokens": price_in / 1e6, "cached_input_tokens": price_in * _CACHED_INPUT_FACTOR / 1e6,
+            "cache_write_tokens": price_in * _CACHE_WRITE_FACTOR / 1e6, "output_tokens": price_out / 1e6,
+            "searches": _SEARCH_USD_PER_CALL}
     for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
 }
+# 2026-11-11 之前建的单按全价记了缓存命中的输入(用户 2026-11-03 定 Q8:已记的不改,旧单的报告注明)
+_CACHE_BILLING_NOTE = BillingNote(
+    since=datetime(2026, 11, 11, tzinfo=UTC),
+    zh="OpenAI 的费用在 2026-11-11 前把命中缓存的输入 token 也按全价记,实际账单要低一些"
+       "(对过一天:最贵的型号低约 19%,默认型号约 3%);已记的数照旧不改。",
+    en="Before 2026-11-11, OpenAI's cached input tokens were charged here at full price; the real bill is lower "
+       "(one day reconciled: about 19% lower for the priciest model, about 3% for the default). "
+       "Recorded figures are kept as they were.",
+)
 _DEFAULT_MODEL = "gpt-5.6-luna"
 # 型号标记(配置资产,用户定 2026-10-14「消费端默认按免费版」):ChatGPT 免费版 / Go 默认 GPT-5.6 Luna(官方帮助中心);
 # 付费版默认是 GPT-6(Sol 跑 Instant / Medium / High),不取。最强 = GPT-6 Astra(官方「最强」)。
@@ -109,11 +126,17 @@ def _search_calls(output: list[Any]) -> int:
 
 
 def _usage(data: dict[str, Any]) -> dict[str, float]:
-    """这次调用的计费用量:输入 token(检索回来的内容已计入)、输出 token(平台已把推理 token 计入)、计费的检索动作数。
-    缓存命中的输入 token 仍按全价计(官方按 0.1 倍,要对一次账单再改:任务列表第十三节第 10 条)。"""
+    """这次调用的计费用量:输入 token 分三档(没命中缓存的 / 命中缓存的 / 写入缓存的,三者之和 = 平台报的 input_tokens,
+    检索回来的内容已计入)、输出 token(平台已把推理 token 计入)、计费的检索动作数。键与 _PRICE_TABLE 一致。"""
     usage = data.get("usage") or {}
+    details = usage.get("input_tokens_details") or {}
+    total_input = float(usage.get("input_tokens") or 0)
+    cached = float(details.get("cached_tokens") or 0)
+    written = float(details.get("cache_write_tokens") or 0)
     return {
-        "input_tokens": float(usage.get("input_tokens") or 0),
+        "input_tokens": max(0.0, total_input - cached - written),
+        "cached_input_tokens": cached,
+        "cache_write_tokens": written,
         "output_tokens": float(usage.get("output_tokens") or 0),
         "searches": float(_search_calls(data.get("output") or [])),
     }
@@ -290,6 +313,7 @@ class OpenAIWebSearchAdapter(HttpAdapter):
                 model: round((2000 * price_in + 2000 * price_out) / 1e6, 3)
                 for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
             },
+            billing_notes=[_CACHE_BILLING_NOTE],
         )
 
     def usage_of(self, raw_payload: JsonValue) -> dict[str, float]:

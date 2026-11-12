@@ -340,6 +340,14 @@ class Storage:
         ).fetchall()
         return [row[0] for row in rows]
 
+    def success_run_ids(self, surface: str) -> list[str]:
+        """某台仪器全部成功的运行,按时间序:记账规则改了,派生表 call_usage 整台重算(Q8;原始表一个字不动)。"""
+        rows = self._conn.execute(
+            "SELECT run_id FROM surface_run WHERE surface = %s AND outcome = %s ORDER BY run_timestamp",
+            (surface, Outcome.SUCCESS.value),
+        ).fetchall()
+        return [row[0] for row in rows]
+
     def brand_prompt_ids(self, brand_name: str) -> list[str]:
         """同一个品牌名的全部单(含正在跑的这单)下的题:预估先看同品牌上一单的实测(成本调研 D5)。"""
         return [

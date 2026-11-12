@@ -139,6 +139,8 @@ def test_call_stats_keep_languages_apart_and_average_the_usage(storage):
     assert zh.usage["input_tokens"] == 400.0
     missing = storage.run_ids_without_usage()
     assert "run-u-zh1" not in missing and "run-u-copy" in missing
+    redo = storage.success_run_ids("surface-u")  # 记账规则改了整台重算(Q8):成功的都列,有没有用量记录都算
+    assert {"run-u-zh1", "run-u-copy"} <= set(redo) and "run-stat-1" not in redo
 
 
 def test_brand_prompt_ids_cover_every_job_of_that_brand(storage):

@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 import pytest
 from fastapi.testclient import TestClient
 
-from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
+from adapters.base import BillingNote, CapabilityRegistry, SurfaceAdapter, SurfaceMeta
 from diagnosis.citation_diag import VerificationSummary, diagnose_citation
 from diagnosis.diagnose import access_finding, diagnose_class, diagnose_surface
 from diagnosis.findings import Stage
@@ -638,6 +638,30 @@ def test_resume_endpoint_relaunches_interrupted_job(client_and_job):
     resp = client.post(f"/jobs/{job.job_id}/resume?lang=zh", follow_redirects=False)
     assert resp.status_code == 303
     assert calls == [job.job_id]  # 执行器被再次触发(可重入,只补缺口)
+
+
+class NotingAdapter(DummyAdapter):
+    """记账规则改过的仪器(Q8):since 之前建的单,报告注明这家的费用按旧规则记高;since 之后的不提。"""
+
+    def meta(self) -> SurfaceMeta:
+        return super().meta().model_copy(update={"billing_notes": [
+            BillingNote(since=datetime(2099, 1, 1, tzinfo=UTC), zh="旧规则记高(测试)", en="Old rule overstated (test)"),
+            BillingNote(since=datetime(2000, 1, 1, tzinfo=UTC), zh="不该出现", en="must not appear"),
+        ]})
+
+
+def test_report_notes_charges_recorded_under_an_old_billing_rule():
+    """用户 2026-11-03 定 Q8:已记的费用不改,旧单的报告注明记高——只对建单早于规则改动的单、只列那家声明的说明,
+    报告层不认厂商名(说明由适配器声明)。"""
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": NotingAdapter()}, dsn="postgresql://unused",
+                     evidence=REGISTRY, job_runner=lambda **_: None)
+    job = finished_job()
+    app.state.ctx.registry.add(job)
+    client = TestClient(app)
+    zh = client.get(f"/jobs/{job.job_id}/report?lang=zh").text
+    assert "旧规则记高(测试)" in zh and "不该出现" not in zh
+    en = client.get(f"/jobs/{job.job_id}/report?lang=en").text
+    assert "Old rule overstated (test)" in en and "must not appear" not in en
 
 
 def _sync_app(monkeypatch, runs: list, job_runner=None):
