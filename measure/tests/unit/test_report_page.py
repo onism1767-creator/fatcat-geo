@@ -339,17 +339,20 @@ def test_confirm_validation_errors_are_plain_codes_not_free_text(client_and_job)
 
 
 def test_job_page_shows_remaining_time_from_actual_pace(client_and_job):
-    """v0.4.17:运行中的任务页按实际速度算剩余时间(已用时 ÷ 已完成 × 未完成)。"""
+    """v0.4.17:运行中的任务页按实际速度算剩余时间(已用时 ÷ 这次新问的次数 × 未完成)。
+    续跑 / 缓存复用的旧样本不算进速度(第三轮审核 A15:原来复用 250 条后写「还需 0.1 分钟」)。"""
     from datetime import UTC, datetime, timedelta
 
     client, job, _ = client_and_job
     job.state = JobState.RUNNING
     job.phase = "phase_sampling"
-    job.started_at = datetime.now(UTC) - timedelta(minutes=10)
+    job.run_started_at = job.sampling_started_at = datetime.now(UTC) - timedelta(minutes=10)
     job.total_runs, job.completed_runs = 16, 4
     html = client.get(f"/jobs/{job.job_id}?lang=zh").text
     assert "预计还需约 30." in html  # 10 分钟完成 4/16 → 还需 30 分钟
-    job.completed_runs = 0
+    job.total_runs, job.sampling_base_runs, job.completed_runs = 300, 250, 260  # 开场复用 250 条,这次新问了 10 条
+    assert "预计还需约 40." in client.get(f"/jobs/{job.job_id}?lang=zh").text  # 10 分钟 10 条 → 剩 40 条 40 分钟
+    job.sampling_base_runs, job.completed_runs = 0, 0
     assert "第一批结果还没回来" in client.get(f"/jobs/{job.job_id}?lang=zh").text
     job.state, job.phase = JobState.DONE, "phase_done"
 
@@ -442,7 +445,9 @@ def test_every_time_on_the_report_is_local_and_says_its_zone(client_and_job):
     text = visible_text(client.get(f"/jobs/{job.job_id}/report?lang=zh").text)
     stamps = re.findall(r"\d{4}-\d\d-\d\d \d\d:\d\d(?: UTC[+-][\d:]+)?", text)
     assert stamps and all(stamp.endswith("UTC+8") for stamp in stamps), stamps
-    assert f"{job.created_at.astimezone(timezone(timedelta(hours=8))):%Y-%m-%d %H:%M} UTC+8 起测" in text
+    # 起测 = 第一次开跑的时刻(采样说明里那个),不是建草稿的时刻(第三轮审核 B7)
+    started = job.sampling.started_at.astimezone(timezone(timedelta(hours=8)))
+    assert f"{started:%Y-%m-%d %H:%M} UTC+8 起测" in text
     assert "(UTC)" not in text
 
 
@@ -1020,6 +1025,38 @@ def test_restore_registry_does_not_restore_jobs_with_retired_surface(storage):
     restored_with = {j.job_id for j in restore_registry(storage, known_surfaces={"s1"}).recent(limit=100)}
     assert job.job_id not in restored_without
     assert job.job_id in restored_with
+
+
+def test_restart_recounts_progress_and_spend_of_interrupted_jobs_and_keeps_finished_ones(storage):
+    """重启后(第三轮审核):被中断的单按库里重数问到哪、花了多少(原来任务页「已问 0/0」、首页「已花费 $0」);
+    跑完的单进度随快照往返(原来也是 0/0);起测时刻随快照往返、续跑不改。"""
+    from datetime import UTC, datetime
+    from uuid import uuid4
+
+    from report.archive import restore_registry
+    from tests.unit.test_storage import make_run
+
+    job = finished_job()
+    job.state, job.phase = JobState.RUNNING, "phase_sampling"  # 进程死在提问中途
+    job.total_runs, job.completed_runs, job.spent_usd = 3, 0, 0.0  # 快照停在开跑那刻
+    job.started_at = datetime(2026, 11, 3, 11, 52, tzinfo=UTC)
+    prompt = job.prompts[0]
+    storage.insert_prompt(prompt)
+    for index in (1, 2):
+        run = make_run(f"restart-{uuid4().hex[:8]}")
+        storage.insert_surface_run(run.model_copy(update={"prompt_id": prompt.prompt_id, "run_index": index}))
+    storage.insert_aux_call(job_id=job.job_id, task="出题", run=make_run(f"aux-{uuid4().hex[:8]}"))
+    storage.upsert_job_snapshot(job.to_snapshot())
+    done = finished_job()
+    done.total_runs, done.completed_runs, done.spent_usd = 6, 6, 0.42
+    storage.upsert_job_snapshot(done.to_snapshot())
+
+    restored = {j.job_id: j for j in restore_registry(storage, known_surfaces={"s1"}).recent(limit=100)}
+    back = restored[job.job_id]
+    assert back.state is JobState.INTERRUPTED and (back.total_runs, back.completed_runs) == (3, 2)
+    assert back.spent_usd == pytest.approx(3 * 0.0056)  # 两条回答 + 一笔出题
+    assert back.started_at == job.started_at
+    assert (restored[done.job_id].total_runs, restored[done.job_id].completed_runs) == (6, 6)
 
 
 def test_report_lists_how_the_ais_write_the_name(client_and_job):

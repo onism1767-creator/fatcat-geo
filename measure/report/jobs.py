@@ -207,7 +207,12 @@ class DiagnosisJob:
         self.sampling: SamplingNote | None = None  # 采样说明(S8.2):出报告时算,随报告快照存
         self.spellings: list[NameSpelling] = []  # AI 回答里的写法统计(S9.2b),随报告快照存
         self.stop_details: list[StopDetail] = []  # 各条腿怎么停的(S10.2),随报告快照存
-        self.started_at: datetime | None = None  # 本次执行开始时刻(任务页按实际速度算剩余时间)
+        # 起测时刻:第一次开跑时定、进快照,续跑不改——报告「测试时间」从它算(第三轮审核:原来续跑把它重置成续跑那一刻)
+        self.started_at: datetime | None = None
+        self.run_started_at: datetime | None = None  # 这一次执行开始的时刻(任务页「已用时」「卡住了」从它算)
+        # 这一次提问阶段开始的时刻与那时已有的次数:「预计还需」只按这次新问的速度算,不把续跑 / 缓存复用的算进去(A15)
+        self.sampling_started_at: datetime | None = None
+        self.sampling_base_runs = 0
         self.last_result_at: datetime | None = None  # 最近一条样本落库的时刻(任务页据此报「卡住了」)
         # 核对网页阶段的进度(S8.5):提问完之后还要开网页(最多 15 分钟),任务页单独显示;不进快照(重启后重跑)
         self.verify_total = 0
@@ -248,17 +253,21 @@ class DiagnosisJob:
         return spans.get(self.phase, 8 + int(72 * sampling))  # 出错 / 中断:停在当时的位置
 
     def elapsed_minutes(self, now: datetime) -> float | None:
-        """运行中已用了多少分钟;没在跑 → None。"""
-        if self.state is not JobState.RUNNING or self.started_at is None:
+        """这一次运行已用了多少分钟;没在跑 → None。"""
+        if self.state is not JobState.RUNNING or self.run_started_at is None:
             return None
-        return (now - self.started_at).total_seconds() / 60
+        return (now - self.run_started_at).total_seconds() / 60
 
     def eta_minutes(self, now: datetime) -> float | None:
-        """按实际速度算剩余时间(v0.4.17):已用时 ÷ 已完成次数 × 未完成次数;还没完成一次 → None。"""
-        elapsed = self.elapsed_minutes(now)
-        if elapsed is None or not self.completed_runs or not self.total_runs:
+        """按这一次新问的实际速度算剩余时间(v0.4.17;第三轮审核 A15):提问阶段已用时 ÷ 这次新问的次数 × 未完成次数。
+        续跑或缓存复用的旧样本不算进速度(原来复用 250 条后会写「还需 0.1 分钟」);这次还没新问一次 → None。"""
+        if self.state is not JobState.RUNNING or self.sampling_started_at is None or not self.total_runs:
             return None
-        return elapsed / self.completed_runs * (self.total_runs - self.completed_runs)
+        asked = self.completed_runs - self.sampling_base_runs
+        if asked <= 0:
+            return None
+        elapsed = (now - self.sampling_started_at).total_seconds() / 60
+        return elapsed / asked * (self.total_runs - self.completed_runs)
 
     def verify_remaining_minutes(self, now: datetime, budget_s: float) -> float | None:
         """核对网页最多还要等多久(S8.5):预算 − 已用,有界;还没开始 → None。到时没开完的记「没来得及开」。"""
@@ -267,10 +276,10 @@ class DiagnosisJob:
         return max(0.0, (budget_s - (now - self.verify_started_at).total_seconds()) / 60)
 
     def quiet_minutes(self, now: datetime) -> float | None:
-        """运行中距最近一条新样本(还没有就从开始算)过了多少分钟(v0.4.22);没在跑 → None。"""
-        if self.state is not JobState.RUNNING or self.started_at is None:
+        """运行中距最近一条新样本(还没有就从这次开始算)过了多少分钟(v0.4.22);没在跑 → None。"""
+        if self.state is not JobState.RUNNING or self.run_started_at is None:
             return None
-        return (now - (self.last_result_at or self.started_at)).total_seconds() / 60
+        return (now - (self.last_result_at or self.run_started_at)).total_seconds() / 60
 
     def freeze(
         self,
@@ -400,6 +409,10 @@ class DiagnosisJob:
             "fresh": self.fresh,
             "parent_job_id": self.parent_job_id,
             "model_swaps": [s.model_dump() for s in self.model_swaps],
+            "started_at": self.started_at.isoformat() if self.started_at is not None else None,
+            # 进度(第三轮审核:原来不进快照,重启后任务页「已问 0/0」);被中断 / 出错的单重启时由 archive 按库里重数
+            "progress": {"total_runs": self.total_runs, "completed_runs": self.completed_runs,
+                         "spent_usd": self.spent_usd},
             "fingerprint": self.fingerprint,
             "domain_list": self.domain_list.model_dump(mode="json") if self.domain_list is not None else None,
             "error": {"code": self.error_code, "params": self.error_params, "text": self.error},
@@ -459,6 +472,13 @@ class DiagnosisJob:
         job.parent_job_id = snapshot["parent_job_id"]
         # 2026-11-13 起才写这一项;更早的单那时还没有「再测换型号」这回事,没有这一项就是没换过
         job.model_swaps = [ModelSwap.model_validate(s) for s in snapshot.get("model_swaps", [])]
+        # 起测时刻与进度 2026-11-13 起才写;更早的快照没有就是不知道(起测时间报告里另有采样说明的那一份)
+        started = snapshot.get("started_at")
+        job.started_at = datetime.fromisoformat(started) if started else None
+        progress = snapshot.get("progress") or {}
+        job.total_runs = progress.get("total_runs", 0)
+        job.completed_runs = progress.get("completed_runs", 0)
+        job.spent_usd = progress.get("spent_usd", 0.0)
         job.fingerprint = snapshot["fingerprint"]
         if snapshot["domain_list"] is not None:
             job.domain_list = BrandDomainList.model_validate(snapshot["domain_list"])

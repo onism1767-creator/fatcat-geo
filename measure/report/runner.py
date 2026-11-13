@@ -477,7 +477,10 @@ def _reset_progress(job: DiagnosisJob) -> None:
     job.class_reports = []
     job.surface_verdicts = []
     job.stop_details = []
-    job.started_at = datetime.now(UTC)
+    job.run_started_at = datetime.now(UTC)
+    if job.started_at is None:  # 起测时刻只在第一次开跑时定;续跑 / 重算不改(第三轮审核:原来报告测试时间只剩续跑那段)
+        job.started_at = job.run_started_at
+    job.sampling_started_at, job.sampling_base_runs = None, 0
     job.last_result_at = None
     job.verify_total = job.verify_done = 0
     job.verify_stage = job.verify_started_at = None
@@ -518,6 +521,10 @@ def _sample(
 
     budgets = split_budget(job.budget_usd, {plan: weight(plan) for plan in plans}, spent)
     job.total_runs = calls * len(plans)
+    # 「预计还需」只按这次新问的速度算(第三轮审核 A15);进度写进快照,中途断了重启也知道问到哪
+    job.sampling_started_at, job.sampling_base_runs = datetime.now(UTC), job.completed_runs
+    with Storage(dsn) as store:
+        store.upsert_job_snapshot(job.to_snapshot())
 
     job.phase = "phase_sampling"
     progress_lock = threading.Lock()

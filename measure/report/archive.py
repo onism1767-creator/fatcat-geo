@@ -44,9 +44,14 @@ def restore_registry(storage: Storage, known_surfaces: Collection[str]) -> JobRe
         if job.state in (JobState.CONFIRMED, JobState.RUNNING):
             job.state = JobState.INTERRUPTED
             job.phase = "phase_interrupted"
-            storage.upsert_job_snapshot(job.to_snapshot())
-        elif job.finished:
+        if job.finished:
             attach_latest_report(job, storage)
+        elif job.state is not JobState.DRAFT:
+            # 被中断 / 出错的单:快照里的进度停在最后一次写快照那刻,按库里重数问到哪、花了多少
+            # (第三轮审核:原来任务页「已问 0/0」、首页「已花费 $0」)
+            asked, cost = storage.job_progress([p.prompt_id for p in job.prompts], job.frozen_tier().runs_per_prompt)
+            job.completed_runs, job.spent_usd = asked, cost + storage.aux_spent_usd(job.job_id)
+            storage.upsert_job_snapshot(job.to_snapshot())
         registry.add(job)
     return registry
 

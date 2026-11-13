@@ -358,10 +358,14 @@ def test_resume_gives_the_raised_cap_to_the_legs_that_still_need_it(storage, off
     assert job.state is JobState.PARTIAL, job.error
     assert [(d.model, d.n_attempts) for d in job.stop_details if d.truncated] == [(CITES, 1)]
     assert job.spent_usd == pytest.approx(0.02 + 0.003)
+    first_start = job.started_at
     job.raise_budget(0.045)
     runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry())
     assert job.state is JobState.DONE, job.error
     assert job.spent_usd == pytest.approx(0.06 + 0.003) and job.completed_runs == 6
+    # 起测时刻只在第一次开跑时定:续跑后报告「测试时间」从第一次算起(第三轮审核;原来只剩续跑那段)
+    assert first_start is not None and job.started_at == first_start and job.sampling.started_at == first_start
+    assert job.sampling_base_runs == 1 + 3  # 续跑开场复用了贵的 1 条 + 便宜的 3 条:「预计还需」只按这次新问的算
 
 
 def test_replaying_a_partial_job_keeps_it_partial_and_keeps_why_it_stopped(storage, offline):

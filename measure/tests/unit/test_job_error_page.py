@@ -76,7 +76,7 @@ def test_running_job_reports_quiet_minutes_and_stall_code():
     assert STALL_MINUTES > worst_minutes
     job = _failed_job(None)
     job.state, job.phase = JobState.RUNNING, "phase_sampling"
-    job.started_at = datetime.now(UTC) - timedelta(minutes=30)
+    job.run_started_at = datetime.now(UTC) - timedelta(minutes=30)
     job.last_result_at = datetime.now(UTC) - timedelta(minutes=2)
     fresh = _page(job, "zh")
     assert "最近一次新结果在 2." in fresh and "JOB_STALLED" not in fresh

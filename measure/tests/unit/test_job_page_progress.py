@@ -19,7 +19,7 @@ def _running_job(now: datetime) -> DiagnosisJob:
     prompt = Prompt(text="q?", intent=PromptIntent.CATEGORY_DISCOVERY, origin=PromptOrigin.USER, locale="zh-CN")
     job.freeze(prompts=[prompt], competitors=[], targets=[Target(surface="s1", model="m1")], budget_usd=None, tier=LOW)
     job.state, job.phase = JobState.RUNNING, "phase_verify"
-    job.started_at = now - timedelta(minutes=5)
+    job.run_started_at = job.sampling_started_at = now - timedelta(minutes=5)
     job.total_runs = 3  # 执行器开跑时才算总数;这里直接给
     job.completed_runs = job.total_runs  # 提问全部完成
     return job

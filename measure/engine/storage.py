@@ -24,6 +24,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 from engine.models import (
+    ACCOUNT_ERROR_TYPES,
     Answer,
     BrandSpec,
     CitationResolution,
@@ -455,6 +456,18 @@ class Storage:
             "VALUES (%s, %s, %s, clock_timestamp(), %s, %s, %s)",
             (run.run_id, job_id, task, run.cost_usd, run.outcome.value, Jsonb(run.model_dump(mode="json"))),
         )
+
+    def job_progress(self, prompt_ids: list[str], runs_per_prompt: int) -> tuple[int, float]:
+        """一单已问了几个槽位(题 × 仪器 × 型号 × 模式下第 1–每题次数 次,账户问题那几行不算——和续跑复用槽位同一口径)、
+        这些题上一共花了多少钱。重启后装回被中断 / 出错的单时用
+        (第三轮审核:原来任务页写「已问 0/0」、首页「已花费 $0」)。"""
+        row = self._conn.execute(
+            "SELECT count(DISTINCT (prompt_id, surface, model, search_mode, run_index)) FILTER ("
+            "  WHERE run_index <= %s AND NOT (coalesce(error->>'error_type', '') = ANY(%s))), "
+            "coalesce(sum(cost_usd), 0) FROM surface_run WHERE prompt_id = ANY(%s)",
+            (runs_per_prompt, [t.value for t in ACCOUNT_ERROR_TYPES], prompt_ids),
+        ).fetchone()
+        return (int(row[0]), float(row[1])) if row else (0, 0.0)
 
     def aux_spent_usd(self, job_id: str) -> float:
         """该任务辅助调用的累计花费(没有记录 = 0)。"""

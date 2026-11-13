@@ -328,7 +328,8 @@
 
   <p class="muted" style="margin-top:14px">{{ t["fingerprint_word"] }} {{ job.fingerprint }} ·
     {{ t["method_line"].format(prompts=job.prompts|length, runs=runs_per_prompt) }} ·
-    {{ t["locale_word"] }} {{ job.locale }} · {{ job.created_at|local_time }} {{ t["started_word"] }} ·
+    {#- 起测 = 第一次开跑的时刻(采样说明里那个);原来写的是建草稿的时刻(第三轮审核 B7) -#}
+    {{ t["locale_word"] }} {{ job.locale }} · {{ job.sampling.started_at|local_time if job.sampling.started_at else "—" }} {{ t["started_word"] }} ·
     {{ t["cost_word"] }} ${{ "%.4f"|format(job.spent_usd) }}{% for note in billing_notes %} · {{ note }}{% endfor %}
     {% if job.state.value == "PARTIAL" %} · <b>{{ t["partial_note"] }}</b>{% endif %}
     {% if job.report_meta %} · {{ t["report_meta"].format(when=job.report_meta.created_at|local_time, n=job.report_meta.versions, code=job.report_meta.code_version or "—") }}{% endif %}</p>
