@@ -321,12 +321,11 @@ class DiagnosisJob:
         return True
 
     def raise_budget(self, budget_usd: float) -> None:
-        """接着跑前提高费用上限(S10.3):只许往上调(预算截断的腿才补得齐),指纹随之更新;不是口径,样本照旧复用。"""
+        """接着跑前提高费用上限(S10.3):只许往上调(预算截断的腿才补得齐);不是口径,不进指纹、编号不变(B8),样本照旧复用。"""
         lower = self.budget_usd is not None and budget_usd < self.budget_usd
         if not math.isfinite(budget_usd) or budget_usd <= 0 or lower:
             raise ValueError("费用上限只能往上调,且必须是正数(nan / inf 不收,第三轮审核 A12)")
         self.budget_usd = budget_usd
-        self._refingerprint()
 
     def retest(self, adapters: Mapping[str, SurfaceAdapter], tiers: TierConfig) -> DiagnosisJob:
         """「修好后再测」(S11.3):按这一单冻结的口径新开一单——同样的品牌(含别名与官网域名)、题目、竞品、被测对象、档位、
@@ -378,7 +377,7 @@ class DiagnosisJob:
             "prompts": [{"text": p.text, "intent": p.intent.value} for p in self.prompts],
             "competitors": [c.model_dump() for c in self.competitors],
             "targets": [t.model_dump() for t in self.targets],
-            "budget_usd": self.budget_usd,
+            # 费用上限不进指纹(用户 2026-11-12 定 B8):它是钱包的事、不是口径,续跑调高上限后编号不该变
             "dependency_enabled": self.dependency_enabled,
             "fresh": self.fresh,
             "tier": self.frozen_tier().model_dump(mode="json"),

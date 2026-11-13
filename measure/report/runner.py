@@ -250,6 +250,11 @@ def _execute(
         offline_observations = {
             key: [observe(run, job.brand, context) for run in runs] for key, runs in offline_runs_by.items()
         }
+        # 算完判定就存(observe() 的判定行,不重跑;判定器版本首次出现落审计):原来等算完分、组完报告才存,
+        # 中间崩了裁判费已进账本、判定却没存,续跑要重判再花一次钱(第三轮审核 B10)
+        persist_observations(storage, [
+            o for key in runs_by for o in observations[key] + offline_observations[key]
+        ], note=job.job_id)
 
         job.phase = "phase_scoring"
         access = access_finding(job.access_result)
@@ -273,9 +278,6 @@ def _execute(
                 quotes=[SurfaceQuotes(surface=m.target.surface, model=m.target.model, quotes=m.quotes)
                         for m in measurements],
             ))
-        persist_observations(storage, [  # 存 observe() 算出的判定行,不重跑(裁判花钱);判定器版本首次出现落审计
-            o for key in runs_by for o in observations[key] + offline_observations[key]
-        ], note=job.job_id)
         job.surface_verdicts = [
             surface_verdict(target.surface, target.model, inputs) for target, inputs in verdict_inputs.items()
         ]

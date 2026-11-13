@@ -422,6 +422,36 @@ def test_high_tier_asks_a_judge_once_per_answer_and_reuses_it_on_replay(storage,
     assert len(judges["judge_a"].requests) == 6  # 重新生成报告:裁判判定从库里装回,一次都没多问
 
 
+def test_judge_verdicts_are_saved_before_scoring_so_a_crash_does_not_pay_twice(storage, offline, monkeypatch):
+    """裁判判完就存(第三轮审核 B10):算分 / 组报告时崩了,判定行已在库里;接着跑时从库里装回,裁判一次都不多问。
+    原来判定行要等报告组完才存,中间崩了裁判费已进账本、判定却没了,续跑要重判再花一次钱。"""
+    from engine.judge import JudgeConfig, JudgeModel
+    from engine.tiers import MentionMethod, TierChoice
+    from tests.unit.test_judge import ScriptedJudge
+
+    job, prompt = _new_job("中小团队用什么 CRM 好?")
+    job.tier = TierChoice(name="high", runs_per_prompt=3, mention_method=MentionMethod.RULES_FUZZY_JUDGE, custom=False)
+    judges = {"judge_a": ScriptedJudge("judge_a", "vendor_a", "ja"),
+              "judge_b": ScriptedJudge("judge_b", "vendor_b", "jb")}
+    config = JudgeConfig(candidates=[
+        JudgeModel(name="甲家", surface="judge_a", model="ja", est_cost_per_call_usd=0.001),
+        JudgeModel(name="乙家", surface="judge_b", model="jb", est_cost_per_call_usd=0.001)])
+    adapters = {"two_model": TwoModelAdapter(), **judges}
+
+    def crash(**_):
+        raise RuntimeError("算分时崩了")
+
+    monkeypatch.setattr(runner, "diagnose_class_targets", crash)
+    runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry(), judges=config)
+    assert job.state is JobState.FAILED and len(judges["judge_a"].requests) == 6
+    run = storage.runs_for_prompt(prompt.prompt_id, surface="two_model", model=CITES)[0]
+    assert "brand_mention_judge" in {r["detector_name"] for r in storage.observations_for_run(run.run_id)}
+    monkeypatch.undo()
+    runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry(), judges=config)
+    assert job.state is JobState.DONE, job.error
+    assert len(judges["judge_a"].requests) == 6  # 判定从库里装回,没再花钱
+
+
 class CommonWordAdapter(TwoModelAdapter):
     """回答里只出现「美的」两个字,没有任何线索:模糊判定器说不准。"""
 

@@ -1113,7 +1113,7 @@ def test_partial_job_can_resume_to_fill_gaps_and_raise_the_cap(monkeypatch):
     before = job.fingerprint
     resp = client.post(f"/jobs/{job.job_id}/resume?lang=zh", data={"budget": "5.0"}, follow_redirects=False)
     assert resp.status_code == 303 and runs == [False]  # 补缺口,不是只重算
-    assert job.budget_usd == 5.0 and job.fingerprint != before
+    assert job.budget_usd == 5.0 and job.fingerprint == before  # 上限不是口径,编号不变(用户 2026-11-12 定 B8)
     job.state = JobState.PARTIAL
     bad = client.post(f"/jobs/{job.job_id}/resume?lang=zh", data={"budget": "0.5"}, follow_redirects=False)
     assert "error=FORM_BAD_BUDGET" in bad.headers["location"] and job.budget_usd == 5.0 and runs == [False]
