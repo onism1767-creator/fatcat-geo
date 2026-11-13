@@ -28,7 +28,16 @@ from report.errors import ErrorLibrary, load_errors
 from report.jobs import JobRegistry
 from report.launcher import JobLauncher, JobRunner
 from report.routes import router
-from report.web import CategoryChecker, WebContext, category_checker, ctx_of, error_text, target_namer
+from report.web import (
+    CategoryChecker,
+    NotFound,
+    WebContext,
+    category_checker,
+    ctx_of,
+    error_text,
+    not_found,
+    target_namer,
+)
 
 
 class _Unset:
@@ -124,5 +133,11 @@ def create_app(
 
     for error_type in STORAGE_DOWN_ERRORS:
         app.add_exception_handler(error_type, storage_down)
+
+    async def missing(request: Request, exc: Exception) -> Response:
+        """任务或回答不存在(第三轮审核 B3:路由统一抛 NotFound,这里统一给 404 页)。"""
+        return not_found()
+
+    app.add_exception_handler(NotFound, missing)
     app.include_router(router)
     return app

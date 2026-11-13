@@ -172,6 +172,18 @@ def redirect(request: Request, path: str) -> RedirectResponse:
     return RedirectResponse(f"{path}{joiner}lang={lang_of(request)}", status_code=303)
 
 
+class NotFound(Exception):
+    """路由里取不到任务 / 回答:app 统一接成 not_found() 页(第三轮审核 B3:原来 13 处各写一遍「取不到就 404」)。"""
+
+
+def existing_job(request: Request, job_id: str) -> DiagnosisJob:
+    """路由依赖:按路径里的编号取任务,取不到抛 NotFound。"""
+    job = ctx_of(request).registry.get(job_id)
+    if job is None:
+        raise NotFound(job_id)
+    return job
+
+
 def not_found() -> HTMLResponse:
     """找不到任务:中英各一句(界面默认英文;用户 2026-10-28 定)。英文界面把任务叫 check,这里同一个词(第二轮审核 B16)。"""
     return HTMLResponse("Check not found / 任务不存在", status_code=404)

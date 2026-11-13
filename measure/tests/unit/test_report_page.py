@@ -494,6 +494,22 @@ def test_report_shows_upstream_caution_and_competitor_gap(client_and_job):
 # ── 页面流 ───────────────────────────────────────────────────────────
 
 
+@pytest.mark.parametrize("method, path", [
+    ("get", "/jobs/nope/category"), ("post", "/jobs/nope/category"), ("get", "/jobs/nope/confirm"),
+    ("post", "/jobs/nope/confirm"), ("post", "/jobs/nope/resume"), ("post", "/jobs/nope/retest"),
+    ("post", "/jobs/nope/official_domains"), ("get", "/jobs/nope"), ("get", "/jobs/nope/report"),
+    ("get", "/jobs/nope/download"),
+])
+def test_every_job_page_says_not_found_the_same_way(client_and_job, method, path):
+    """任务不存在:所有任务页都回同一个 404 页(第三轮审核 B3 把 13 处样板收成一个依赖之后把守);
+    确认页的实时预估是给页面脚本用的,回 JSON。"""
+    client, _, _ = client_and_job
+    resp = getattr(client, method)(path)
+    assert resp.status_code == 404 and resp.text == "Check not found / 任务不存在"
+    estimate = client.post("/jobs/nope/estimate")
+    assert estimate.status_code == 404 and estimate.json() == {"error": "not_found"}
+
+
 def test_index_renders_form(client_and_job):
     client, _, _ = client_and_job
     html = client.get("/?lang=zh").text
