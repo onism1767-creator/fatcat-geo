@@ -32,6 +32,7 @@ from engine.models import (
     RunErrorType,
     SearchMode,
     SearchTrace,
+    StopReason,
     SurfaceRun,
     Target,
 )
@@ -363,6 +364,26 @@ def test_resume_gives_the_raised_cap_to_the_legs_that_still_need_it(storage, off
     assert job.spent_usd == pytest.approx(0.06 + 0.003) and job.completed_runs == 6
 
 
+def test_replaying_a_partial_job_keeps_it_partial_and_keeps_why_it_stopped(storage, offline):
+    """部分完成的单只重算(重新生成报告 / 确认官网名单)后仍是部分完成,「怎么停的」沿用上一版(第三轮审核 A3:
+    原来重算把它改成「完成」,提前停的提示、弹窗、型号旁标签全没了);重算一分钱不花。
+    上一版读不动(报告快照旧格式,stop_details 为空)时,重算里还有空槽位的腿照样算没问完。"""
+    job, _ = _new_job("中小团队用什么 CRM 好?")
+    job.budget_usd = 0.04
+    adapters = {"two_model": PricierThanDeclared()}
+    runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry())
+    assert job.state is JobState.PARTIAL, job.error
+    before = list(job.stop_details)
+    spent = job.spent_usd
+    runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry(), replay=True)
+    assert job.state is JobState.PARTIAL and job.phase == "phase_partial", job.error
+    assert job.stop_details == before and any(d.stop_reason is StopReason.BUDGET_EXHAUSTED for d in job.stop_details)
+    assert job.spent_usd == pytest.approx(spent)  # 只重算,不向 AI 提问
+    job.stop_details = []  # 报告快照读不动的旧单:上一版怎么停的不知道
+    runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry(), replay=True)
+    assert job.state is JobState.PARTIAL, job.error
+
+
 def test_high_tier_asks_a_judge_once_per_answer_and_reuses_it_on_replay(storage, offline):
     """S9.3 高档:另一家 AI 逐条复核;一条回答只判一次,费用进账本;重新生成报告时装回库里的判定,不再花钱。"""
     from engine.judge import JudgeConfig, JudgeModel
@@ -566,7 +587,8 @@ def test_precheck_stops_the_job_before_any_sampling(storage, offline):
 
     runner.execute_job(job=job2, adapters={"two_model": down}, dsn=TEST_DSN, evidence=load_evidence_registry(),
                        replay=True)  # 重算不提问,也就不预检
-    assert job2.state is JobState.DONE, job2.error
+    # 没被预检拦成 FAILED;一次都没问过,重算后是部分完成——空槽位 = 没问完(第三轮审核 A3;原来写成「完成」)
+    assert job2.state is JobState.PARTIAL and down.asks == 0, job2.error
 
 
 class CountingAdapter(TwoModelAdapter):

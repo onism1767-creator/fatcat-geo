@@ -102,11 +102,6 @@ from report.response_view import latest_observation
 
 log = structlog.get_logger("report.runner")
 
-_TRUNCATION_REASONS = (
-    StopReason.BUDGET_EXHAUSTED,
-    StopReason.FAILURE_RATE_EXCEEDED,
-    StopReason.SURFACE_DISABLED,
-)
 
 PlanKey = tuple[Target, SearchMode]  # 一个采样计划:被测对象 × 检索模式,跨全部题目
 RunsKey = tuple[str, Target]  # (题, 被测对象)
@@ -209,7 +204,11 @@ def _execute(
     replay: bool = False,
     judges: JudgeConfig | None = None,
 ) -> None:
+    # 只重算(replay)不改写「各条腿怎么停的」:沿用上一版的,截断照它算(第三轮审核 A3:原来重算会把部分完成的单改成「完成」,
+    # 提前停的提示、弹窗、型号旁标签全没了)。上一版读不动(报告快照旧格式)时,重算里还有空槽位的腿就是当初没问完的。
+    previous_stops = list(job.stop_details) if replay else []
     _reset_progress(job)
+    job.stop_details = previous_stops  # 重算的整个过程里任务页照旧显示上一版「提前停的型号」
     job.access_result = _audit_site(job.website)
     with Storage(dsn) as storage:
         storage.ensure_schema()
@@ -231,7 +230,8 @@ def _execute(
         prices = unit_prices({t.surface: a for t, a in adapter_of.items()}, storage.call_stats(), locale=job.locale,
                              brand_stats=storage.call_stats(storage.brand_prompt_ids(job.brand.name)))
         results = _sample(job, dsn, adapter_of, prices=prices, replay=replay)
-        job.stop_details = [StopDetail.from_result(r) for r in results.values()]  # 熔断要说清原因(S10.2)
+        fresh_stops = [StopDetail.from_result(r) for r in results.values()]  # 熔断要说清原因(S10.2)
+        job.stop_details = previous_stops or fresh_stops
 
         job.phase = "phase_verify"
         runs_by, offline_runs_by = _load_runs(job, storage)
@@ -285,7 +285,8 @@ def _execute(
         )
         # 采样后:回答里出现、名单外的同名域名再查一次,标 B1 / B2——只提示,用户确认后才算官网(S5)
         job.adopt_domain_list(_look_alikes(job, all_runs, resolution))
-        truncated = any(r.stop_reason in _TRUNCATION_REASONS for r in results.values())
+        truncated = any(d.truncated for d in job.stop_details) or any(
+            r.stop_reason is StopReason.NOT_RESAMPLED for r in results.values())  # 只重算时还有空槽位 = 当初没问完
         mentions = [o.mention for batch in observations.values() for o in batch if o.mention is not None]
         sampling = _sampling_note(job, runs_by, offline_runs_by, judge, storage, mentions, adapters)
         _finish(job, storage, truncated=truncated, sampling=sampling)
@@ -541,8 +542,9 @@ def _sample(
             plan_storage.close()
         with progress_lock:
             results[plan] = result
-            # 一条腿一停就上任务页(用户 2026-11-03 定:撞上限要立刻通知),不等别的腿跑完
-            job.stop_details = [StopDetail.from_result(r) for r in results.values()]
+            # 一条腿一停就上任务页(用户 2026-11-03 定:撞上限要立刻通知),不等别的腿跑完;只重算时不改写(第三轮 A3)
+            if not replay:
+                job.stop_details = [StopDetail.from_result(r) for r in results.values()]
 
     with ThreadPoolExecutor(max_workers=PLAN_CONCURRENCY) as pool:
         list(pool.map(run_one, plans))
