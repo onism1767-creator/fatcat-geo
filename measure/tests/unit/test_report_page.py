@@ -409,7 +409,8 @@ def test_report_names_ai_as_api_and_model_and_shows_sentiment_tally_with_pie(cli
     assert html.count('class="pie"') == 1  # 只有 s1 有提到你的句子;s2 没有就不画
     assert "本次 30 次回答里,0 次(0%)拿你的官网当参考" in view  # 主视图「依据」:计数在前、百分比跟在后面
     en = client.get(f"/jobs/{job.job_id}/report?lang=en").text
-    assert "Of the 18 sentences that mention you: positive 1(6%), neutral 9(50%), negative 8(44%)" in en
+    # 英文用半角括号(第三轮审核 A21:原来英文页也漏出中文括号)
+    assert "Of the 18 sentences that mention you: positive 1 (6%), neutral 9 (50%), negative 8 (44%)" in en
     assert "AI names are written as" in en
 
 

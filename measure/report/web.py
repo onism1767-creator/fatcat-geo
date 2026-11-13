@@ -33,7 +33,17 @@ from report.i18n import (
 )
 from report.jobs import DiagnosisJob, JobRegistry
 from report.launcher import JobLauncher
-from report.narrative import action_text, api_line_text, count_models, retest_swap_lines, verdict_text, wrap_up_text
+from report.narrative import (
+    action_text,
+    api_line_text,
+    count_models,
+    pct,
+    retest_swap_lines,
+    sampling_lines,
+    sentiment_items_text,
+    verdict_text,
+    wrap_up_text,
+)
 
 log = structlog.get_logger("report.web")
 
@@ -87,7 +97,6 @@ def _templates(target_name: TargetNamer) -> Jinja2Templates:
     env.filters["local_date"] = local_date
     env.globals["access_headline"] = lambda overall: msg(f"access.headline.{overall.value.lower()}")
     env.globals["target_name"] = target_name
-    env.globals["judge_names"] = lambda targets: ";".join(target_name(x.surface, x.model) for x in targets)
     # S8.7:人话段落(各 AI 一句话 / 型号数数 / 末尾汇总 / 每个型号一句结论)在 report/narrative.py 拼
     env.globals["api_line_text"] = api_line_text
     env.globals["count_models"] = count_models
@@ -95,6 +104,10 @@ def _templates(target_name: TargetNamer) -> Jinja2Templates:
     env.globals["action_text"] = action_text
     env.globals["verdict_text"] = verdict_text
     env.globals["swap_lines"] = lambda swaps, lang: retest_swap_lines(swaps, target_name, lang)  # 再测换型号(11-13)
+    # 第三轮审核 B4 / B5:报告页与结果文件同一处拼句、同一个百分比算法
+    env.globals["pct"] = pct
+    env.globals["sentiment_items_text"] = sentiment_items_text
+    env.globals["sampling_lines"] = lambda job, lang: sampling_lines(job, target_name, lang)
     return templates
 
 

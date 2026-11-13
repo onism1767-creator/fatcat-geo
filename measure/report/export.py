@@ -24,11 +24,17 @@ from engine.detectors.matching import mention_sentence, url_host
 from engine.models import SurfaceRun
 from engine.observe import sentiment_detector_name
 from engine.storage import Storage
-from engine.tiers import MentionMethod, TierChoice
-from report.clock import local_date, local_time
+from engine.tiers import MentionMethod
 from report.i18n import INTENT_LABELS, MESSAGES, STATUS_LABELS
 from report.jobs import DiagnosisJob
-from report.narrative import action_card_lines, action_text, api_line_text, retest_swap_lines, wrap_up_text
+from report.narrative import (
+    action_card_lines,
+    action_text,
+    api_line_text,
+    sampling_lines,
+    sentiment_items_text,
+    wrap_up_text,
+)
 from report.response_view import citation_rows, latest_observation, mention_row
 from report.summary import ReportSummary, TargetNamer
 
@@ -167,13 +173,6 @@ def _citation_rows(run: SurfaceRun, prompt_no: int, ai: str, observations: list[
     ]
 
 
-def _tier_line(tier: TierChoice, t: dict[str, str]) -> str:
-    """采样说明里的档位一行(S9.1):自定义写实际参数、不冠档位名,只说以哪一档为起点。"""
-    key = "sampling_tier_custom" if tier.custom else "sampling_tier"
-    return t[key].format(tier=t["tier_name_" + tier.name], runs=tier.runs_per_prompt,
-                         method=t["method_" + tier.mention_method.value])
-
-
 def _summary_md(
     job: DiagnosisJob, lang: str, name_of: TargetNamer, summary: ReportSummary, stop_texts: list[tuple[str, str]],
 ) -> str:
@@ -182,37 +181,7 @@ def _summary_md(
     lines = [f"# {job.brand.name} {t['report_title']}", "", t["scope_note"], t["api_note"], ""]
     sn = job.sampling_note()
     lines += [f"## {t['sampling_title']}", ""]
-    counts = t["sampling_counts"].format(prompts=sn.n_prompts, targets=sn.n_targets, reps=sn.tier.runs_per_prompt,
-                                        runs=sn.n_runs, valid=sn.n_valid)
-    offline = " " + t["sampling_offline"].format(n=sn.n_offline_runs) if sn.n_offline_runs else ""
-    lines.append("- " + counts + offline)
-    if sn.fresh:  # S11.3:再测的单写明一律重新提问,并记对照的上一单
-        lines.append("- " + t["sampling_fresh"])
-        if job.parent_job_id:
-            lines.append("- " + t["retest_parent_line"].format(id=job.parent_job_id))
-        lines += ["- " + line for line in retest_swap_lines(job.model_swaps, name_of, lang)]  # 再测换了型号(11-13)
-    elif sn.n_cached:  # S11.2
-        lines.append("- " + t["sampling_cached"].format(n=sn.n_cached, hours=sn.cache_hours))
-    lines.append("- " + _tier_line(sn.tier, t))
-    lines.append("- " + t["sampling_time"].format(  # 当地时间 + 时区标记,和网页一致(用户 2026-10-29 定)
-        start=local_time(sn.started_at) if sn.started_at else "—",
-        end=local_time(sn.finished_at) if sn.finished_at else "—"))
-    lines.append("- " + t["sampling_targets_pre"] + ";".join(name_of(x.surface, x.model) for x in sn.targets))
-    if sn.judge_targets:  # S9.3:AI 裁判;中档只判说不准的(BR4)
-        every_answer = sn.tier.mention_method is MentionMethod.RULES_FUZZY_JUDGE
-        lines.append("- " + t["sampling_judges" if every_answer else "sampling_judges_unsure"].format(
-            judges=";".join(name_of(x.surface, x.model) for x in sn.judge_targets)))
-    if sn.n_own_vendor:  # BR6:别家都请不到,自家判自家
-        lines.append("- " + t["sampling_own_vendor"].format(n=sn.n_own_vendor))
-    if sn.no_judge:  # BR6:一家裁判都请不到
-        lines.append("- " + t["sampling_no_judge"].format(names=" / ".join(sn.no_judge)))
-    if sn.n_unsure:  # BR4:不进提及率分母,单独说清
-        lines.append("- " + t["sampling_unsure"].format(n=sn.n_unsure))
-    lines.append("- " + t["sampling_domains"].format(
-        confirmed=sn.domains_confirmed, unconfirmed=sn.domains_unconfirmed,
-        date=local_date(sn.domains_at) if sn.domains_at else "—"))
-    code = job.report_meta.code_version if job.report_meta and job.report_meta.code_version else "—"
-    lines += ["- " + t["sampling_version"].format(method=sn.method_version, code=code), ""]
+    lines += ["- " + text for _, text in sampling_lines(job, name_of, lang)] + [""]  # 和报告页同一处拼(第三轮 B4)
     if stop_texts:  # S10.2:提前停的腿
         lines += [f"## {t['breaker_title']}", ""] + [f"- {text}({code})" for code, text in stop_texts] + [""]
     lines += [f"## {t['verdicts_word']}", ""]
@@ -237,12 +206,8 @@ def _summary_md(
                 lines.append(f"  - {t['compare_title']}:" + " · ".join(parts))
             if sd.sentiment is not None:
                 st = sd.sentiment
-                items = [(t["sentiment_positive"], st.positive), (t["sentiment_neutral"], st.neutral),
-                         (t["sentiment_negative"], st.negative)]
-                if st.mixed:
-                    items.append((t["sentiment_mixed"], st.mixed))
-                joined = t["sentiment_sep"].join(f"{label} {n}({round(100 * n / st.total)}%)" for label, n in items)
-                lines.append(f"  - {t['sentiment_title']}:" + t["sentiment_line"].format(n=st.total, items=joined))
+                lines.append(f"  - {t['sentiment_title']}:" + t["sentiment_line"].format(
+                    n=st.total, items=sentiment_items_text(st, lang)))
         lines.append("")
     if summary.wrap_up is not None:
         first_action = action_text(summary.actions[0].recommendation, lang) if summary.actions else None

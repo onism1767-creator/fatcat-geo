@@ -17,21 +17,11 @@
 {% if sn %}
 <div class="card" id="sampling">
   <h2 style="margin-top:0">{{ t["sampling_title"] }}</h2>
+  {#- 每一条在 report/narrative.py::sampling_lines 拼,结果文件同用(第三轮审核 B4);上一单 / 换型号两条在顶部卡片里,这里跳过 -#}
   <ul class="ev">
-    <li>{{ t["sampling_counts"].format(prompts=sn.n_prompts, targets=sn.n_targets, reps=sn.tier.runs_per_prompt, runs=sn.n_runs, valid=sn.n_valid) }}{% if sn.n_offline_runs %} {{ t["sampling_offline"].format(n=sn.n_offline_runs) }}{% endif %}</li>
-    {#- 回答缓存(S11.2)/ 再测(S11.3):用了缓存就写明几条、几小时内;再测的单写明一律重新提问 -#}
-    {% if sn.fresh %}<li>{{ t["sampling_fresh"] }}</li>{% elif sn.n_cached %}<li>{{ t["sampling_cached"].format(n=sn.n_cached, hours=sn.cache_hours) }}</li>{% endif %}
-    {#- 档位(S9.1):自定义写实际参数、不冠档位名,只说以哪一档为起点 -#}
-    <li>{{ t["sampling_tier_custom" if sn.tier.custom else "sampling_tier"].format(tier=t["tier_name_" + sn.tier.name], runs=sn.tier.runs_per_prompt, method=t["method_" + sn.tier.mention_method.value]) }}</li>
-    <li>{{ t["sampling_time"].format(start=sn.started_at|local_time if sn.started_at else "—", end=sn.finished_at|local_time if sn.finished_at else "—") }}</li>
-    <li>{{ t["sampling_targets_pre"] }}{% for x in sn.targets %}{{ target_name(x.surface, x.model) }}{% if not loop.last %};{% endif %}{% endfor %}</li>
-    {% if sn.judge_targets %}<li>{{ t["sampling_judges" if sn.tier.mention_method.value == "rules_fuzzy_judge" else "sampling_judges_unsure"].format(judges=judge_names(sn.judge_targets)) }}</li>{% endif %}
-    {% if sn.n_own_vendor %}<li>{{ t["sampling_own_vendor"].format(n=sn.n_own_vendor) }}</li>{% endif %}
-    {% if sn.no_judge %}<li>{{ t["sampling_no_judge"].format(names=sn.no_judge|join(" / ")) }}</li>{% endif %}
-    {#- 说不准(BR4,用户定 Q3):不进提及率分母,单独说清有几条 -#}
-    {% if sn.n_unsure %}<li>{{ t["sampling_unsure"].format(n=sn.n_unsure) }}</li>{% endif %}
-    <li>{{ t["sampling_domains"].format(confirmed=sn.domains_confirmed, unconfirmed=sn.domains_unconfirmed, date=sn.domains_at|local_date if sn.domains_at else "—") }} <a href="#official">{{ t["sampling_domains_link"] }}</a></li>
-    <li>{{ t["sampling_version"].format(method=sn.method_version, code=job.report_meta.code_version if job.report_meta and job.report_meta.code_version else "—") }}</li>
+    {% for kind, text in sampling_lines(job, lang) if kind not in ("parent", "swap") %}
+    <li>{{ text }}{% if kind == "domains" %} <a href="#official">{{ t["sampling_domains_link"] }}</a>{% endif %}</li>
+    {% endfor %}
   </ul>
 </div>
 {% endif %}
@@ -66,10 +56,9 @@
 
 {% macro ev(e) %}{{ t["ev_" ~ e.kind].format(detail=e.detail or "", source=e.source or "") }}{% endmacro %}
 {#- 饼图(S8.1,用户定):提到你的句子按正面 / 中性 / 负面 / 混合——四类互斥,可以画成一张饼;一句没有的不画 -#}
-{% macro pie(st) %}{% set total = st.positive + st.neutral + st.negative + st.mixed %}{% set ns = namespace(offset=25) %}<svg class="pie" viewBox="0 0 36 36" width="56" height="56" aria-hidden="true">{% for value, color in [(st.positive, "var(--pass)"), (st.neutral, "var(--na)"), (st.negative, "var(--fail)"), (st.mixed, "var(--weak)")] %}{% if value %}{% set pct = 100 * value / total %}<circle cx="18" cy="18" r="15.9155" fill="none" stroke="{{ color }}" stroke-width="7" stroke-dasharray="{{ pct }} {{ 100 - pct }}" stroke-dashoffset="{{ ns.offset }}"/>{% set ns.offset = ns.offset - pct %}{% endif %}{% endfor %}</svg>{% endmacro %}
-{% macro sentiment_items(st) %}{% set total = st.positive + st.neutral + st.negative + st.mixed %}{% set parts = [] %}{% for key, value in [("positive", st.positive), ("neutral", st.neutral), ("negative", st.negative), ("mixed", st.mixed)] %}{% if value or key != "mixed" %}{% set _ = parts.append(t["sentiment_" ~ key] ~ " " ~ value ~ "(" ~ ((100 * value / total)|round|int) ~ "%)") %}{% endif %}{% endfor %}{{ parts|join(t["sentiment_sep"]) }}{% endmacro %}
+{% macro pie(st) %}{% set total = st.positive + st.neutral + st.negative + st.mixed %}{% set ns = namespace(offset=25) %}<svg class="pie" viewBox="0 0 36 36" width="56" height="56" aria-hidden="true">{% for value, color in [(st.positive, "var(--pass)"), (st.neutral, "var(--na)"), (st.negative, "var(--fail)"), (st.mixed, "var(--weak)")] %}{% if value %}{% set arc = 100 * value / total %}<circle cx="18" cy="18" r="15.9155" fill="none" stroke="{{ color }}" stroke-width="7" stroke-dasharray="{{ arc }} {{ 100 - arc }}" stroke-dashoffset="{{ ns.offset }}"/>{% set ns.offset = ns.offset - arc %}{% endif %}{% endfor %}</svg>{% endmacro %}
 {#- 圆环(S7,用户定):每个名字各一个环——一次回答可同时提到几家,不能画成一张饼;数字永远在,环只是看一眼 -#}
-{% macro ring(r, label, relation) %}{% set pct = (100 * r.k / r.n)|round|int %}<span class="ring" title="{{ r.k }}/{{ r.n }}"><svg viewBox="0 0 36 36" width="56" height="56" aria-hidden="true"><circle cx="18" cy="18" r="15.9155" fill="none" stroke="#e4e9f0" stroke-width="3.5"/><circle cx="18" cy="18" r="15.9155" fill="none" stroke="{{ '#2f6fb3' if relation is none else '#8da2bb' }}" stroke-width="3.5" stroke-dasharray="{{ pct }} {{ 100 - pct }}" stroke-dashoffset="25"/><text x="18" y="20.5" text-anchor="middle" font-size="8" fill="#223">{{ r.k }}/{{ r.n }}</text></svg><span class="ring-label"><b>{{ label }}</b><br>{{ pct }}%{% if relation %} · {{ t["compare_" ~ relation] }}{% endif %}</span></span>{% endmacro %}
+{% macro ring(r, label, relation) %}{% set p = pct(r.k, r.n) %}<span class="ring" title="{{ r.k }}/{{ r.n }}"><svg viewBox="0 0 36 36" width="56" height="56" aria-hidden="true"><circle cx="18" cy="18" r="15.9155" fill="none" stroke="#e4e9f0" stroke-width="3.5"/><circle cx="18" cy="18" r="15.9155" fill="none" stroke="{{ '#2f6fb3' if relation is none else '#8da2bb' }}" stroke-width="3.5" stroke-dasharray="{{ p }} {{ 100 - p }}" stroke-dashoffset="25"/><text x="18" y="20.5" text-anchor="middle" font-size="8" fill="#223">{{ r.k }}/{{ r.n }}</text></svg><span class="ring-label"><b>{{ label }}</b><br>{{ p }}%{% if relation %} · {{ t["compare_" ~ relation] }}{% endif %}</span></span>{% endmacro %}
 <div class="card" id="official">
   <h2 style="margin-top:0">{{ t["official_title"] }}</h2>
   {% set dl = job.domain_list %}
@@ -161,7 +150,7 @@
     <table class="brief compare">
       {% for display, st in it.sentiments %}
       <tr><td style="width:30%"><b>{{ display }}</b></td>
-        <td><span class="ring pie-row">{{ pie(st) }}<span class="ring-label">{{ t["sentiment_line"].format(n=st.positive + st.neutral + st.negative + st.mixed, items=sentiment_items(st)) }}</span></span></td></tr>
+        <td><span class="ring pie-row">{{ pie(st) }}<span class="ring-label">{{ t["sentiment_line"].format(n=st.total, items=sentiment_items_text(st, lang)) }}</span></span></td></tr>
       {% endfor %}
     </table>
     {% endif %}

@@ -406,6 +406,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         # AI 怎么评价你(S8.1,用户定):提到你的句子按好坏计数 + 百分比 + 饼图
         "sentiment_title": "回答提及(AI 怎么评价你)",
         "sentiment_line": "提到你的 {n} 句话里:{items}",
+        "sentiment_item": "{label} {n}({p}%)",
         "sentiment_positive": "正面", "sentiment_neutral": "中性", "sentiment_negative": "负面", "sentiment_mixed": "混合",
         "sentiment_sep": "、",
         "sec1_title": "这次检测告诉了我们什么",
@@ -817,6 +818,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "sampling_version": "Method version {method} · build {code} (only reports on the same method version can be compared over time)",
         "sentiment_title": "Answer mention (how the AI talks about you)",
         "sentiment_line": "Of the {n} sentences that mention you: {items}",
+        "sentiment_item": "{label} {n} ({p}%)",
         "sentiment_positive": "positive", "sentiment_neutral": "neutral", "sentiment_negative": "negative", "sentiment_mixed": "mixed",
         "sentiment_sep": ", ",
         "sec1_title": "What this check tells us",

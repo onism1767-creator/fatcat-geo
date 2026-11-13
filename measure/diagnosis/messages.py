@@ -8,9 +8,25 @@ zh 模板与 v1.0 的成品语句逐字一致(保持报告连续性);en 为对�
 
 from __future__ import annotations
 
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, field_validator
+
+
+def percent(share: float) -> int:
+    """给人看的百分比:四舍五入、0.5 一律进位(1/8 → 13%,3/8 → 38%,29/200 → 15%)。全项目给人看的百分比只这一处取整
+    (第三轮审核 A18 / B5:原来结论目录、报告句子、报告页、结果文件四处各算,Python 与 Jinja 的取整都是四舍六入五成双)。
+    按十进制算:恰好是 .5 的比例(k/n 是有限小数)最短表示就是精确值,不会被浮点误差带成 14.499999。
+    放在本模块(零 engine 依赖):结论目录与报告层都从这里取。"""
+    return int((Decimal(repr(share)) * 100).quantize(Decimal(1), rounding=ROUND_HALF_UP))
+
+
+class _Share(float):
+    """结论目录里的比例参数:模板写 {share:.0%},取整走 percent();别的格式照 float 原样。"""
+
+    def __format__(self, spec: str) -> str:
+        return f"{percent(self)}%" if spec == ".0%" else float.__format__(self, spec)
 
 
 class Msg(BaseModel):
@@ -982,6 +998,8 @@ def render_msg(message: Msg | str, lang: str, register: str | None = None) -> st
         elif isinstance(value, list) and value and all(isinstance(v, Msg) for v in value):
             joiner = "、" if lang == "zh" else ", "  # 列表按语言拼:英文里不能出现中文顿号(审核 2026-10-27 黄 22)
             rendered[key] = joiner.join(render_msg(v, lang, register) for v in value)
+        elif isinstance(value, float):
+            rendered[key] = _Share(value)  # {x:.0%} 统一按 percent() 取整
         else:
             rendered[key] = value
     return template.format(**rendered)

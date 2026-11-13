@@ -94,6 +94,22 @@ def test_catalog_bilingual_completeness():
         assert set(versions) == {"zh", "en"} and versions["zh"].strip() and versions["en"].strip(), code
 
 
+def test_percentages_round_half_up_the_same_way_everywhere():
+    """给人看的百分比全项目一个取整规则:0.5 一律进位(第三轮审核 A18 / B5:原来四处各算、四舍六入五成双,1/8 写成 12%)。
+    结论目录的 {share:.0%}、报告句子、报告页、结果文件都走 diagnosis/messages.py::percent。"""
+    from diagnosis.findings import rate_params
+    from diagnosis.messages import msg, percent, render_msg
+    from engine.metrics import rate
+    from report.narrative import pct
+
+    assert [percent(k / n) for k, n in [(1, 8), (3, 8), (5, 8), (29, 200), (7, 16), (0, 5), (5, 5), (1, 3)]] == [
+        13, 38, 63, 15, 44, 0, 100, 33]
+    assert pct(1, 8) == 13 and pct(0, 0) == 0
+    assert render_msg(msg("citation.rate", **rate_params(rate(1, 8))), "zh") == "被引比例:1/8 = 13%"
+    assert render_msg(msg("citation.rate", **rate_params(rate(1, 8))), "zh", "plain") == (
+        "本次 8 次回答里,1 次(13%)拿你的官网当参考")
+
+
 def test_plain_register_renders_counts_and_falls_back():
     """用户视图人话版:比例写「N 次里 k 次(p%)」——计数在前、百分比跟后(用户定 S8);无人话版的码回落技术版。"""
     from diagnosis.findings import rate_params

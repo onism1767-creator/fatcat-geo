@@ -8,23 +8,79 @@ from __future__ import annotations
 
 from collections.abc import Callable
 
-from diagnosis.messages import msg, render_msg
+from diagnosis.findings import SentimentTally
+from diagnosis.messages import msg, percent, render_msg
 from diagnosis.recommender import Recommendation
 from diagnosis.verdict import SurfaceVerdict
 from engine.calibration import CalibrationReport
 from engine.models import SearchMode
 from engine.scheduler import StopDetail
-from engine.tiers import ModelSwap
-from report.clock import local_date
+from engine.tiers import MentionMethod, ModelSwap
+from report.clock import local_date, local_time
 from report.errors import ErrorLibrary
 from report.i18n import INTENT_LABELS, LEVEL_LABELS, MESSAGES
+from report.jobs import DiagnosisJob
 from report.summary import ApiLine, WrapUp
 
 _STATUS_ORDER = ("PASS", "WEAK", "FAIL", "NOT_OBSERVABLE")
 
 
-def _pct(share: float) -> int:
-    return round(100 * share)
+def pct(k: int, n: int) -> int:
+    """k / n 的百分比(取整规则在 diagnosis/messages.py::percent,全项目一处);n 为 0 记 0。
+    报告页模板、结果文件、各句子都用它。"""
+    return percent(k / n) if n else 0
+
+
+def sentiment_items_text(st: SentimentTally, lang: str) -> str:
+    """「提到你的 N 句话里:正面 1(6%)、中性 9(50%)、负面 8(44%)」的后半句;混合一句没有就不写。
+    报告页与结果文件同用(第三轮审核 B4)。"""
+    t = MESSAGES[lang]
+    items = [("positive", st.positive), ("neutral", st.neutral), ("negative", st.negative), ("mixed", st.mixed)]
+    return t["sentiment_sep"].join(
+        t["sentiment_item"].format(label=t["sentiment_" + key], n=n, p=pct(n, st.total))
+        for key, n in items if n or key != "mixed")
+
+
+def sampling_lines(job: DiagnosisJob, name_of: Callable[[str, str], str], lang: str) -> list[tuple[str, str]]:
+    """「这次是怎么测的」每一条:(种类, 句子)。报告页与结果文件同一处拼(第三轮审核 B4:原来两处各拼一遍,
+    第二轮 18 就是这么漏的);报告页把上一单 / 换型号两条放在顶部卡片里,按种类跳过,并在官网名单那条后面加链接。"""
+    t = MESSAGES[lang]
+    sn = job.sampling_note()
+    counts = t["sampling_counts"].format(prompts=sn.n_prompts, targets=sn.n_targets, reps=sn.tier.runs_per_prompt,
+                                        runs=sn.n_runs, valid=sn.n_valid)
+    if sn.n_offline_runs:
+        counts += " " + t["sampling_offline"].format(n=sn.n_offline_runs)
+    lines = [("counts", counts)]
+    if sn.fresh:  # S11.3:再测的单写明一律重新提问,并记对照的上一单与换掉的型号
+        lines.append(("fresh", t["sampling_fresh"]))
+        if job.parent_job_id:
+            lines.append(("parent", t["retest_parent_line"].format(id=job.parent_job_id)))
+        lines += [("swap", line) for line in retest_swap_lines(job.model_swaps, name_of, lang)]
+    elif sn.n_cached:  # S11.2
+        lines.append(("cached", t["sampling_cached"].format(n=sn.n_cached, hours=sn.cache_hours)))
+    tier = sn.tier  # S9.1:自定义写实际参数、不冠档位名,只说以哪一档为起点
+    lines.append(("tier", t["sampling_tier_custom" if tier.custom else "sampling_tier"].format(
+        tier=t["tier_name_" + tier.name], runs=tier.runs_per_prompt, method=t["method_" + tier.mention_method.value])))
+    lines.append(("time", t["sampling_time"].format(  # 当地时间 + 时区标记(用户 2026-10-29 定)
+        start=local_time(sn.started_at) if sn.started_at else "—",
+        end=local_time(sn.finished_at) if sn.finished_at else "—")))
+    lines.append(("targets", t["sampling_targets_pre"] + ";".join(name_of(x.surface, x.model) for x in sn.targets)))
+    if sn.judge_targets:  # S9.3:AI 裁判;中档只判说不准的(BR4)
+        every_answer = tier.mention_method is MentionMethod.RULES_FUZZY_JUDGE
+        lines.append(("judges", t["sampling_judges" if every_answer else "sampling_judges_unsure"].format(
+            judges=";".join(name_of(x.surface, x.model) for x in sn.judge_targets))))
+    if sn.n_own_vendor:  # BR6:别家都请不到,自家判自家
+        lines.append(("own_vendor", t["sampling_own_vendor"].format(n=sn.n_own_vendor)))
+    if sn.no_judge:  # BR6:一家裁判都请不到
+        lines.append(("no_judge", t["sampling_no_judge"].format(names=" / ".join(sn.no_judge))))
+    if sn.n_unsure:  # BR4:不进提及率分母,单独说清
+        lines.append(("unsure", t["sampling_unsure"].format(n=sn.n_unsure)))
+    lines.append(("domains", t["sampling_domains"].format(
+        confirmed=sn.domains_confirmed, unconfirmed=sn.domains_unconfirmed,
+        date=local_date(sn.domains_at) if sn.domains_at else "—")))
+    code = job.report_meta.code_version if job.report_meta and job.report_meta.code_version else "—"
+    lines.append(("version", t["sampling_version"].format(method=sn.method_version, code=code)))
+    return lines
 
 
 def retest_swap_lines(swaps: list[ModelSwap], name_of: Callable[[str, str], str], lang: str) -> list[str]:
@@ -48,7 +104,7 @@ def api_line_text(line: ApiLine, lang: str) -> str:
     t = MESSAGES[lang]
     if line.unprompted:
         items = [
-            t["line_first" if i == 0 else "line_rest"].format(model=m, p=_pct(r.share), k=r.k, n=r.n)
+            t["line_first" if i == 0 else "line_rest"].format(model=m, p=pct(r.k, r.n), k=r.k, n=r.n)
             for i, (m, r) in enumerate(line.unprompted)
         ]
         unprompted = t["count_sep"].join(items)
@@ -95,7 +151,7 @@ def wrap_up_text(w: WrapUp, lang: str, reps: int, first_action: str | None) -> s
     else:
         best, rate = w.best_unprompted
         parts.append(t["wrap_unprompted"].format(often=w.unprompted["often"], sometimes=w.unprompted["sometimes"],
-                                                 rarely=w.unprompted["rarely"], best=best, p=_pct(rate.share)))
+                                                 rarely=w.unprompted["rarely"], best=best, p=pct(rate.k, rate.n)))
     for key, cell in (("wrap_citation_own", w.best_own_citation), ("wrap_citation_third", w.best_third_citation)):
         if cell is None:
             continue
@@ -103,7 +159,7 @@ def wrap_up_text(w: WrapUp, lang: str, reps: int, first_action: str | None) -> s
             parts.append(t[key + "_none"])
             continue
         parts.append(t[key].format(display=cell.display, intent=INTENT_LABELS[lang][cell.intent],
-                                   k=cell.rate.k, n=cell.rate.n, p=_pct(cell.rate.share)))
+                                   k=cell.rate.k, n=cell.rate.n, p=pct(cell.rate.k, cell.rate.n)))
     access_value = w.access.value if w.access else ""
     access_key = {"PASS": "wrap_access_PASS", "FAIL": "wrap_access_FAIL"}.get(access_value, "wrap_access_other")
     parts.append(t[access_key])
