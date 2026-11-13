@@ -81,7 +81,10 @@ def test_product_facts_come_from_structured_data(acme_factbase):
     assert product.availability.values[0].value == "InStock"
     assert {(s.name, s.value) for s in product.specs} == {("Capacity", "1.7 L"), ("Material", "Stainless steel"), ("color", "Silver")}
     assert product.comparison_claims.values == []
-    assert product.updated_date.values[0].value == "2026-05-01" and product.updated_date.conflict
+    # 夹具站的 sitemap 里 6 条 lastmod 全是同一天 → 不可信,不当更新日期,所以只剩 JSON-LD 的 dateModified,也就没有冲突
+    assert product.updated_date.values[0].value == "2026-05-01" and not product.updated_date.conflict
+    assert product.updated_date.values[0].source_kind == "jsonld"
+    assert any(g.code == "SITEMAP_LASTMOD_UNTRUSTED" and "全是同一天" in g.message for g in acme_factbase.gaps)
 
 
 def test_gaps_are_left_empty_not_guessed(acme_factbase):

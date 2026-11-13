@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from urllib.parse import urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, urlencode, urljoin, urlsplit, urlunsplit
 
 _WS = re.compile(r"\s+")
 
@@ -118,6 +118,21 @@ def decode_html(raw: bytes, content_type: str = "") -> str:
         except (UnicodeDecodeError, LookupError):
             continue
     return raw.decode("utf-8", "replace")
+
+
+# 链接上常见的跟踪参数:去掉后才是地址本身(抓取时判断要不要抓、事实库里的账号地址都用它)
+_TRACKING_PARAMS = frozenset({"ref", "ref_src", "ref_url", "feature", "si", "fbclid", "gclid", "igshid", "igsh",
+                              "mc_cid", "mc_eid", "spm", "from", "share_source", "utm_source", "utm_medium",
+                              "utm_campaign", "utm_term", "utm_content", "utm_id"})
+
+
+def strip_tracking(url: str) -> str:
+    """去掉链接上的跟踪参数(ref=footer、utm_* 这类);别的参数(如 ?plan=pro、profile.php?id=)保留。"""
+    parts = urlsplit(url)
+    if not parts.query:
+        return url
+    kept = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if k.lower() not in _TRACKING_PARAMS]
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, urlencode(kept), parts.fragment))
 
 
 def page_key(url: str) -> str:

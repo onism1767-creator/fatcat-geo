@@ -15,6 +15,7 @@ from butter.contracts import (
     StructuredNode, TextBlock,
 )
 from butter.extract import dates as dates_mod
+from butter.extract.sitemap import lastmod_suspicion
 from butter.extract.jsonld import clean_type, nodes_from_data, parse_block, text_of
 from butter.util import collapse_ws, page_key, safe_http_url
 
@@ -257,6 +258,7 @@ _META_DATE_KEYS = {
 def _collect_dates(
     url: str, metas: list[MetaTag], nodes: list[StructuredNode], visible_text: str,
     time_elements: list[tuple[str, str]], last_modified: str, sitemap_entry: SitemapEntry | None,
+    lastmod_suspect: str = "",
 ) -> list[RawDate]:
     out: list[RawDate] = []
 
@@ -284,10 +286,13 @@ def _collect_dates(
         add("http_last_modified", last_modified, "modified", "HTTP Last-Modified")
     if sitemap_entry is not None and sitemap_entry.lastmod:
         add("sitemap_lastmod", sitemap_entry.lastmod, "modified", "sitemap lastmod", sitemap_entry.source_url)
+        if lastmod_suspect:
+            out[-1] = out[-1].model_copy(update={"suspect": lastmod_suspect})
     return out
 
 
-def extract_page(page: FetchedPage, sitemap_by_key: dict[str, SitemapEntry] | None = None) -> PageExtract:
+def extract_page(page: FetchedPage, sitemap_by_key: dict[str, SitemapEntry] | None = None,
+                 lastmod_suspect: str = "") -> PageExtract:
     url = page.final_url or page.url
     html = page.html
     truncated = len(html) > MAX_PARSE_CHARS
@@ -301,10 +306,14 @@ def extract_page(page: FetchedPage, sitemap_by_key: dict[str, SitemapEntry] | No
     metas = _metas(soup)
 
     canonical = None
+    alternates: list[str] = []
     for link in soup.find_all("link", href=True):
-        if "canonical" in _attr_str(link, "rel").lower().split():
+        rel = _attr_str(link, "rel").lower().split()
+        if "canonical" in rel and canonical is None:
             canonical = safe_http_url(_attr_str(link, "href"), url)
-            break
+        elif "alternate" in rel and _attr_str(link, "hreflang"):
+            if (alt := safe_http_url(_attr_str(link, "href"), url)) and alt not in alternates:
+                alternates.append(alt)
 
     links: list[Link] = []
     seen_links: set[str] = set()
@@ -400,10 +409,11 @@ def extract_page(page: FetchedPage, sitemap_by_key: dict[str, SitemapEntry] | No
     ]
     sitemap_entry = (sitemap_by_key or {}).get(page_key(url))
     dates = _collect_dates(url, metas, nodes, visible_text, time_elements,
-                           page.headers.get("last-modified", ""), sitemap_entry)
+                           page.headers.get("last-modified", ""), sitemap_entry, lastmod_suspect)
 
     return PageExtract(
-        url=url, role=page.role, title=title, lang=lang, canonical=canonical, metas=metas, links=links, h1=h1, h2=h2,
+        url=url, role=page.role, title=title, lang=lang, canonical=canonical, metas=metas, links=links,
+        alternates=alternates, h1=h1, h2=h2,
         jsonld_blocks=blocks_raw, nodes=nodes, visible_text=visible_text, blocks=blocks, hidden_texts=hidden_texts,
         attr_texts=attr_texts, data_nosnippet_chars=nosnippet_chars, dates=dates,
         x_robots_tag=page.headers.get("x-robots-tag", ""), parse_truncated=truncated,
@@ -414,5 +424,7 @@ def extract_site(pages: list[FetchedPage], sitemap_entries: list[SitemapEntry]) 
     """只处理拿到了 HTML 的页面;sitemap 的 lastmod 按地址配到对应页面上。
     联网抓的要 2xx;本地导入的文件没有 HTTP 状态,有内容就处理。"""
     by_key = {page_key(e.loc): e for e in sitemap_entries if e.loc}
-    return [extract_page(p, by_key) for p in pages
+    reference = max((p.fetched_at for p in pages), default=None)
+    suspect = lastmod_suspicion(sitemap_entries, reference) or ""
+    return [extract_page(p, by_key, suspect) for p in pages
             if p.html and (p.local_file or (p.status is not None and 200 <= p.status < 300))]

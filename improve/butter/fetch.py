@@ -19,7 +19,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Final
-from urllib.parse import urljoin, urlsplit
+from urllib.parse import unquote, urljoin, urlsplit
 
 import httpx
 
@@ -30,7 +30,7 @@ from butter.extract.html import extract_page  # 只用它取页面上的链接;�
 from butter.extract.robots import RobotsParsed, parse_robots, rules_allow
 from butter.extract.sitemap import parse_sitemap
 from butter.util import decode_html as _decode
-from butter.util import host_of, normalize_site_url, page_key, safe_http_url, same_site
+from butter.util import host_of, normalize_site_url, page_key, safe_http_url, same_site, strip_tracking
 
 # 与 Toast crawler/fetch.py 的 BROWSER_UA 同一串(产品文档 D13:固定版本的 Chrome 浏览器 UA)
 BROWSER_UA: Final = (
@@ -41,6 +41,43 @@ _KEPT_HEADERS: Final = ("content-type", "x-robots-tag", "last-modified", "locati
 _NON_HTML_EXT: Final = re.compile(
     r"\.(?:pdf|jpe?g|png|gif|webp|svg|ico|css|js|json|xml|rss|atom|zip|gz|rar|7z|mp[34]|mov|avi|webm|woff2?|ttf|"
     r"eot|docx?|xlsx?|pptx?|exe|dmg|apk|txt)$", re.IGNORECASE)
+
+
+# 语言 / 地区副本的首页:/ca、/uk、/en-us、/eu-en、/zh-hant-tw 这类;内容和首页重复,不占页数
+_LOCALE_HOME: Final = re.compile(
+    r"^/(?:[a-z]{2}|[a-z]{2}[-_][a-z]{2}|[a-z]{2}[-_][a-z]{4}(?:[-_][a-z]{2})?|eu-[a-z]{2}|intl|global|international)/?$",
+    re.IGNORECASE)
+# 政策、账户、购物车、搜索类页面:事实库和审计都用不上,不占页数(可带一层语言前缀)
+_AUX_PATH: Final = re.compile(
+    r"^/(?:[a-z]{2}(?:[-_][a-z]{2,4})?/)?"
+    r"(?:policies|policy|privacy(?:-policy|-notice)?|terms(?:-of-service|-of-use|-and-conditions)?|legal|imprint|"
+    r"impressum|cookies?(?:-policy|-notice)?|cart|checkout|accounts?|my-account|login|logout|sign-?in|sign-?up|register|"
+    r"password|search|wishlist|compare|sitemap|feed)(?:/|$)", re.IGNORECASE)
+# 商品详情页地址:事实库主要靠它们(一页一个 Product,带描述、价格、规格),排在最前
+_PRODUCT_SEG: Final = re.compile(
+    r"(?:^|/)(?:products?|items?|p|goods|sku|dp|商品|产品)(?:/|$)", re.IGNORECASE)
+# 分类 / 列表页:一页列几十个 Product,数据薄(常没有描述),排在商品页之后、其他页之前
+_COLLECTION_SEG: Final = re.compile(
+    r"(?:^|/)(?:collections?|categor(?:y|ies)|catalog(?:ue)?|shop|store)(?:/|$)", re.IGNORECASE)
+
+
+def link_priority(url: str) -> int:
+    """0 = 商品详情页,1 = 分类 / 列表页,2 = 其他。稳定排序用:同一档保持页面上的先后。"""
+    path = unquote(urlsplit(url).path or "/")
+    if _PRODUCT_SEG.search(path):
+        return 0
+    if _COLLECTION_SEG.search(path):
+        return 1
+    return 2
+
+
+def skip_reason(path: str, key: str, alternates: set[str]) -> str | None:
+    """自动发现的站内地址要不要跳过:variant = 语言 / 地区副本,aux = 政策、账户类;None = 可以抓。"""
+    if key in alternates or _LOCALE_HOME.match(path):
+        return "variant"
+    if _AUX_PATH.match(path):
+        return "aux"
+    return None
 
 
 @dataclass(frozen=True)
@@ -289,25 +326,34 @@ def fetch_site(
             if queue and stop == "completed":
                 notes.append(f"还有 {len(queue)} 个子 sitemap 没读(上限 {limits.max_child_sitemaps} 个)。")
 
-        # 5. 自动发现的页面:先首页和给定页上的站内链接,再 sitemap 顺序
+        # 5. 自动发现的页面:先首页和给定页上的站内链接(商品 / 分类类地址优先;语言地区副本、政策账户类跳过),再 sitemap 顺序
         if stop == "completed":
-            candidates: list[str] = []
+            link_candidates: list[str] = []
+            alternates: set[str] = set()
             ordered = sorted((p for p in pages if p.html), key=lambda p: 0 if p.role == "home" else 1)
             for page in ordered:
-                candidates.extend(link.href for link in extract_page(page).links)
-            candidates.extend(entry.loc for entry in sitemap_entries)
+                extracted = extract_page(page)
+                alternates.update(page_key(alt) for alt in extracted.alternates)
+                link_candidates.extend(link.href for link in extracted.links)
+            link_candidates.sort(key=link_priority)  # 稳定排序:同一档保持页面上的先后
+            candidates = link_candidates + [entry.loc for entry in sitemap_entries]
             star_rules = robots_parsed.star_rules()
             blocked_by_robots = 0
+            skipped = {"variant": 0, "aux": 0}
             refusals = 0
-            for candidate in candidates:
+            for raw_candidate in candidates:
                 if len(pages) >= limits.max_pages:
                     break
+                candidate = strip_tracking(raw_candidate)  # 首页上的商品链接常带 ?ref=…;去掉跟踪参数后再看有没有真的查询串
                 parts_c = urlsplit(candidate)
                 key = page_key(candidate)
                 if (key in seen or not same_site(parts_c.hostname or "", host) or parts_c.query
                         or _NON_HTML_EXT.search(parts_c.path)):
                     continue
                 seen.add(key)
+                if reason := skip_reason(unquote(parts_c.path or "/"), key, alternates):
+                    skipped[reason] += 1
+                    continue
                 if not rules_allow(star_rules, parts_c.path or "/"):
                     blocked_by_robots += 1
                     continue
@@ -328,6 +374,9 @@ def fetch_site(
                     refusals = 0
             if blocked_by_robots:
                 notes.append(f"有 {blocked_by_robots} 个站内地址被该站 robots.txt 对 * 的规则挡住,没有抓。")
+            if skipped["variant"] or skipped["aux"]:
+                notes.append(f"跳过了 {skipped['variant']} 个语言 / 地区副本页(hreflang 备选或 /ca、/en-us 这类地址)和 "
+                             f"{skipped['aux']} 个政策、账户、购物车类页面:事实库和审计用不上,页数留给商品和内容页。")
             if stop == "completed" and not any(p.role == "discovered" for p in pages):
                 notes.append("没有找到可以接着抓的站内页面(已抓页面的原始 HTML 里没有可用的站内链接,"
                              "sitemap 里也没有本站的地址),所以只看了这 " f"{len(pages)} 页。")

@@ -14,13 +14,13 @@ from datetime import date, datetime, timedelta
 from butter.audit.base import finding
 from butter.contracts import AuditFinding, PageExtract, RawDate, SiteSnapshot
 from butter.extract.dates import to_iso_date
+from butter.extract.sitemap import lastmod_suspicion
 from butter.registry_ids import FAKE_TIMESTAMP, FRESHNESS_VISIBLE_DATE
 
 CHECK = "visible_date"
 _VISIBLE = ("visible", "time_element")
 _MACHINE_MODIFIED = ("jsonld_modified", "meta_modified", "og_updated")
 _MACHINE_PUBLISHED = ("jsonld_published", "meta_published")
-_SITEMAP_MIN = 5  # 少于这么多条不下「全站同一天」的判断
 _KIND_LABEL = {
     "visible": "正文里的日期", "time_element": "<time> 元素", "jsonld_published": "结构化数据 datePublished",
     "jsonld_modified": "结构化数据 dateModified", "meta_published": "meta 发布时间", "meta_modified": "meta 修改时间",
@@ -47,11 +47,18 @@ def check(extracts: list[PageExtract], snapshot: SiteSnapshot, now: datetime) ->
     pages_with_modified = 0
 
     for page in extracts:
-        dated = [(d, _d(d)) for d in page.dates]
+        trusted = [d for d in page.dates if not d.suspect]  # 不可信的 sitemap lastmod 不当作本页的日期
+        dated = [(d, _d(d)) for d in trusted]
         parsed = [(d, day) for d, day in dated if day is not None]
         if not page.dates:
             findings.append(finding(CHECK, FAKE_TIMESTAMP, "not_checkable", page.url,
                                     "本页没有找到任何日期(正文、<time>、结构化数据、meta、sitemap、HTTP 头都没有),查不了。"))
+            continue
+        if not trusted:
+            reason = next(d.suspect for d in page.dates if d.suspect)
+            findings.append(finding(CHECK, FAKE_TIMESTAMP, "not_checkable", page.url,
+                                    f"本页只有 sitemap lastmod 一个日期,而它不可信({reason}),不能当作本页日期,查不了。",
+                                    observed=";".join(_describe(d) for d in page.dates[:3])))
             continue
         page_findings: list[AuditFinding] = []
 
@@ -91,8 +98,8 @@ def check(extracts: list[PageExtract], snapshot: SiteSnapshot, now: datetime) ->
 
         # 只对自己声明了日期的页面提这条(结构化数据 / meta);光是 sitemap 里有 lastmod 的首页、关于页不提
         declared = _MACHINE_MODIFIED + _MACHINE_PUBLISHED
-        if not any(d.kind in _VISIBLE for d in page.dates) and any(d.kind in declared for d in page.dates):
-            machine = "、".join(sorted({_describe(d) for d in page.dates if d.kind in declared}))
+        if not any(d.kind in _VISIBLE for d in trusted) and any(d.kind in declared for d in trusted):
+            machine = "、".join(sorted({_describe(d) for d in trusted if d.kind in declared}))
             page_findings.append(finding(
                 CHECK, FRESHNESS_VISIBLE_DATE, "notice", page.url,
                 "本页有机器可读的日期,但读者在页面上看不到日期。可以把真实的更新日期显示出来(只写真实日期,不为了显得新而改)。",
@@ -105,10 +112,12 @@ def check(extracts: list[PageExtract], snapshot: SiteSnapshot, now: datetime) ->
                 modified_today_pages += 1
         if not page_findings:
             note = f";另有 {len(unreadable)} 个日期写法认不出" if unreadable else ""
+            if len(trusted) < len(page.dates):
+                note += ";sitemap lastmod 不可信,没有计"
             page_findings.append(finding(
                 CHECK, FAKE_TIMESTAMP, "pass", page.url,
-                f"找到 {len(page.dates)} 个日期,未见自相矛盾{note}。",
-                observed=";".join(_describe(d) for d in page.dates[:6])))
+                f"找到 {len(trusted)} 个日期,未见自相矛盾{note}。",
+                observed=";".join(_describe(d) for d in trusted[:6])))
         findings.extend(page_findings)
 
     if pages_with_modified >= 3 and modified_today_pages == pages_with_modified:
@@ -133,13 +142,13 @@ def check(extracts: list[PageExtract], snapshot: SiteSnapshot, now: datetime) ->
                 f"sitemap 里有 {len(future)} 个地址的 lastmod 是未来的日期。",
                 location=snapshot.sitemap_urls[0] if snapshot.sitemap_urls else "sitemap",
                 observed=f"{future[0][0]} → {future[0][1]}"))
-        if len(days) >= _SITEMAP_MIN and len(set(days)) == 1:
+        reference = max((p.fetched_at for p in snapshot.pages), default=None)
+        if reason := lastmod_suspicion(snapshot.sitemap_entries, reference):
             site_findings.append(finding(
                 CHECK, FAKE_TIMESTAMP, "notice", None,
-                f"sitemap 里 {len(days)} 个地址的 lastmod 全是同一天({days[0].isoformat()})。"
-                "如果这些页面不是同一天改的,这个日期可能是生成 sitemap 时统一打的,不是各页真实的修改日期。",
+                f"sitemap 里的 lastmod 不可信:{reason}。事实库没有把它当作更新日期;只有它一个日期的页面按「查不了」记。",
                 location=snapshot.sitemap_urls[0] if snapshot.sitemap_urls else "sitemap",
-                observed=f"{len(days)} 条 lastmod 都是 {days[0].isoformat()}"))
+                observed=reason))
         if not site_findings:
             site_findings.append(finding(
                 CHECK, FAKE_TIMESTAMP, "pass", None,

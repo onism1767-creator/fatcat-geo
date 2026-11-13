@@ -76,7 +76,7 @@ def factbase_md(fb: FactBase) -> str:
               for m in fb.merged_inputs] or ["- 本次没有给 brands.yml 或 brand-domains.json。"]
     lines += ["", "## 各页现状(标题建议与日期检查用)", "", "| 页面 | 标题 | H1 | 找到的日期 |", "|---|---|---|---|"]
     for page in fb.pages:
-        dates = ";".join(f"{d.raw}({d.kind})" for d in page.dates[:4])
+        dates = ";".join(f"{d.raw}({d.kind}{',不可信' if d.suspect else ''})" for d in page.dates[:4])
         lines.append(f"| {page.url} | {_cell(page.title, 70)} | {_cell(' / '.join(page.h1), 70)} | {_cell(dates, 120)} |")
     return "\n".join(lines) + "\n"
 

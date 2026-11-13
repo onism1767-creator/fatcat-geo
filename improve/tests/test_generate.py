@@ -260,7 +260,7 @@ def test_headings_with_question_board(tmp_path, acme_snapshot, acme_extracts, ac
 
 
 def test_tokens_handle_both_languages():
-    assert tokens("What are the best backpacking packs?") == {"best", "backpacking", "packs"}
+    assert tokens("What are the best backpacking packs?") == {"best", "backpacking", "pack"}, "单复数归一"
     assert tokens("哪些电水壶值得买") == {"电水", "水壶"}
     assert "水壶" in tokens("不锈钢水壶怎么选") & tokens("水壶选购指南")
 

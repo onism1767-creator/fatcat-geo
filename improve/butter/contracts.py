@@ -130,6 +130,7 @@ class RawDate(Frozen):
     label: Literal["published", "modified", "unknown"] = "unknown"
     source_url: str
     source_path: str = ""
+    suspect: str = ""  # 非空 = 这个日期不可信的原因(如 sitemap lastmod 全站同一天);事实库不采用,审计不当作本页日期
 
 
 class PageExtract(Frozen):
@@ -140,6 +141,7 @@ class PageExtract(Frozen):
     canonical: str | None = None
     metas: list[MetaTag] = []
     links: list[Link] = []
+    alternates: list[str] = []  # <link rel=alternate hreflang=…> 指向的语言 / 地区副本(绝对地址)
     h1: list[str] = []
     h2: list[str] = []
     jsonld_blocks: list[JsonLdBlock] = []

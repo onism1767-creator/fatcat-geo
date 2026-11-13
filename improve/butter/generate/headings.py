@@ -1,7 +1,12 @@
 """标题 / H1 / H2 / meta 建议。全部确定性:不用模型,不改写措辞。
 
 - 没给题板:只列每页现状和机械问题(缺标题、缺 H1、多个 H1、缺 meta 描述、多页同标题)。
-- 给了 Potato 题板:按字面重合度给每道题找候选目标页;建议标题直接复述题目原文。
+- 给了 Potato 题板:给每道题找「对得上」的页面;建议标题直接复述题目原文。
+  对得上的标准(2026-11-12 真实运行后定):题目和页面的**标题或 H1** 里要有一个**连续词组**相同
+  (英文是去掉虚词后相邻的两个词,中文是连续三个字)。只看标题和 H1,因为建议改的就是标题和 H1,一页讲什么由它们说;
+  H2 和 meta 描述只用来数单词重合。只有零散单词重合(best、home、choose 这类)不算:
+  一个扫地机器人商品页曾因「home」「options」「available」三个词被配到「睡眠呼吸暂停筛查」那道题上,
+  改成看词组后又因某个 H2 里的「options available」配上,所以词组只看标题和 H1。
 这是 GEO 方法类建议(标题复述查询),验证态一律「假设」:只在该页确实回答这道题时采用,不堆砌关键词。
 """
 
@@ -25,19 +30,60 @@ _ZH_STOP = sorted(["什么", "哪些", "哪个", "哪家", "哪款", "哪种", "
 _MAX_H2 = 5
 
 
-def tokens(text: str) -> set[str]:
-    """比字面重合用的词:英文按词(去掉虚词),中文按相邻两字。"""
+def _stem(word: str) -> str:
+    """很粗的单复数归一:vacuums → vacuum、kettles → kettle。题目和页面两边同样处理,所以只求一致。"""
+    if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
+        return word[:-1]
+    return word
+
+
+def _prepared(text: str) -> str:
     t = norm_text(text)
     for word in _ZH_STOP:
         t = t.replace(word, " ")
-    out = {w for w in re.findall(r"[a-z0-9]+", t) if w not in _EN_STOP and len(w) > 1}
+    return t
+
+
+def _en_words(prepared: str) -> list[str]:
+    """英文实词,按原文顺序(去掉虚词,单复数归一)。"""
+    return [_stem(w) for w in re.findall(r"[a-z0-9]+", prepared) if w not in _EN_STOP and len(w) > 1]
+
+
+def tokens(text: str) -> set[str]:
+    """比单词重合用的词:英文按词(去掉虚词、单复数归一),中文按相邻两字。"""
+    t = _prepared(text)
+    out = set(_en_words(t))
     for run in re.findall(r"[一-鿿]+", t):
         out.update(run[i:i + 2] for i in range(len(run) - 1))
     return out
 
 
+def phrases(text: str) -> set[str]:
+    """连续词组:英文是去掉虚词后相邻的两个词,中文是连续三个字(整段只有两个字时就取这两个字)。
+    题目和页面都这样切;有一个词组相同,这道题和这页才算「对得上」。"""
+    t = _prepared(text)
+    words = _en_words(t)
+    out = {f"{a} {b}" for a, b in zip(words, words[1:])}
+    for run in re.findall(r"[一-鿿]+", t):
+        if len(run) == 2:
+            out.add(run)
+        out.update(run[i:i + 3] for i in range(len(run) - 2))
+    return out
+
+
+def _page_fields(page: PageFacts) -> list[str]:
+    return [page.title or "", *page.h1, *page.h2, page.meta_description or ""]
+
+
 def _page_tokens(page: PageFacts) -> set[str]:
-    return tokens(" ".join([page.title or "", *page.h1, *page.h2, page.meta_description or ""]))
+    return tokens(" ".join(_page_fields(page)))
+
+
+def _page_phrases(page: PageFacts) -> set[str]:
+    out: set[str] = set()
+    for field in (page.title or "", *page.h1):  # 只看标题和 H1;每个字段单独切,不让标题的尾巴和 H1 的开头拼成一个词组
+        out |= phrases(field)
+    return out
 
 
 def _clean_question(text: str) -> str:
@@ -113,28 +159,49 @@ def build_headings(
                                     reason="没有给 Potato 的 questions.yml,只列了各页现状。加 --questions 再跑即可。"))
     else:
         page_tok = {p.url: _page_tokens(p) for p in pages}
-        assigned: dict[str, list[tuple[float, Question, int, int]]] = {}
-        md += ["## 题板对照", "", f"题板:`{board.path}`(prompt_version:{board.prompt_version or '未标'}),共 {len(board.questions)} 题。",
-               ""]
+        page_phr = {p.url: _page_phrases(p) for p in pages}
+        # 每页分到的题:(单词重合比例, 题, 单词重合数, 题的词数, 对上的词组)
+        assigned: dict[str, list[tuple[float, Question, int, int, list[str]]]] = {}
+        md += ["## 题板对照", "",
+               f"题板:`{board.path}`(prompt_version:{board.prompt_version or '未标'}),共 {len(board.questions)} 题。",
+               "一道题和某页「对得上」,要有一个连续词组(英文相邻两个词、中文连续三个字)同时出现在题目和该页的"
+               "标题或 H1 里;单词重合只作参考(数的是标题 / H1 / H2 / meta 描述),只有零散单词重合(best、home 这类)不算,不出建议。", ""]
         rows: list[str] = []
+        weak: list[str] = []
         for q in board.questions:
-            q_tok = tokens(q.text)
-            best_url, best_hit = None, 0
+            q_tok, q_phr = tokens(q.text), phrases(q.text)
+            best_url, best_phr, best_hit = None, 0, 0
             for p in pages:
-                hit = len(q_tok & page_tok[p.url])
-                if hit > best_hit:
-                    best_url, best_hit = p.url, hit
+                phr, hit = len(q_phr & page_phr[p.url]), len(q_tok & page_tok[p.url])
+                if (phr, hit) > (best_phr, best_hit):
+                    best_url, best_phr, best_hit = p.url, phr, hit
             total = len(q_tok)
-            coverage = "none" if not best_hit else ("covered" if best_hit == total else "partial")
-            label = {"none": "没有页面对得上", "covered": "已复述", "partial": "部分重合"}[coverage]
+            matched = sorted(q_phr & page_phr[best_url]) if best_url else []
+            if not best_hit:
+                coverage = "none"
+            elif best_hit == total:
+                coverage = "covered"
+            elif best_phr:
+                coverage = "partial"
+            else:
+                coverage = "weak"
+            label = {"none": "没有页面对得上", "covered": "已复述", "partial": "对得上", "weak": "只有零散单词重合"}[coverage]
             report["questions"].append({"id": q.id, "intent": q.intent, "text": q.text, "best_page": best_url,
-                                        "overlap": f"{best_hit}/{total}", "coverage": coverage})
-            if best_url:  # 对不上的题不逐行列(题板常有几十题,大多和这个站无关),下面合成一句
-                rows.append(f"| {q.id} | {_cell(q.text)} | {best_url} | {best_hit}/{total} | {label} |")
+                                        "overlap": f"{best_hit}/{total}", "phrase_hits": best_phr,
+                                        "matched_phrases": matched, "coverage": coverage})
+            if coverage in ("covered", "partial"):
+                rows.append(f"| {q.id} | {_cell(q.text)} | {best_url} | {best_hit}/{total} | "
+                            f"{_cell('、'.join(matched)) or '-'} | {label} |")
+            elif coverage == "weak":
+                weak.append(q.id)
             if best_url and coverage == "partial":
-                assigned.setdefault(best_url, []).append((best_hit / total if total else 0.0, q, best_hit, total))
+                assigned.setdefault(best_url, []).append((best_hit / total if total else 0.0, q, best_hit, total, matched))
         if rows:
-            md += ["| 题号 | 题目 | 最接近的页面 | 字面重合 | 情况 |", "|---|---|---|---|---|", *rows, ""]
+            md += ["| 题号 | 题目 | 最接近的页面 | 单词重合 | 对上的词组 | 情况 |", "|---|---|---|---|---|---|", *rows, ""]
+        if weak:
+            ids = "、".join(weak[:12]) + (" 等" if len(weak) > 12 else "")
+            md += [f"有 {len(weak)} 道题只和页面有零散单词重合,没有一个连续词组对得上,不给建议:{ids}。"
+                   f"完整清单(含重合的词数)在 `{JSON_FILE}`。", ""]
         unmatched = [q for q in report["questions"] if q["coverage"] == "none"]
         if unmatched:
             ids = "、".join(q["id"] for q in unmatched[:12]) + (" 等" if len(unmatched) > 12 else "")
@@ -143,30 +210,31 @@ def build_headings(
         if not rows:
             missing.append(NotGenerated(
                 what="按题板的标题复述建议",
-                reason=f"题板 {len(board.questions)} 题里没有一题和本次读到的页面在字面上对得上,没有给复述建议(不硬凑)。"))
+                reason=f"题板 {len(board.questions)} 题里没有一题和本次读到的页面有连续词组对得上,没有给复述建议(不硬凑)。"))
 
         md += ["## 建议", ""]
         for p in pages:
             group = sorted(assigned.get(p.url, []), key=lambda t: -t[0])
             if not group:
                 continue
-            _, primary, hit, total = group[0]
+            _, primary, hit, total, matched = group[0]
             core = _clean_question(primary.text)
             title = core if not brand or norm_text(brand) in norm_text(core) else f"{core} | {brand}"
-            h2 = [_clean_question(q.text) for _, q, _, _ in group[1:1 + _MAX_H2]]
+            h2 = [_clean_question(q.text) for _, q, _, _, _ in group[1:1 + _MAX_H2]]
             suggestion = {
-                "page_url": p.url, "based_on_question": primary.id,
+                "page_url": p.url, "based_on_question": primary.id, "matched_phrases": matched,
                 "current": {"title": p.title, "h1": p.h1, "meta_description": p.meta_description},
                 "proposed": {"title": title, "h1": core, "h2": h2,
                              "meta_description": description.value if description else None},
             }
             report["suggestions"].append(suggestion)
             md += [f"### {p.url}", "",
-                   f"依据:题 {primary.id}「{primary.text}」,与本页现有标题 / 小标题字面重合 {hit}/{total}。", "",
+                   f"依据:题 {primary.id}「{primary.text}」,与本页现有标题 / H1 有连续词组相同"
+                   f"({'、'.join(matched)}),单词重合 {hit}/{total}。", "",
                    f"- 现在的标题:{md_cell(p.title, 200) or '(无)'}", f"- 建议标题:{title}",
                    f"- 现在的 H1:{md_cell(' / '.join(p.h1), 200) or '(无)'}", f"- 建议 H1:{core}"]
             if h2:
-                md.append("- 建议的 H2(同样落在本页的其他题,各用一个小标题):")
+                md.append("- 建议的 H2(同样和本页对得上的其他题,各用一个小标题):")
                 md += [f"  - {text}" for text in h2]
             md.append(f"- 建议 meta description:{description.value}(来自事实库的描述,原样)" if description
                       else "- meta description:事实库里没有描述,没有给建议(不编)。")
@@ -177,8 +245,8 @@ def build_headings(
             items.append(ChangeItem(
                 item_id=f"headings-{len(items) + 1}", kind="heading_suggestion", entry_id=TITLE_QUERY_MATCH,
                 action="review", target=f"{p.url} 的 <title> / H1 / H2 / meta description", files=[MD_FILE, JSON_FILE],
-                rationale=f"让标题和 H1 直接复述题板里的题 {primary.id};同页的其他 {len(h2)} 道题各给一个 H2。"
-                          "题目原文照抄,没有改写。",
+                rationale=f"让标题和 H1 直接复述题板里的题 {primary.id}(与本页有连续词组相同:{'、'.join(matched)});"
+                          f"同页对得上的其他 {len(h2)} 道题各给一个 H2。题目原文照抄,没有改写。",
                 facts_used=refs, validation_state="假设",
                 needs_human=["只在这一页确实回答了这道题时采用;页面内容对不上题就不要改标题。",
                              "题目原文直接当标题可能不通顺,措辞由你调整;不要为了匹配而堆砌关键词。"]))

@@ -20,7 +20,7 @@ from butter.extract.dates import to_iso_date
 from butter.extract.jsonld import (
     ORG_TYPES, PRODUCT_TYPES, WEBSITE_TYPES, as_list, clean_type, has_type, is_top_level, text_of, texts_of,
 )
-from butter.util import host_matches, host_of, norm_text, page_key, safe_http_url, same_site, slugify, strip_www
+from butter.util import host_matches, host_of, norm_text, page_key, safe_http_url, same_site, slugify, strip_tracking, strip_www
 
 # 来源层级:数字越小越优先
 T_STRUCT, T_META, T_TITLE, T_LOCAL = 0, 1, 2, 3
@@ -40,6 +40,10 @@ _NOT_PROFILE = re.compile(
     r"watch|playlist|results|privacy|policy|policies|terms|tos|legal|help|support|about|ads|business|developers?|"
     r"settings|i|s|p|status|plugins|tr)(?:/|\.php|$)", re.IGNORECASE)
 _MAX_PRODUCTS = 50
+# 平台上的「某条内容」而不是账号主页:视频、帖子、动态、小组、活动。出现在路径任何位置都不算账号主页
+_CONTENT_SEG = re.compile(
+    r"(?:^|/)(?:shorts|watch|embed|v|video|videos|reel|reels|stories|story|posts?|photos?|events?|groups?|pulse|pin|"
+    r"live|clips?|status|statuses|comments?|p|t)(?:/|$)", re.IGNORECASE)
 
 Candidate = tuple[int, FactValue]  # (层级, 值)
 
@@ -198,7 +202,7 @@ def looks_like_profile(url: str, platform: Platform) -> bool:
                           if host_matches(host, h)) and platform.kind == "marketplace_store"
     if path in ("", "/"):
         return brand_subdomain  # 平台首页不算;brand.tmall.com 这种品牌子域算
-    if _NOT_PROFILE.match(path):
+    if _NOT_PROFILE.match(path) or _CONTENT_SEG.search(path):
         return False
     return len([s for s in path.split("/") if s]) <= 3
 
@@ -275,8 +279,10 @@ def _entity(
             if platform is None or platform.kind == "reference" or not looks_like_profile(link.href, platform):
                 continue
             where = "首页链接" if index == 0 else "内页链接"
-            value = _fv(link.href, page.url, "link", f"{where} → {platform.name}")
-            (same_as if index == 0 else same_as_hint).append(value)
+            value = _fv(strip_tracking(link.href), page.url, "link", f"{where} → {platform.name}")
+            # 首页上的账号主页才采用;应用商店页是产品页不是身份页,只提示,放不放进 sameAs 由人定
+            adopt = index == 0 and platform.kind != "app_store"
+            (same_as if adopt else same_as_hint).append(value)
 
     if potato is not None:
         name_c.append((T_LOCAL, _fv(potato.name, potato_path, "potato_brands", "peers[].name")))
@@ -381,7 +387,7 @@ def _page_level(acc: _ProductAcc, page: PageExtract) -> None:
     tier_of = {"jsonld_modified": T_STRUCT, "meta_modified": T_META, "og_updated": T_META, "sitemap_lastmod": T_TITLE}
     kind_of = {"jsonld_modified": "jsonld", "meta_modified": "meta", "og_updated": "og", "sitemap_lastmod": "sitemap"}
     for d in page.dates:
-        if d.kind in tier_of:
+        if d.kind in tier_of and not d.suspect:  # 不可信的 sitemap lastmod 不当更新日期
             acc.add("updated_date", tier_of[d.kind], _fv(d.raw, d.source_url, kind_of[d.kind], d.source_path))
     for node in page.nodes:
         if "author" in node.props and (v := text_of(node.props.get("author"))) is not None:
@@ -517,6 +523,10 @@ def _gaps(entity: EntityFacts, products: list[ProductFacts], pages: list[PageExt
         gaps.append(Gap(code="NO_COMPARISON", message="对比主张没有机器可读的来源,留空;Butter 不从正文里抽对比。"))
     if pages and not any(p.dates for p in pages):
         gaps.append(Gap(code="NO_DATES", message="抓到的页面上没有找到任何日期。"))
+    suspect_reasons = sorted({d.suspect for p in pages for d in p.dates if d.suspect})
+    if suspect_reasons:
+        gaps.append(Gap(code="SITEMAP_LASTMOD_UNTRUSTED",
+                        message=f"sitemap 的 lastmod 没有当作更新日期:{suspect_reasons[0]}。"))
     first = pages[0]  # 首页(或你给的那一页):它自己声明的正式地址如果在别的主机上,官网域名这一栏就要人来确认
     if first.canonical and not same_site(host_of(first.canonical), host_of(first.url)):
         gaps.append(Gap(code="CANONICAL_OTHER_HOST",
