@@ -33,7 +33,7 @@ from report.i18n import (
 )
 from report.jobs import DiagnosisJob, JobRegistry
 from report.launcher import JobLauncher
-from report.narrative import action_text, api_line_text, count_models, verdict_text, wrap_up_text
+from report.narrative import action_text, api_line_text, count_models, retest_swap_lines, verdict_text, wrap_up_text
 
 log = structlog.get_logger("report.web")
 
@@ -94,6 +94,7 @@ def _templates(target_name: TargetNamer) -> Jinja2Templates:
     env.globals["wrap_up_text"] = wrap_up_text
     env.globals["action_text"] = action_text
     env.globals["verdict_text"] = verdict_text
+    env.globals["swap_lines"] = lambda swaps, lang: retest_swap_lines(swaps, target_name, lang)  # 再测换型号(11-13)
     return templates
 
 

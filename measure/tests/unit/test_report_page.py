@@ -37,7 +37,7 @@ from engine.models import (
     Target,
 )
 from engine.scheduler import StopDetail
-from engine.tiers import MentionMethod, TierChoice
+from engine.tiers import MentionMethod, ModelSwap, TierChoice
 from report.app import create_app
 from report.estimate import PREP_SECONDS as PREP  # 提问前的准备也算进预估(第二轮审核 B14)
 from report.jobs import ClassReport, DiagnosisJob, JobState, SamplingNote, SurfaceQuotes
@@ -810,7 +810,9 @@ def test_retest_pages_say_everything_was_asked_afresh(client_and_job):
     """再测的单(S11.3):报告顶部与任务页写明「全部重新提问、没用缓存」并链到上一单报告;上一单的报告有再测按钮并列出它的再测;
     首页历史里标「再测」;英文页同样;页面不带技术词。"""
     client, job, _ = client_and_job
-    retest = job.retest()
+    ctx = client.app.state.ctx
+    retest = job.retest(ctx.adapters, ctx.tiers)
+    assert retest.model_swaps == []  # 型号都还在清单里:原样再测
     retest.state, retest.phase = JobState.DONE, "phase_done"
     retest.class_reports, retest.surface_verdicts = job.class_reports, job.surface_verdicts
     retest.sampling = job.sampling.model_copy(update={"fresh": True})
@@ -827,6 +829,61 @@ def test_retest_pages_say_everything_was_asked_afresh(client_and_job):
     assert "再测" in visible_text(client.get("/?lang=zh").text)
     en = client.get(f"/jobs/{retest.job_id}/report?lang=en").text
     assert "re-test after fixes" in en and "asked afresh" in en
+
+
+def test_retest_swaps_a_model_no_longer_on_the_list_and_says_so(monkeypatch):
+    """上一单测过的型号已移出清单(工程原则 9):旧报告的再测按钮旁先说一句;再测换成这家同一档现在的型号,
+    换了什么随快照往返;任务页、报告顶部、结果文件、英文页都写明换了哪个、这家前后不能直接对照
+    (用户 2026-11-13 定 甲)。"""
+    from report.export import _summary_md
+    from report.summary import summarize
+
+    class SwappedAdapter(DummyAdapter):
+        def meta(self) -> SurfaceMeta:  # 清单里只剩 m-new,它也是消费端默认与主力;上一单测的 m1 已移出
+            return super().meta().model_copy(update={
+                "models": ["m-new"], "default_model": "m-new", "consumer_default_model": "m-new",
+                "main_model": "m-new", "est_cost_per_call_usd": {"m-new": 0.005}})
+
+    class SyncThread:
+        def __init__(self, *, target, kwargs, daemon):
+            self._target, self._kwargs = target, kwargs
+
+        def start(self):
+            self._target(**self._kwargs)
+
+    monkeypatch.setattr("report.launcher.threading.Thread", SyncThread)
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": SwappedAdapter()}, dsn="postgresql://unused",
+                     evidence=REGISTRY, job_runner=lambda **_: None)
+    registry = app.state.ctx.registry
+    job = finished_job()
+    registry.add(job)
+    client = TestClient(app)
+
+    parent = client.get(f"/jobs/{job.job_id}/report?lang=zh").text  # 再测按钮在报告末尾
+    assert "这一单测过的 S1 · m1 已经不在型号清单里,再测时会换成这家同一档现在的型号" in parent
+
+    resp = client.post(f"/jobs/{job.job_id}/retest?lang=zh", follow_redirects=False)
+    new = registry.get(resp.headers["location"].removeprefix("/jobs/").split("?")[0])
+    assert new is not None and new.targets == [Target(surface="s1", model="m-new")]
+    assert new.model_swaps == [ModelSwap(surface="s1", retired=["m1"], current=["m-new"])]
+    restored = DiagnosisJob.from_snapshot(new.to_snapshot())
+    assert restored.model_swaps == new.model_swaps and restored.targets == new.targets
+    old_snapshot = {k: v for k, v in job.to_snapshot().items() if k != "model_swaps"}  # 11-13 之前的快照没有这一项
+    assert DiagnosisJob.from_snapshot(old_snapshot).model_swaps == []
+
+    line = "S1 · m1 已经不在型号清单里,这次换成 S1 · m-new;这家前后两单的结果不能直接对照。"
+    page = visible_text(client.get(f"/jobs/{new.job_id}?lang=zh").text)
+    assert line in page and "型号除了下面写明换掉的也相同" in page and not any(t in page for t in UI_FORBIDDEN)
+    new.state, new.phase = JobState.DONE, "phase_done"
+    new.class_reports, new.surface_verdicts = job.class_reports, job.surface_verdicts
+    new.sampling = job.sampling.model_copy(update={"fresh": True})
+    report = client.get(f"/jobs/{new.job_id}/report?lang=zh").text
+    assert line in report and not any(token in user_view_of(report) for token in USER_VIEW_FORBIDDEN)
+    english = client.get(f"/jobs/{new.job_id}/report?lang=en").text
+    assert "S1 · m1 is no longer on the model list, so this check used S1 · m-new instead" in english
+    ctx = app.state.ctx
+    summary = summarize(new.class_reports, ctx.target_name, ctx.api_name)
+    assert "- " + line in _summary_md(new, "zh", ctx.target_name, summary, [])
 
 
 def test_report_payload_round_trip_rehydrates_messages():

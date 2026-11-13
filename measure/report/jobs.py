@@ -12,6 +12,7 @@ import json
 import math
 import subprocess
 import threading
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -19,6 +20,7 @@ from uuid import uuid4
 
 import structlog
 
+from adapters.base import SurfaceAdapter
 from diagnosis.access_audit import AccessAuditResult
 from diagnosis.diagnose import ClassDiagnosis
 from diagnosis.verdict import SurfaceVerdict
@@ -38,7 +40,7 @@ from engine.models import (
 )
 from engine.scheduler import SamplingPolicy, StopDetail
 from engine.spellings import SpellingCandidate
-from engine.tiers import MentionMethod, TierChoice
+from engine.tiers import MentionMethod, ModelSwap, TierChoice, TierConfig, refresh_targets
 
 log = structlog.get_logger("report.jobs")
 
@@ -189,6 +191,8 @@ class DiagnosisJob:
         self.dependency_enabled = False  # 检索依赖对照(第 9 章挂靠),默认关
         self.fresh = False  # 「修好后再测」的单(S11.3):一律重新提问,不走回答缓存(S11.2)
         self.parent_job_id: str | None = None  # 再测对照的上一单编号(S11.3);不是口径,不进指纹
+        # 再测时上一单测过、现在已移出清单的型号换成了什么(用户 2026-11-13 定);被测对象本身已进指纹,这里只为写明
+        self.model_swaps: list[ModelSwap] = []
         self.fingerprint = ""
 
         self.total_runs = 0  # 本单要发的提问次数(题数 × 每题次数 × 腿数)
@@ -314,20 +318,27 @@ class DiagnosisJob:
         self.budget_usd = budget_usd
         self._refingerprint()
 
-    def retest(self) -> DiagnosisJob:
+    def retest(self, adapters: Mapping[str, SurfaceAdapter], tiers: TierConfig) -> DiagnosisJob:
         """「修好后再测」(S11.3):按这一单冻结的口径新开一单——同样的品牌(含别名与官网域名)、题目、竞品、被测对象、档位、
         费用上限、对照开关与官网名单(产品文档 D12:再测默认沿用同一份名单,保证前后可比)。题目换新编号:槽位按题目编号认,
         沿用旧编号会把上一单的回答当成已问过的;fresh=True 一律重新提问、不走回答缓存;记下上一单编号供两单对照。
+        被测型号里已移出清单的(工程原则 9),换成这家同一档现在的型号,换了什么记进 model_swaps(用户 2026-11-13 定 甲)。
         没跑完的单不能再测——那是程序顺序错了,直接报错。"""
         if not self.finished:
             raise RuntimeError("还没跑完的任务不能再测")
+        tier = self.frozen_tier()
+        spec = tiers.get(tier.name)
+        if spec is None:  # 档位配置改了名:不猜该按哪一档挑,直接报错
+            raise RuntimeError(f"档位 {tier.name!r} 已不在档位配置里,没法按它换型号")
+        targets, swaps = refresh_targets(self.targets, spec, adapters, custom=tier.custom)
         job = DiagnosisJob(brand=self.brand, website=self.website, category=self.category, locale=self.locale,
                            candidates=[], competitors_suggested=[])
         job.fresh = True
         job.parent_job_id = self.job_id
+        job.model_swaps = swaps
         job.domain_list = self.domain_list
         job.freeze(prompts=[p.model_copy(update={"prompt_id": str(uuid4())}) for p in self.prompts],
-                   competitors=self.competitors, targets=self.targets, tier=self.frozen_tier(),
+                   competitors=self.competitors, targets=targets, tier=tier,
                    budget_usd=self.budget_usd, dependency_enabled=self.dependency_enabled)
         return job
 
@@ -387,6 +398,7 @@ class DiagnosisJob:
             "dependency_enabled": self.dependency_enabled,
             "fresh": self.fresh,
             "parent_job_id": self.parent_job_id,
+            "model_swaps": [s.model_dump() for s in self.model_swaps],
             "fingerprint": self.fingerprint,
             "domain_list": self.domain_list.model_dump(mode="json") if self.domain_list is not None else None,
             "error": {"code": self.error_code, "params": self.error_params, "text": self.error},
@@ -444,6 +456,8 @@ class DiagnosisJob:
         job.dependency_enabled = snapshot["dependency_enabled"]
         job.fresh = snapshot["fresh"]
         job.parent_job_id = snapshot["parent_job_id"]
+        # 2026-11-13 起才写这一项;更早的单那时还没有「再测换型号」这回事,没有这一项就是没换过
+        job.model_swaps = [ModelSwap.model_validate(s) for s in snapshot.get("model_swaps", [])]
         job.fingerprint = snapshot["fingerprint"]
         if snapshot["domain_list"] is not None:
             job.domain_list = BrandDomainList.model_validate(snapshot["domain_list"])

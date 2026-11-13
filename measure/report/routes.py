@@ -383,7 +383,7 @@ def retest(request: Request, job_id: str):
             return redirect(request, f"/jobs/{running.job_id}")
         if missing := _missing_adapters(ctx, job):
             return redirect(request, f"/?error=RESUME_MISSING_AI&names={','.join(missing)}")
-        new = job.retest()
+        new = job.retest(ctx.adapters, ctx.tiers)
         ctx.registry.add(new)
         ctx.launcher.launch(new, replay=False)
     return redirect(request, f"/jobs/{new.job_id}")
@@ -410,6 +410,13 @@ def choose_official_domains(
 def _missing_adapters(ctx: WebContext, job: DiagnosisJob) -> list[str]:
     """任务的被测对象里没接入(缺 key)的 AI。"""
     return sorted({t.surface for t in job.targets if t.surface not in ctx.adapters})
+
+
+def _retired_targets(ctx: WebContext, job: DiagnosisJob) -> list[Target]:
+    """这一单测过、现在已移出清单的型号(工程原则 9):报告页再测按钮旁先说一句,点之前就知道会换
+    (用户 2026-11-13 定 甲)。没接入的 AI 不算在这里,那种由再测时的「缺 key」提示管。"""
+    return [t for t in job.targets
+            if t.surface in ctx.adapters and t.model not in ctx.adapters[t.surface].meta().models]
 
 
 def _relaunch(request: Request, job: DiagnosisJob, *, replay: bool):
@@ -504,6 +511,7 @@ def job_report(request: Request, job_id: str):
                       # 再测(S11.3):本单对照的上一单 + 本单已有的再测,报告页互相链到好对照
                       parent=ctx.registry.get(job.parent_job_id) if job.parent_job_id else None,
                       retests=ctx.registry.retests_of(job.job_id),
+                      retired=[ctx.target_name(t.surface, t.model) for t in _retired_targets(ctx, job)],
                       billing_notes=ctx.billing_notes(job, lang_of(request)))  # 旧单注明记账规则改过(Q8)
 
 

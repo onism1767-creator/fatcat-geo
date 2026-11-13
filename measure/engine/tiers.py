@@ -101,6 +101,44 @@ def tier_targets(tier: TierSpec, adapters: Mapping[str, SurfaceAdapter]) -> list
     ]
 
 
+class ModelSwap(FrozenModel):
+    """再测时型号清单已经变了(工程原则 9:各家旧一代移出清单):上一单测过、现在清单里没有的型号(retired),
+    换成这家同一档现在的型号(current)。current 为空 = 这一档这家现在要测的型号这单里已经有了,只是少测一个。"""
+
+    surface: str
+    retired: list[str]
+    current: list[str]
+
+
+def refresh_targets(
+    targets: list[Target], tier: TierSpec, adapters: Mapping[str, SurfaceAdapter], *, custom: bool,
+) -> tuple[list[Target], list[ModelSwap]]:
+    """上一单冻结的被测对象对照现在的清单(用户 2026-11-13 定「甲 换成现型号」):还在的照旧,已移出的换成这家现在的型号;
+    换了哪家、换了什么一并返回,好写进页面。
+    - 按档位跑的单:补上这一档现在要测、这单里还没有的型号(高档 = 全部当前,所以可能补得比移出的多);
+    - 自定义的单(型号是用户自己挑的):一个换一个,不多测——依次挑这家的消费端默认、主力、清单里其余的,
+      跳过这单里已经有的(2026-11-13 改清单时定的细则,不是用户拍板:
+      小米那单每家只挑了一个消费端默认,按档位补会多出一条主力)。
+    被测对象里的仪器必须都已加载——缺 key 的单由调用方先拦下,走到这里还缺就是程序顺序错了。"""
+    refreshed: list[Target] = []
+    swaps: list[ModelSwap] = []
+    for surface in dict.fromkeys(t.surface for t in targets):
+        meta = adapters[surface].meta()
+        before = [t.model for t in targets if t.surface == surface]
+        kept = [m for m in before if m in meta.models]
+        retired = [m for m in before if m not in meta.models]
+        if retired:
+            if custom:
+                ranked = dict.fromkeys([meta.consumer_default_model, meta.main_model, *meta.models])
+                current = [m for m in ranked if m not in kept][:len(retired)]
+            else:
+                current = [m for m in pick_models(tier.models, meta) if m not in kept]
+            swaps.append(ModelSwap(surface=surface, retired=retired, current=current))
+            kept += current
+        refreshed += [Target(surface=surface, model=m) for m in kept]
+    return refreshed, swaps
+
+
 def pick_models(rule: ModelRule, meta: SurfaceMeta) -> list[str]:
     if rule is ModelRule.ALL:
         return list(meta.models)

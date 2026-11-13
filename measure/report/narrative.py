@@ -6,12 +6,15 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from diagnosis.messages import msg, render_msg
 from diagnosis.recommender import Recommendation
 from diagnosis.verdict import SurfaceVerdict
 from engine.calibration import CalibrationReport
 from engine.models import SearchMode
 from engine.scheduler import StopDetail
+from engine.tiers import ModelSwap
 from report.clock import local_date
 from report.errors import ErrorLibrary
 from report.i18n import INTENT_LABELS, LEVEL_LABELS, MESSAGES
@@ -22,6 +25,21 @@ _STATUS_ORDER = ("PASS", "WEAK", "FAIL", "NOT_OBSERVABLE")
 
 def _pct(share: float) -> int:
     return round(100 * share)
+
+
+def retest_swap_lines(swaps: list[ModelSwap], name_of: Callable[[str, str], str], lang: str) -> list[str]:
+    """再测换了型号的那几家,每家一句(用户 2026-11-13 定 甲):旧的已不在清单里、换成了什么、这家前后不能直接对照。
+    任务页、报告顶部、结果文件同一处拼,免得三处措辞对不上。"""
+    t = MESSAGES[lang]
+    lines = []
+    for swap in swaps:
+        old = t["count_sep"].join(name_of(swap.surface, m) for m in swap.retired)
+        if swap.current:
+            new = t["count_sep"].join(name_of(swap.surface, m) for m in swap.current)
+            lines.append(t["retest_swap_line"].format(old=old, new=new))
+        else:
+            lines.append(t["retest_swap_dropped"].format(old=old))
+    return lines
 
 
 def api_line_text(line: ApiLine, lang: str) -> str:

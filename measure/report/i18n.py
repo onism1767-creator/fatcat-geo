@@ -241,6 +241,13 @@ MESSAGES: dict[str, dict[str, str]] = {
         "retest_banner": "这是「修好后再测」的一单:题目、竞品、型号、档位、官网名单都和上一单相同,全部重新提问、没有用缓存。",
         "retest_parent_link": "看上一单({when} 起测)的报告",
         "retest_parent_short": "看上一单的报告",
+        # 再测时上一单测过的型号已移出清单(工程原则 9),换成这家同一档现在的型号(用户 2026-11-13 定 甲)
+        "retest_banner_swapped": "这是「修好后再测」的一单:题目、竞品、档位、官网名单都和上一单相同,"
+                                 "型号除了下面写明换掉的也相同;全部重新提问、没有用缓存。",
+        "retest_swap_line": "{old} 已经不在型号清单里,这次换成 {new};这家前后两单的结果不能直接对照。",
+        "retest_swap_dropped": "{old} 已经不在型号清单里;这一档这家现在要测的型号这单里已经有了,所以这次少测一个。"
+                               "这家前后两单的结果不能直接对照。",
+        "retest_retired_hint": "这一单测过的 {models} 已经不在型号清单里,再测时会换成这家同一档现在的型号,新报告上会写明换了哪个。",
         "retest_parent_line": "对照的上一单:{id}",
         "retests_title": "这一单已经再测过:",
         "retest_tag": "再测",
@@ -648,6 +655,16 @@ MESSAGES: dict[str, dict[str, str]] = {
         "retest_banner": "This is a re-test after fixes: questions, competitors, models, tier and official-site list are identical to the previous check; every question was asked afresh, no cached answers.",
         "retest_parent_link": "Open the previous check's report (started {when})",
         "retest_parent_short": "Open the previous check's report",
+        "retest_banner_swapped": "This is a re-test after fixes: questions, competitors, tier and official-site list are "
+                                 "identical to the previous check, and so are the models except the ones listed below; "
+                                 "every question was asked afresh, no cached answers.",
+        "retest_swap_line": "{old} is no longer on the model list, so this check used {new} instead; "
+                            "don't compare this provider's results across the two checks directly.",
+        "retest_swap_dropped": "{old} is no longer on the model list; this tier's current models for this provider were "
+                               "already included, so this check tests one fewer. Don't compare this provider's results "
+                               "across the two checks directly.",
+        "retest_retired_hint": "No longer on the model list: {models}. A re-test uses each provider's current model "
+                               "for the same tier instead, and the new report says which.",
         "retest_parent_line": "Previous check compared against: {id}",
         "retests_title": "This check has been re-tested:",
         "retest_tag": "re-test",

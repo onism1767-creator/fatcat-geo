@@ -7,7 +7,9 @@
 
 {#- 「修好后再测」的单(S11.3):说明一切与上一单相同、全部重新提问,链到上一单报告好对照 -#}
 {% if job.fresh %}
-<div class="card"><b>{{ t["retest_banner"] }}</b>{% if parent %} <a href="/jobs/{{ parent.job_id }}/report?lang={{ lang }}">{{ t["retest_parent_link"].format(when=parent.created_at|local_time) }}</a>{% endif %}</div>
+<div class="card"><b>{{ t["retest_banner_swapped" if job.model_swaps else "retest_banner"] }}</b>{% if parent %} <a href="/jobs/{{ parent.job_id }}/report?lang={{ lang }}">{{ t["retest_parent_link"].format(when=parent.created_at|local_time) }}</a>{% endif %}
+  {#- 上一单测过、现在已移出清单的型号换成了什么(用户 2026-11-13 定) -#}
+  {% for line in swap_lines(job.model_swaps, lang) %}<p style="margin:6px 0 0">{{ line }}</p>{% endfor %}</div>
 {% endif %}
 
 {#- 采样说明(S8.2,架构书 v0.4.26 §10):这份报告是怎么测出来的——实际发生的数字,不是计划 -#}
@@ -350,7 +352,8 @@
   {#- 修好后再测(S11.3):同样的题 / 竞品 / 型号 / 档位 / 官网名单新开一单、全部重新提问,会花钱;已有的再测列出来好对照 -#}
   <form method="post" action="/jobs/{{ job.job_id }}/retest?lang={{ lang }}" style="margin-top:10px">
     <button type="submit" style="margin:0;padding:4px 12px;font-weight:400">{{ t["btn_retest"] }}</button>
-    <span class="muted"> {{ t["retest_hint"] }}{% if job.budget_usd %} {{ t["retest_budget"].format(budget=job.budget_usd) }}{% endif %}</span>
+    <span class="muted"> {{ t["retest_hint"] }}{% if job.budget_usd %} {{ t["retest_budget"].format(budget=job.budget_usd) }}{% endif %}
+    {%- if retired %} {{ t["retest_retired_hint"].format(models=t["count_sep"].join(retired)) }}{% endif %}</span>
   </form>
   {% if retests %}<p class="muted">{{ t["retests_title"] }}
     {% for r in retests %}<a href="/jobs/{{ r.job_id }}{% if r.finished %}/report{% endif %}?lang={{ lang }}">{{ r.created_at|local_time }} · {{ state_labels[r.state.value] }}</a>{% if not loop.last %};{% endif %}{% endfor %}</p>{% endif %}

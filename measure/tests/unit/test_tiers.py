@@ -8,7 +8,7 @@ import pytest
 
 from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
 from engine.models import Target
-from engine.tiers import MentionMethod, ModelRule, TierChoice, load_tiers, tier_targets
+from engine.tiers import MentionMethod, ModelRule, ModelSwap, TierChoice, load_tiers, refresh_targets, tier_targets
 
 
 class FakeAdapter(SurfaceAdapter):
@@ -98,3 +98,39 @@ def test_contradictory_config_fails_at_load(tmp_path: Path, broken: str, message
 def test_tier_choice_is_frozen_and_round_trips():
     choice = TierChoice(name="medium", runs_per_prompt=5, mention_method=MentionMethod.RULES, custom=False)
     assert TierChoice.model_validate(choice.model_dump(mode="json")) == choice
+
+
+def test_retest_swaps_retired_models_for_the_tiers_current_ones():
+    """再测时上一单测过、现在已移出清单的型号(工程原则 9),换成这家同一档现在的型号;还在的照旧;
+    换了什么一并返回(用户 2026-11-13 定 甲)。"""
+    config = load_tiers()
+    low, medium, high = (config.get(n) for n in ("low", "medium", "high"))
+    unchanged = [Target(surface="a", model="a3"), Target(surface="a", model="a1"), Target(surface="b", model="b1")]
+    assert refresh_targets(unchanged, medium, ADAPTERS, custom=False) == (unchanged, [])
+    # 中档:a 的主力 a3 还在,消费端默认那个旧型号移出了 → 补上现在的消费端默认 a1;b 原样
+    targets, swaps = refresh_targets(
+        [Target(surface="a", model="a3"), Target(surface="a", model="a-old"), Target(surface="b", model="b1")],
+        medium, ADAPTERS, custom=False)
+    assert targets == [Target(surface="a", model="a3"), Target(surface="a", model="a1"),
+                       Target(surface="b", model="b1")]
+    assert swaps == [ModelSwap(surface="a", retired=["a-old"], current=["a1"])]
+    # 高档 = 全部当前:两个旧的移出,补上这家现在清单里还没测的全部
+    targets, swaps = refresh_targets(
+        [Target(surface="a", model="a-x"), Target(surface="a", model="a2"), Target(surface="a", model="a-y")],
+        high, ADAPTERS, custom=False)
+    assert targets == [Target(surface="a", model=m) for m in ("a2", "a1", "a3")]
+    assert swaps == [ModelSwap(surface="a", retired=["a-x", "a-y"], current=["a1", "a3"])]
+    # 低档:这一档现在要测的型号这单里已经有了 → 只是少测一个,current 为空
+    targets, swaps = refresh_targets([Target(surface="a", model="a1"), Target(surface="a", model="a-old")],
+                                     low, ADAPTERS, custom=False)
+    assert targets == [Target(surface="a", model="a1")]
+    assert swaps == [ModelSwap(surface="a", retired=["a-old"], current=[])]
+    # 自定义的单(型号是用户挑的):一个换一个、不多测,依次挑消费端默认、主力、清单里其余的,跳过已经有的
+    targets, swaps = refresh_targets([Target(surface="a", model="a-old"), Target(surface="b", model="b1")],
+                                     medium, ADAPTERS, custom=True)
+    assert targets == [Target(surface="a", model="a1"), Target(surface="b", model="b1")]
+    assert swaps == [ModelSwap(surface="a", retired=["a-old"], current=["a1"])]
+    targets, swaps = refresh_targets([Target(surface="a", model="a1"), Target(surface="a", model="a-x"),
+                                      Target(surface="a", model="a-y")], high, ADAPTERS, custom=True)
+    assert targets == [Target(surface="a", model=m) for m in ("a1", "a3", "a2")]
+    assert swaps == [ModelSwap(surface="a", retired=["a-x", "a-y"], current=["a3", "a2"])]

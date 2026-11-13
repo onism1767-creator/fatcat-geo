@@ -28,7 +28,7 @@ from engine.tiers import MentionMethod, TierChoice
 from report.clock import local_date, local_time
 from report.i18n import INTENT_LABELS, MESSAGES, STATUS_LABELS
 from report.jobs import DiagnosisJob
-from report.narrative import action_card_lines, action_text, api_line_text, wrap_up_text
+from report.narrative import action_card_lines, action_text, api_line_text, retest_swap_lines, wrap_up_text
 from report.response_view import citation_rows, latest_observation, mention_row
 from report.summary import ReportSummary, TargetNamer
 
@@ -190,6 +190,7 @@ def _summary_md(
         lines.append("- " + t["sampling_fresh"])
         if job.parent_job_id:
             lines.append("- " + t["retest_parent_line"].format(id=job.parent_job_id))
+        lines += ["- " + line for line in retest_swap_lines(job.model_swaps, name_of, lang)]  # 再测换了型号(11-13)
     elif sn.n_cached:  # S11.2
         lines.append("- " + t["sampling_cached"].format(n=sn.n_cached, hours=sn.cache_hours))
     lines.append("- " + _tier_line(sn.tier, t))

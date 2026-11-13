@@ -36,6 +36,7 @@ from engine.models import (
     Target,
 )
 from engine.page_check import PageIndex
+from engine.tiers import load_tiers
 from report import runner
 from report.jobs import DiagnosisJob, JobState
 from tests.unit.test_report_page import LOW
@@ -605,7 +606,9 @@ def test_answers_are_reused_from_cache_for_the_same_brand_question_and_model(sto
     assert third.asks == 6 and job_c.sampling.n_cached == 0  # 别的品牌:不复用
 
     fourth = CountingAdapter()
-    job_d = job_a.retest()  # 「修好后再测」:同一份口径新开一单,题换新编号,官网名单沿用
+    # 「修好后再测」:同一份口径新开一单,题换新编号,官网名单沿用
+    job_d = job_a.retest({"two_model": fourth}, load_tiers())
+    assert job_d.model_swaps == [] and job_d.targets == job_a.targets  # 型号都还在清单里:原样再测
     runner.execute_job(job=job_d, adapters={"two_model": fourth}, dsn=TEST_DSN, evidence=load_evidence_registry())
     assert job_d.state is JobState.DONE, job_d.error
     assert fourth.asks == 6 and job_d.sampling.n_cached == 0 and job_d.sampling.fresh is True  # 再测:一律重新提问
