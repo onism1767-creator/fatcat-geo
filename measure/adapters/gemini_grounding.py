@@ -82,15 +82,17 @@ _DEFAULT_MODEL = "gemini-3.8-flash"
 # 型号标记(配置资产,用户定 2026-10-14;2026-11-03 定 ③「主力 = 付费版默认」):
 # 2026-11-11 核对官方帮助中心「About Gemini models」:没有付费方案的用户默认「自动选型」(多数提问走 Flash-Lite,
 # 要推理的用 Flash;关掉自动就全是 Flash-Lite);Google AI Pro 可选 Flash-Lite / Flash / Pro / 4 Argon,同样默认自动选型,
-# 官方没有单独的「付费版默认型号」;Ultra 另有 4 Carbon(官方「最强」),接口清单里没有。
-# 主力按 Pro 档可选的最高一档 4 Argon 填(10-13 发布说明:向 Pro / Ultra 推出的「前沿型号」;也是成本调研的建议),待用户定。
-# 消费端默认也要重看:官方写免费版多数提问走 Flash-Lite,本仓库低档仍按 3.8 Flash(Flash-Lite 现在只当裁判),
-# 待用户定要不要换。
+# 官方没有单独的「付费版默认型号」;Ultra 另有 4 Carbon(官方「最强」),接口清单里没有
+# (用户 2026-11-12 定:先查接口,有就冒烟入高档)。
+# 主力按 Pro 档可选的最高一档 4 Argon 填(10-13 发布说明:向 Pro / Ultra 推出的「前沿型号」;也是成本调研的建议);
+# 用户 2026-11-12 定:认 Argon(「按照官方默认的来」:付费默认自动选型范围内的最高档,与 Claude 同一规则)。
+# 消费端默认也要重看:官方写免费版多数提问走 Flash-Lite,本仓库低档仍按 3.8 Flash(Flash-Lite 现在只当裁判);
+# 用户 2026-11-12 定:换成 Flash-Lite,联网检索冒烟通过后再换(换前这里仍是 3.8 Flash)。
 _CONSUMER_DEFAULT_MODEL = "gemini-3.8-flash"
 _MAIN_MODEL = "gemini-4-argon"
 _MODELS_CHECKED = ("2026-10-14 官方型号页 + 价目页 + 应用更新日志;2026-11-11 官方帮助中心「About Gemini models」:"
                    "免费与付费都默认自动选型(多数走 Flash-Lite);主力按 Pro 档最高的 4 Argon 填、"
-                   "消费端默认仍填 3.8 Flash,都待核对")
+                   "消费端默认仍填 3.8 Flash;用户 2026-11-12 定:主力认 Argon,消费端默认冒烟后换 Flash-Lite")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
