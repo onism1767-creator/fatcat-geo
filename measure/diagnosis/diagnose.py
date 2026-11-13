@@ -16,7 +16,8 @@ Provider × Surface(铁律),数据层从第一天分记,本次把报告层补齐
 - NOT_OBSERVABLE 阶段跳过定位并在警示中注明;
 - 通道分歧防线(v0.4.4):引用 PASS 时检索 FAIL/WEAK 不定位,只作警示。
 
-上游 FAIL 禁下游药方:recommend() 只会收到 primary_failure 这一个阶段。
+上游 FAIL 禁下游药方:recommend() 每条线只收这条线的 primary_failure(官网线、第三方线各一个);
+另外官网审计的提示项(如网站地图没找到)对应的 ACCESS 条目不管卡在哪一步都出——它在最上游,不违反这条。
 """
 
 from __future__ import annotations

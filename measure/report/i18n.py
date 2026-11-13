@@ -1,7 +1,7 @@
 """界面文案目录(16.5):界面语言 lang ∈ {zh, en},URL 参数切换,不进口径。
 
 注意与测量语境(locale)严格分离:本目录只管页面怎么显示,
-不影响问什么语言的问题。诊断结论文本(L3 产出)的双语化属 v1.1。
+不影响问什么语言的问题。诊断结论文本(L3 产出)的中英文案在 diagnosis/messages.py,不在这里。
 """
 
 from __future__ import annotations
@@ -407,6 +407,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "sentiment_title": "回答提及(AI 怎么评价你)",
         "sentiment_line": "提到你的 {n} 句话里:{items}",
         "sentiment_item": "{label} {n}({p}%)",
+        "info_tag": "(提示)",  # 官网审计里不进资格门的检查项(第三轮审核 B9:原来硬写在模板里)
         "sentiment_positive": "正面", "sentiment_neutral": "中性", "sentiment_negative": "负面", "sentiment_mixed": "混合",
         "sentiment_sep": "、",
         "sec1_title": "这次检测告诉了我们什么",
@@ -819,6 +820,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "sentiment_title": "Answer mention (how the AI talks about you)",
         "sentiment_line": "Of the {n} sentences that mention you: {items}",
         "sentiment_item": "{label} {n} ({p}%)",
+        "info_tag": " (info)",
         "sentiment_positive": "positive", "sentiment_neutral": "neutral", "sentiment_negative": "negative", "sentiment_mixed": "mixed",
         "sentiment_sep": ", ",
         "sec1_title": "What this check tells us",

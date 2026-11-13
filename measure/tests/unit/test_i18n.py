@@ -94,6 +94,21 @@ def test_catalog_bilingual_completeness():
         assert set(versions) == {"zh", "en"} and versions["zh"].strip() and versions["en"].strip(), code
 
 
+def test_misspelled_text_key_fails_loudly_instead_of_rendering_blank():
+    """模板里拼错的文案键 / 没传的变量当场报错,不静默成空串(第三轮审核 B9:StrictUndefined)。"""
+    import pytest
+    from jinja2 import UndefinedError
+
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+                     evidence=REGISTRY, job_runner=lambda **_: None)
+    env = app.state.ctx._templates.env
+    assert env.from_string('{{ t["ok"] }}').render(t={"ok": "好"}) == "好"
+    with pytest.raises(UndefinedError):
+        env.from_string('{{ t["typo"] }}').render(t={"ok": "好"})
+    with pytest.raises(UndefinedError):
+        env.from_string("{{ never_passed }}").render()
+
+
 def test_percentages_round_half_up_the_same_way_everywhere():
     """给人看的百分比全项目一个取整规则:0.5 一律进位(第三轮审核 A18 / B5:原来四处各算、四舍六入五成双,1/8 写成 12%)。
     结论目录的 {share:.0%}、报告句子、报告页、结果文件都走 diagnosis/messages.py::percent。"""

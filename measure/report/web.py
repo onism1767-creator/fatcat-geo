@@ -10,6 +10,7 @@ import structlog
 from fastapi import Request
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.templating import Jinja2Templates
+from jinja2 import StrictUndefined
 
 from adapters.base import SurfaceAdapter
 from diagnosis.access_audit import AccessLayer
@@ -88,6 +89,8 @@ def target_namer(adapters: dict[str, SurfaceAdapter]) -> TargetNamer:
 def _templates(target_name: TargetNamer) -> Jinja2Templates:
     templates = Jinja2Templates(directory=str(Path(__file__).parent / "templates"))
     env = templates.env
+    # 拼错的文案键 / 没传的变量当场报错,不静默成空串(第三轮审核 B9);可选的变量模板里一律写 `is defined`
+    env.undefined = StrictUndefined
     env.filters["msg"] = render_msg  # 结论码 → 当前界面语言的成句
     env.globals["access_layers"] = list(AccessLayer)  # 报告按证据层分组(v0.4.13 条目 6)
     env.globals["layer_msg"] = lambda layer: msg(f"access.layer.{layer.value}")

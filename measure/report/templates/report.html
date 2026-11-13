@@ -34,7 +34,7 @@
 {% endif %}
 
 {% set access = job.access_result %}
-{% set info_tag = "(提示)" if lang == "zh" else " (info)" %}
+{% set info_tag = t["info_tag"] %}
 
 {# ══ 用户视图(v0.4.14):全部人话(plain 目录),技术词只在最后的「检测依据与方法」 ══ #}
 
@@ -288,7 +288,7 @@
     {% endif %}
 
     {#- AI 原话(S7,用户定 Q1):只进证据区;每道题前 3 次回答里第一次提到你的那句,没提到就写没提到;外来文字自动转义 -#}
-    {% set sq = cr.quotes|selectattr("surface", "equalto", sd.surface)|selectattr("model", "equalto", sd.model)|first %}
+    {% set sq = cr.quotes|selectattr("surface", "equalto", sd.surface)|selectattr("model", "equalto", sd.model)|first|default(none) %}
     {% if sq %}
     <details class="quotes">
       <summary>{{ t["quotes_summary"] }}</summary>

@@ -1,8 +1,9 @@
 """L4 任务模型与登记处(第 16.3 章):状态机、冻结快照与指纹。
 成本预估在 report/estimate.py;从库里恢复与装回报告在 report/archive.py。
 
-DiagnosisJob 是可变对象:进度字段随执行推进。v1 单机进程内保存,不入库
-——采样与判定的原始记录早已进只追加库,任务对象只是执行的壳。
+DiagnosisJob 是可变对象:进度字段随执行推进。进程内登记处管在跑的单;冻结配置 + 状态的快照每到关键一步就写进
+diagnosis_job 表(v0.4.9 幂等续跑),报告另存只追加的 report_snapshot,重启时由 report/archive.py 装回。
+采样与判定的原始记录在只追加库里,任务对象只是执行的壳。
 """
 
 from __future__ import annotations
