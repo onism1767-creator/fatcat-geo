@@ -72,11 +72,16 @@ _MAX_CONTINUATIONS = 3  # pause_turn 续传上限:有界完成单次采样,超�
 # 官方价目(2026-10-14 核对 platform.claude.com 型号页与价目,与模型清单同步维护):模型 → (输入, 输出) USD / MTok
 # 只列官方当前一代(Fable 5.1 / Opus 5.5 / Sonnet 5.5 / Haiku 5.5);上一代(sonnet-5、opus-5、haiku-4-5)2026-10-14 移出。
 # 新型号入清单前须经 scripts/smoke_models.py 真实冒烟(本批 S9.0 换代后待冒烟)。
+# 2026-11-12 核对 platform.claude.com/docs/en/about-claude/pricing:Fable 5.2 $8 / $40(缓存命中 $0.20),其余四个不变;
+# web search 仍 $10 / 千次,「搜索出错的那次不计费」。列型号接口同日确认 claude-fable-5-2 已可调用。
 _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "claude-haiku-5-5": (0.10, 0.50),  # 10 万输入 token 以内的档;本 surface 单次远低于此
     "claude-sonnet-5-5": (2.0, 10.0),
     "claude-opus-5-5": (4.0, 20.0),
     "claude-fable-5-1": (10.0, 50.0),
+    # claude-fable-5-2($8 / $40,2026-11-09 正式可用)2026-11-12 冒烟两次都没过:平台默认态下搜 2 次、拿到 18–19 个候选后,
+    # 4,096 的输出额度被思考与检索过程吃光,stop_reason=max_tokens、正文 0 字、每次 $0.36;
+    # 5.1 在 ① 的 16 次里最多用到 2,388。保险丝是口径、用户定不放宽,所以不入清单、5.1 留着;以后再试要先冒烟。
 }
 _SEARCH_USD_PER_USE = 10.0 / 1000.0  # web search $10 / 千次
 # 牌价(用量 × 牌价 = 费用;计费项与 _usage 读出的键一致):token 按每个 token 折,检索按每次
@@ -91,13 +96,14 @@ _DEFAULT_MODEL = "claude-sonnet-5-5"
 # 「Covered Models」,都没写付费版默认型号;只写明 Fable 系(5 / 5.1 / 5.2)在 Pro 档不含在套餐用量里、要另买用量,
 # Max / Ultra 含到周用量的一半。所以 Pro 套餐内最高一档是 Opus 5.5,按成本调研建议记为主力;
 # 2026-11-12 用户付费账号截图:模型选择器默认停在 Opus 5.5,用户定为主力。
-# 另:官方「Covered Models」页写 Claude Fable 5.2 已于 2026-11-09 正式可用,本清单(10-14)还没收,入清单前要冒烟;
-# 用户 2026-11-12 定:冒烟过了入清单、替掉 5.1(「型号清单更新」小批)。
+# 另:官方「Covered Models」页写 Claude Fable 5.2 已于 2026-11-09 正式可用;用户 2026-11-12 定冒烟过了替掉 5.1,
+# 结果冒烟两次都撞 4,096 零正文(见价目表旁的注释),先不换。
 _CONSUMER_DEFAULT_MODEL = "claude-sonnet-5-5"
 _MAIN_MODEL = "claude-opus-5-5"
 _MODELS_CHECKED = ("2026-10-14 官方型号页 + 价目页;消费端默认按应用默认 Sonnet 系填 5.5,待核对;"
                    "主力 2026-11-11 查官方帮助中心没写付费版默认,按 Pro 套餐内最高档填 Opus 5.5;"
-                   "2026-11-12 用户付费账号截图默认停在 Opus 5.5,用户定为主力")
+                   "2026-11-12 用户付费账号截图默认停在 Opus 5.5,用户定为主力;"
+                   "Fable 5.2 同日冒烟两次都撞 4,096 零正文,不入清单、5.1 留着")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,

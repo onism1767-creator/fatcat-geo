@@ -61,10 +61,21 @@ _SUCCESS_STATUSES = ("completed", "incomplete")  # incomplete=截断,回答仍�
 # 当前一代 = 4 Argon(优惠价至 2026-11-30,之后 $4 / $20)、3.1 Pro(preview)、
 # 3.8 Flash(优惠价至 2026-12-31,之后 $1.5 / $7.5);3.6-flash 2026-10-14 移出
 # (官方已把 3.5 / 3.7 流量转到 3.6 / 3.8,3.8 才是现行 Flash)。新型号入清单前须真实冒烟(本批待冒烟)。
+# 2026-11-12 核对 aistudio.google.com/docs/pricing(ai.google.dev 的价目页已跳转到这里)与 /docs/models,
+# 列型号接口同日确认都能调:4 Carbon(官方「最强推理」)与 4 Argon 同价 $2 / $10,12-01 起 $4 / $20;
+# 4 Hydrogen(「日常编码与代理工作流的快模型」)$1.5 / $7.5;3.8 Flash $0.75 / $3.75 至 12-31;
+# 3.5 Flash-Lite $0.30 / $2.50(型号页写它是现行 Flash-Lite,「新项目用 4 Hydrogen 或 3.5 Flash-Lite」);
+# 3.1 Pro preview $2 / $12(≤200k);接地检索 $14 / 千次、每月 5,000 次免费全家共享、每日上限 1,500 次。
+# 3.5 Flash-Lite 进被测清单是给「消费端默认」用的(用户 11-12 定冒烟后换;官方帮助中心只写免费版走「Flash-Lite」没写版本,
+# 接口里现行的 Flash-Lite 是 3.5,9to5Google 2026-10-09 也写免费版是 3.5 Flash-Lite——版本号是这样定下来的,不是官方原话)。
 _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
+    "gemini-3.5-flash-lite": (0.30, 2.50),
     "gemini-3.8-flash": (0.75, 3.75),
     "gemini-3.1-pro-preview": (2.0, 12.0),
+    # gemini-4-hydrogen($1.5 / $7.5):11-12 新发现的当前一代型号,冒烟通(搜 4 次、引用 17 条、$0.089、32 秒);
+    # 入不入待用户定,定了再加进来
     "gemini-4-argon": (2.0, 10.0),
+    "gemini-4-carbon": (2.0, 10.0),  # 用户 11-12 定:接口里有就冒烟入高档;冒烟通(这题没搜,$0.014)
 }
 # 只当裁判的便宜型号(BR6;价目 2026-10-30 核对官方价目页与型号页):不进上面的被测清单,否则高档「全部型号」会多测一个
 _HELPER_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
@@ -87,12 +98,13 @@ _DEFAULT_MODEL = "gemini-3.8-flash"
 # 主力按 Pro 档可选的最高一档 4 Argon 填(10-13 发布说明:向 Pro / Ultra 推出的「前沿型号」;也是成本调研的建议);
 # 用户 2026-11-12 定:认 Argon(「按照官方默认的来」:付费默认自动选型范围内的最高档,与 Claude 同一规则)。
 # 消费端默认也要重看:官方写免费版多数提问走 Flash-Lite,本仓库低档仍按 3.8 Flash(Flash-Lite 现在只当裁判);
-# 用户 2026-11-12 定:换成 Flash-Lite,联网检索冒烟通过后再换(换前这里仍是 3.8 Flash)。
-_CONSUMER_DEFAULT_MODEL = "gemini-3.8-flash"
+# 用户 2026-11-12 定:换成 Flash-Lite;同日冒烟通过(接地工具接受,这题没搜,$0.0035),已换成 3.5 Flash-Lite。
+_CONSUMER_DEFAULT_MODEL = "gemini-3.5-flash-lite"
 _MAIN_MODEL = "gemini-4-argon"
 _MODELS_CHECKED = ("2026-10-14 官方型号页 + 价目页 + 应用更新日志;2026-11-11 官方帮助中心「About Gemini models」:"
                    "免费与付费都默认自动选型(多数走 Flash-Lite);主力按 Pro 档最高的 4 Argon 填、"
-                   "消费端默认仍填 3.8 Flash;用户 2026-11-12 定:主力认 Argon,消费端默认冒烟后换 Flash-Lite")
+                   "用户 2026-11-12 定:主力认 Argon;消费端默认同日冒烟后换成 3.5 Flash-Lite(接口里现行的 Flash-Lite;"
+                   "官方帮助中心只写「Flash-Lite」没写版本);4 Carbon 同日冒烟通入高档")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
