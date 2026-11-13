@@ -187,3 +187,13 @@ def test_representation_brand_fact_low_confidence_is_downgraded_to_weak():
     assert any("WEAK" in line for line in zh_lines(finding))
     steady = diagnose_representation(PromptIntent.BRAND_FACT, make_metric(5, 5), {Sentiment.NEGATIVE: 1})
     assert steady.status is StageStatus.FAIL  # 样本靠得住时照旧按负面占比判
+
+
+def test_representation_brand_fact_with_no_sentence_and_many_failures_is_unsure():
+    """点名品牌的题失败太多、一句评价都没有:也标低置信——主视图那句跟着说「说不准」,
+    不写「都介绍不了你」,和结论句一致(第三轮审核 A4:原来这一支不带 low_confidence)。"""
+    shaky = make_metric(0, 1, failed=4)
+    finding = diagnose_representation(PromptIntent.BRAND_FACT, shaky, {})
+    assert finding.headline.code == "repr.headline.probe_none" and finding.low_confidence is True
+    steady = diagnose_representation(PromptIntent.BRAND_FACT, make_metric(0, 5), {})
+    assert steady.headline.code == "repr.headline.probe_none" and steady.low_confidence is False

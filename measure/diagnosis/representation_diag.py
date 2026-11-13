@@ -130,6 +130,8 @@ def diagnose_representation(
                     *prompt_msgs(mention_metric),
                     msg("repr.claims_note"),
                 ],
+                # 一句评价都没有、失败 / 拒答又多:主视图和结论句一样说「说不准」,不写「都介绍不了你」(第三轮审核 A4)
+                low_confidence=accounting.low_confidence,
             )
         if negative_share >= thresholds.negative_share_fail:
             status = StageStatus.FAIL
