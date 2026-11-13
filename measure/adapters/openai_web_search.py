@@ -75,6 +75,9 @@ _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "gpt-6-luna": (0.10, 0.50),
     "gpt-6-sol": (2.0, 10.0),
     "gpt-6.1-sol": (2.0, 10.0),
+    # 2026-11-13 核对 developers.openai.com 价目页;列型号接口里有、原清单没收,按工程原则 9 冒烟后入清单
+    # (搜 7 次、候选 53、引用 3、正文 935 字、$0.042、18 秒,没截断)
+    "gpt-6.1-terra": (1.0, 5.0),
     "gpt-6-astra": (10.0, 50.0),
 }
 _SEARCH_USD_PER_CALL = 10.0 / 1000.0  # web search $10 / 千次(仅 search 动作计费)
@@ -108,7 +111,8 @@ _CONSUMER_DEFAULT_MODEL = "gpt-5.6-luna"
 _MAIN_MODEL = "gpt-6-sol"
 _MODELS_CHECKED = ("2026-11-11 官方帮助中心「GPT-6 and other models in ChatGPT」:免费版默认 GPT-5.6 Luna、"
                    "付费版聊天默认 GPT-6(Sol);"
-                   "型号清单与价目仍按 2026-10-14 官方型号页 + 价目页")
+                   "型号清单与价目仍按 2026-10-14 官方型号页 + 价目页;"
+                   "2026-11-13 列型号接口查到 gpt-6.1-terra,价目页 $1 / $5,冒烟通后入清单")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,

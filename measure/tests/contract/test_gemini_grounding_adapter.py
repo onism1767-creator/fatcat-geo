@@ -75,7 +75,7 @@ def test_success_with_citations_translates_field_by_field():
     run = GeminiGroundingAdapter(api_key="test-key").ask(make_request())
 
     assert (run.run_id, run.prompt_id, run.run_index) == ("run-1", "need-1", 1)
-    assert (run.provider, run.surface, run.model) == ("gemini", "gemini_grounding", "gemini-3.8-flash")
+    assert (run.provider, run.surface, run.model) == ("gemini", "gemini_grounding", "gemini-3.5-flash-lite")
     assert run.outcome is Outcome.SUCCESS and run.error is None
 
     assert run.answer.answer_text == (
@@ -103,11 +103,11 @@ def test_success_with_citations_translates_field_by_field():
     assert run.raw_payload == body
     # 成本 = token 费(思考按输出价)+ 唯一非空查询数 × $0.014
     assert run.cost_usd == pytest.approx(
-        197 / 1e6 * 0.75 + (2097 + 925) / 1e6 * 3.75 + 2 * 0.014
+        197 / 1e6 * 0.30 + (2097 + 925) / 1e6 * 2.50 + 2 * 0.014
     )
 
     sent = json.loads(route.calls[0].request.content)
-    assert sent["model"] == "gemini-3.8-flash"
+    assert sent["model"] == "gemini-3.5-flash-lite"
     assert sent["input"] == "中小团队用什么 CRM 好?"
 
 
@@ -137,7 +137,7 @@ def test_no_search_is_success_with_observable_negative_trigger():
     assert run.search_trace.generated_queries == []
     assert run.answer.citations_available is True
     assert run.answer.citations == []
-    assert run.cost_usd == pytest.approx(8 / 1e6 * 0.75 + (1351 + 956) / 1e6 * 3.75)
+    assert run.cost_usd == pytest.approx(8 / 1e6 * 0.30 + (1351 + 956) / 1e6 * 2.50)
 
 
 # ── search_disabled 模式 ─────────────────────────────────────────────

@@ -68,12 +68,11 @@ _SUCCESS_STATUSES = ("completed", "incomplete")  # incomplete=截断,回答仍�
 # 3.1 Pro preview $2 / $12(≤200k);接地检索 $14 / 千次、每月 5,000 次免费全家共享、每日上限 1,500 次。
 # 3.5 Flash-Lite 进被测清单是给「消费端默认」用的(用户 11-12 定冒烟后换;官方帮助中心只写免费版走「Flash-Lite」没写版本,
 # 接口里现行的 Flash-Lite 是 3.5,9to5Google 2026-10-09 也写免费版是 3.5 Flash-Lite——版本号是这样定下来的,不是官方原话)。
+# 2026-11-13 按工程原则 9(用户定「最高档跟着各家最新一代走,旧的删掉」):第 3 代的 3.8 Flash、3.1 Pro preview 移出,
+# 第 4 代的 Hydrogen 入清单(11-12 冒烟通:搜 4 次、引用 17 条、$0.089、32 秒);3.5 Flash-Lite 是消费端默认,低档要测,留着。
 _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "gemini-3.5-flash-lite": (0.30, 2.50),
-    "gemini-3.8-flash": (0.75, 3.75),
-    "gemini-3.1-pro-preview": (2.0, 12.0),
-    # gemini-4-hydrogen($1.5 / $7.5):11-12 新发现的当前一代型号,冒烟通(搜 4 次、引用 17 条、$0.089、32 秒);
-    # 入不入待用户定,定了再加进来
+    "gemini-4-hydrogen": (1.5, 7.5),
     "gemini-4-argon": (2.0, 10.0),
     "gemini-4-carbon": (2.0, 10.0),  # 用户 11-12 定:接口里有就冒烟入高档;冒烟通(这题没搜,$0.014)
 }
@@ -89,7 +88,7 @@ _PRICE_TABLE: dict[str, dict[str, float]] = {
             "search_queries": _SEARCH_USD_PER_QUERY}
     for model, (price_in, price_out) in _ALL_PRICES_PER_MTOK.items()
 }
-_DEFAULT_MODEL = "gemini-3.8-flash"
+_DEFAULT_MODEL = "gemini-3.5-flash-lite"  # 2026-11-13 跟着 3.8 Flash 移出改成消费端默认(加载器要求默认型号在清单里)
 # 型号标记(配置资产,用户定 2026-10-14;2026-11-03 定 ③「主力 = 付费版默认」):
 # 2026-11-11 核对官方帮助中心「About Gemini models」:没有付费方案的用户默认「自动选型」(多数提问走 Flash-Lite,
 # 要推理的用 Flash;关掉自动就全是 Flash-Lite);Google AI Pro 可选 Flash-Lite / Flash / Pro / 4 Argon,同样默认自动选型,
@@ -104,7 +103,8 @@ _MAIN_MODEL = "gemini-4-argon"
 _MODELS_CHECKED = ("2026-10-14 官方型号页 + 价目页 + 应用更新日志;2026-11-11 官方帮助中心「About Gemini models」:"
                    "免费与付费都默认自动选型(多数走 Flash-Lite);主力按 Pro 档最高的 4 Argon 填、"
                    "用户 2026-11-12 定:主力认 Argon;消费端默认同日冒烟后换成 3.5 Flash-Lite(接口里现行的 Flash-Lite;"
-                   "官方帮助中心只写「Flash-Lite」没写版本);4 Carbon 同日冒烟通入高档")
+                   "官方帮助中心只写「Flash-Lite」没写版本);4 Carbon 同日冒烟通入高档;"
+                   "2026-11-13 按工程原则 9 移出第 3 代的 3.8 Flash、3.1 Pro,4 Hydrogen 入清单")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
@@ -259,12 +259,12 @@ class GeminiGroundingAdapter(HttpAdapter):
             capabilities=_CAPABILITIES,
             price_table=_PRICE_TABLE,
             # 口径:推导上界,按型号各算(3 条检索词 + 探针实测 token 量),有足量实测后
-            # 确认页改读实测均值:默认型号 3×$0.014 + (200×$0.75 + 3000×$3.75)/1e6 ≈ $0.054
+            # 确认页改读实测均值:默认型号(3.5 Flash-Lite)3×$0.014 + (200×$0.30 + 3000×$2.50)/1e6 ≈ $0.050
             est_cost_per_call_usd={
                 model: round(3 * _SEARCH_USD_PER_QUERY + (200 * price_in + 3000 * price_out) / 1e6, 3)
                 for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
             },
-            # 闭卷腿口径:同源推导,无检索项:默认型号 (2300+950)×$3.75/1e6 ≈ $0.012
+            # 闭卷腿口径:同源推导,无检索项:默认型号 (2300+950)×$2.50/1e6 ≈ $0.008
             est_cost_per_call_search_disabled_usd={
                 model: round((2300 + 950) * price_out / 1e6, 3)
                 for model, (_, price_out) in _TOKEN_PRICES_PER_MTOK.items()
