@@ -13,7 +13,7 @@ from tests.unit.test_report_page import REGISTRY, UI_FORBIDDEN, DummyAdapter, vi
 
 
 class TwoModelAdapter(SurfaceAdapter):
-    """两个型号:m_cheap 是消费端默认、m_top 是主力(付费版默认)——三档挑出来的型号不一样,卡片才有区别。"""
+    """两个型号:m_cheap 是消费端默认、m_top 是主力(最新一代同款)——三档挑出来的型号不一样,卡片才有区别。"""
 
     def meta(self) -> SurfaceMeta:
         return SurfaceMeta(display_name="S2", api_name="S2 API", provider="test_provider2", surface="s2",

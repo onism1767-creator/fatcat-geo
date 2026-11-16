@@ -102,17 +102,19 @@ _CACHE_BILLING_NOTE = BillingNote(
        "Recorded figures are kept as they were.",
 )
 _DEFAULT_MODEL = "gpt-5.6-luna"
-# 型号标记(配置资产,用户定 2026-10-14「消费端默认按免费版」;2026-11-03 定 ③「主力 = 付费版默认」):
+# 型号标记(配置资产,用户定 2026-10-14「消费端默认按免费版」;2026-11-15 定「主力 = 消费端默认在最新一代里的同款」):
 # 2026-11-11 核对官方帮助中心「GPT-6 and other models in ChatGPT」(页面标注约 10-30 更新):免费版 / Go 默认 GPT-5.6 Luna;
-# GPT-6 是 Plus / Pro / Business / Enterprise 普通聊天的当前默认,Instant 到 Extra High 都由 GPT-6 Sol 驱动,
-# Astra 只在 Pro 档的「Pro」思考档(GPT-6 Pro);GPT-6.1 Sol / Terra 只在 Work 与 Codex,不在聊天里。
-# 所以主力 = gpt-6-sol;最强的 Astra 不再是中档标记,高档「全部型号」与自定义仍会测它。
+# 付费版普通聊天默认 GPT-6,由 GPT-6 Sol 驱动;Astra 只在 Pro 档的「Pro」思考档;GPT-6.1 Sol / Terra 只在 Work 与 Codex。
+# 消费端默认 gpt-5.6-luna 是 5.6 代;它在最新一代里的同款是 gpt-6-luna(第 6 代的 Luna;6.1 代没有 Luna)。
+# 帮助中心没提 gpt-6-luna 在 ChatGPT 里,所以中档测的是「免费用户今天看到的」加「下一代同款」。
+# 11-03 到 11-15 主力是付费版默认 gpt-6-sol;它仍在清单里,高档照测。
 _CONSUMER_DEFAULT_MODEL = "gpt-5.6-luna"
-_MAIN_MODEL = "gpt-6-sol"
+_MAIN_MODEL = "gpt-6-luna"
 _MODELS_CHECKED = ("2026-11-11 官方帮助中心「GPT-6 and other models in ChatGPT」:免费版默认 GPT-5.6 Luna、"
                    "付费版聊天默认 GPT-6(Sol);"
                    "型号清单与价目仍按 2026-10-14 官方型号页 + 价目页;"
-                   "2026-11-13 列型号接口查到 gpt-6.1-terra,价目页 $1 / $5,冒烟通后入清单")
+                   "2026-11-13 列型号接口查到 gpt-6.1-terra,价目页 $1 / $5,冒烟通后入清单;"
+                   "2026-11-15 用户定主力 = 消费端默认在最新一代里的同款,填 gpt-6-luna")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,

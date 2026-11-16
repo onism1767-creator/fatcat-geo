@@ -1,5 +1,5 @@
 """档位配置(S9.1,架构书附录 v0.4.27 + 2026-10-14 拍板):三档参数从 config/tiers.yaml 读;
-型号按各适配器 meta 的标记选(消费端默认 / 主力 = 付费版默认,用户 2026-11-03 定 ③);
+型号按各适配器 meta 的标记选(消费端默认 / 主力 = 最新一代同款,用户 2026-11-15 定);
 新档位 = 加一段配置,代码零改动(硬边界 10 同款验收)。零网络零数据库。"""
 
 from pathlib import Path
@@ -56,7 +56,7 @@ def test_tier_targets_follow_the_model_marks():
     low, medium, high = (config.get(n) for n in ("low", "medium", "high"))
     assert tier_targets(low, ADAPTERS) == [Target(surface="a", model="a1"), Target(surface="b", model="b1"),
                                            Target(surface="c", model="c2")]
-    # 中档 = 主力(付费版默认)+ 消费端默认;b 只有一个就一个;c 两者同一个 → 补清单里紧挨着的(c2 是最后一个 → 补前面的 c1)
+    # 中档 = 主力 + 消费端默认;b 只有一个就一个;c 两者同一个 → 补清单里紧挨着的(c2 是最后一个 → 补前面的 c1)
     assert tier_targets(medium, ADAPTERS) == [
         Target(surface="a", model="a3"), Target(surface="a", model="a1"),
         Target(surface="b", model="b1"),

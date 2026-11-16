@@ -60,13 +60,14 @@ _PRICE_TABLE: dict[str, dict[str, float]] = {
     for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
 }
 _DEFAULT_MODEL = "perplexity/sonar"
-# 型号标记(配置资产,用户定 2026-10-14;2026-11-03 定 ③「主力 = 付费版默认」):2026-11-11 核对官方帮助中心
+# 型号标记(配置资产,用户定 2026-10-14;2026-11-15 定「主力 = 消费端默认在最新一代里的同款」):2026-11-11 核对官方帮助中心
 # 「What is Perplexity Pro?」(10-26 更新):Pro 默认是「Best」模式,由它按问题自动挑型号,官方没写挑哪个;可选的自家型号
 # 只有 Sonar(其余是别家的 GPT / Claude / Gemini,归各家自己的适配器)。所以消费端默认与主力都是 sonar。
 _CONSUMER_DEFAULT_MODEL = "perplexity/sonar"
 _MAIN_MODEL = "perplexity/sonar"
 _MODELS_CHECKED = ("2026-10-14 官方 Agent API 型号与价目页;2026-11-11 官方帮助中心「What is Perplexity Pro?」:"
-                   "默认「Best」自动挑型号、自家只有 Sonar,消费端默认与主力都填 sonar")
+                   "默认「Best」自动挑型号、自家只有 Sonar,消费端默认与主力都填 sonar;"
+                   "2026-11-15 主力规则改成「消费端默认在最新一代里的同款」,自家只有一款,结果不变")
 
 _CAPABILITIES = CapabilityRegistry(supports_query_trace=True, supports_citations=True)
 

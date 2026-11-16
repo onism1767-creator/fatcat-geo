@@ -90,20 +90,19 @@ _PRICE_TABLE: dict[str, dict[str, float]] = {
     for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
 }
 _DEFAULT_MODEL = "claude-sonnet-5-5"
-# 型号标记(配置资产,用户定 2026-10-14;2026-11-03 定 ③「主力 = 付费版默认」):
+# 型号标记(配置资产,用户定 2026-10-14;2026-11-15 定「主力 = 消费端默认在最新一代里的同款」):
 # 消费端默认:应用默认是 Sonnet 系(第三方资料:2026-06-30 起 Sonnet 5 为默认;5.5 上线后是否切换官方未写)→ 待核对。
-# 主力(付费版默认)——待核对:2026-11-11 查官方帮助中心「What is the Pro plan?」「Claude Fable models on your plan」
-# 「Covered Models」,都没写付费版默认型号;只写明 Fable 系(5 / 5.1 / 5.2)在 Pro 档不含在套餐用量里、要另买用量,
-# Max / Ultra 含到周用量的一半。所以 Pro 套餐内最高一档是 Opus 5.5,按成本调研建议记为主力;
-# 2026-11-12 用户付费账号截图:模型选择器默认停在 Opus 5.5,用户定为主力。
+# Sonnet 5.5 已是最新一代(5.5 代),所以主力就是它自己;中档按档位规则再补清单里紧挨着的 Opus 5.5。
+# 沿革:11-03 到 11-15 主力是付费版默认;11-11 查官方帮助中心「What is the Pro plan?」「Claude Fable models on your plan」
+# 「Covered Models」都没写付费版默认,11-12 用户付费账号截图默认停在 Opus 5.5,当时定为主力。
 # 另:官方「Covered Models」页写 Claude Fable 5.2 已于 2026-11-09 正式可用;用户 2026-11-12 定冒烟过了替掉 5.1,
 # 结果冒烟两次都撞 4,096 零正文(见价目表旁的注释),先不换。
 _CONSUMER_DEFAULT_MODEL = "claude-sonnet-5-5"
-_MAIN_MODEL = "claude-opus-5-5"
+_MAIN_MODEL = "claude-sonnet-5-5"
 _MODELS_CHECKED = ("2026-10-14 官方型号页 + 价目页;消费端默认按应用默认 Sonnet 系填 5.5,待核对;"
-                   "主力 2026-11-11 查官方帮助中心没写付费版默认,按 Pro 套餐内最高档填 Opus 5.5;"
-                   "2026-11-12 用户付费账号截图默认停在 Opus 5.5,用户定为主力;"
-                   "Fable 5.2 同日冒烟两次都撞 4,096 零正文,不入清单、5.1 留着")
+                   "2026-11-12 用户付费账号截图:付费版默认停在 Opus 5.5(当时的主力);"
+                   "Fable 5.2 同日冒烟两次都撞 4,096 零正文,不入清单、5.1 留着;"
+                   "2026-11-15 用户定主力 = 消费端默认在最新一代里的同款,Sonnet 5.5 已是最新一代,主力就是它")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
