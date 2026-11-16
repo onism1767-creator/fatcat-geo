@@ -63,11 +63,16 @@ _DEFAULT_MODEL = "perplexity/sonar"
 # 型号标记(配置资产,用户定 2026-10-14;2026-11-15 定「主力 = 消费端默认在最新一代里的同款」):2026-11-11 核对官方帮助中心
 # 「What is Perplexity Pro?」(10-26 更新):Pro 默认是「Best」模式,由它按问题自动挑型号,官方没写挑哪个;可选的自家型号
 # 只有 Sonar(其余是别家的 GPT / Claude / Gemini,归各家自己的适配器)。所以消费端默认与主力都是 sonar。
+# 2026-11-15 按工程原则 10 复核:Pro 介绍页 11-12 改过,可选型号变成 GPT-6.1 Sol / Claude Sonnet 5.5 / Gemini 3.8 Flash,
+# 整页不再提 Sonar;默认仍是「Best」自动挑(官方没写挑哪个)。Agent API 型号页自家仍只有 perplexity/sonar
+# ($0.25 / $2.50),所以标记不变;这台仪器测的 sonar 还能不能代表 Perplexity 应用,待用户定(任务列表第十五节)。
 _CONSUMER_DEFAULT_MODEL = "perplexity/sonar"
 _MAIN_MODEL = "perplexity/sonar"
 _MODELS_CHECKED = ("2026-10-14 官方 Agent API 型号与价目页;2026-11-11 官方帮助中心「What is Perplexity Pro?」:"
                    "默认「Best」自动挑型号、自家只有 Sonar,消费端默认与主力都填 sonar;"
-                   "2026-11-15 主力规则改成「消费端默认在最新一代里的同款」,自家只有一款,结果不变")
+                   "2026-11-15 主力规则改成「消费端默认在最新一代里的同款」,自家只有一款,结果不变;"
+                   "2026-11-15 复核:Pro 页不再列 Sonar,Agent API 自家仍只有 sonar,"
+                   "标记不变,代表性待用户定")
 
 _CAPABILITIES = CapabilityRegistry(supports_query_trace=True, supports_citations=True)
 

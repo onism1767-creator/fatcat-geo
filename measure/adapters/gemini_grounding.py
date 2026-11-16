@@ -94,7 +94,8 @@ _DEFAULT_MODEL = "gemini-3.5-flash-lite"  # 2026-11-13 跟着 3.8 Flash 移出�
 # 要推理的用 Flash;关掉自动就全是 Flash-Lite);Google AI Pro 可选 Flash-Lite / Flash / Pro / 4 Argon,同样默认自动选型;
 # Ultra 另有 4 Carbon(官方「最强」)。用户 2026-11-12 定消费端默认换 Flash-Lite,同日冒烟通过,填 3.5 Flash-Lite(第 3 代)。
 # 它在最新一代里的同款是 4 Hydrogen:第 4 代没有 Flash-Lite,型号页写「新项目用 4 Hydrogen 或 3.5 Flash-Lite」,
-# Hydrogen 是第 4 代的快型号(11-13 时 Gemini 应用里还没有)。
+# Hydrogen 是第 4 代的快型号。11-13 时 Gemini 应用里还没有;11-15 再核帮助中心:应用里原来写「Flash」的地方
+# 都换成了 4 Hydrogen(免费版自动选型「要推理的走 Hydrogen」,Plus / Pro / Ultra 都可选),免费版默认仍是 Flash-Lite。
 # 11-12 到 11-15 主力是 4 Argon(付费默认自动选型范围里的最高档);它仍在清单里,高档照测。
 _CONSUMER_DEFAULT_MODEL = "gemini-3.5-flash-lite"
 _MAIN_MODEL = "gemini-4-hydrogen"
@@ -103,7 +104,9 @@ _MODELS_CHECKED = ("2026-10-14 官方型号页 + 价目页 + 应用更新日志;
                    "用户 2026-11-12 定消费端默认换 Flash-Lite,同日冒烟后填 3.5 Flash-Lite(接口里现行的 Flash-Lite;"
                    "官方帮助中心只写「Flash-Lite」没写版本);4 Carbon 同日冒烟通入高档;"
                    "2026-11-13 按工程原则 9 移出第 3 代的 3.8 Flash、3.1 Pro,4 Hydrogen 入清单;"
-                   "2026-11-15 用户定主力 = 消费端默认在最新一代里的同款,填 4 Hydrogen(原主力 4 Argon)")
+                   "2026-11-15 用户定主力 = 消费端默认在最新一代里的同款,填 4 Hydrogen(原主力 4 Argon);"
+                   "2026-11-15 按工程原则 10 复核:列型号接口没有新的第 4 代型号;"
+                   "帮助中心里 Flash 换成了 4 Hydrogen(主力已在应用里),标记不变")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
