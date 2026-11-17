@@ -148,14 +148,16 @@ def test_report_says_how_many_answers_it_could_not_tell():
 
 
 def test_report_names_the_judges_and_says_where_they_fall_short():
-    """BR6(用户定):写实际判过的那几家;自家判自家的条数单独说「可能偏宽」;一家裁判都没有就直接说谁无法进行 AI 判断。"""
+    """BR6(用户定):写实际判过的那几家;判它的和写它的是同一家 AI 的条数只提醒一句(2026-11-17 定);
+    名单里一位裁判都用不上就直接说谁无法进行 AI 判断。"""
     job = finished_job()
     client = _client(job)
     both = [Target(surface="s1", model="m1"), Target(surface="s2", model="m2")]
     job.sampling = job.sampling.model_copy(update={"judge_targets": both, "n_own_vendor": 4})
     zh, en = (client.get(f"/jobs/{job.job_id}/report?lang={lang}").text for lang in ("zh", "en"))
-    assert "AI 裁判:S1 · m1;" in zh and "其中 4 条回答请不到别家,这部分是自家判自家,可能偏宽。" in zh
-    assert "That part may lean generous." in en
+    assert "AI 裁判:S1 · m1;" in zh and "其中 4 条回答,判别用的是写它的同一家 AI,存在判得偏宽的风险。" in zh
+    assert "the judge was the same company’s AI that wrote the answer" in en and "judged too generously." in en
+    assert "自家判自家" not in zh and "请不到别家" not in zh
     job.sampling = job.sampling.model_copy(update={"judge_targets": [], "n_own_vendor": 0, "no_judge": ["S9"]})
     zh, en = (client.get(f"/jobs/{job.job_id}/report?lang={lang}").text for lang in ("zh", "en"))
     assert "S9 无法进行 AI 判断,这单没有 AI 裁判,判不清的记「说不准」。" in zh and "AI 裁判:" not in zh

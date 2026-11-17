@@ -124,7 +124,8 @@ def test_a_risky_name_is_explained_and_budgets_the_judge_on_the_medium_tier():
 
 
 def test_confirm_page_says_plainly_who_cannot_judge():
-    """BR6(用户定):一家裁判都请不到时,开跑前直接说这几家无法进行 AI 判断、加哪家的 key 就能判;预估里没有裁判的钱。"""
+    """BR6(用户定):名单里一位裁判都用不上时(现有接口各自都能单独判,以后新接的没配裁判才会这样),
+    开跑前直接说这几家无法进行 AI 判断、加哪家的 key 就能判;预估里没有裁判的钱。"""
     client, _ = _client(JudgeConfig(candidates=[
         JudgeModel(name="甲家", surface="not_loaded", model="m", est_cost_per_call_usd=1.0),
         JudgeModel(name="丙家", surface="gone", model="m", est_cost_per_call_usd=1.0)]))
@@ -138,7 +139,13 @@ def test_confirm_page_says_plainly_who_cannot_judge():
                                              "category": "手机", "questions": "问题一?\n问题二?", "generate": ""},
                        follow_redirects=False)
     risky = visible_text(client.get(resp.headers["location"]).text)
-    assert "光看字认不准" in risky and "中档和高档会请另一家 AI" not in risky  # 没有裁判就别说会请人看
+    assert "光看字认不准" in risky and "中档和高档会请 AI 裁判" not in risky  # 没有裁判就别说会请人看
+
+    client, _ = _client()
+    resp = client.post("/jobs?lang=zh", data={"brand_name": "小米", "aliases": "", "website": "mi.com",
+                                             "category": "手机", "questions": "问题一?\n问题二?", "generate": ""},
+                       follow_redirects=False)
+    assert "中档和高档会请 AI 裁判看一眼。" in visible_text(client.get(resp.headers["location"]).text)
 
     client, _ = _client()
     assert "无法进行 AI 判断" not in client.get(_confirm_url(client)).text

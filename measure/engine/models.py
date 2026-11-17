@@ -302,7 +302,7 @@ class BrandMentionObservation(DerivedObservation):
     reason_code: str | None = None  # 裁判说没提到的理由码(BR5,engine/judge.py 的 REASON_CODES)
     new_spellings: list[str] = []  # 裁判看到的、像你但没登记的写法(BR5):不算提到,进报告写法清单
     judged_by: str | None = None  # 哪个裁判判的(Target.key,BR6;其他判定器不填)
-    own_vendor: bool = False  # 别家都请不到,这条是自家判自家(BR6):可能偏宽,报告注明
+    own_vendor: bool = False  # 判它的和写它的是同一家(BR6;请不到别家也照样判):存在判得偏宽的风险,报告提醒一句
 
 
 class CitationObservation(DerivedObservation):

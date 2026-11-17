@@ -389,7 +389,7 @@ def test_replaying_a_partial_job_keeps_it_partial_and_keeps_why_it_stopped(stora
 
 
 def test_high_tier_asks_a_judge_once_per_answer_and_reuses_it_on_replay(storage, offline):
-    """S9.3 高档:另一家 AI 逐条复核;一条回答只判一次,费用进账本;重新生成报告时装回库里的判定,不再花钱。"""
+    """S9.3 高档:AI 裁判逐条复核;一条回答只判一次,费用进账本;重新生成报告时装回库里的判定,不再花钱。"""
     from engine.judge import JudgeConfig, JudgeModel
     from engine.tiers import MentionMethod, TierChoice
     from tests.unit.test_judge import ScriptedJudge
@@ -544,7 +544,7 @@ def test_high_tier_without_any_judge_still_reports_what_rules_can_settle(storage
 
 
 def test_own_vendor_judging_is_counted_for_the_report(storage, offline):
-    """BR6(用户定):请不到别家时自家判自家,任务照跑,报告数出这部分有几条。"""
+    """BR6(用户 2026-11-17 定):只有同一家的裁判时照样判,任务照跑,报告数出这部分有几条。"""
     from engine.judge import JudgeConfig, JudgeModel
     from engine.tiers import MentionMethod, TierChoice
 

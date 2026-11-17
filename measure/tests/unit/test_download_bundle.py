@@ -95,7 +95,7 @@ def test_summary_names_the_judges_and_where_they_fall_short(storage):
     job.sampling = job.sampling.model_copy(update={
         "judge_targets": [Target(surface="s1", model="m1"), Target(surface="s2", model="m2")], "n_own_vendor": 2})
     text = summary()
-    assert "AI 裁判:S1 · m1;s2 · m2;" in text and "其中 2 条回答请不到别家,这部分是自家判自家,可能偏宽。" in text
+    assert "AI 裁判:S1 · m1;s2 · m2;" in text and "其中 2 条回答,判别用的是写它的同一家 AI,存在判得偏宽的风险。" in text
     job.sampling = job.sampling.model_copy(update={"judge_targets": [], "n_own_vendor": 0, "no_judge": ["S9"]})
     text = summary()
     assert "S9 无法进行 AI 判断,这单没有 AI 裁判" in text and "AI 裁判:" not in text

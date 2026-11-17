@@ -1,4 +1,5 @@
-"""AI 裁判(S9.3,高档):挑裁判(先挑别家,BR6)、严格 JSON 与片段机械核对、3 轮不合格记「裁判看不到」、
+"""AI 裁判(S9.3,高档):挑裁判(先挑和写回答的不是同一家的,都是同一家也照样判,BR6)、严格 JSON 与片段机械核对、
+3 轮不合格记「裁判看不到」、
 一条只问一次、库里已有的装回;观测层按高档用裁判判提及与态度,竞品提及走免费判定器。零网络零数据库。"""
 
 import json
@@ -17,6 +18,7 @@ from engine.judge import (
     build_prompt,
     cannot_judge,
     load_judges,
+    maker_of,
     parse_verdict,
     pick_judge,
     usable_judges,
@@ -103,6 +105,10 @@ def test_every_real_candidate_can_really_judge():
     try:
         assert [judge.spec for judge in usable_judges(config, real)] == config.candidates
         assert len({real[c.surface].meta().provider for c in config.candidates}) == len(config.candidates)
+        # 用户 2026-11-17 定「只有一家的 key 也照样判」:每一家单独拿出来都得有裁判可请,不然那家的用户只能看「说不准」
+        for surface, adapter in real.items():
+            alone = usable_judges(config, {surface: adapter})
+            assert [judge.spec.surface for judge in alone] == [surface], surface
     finally:
         for adapter in real.values():
             adapter.close()
@@ -130,13 +136,16 @@ def test_a_helper_model_can_judge_without_being_tested():
             return super().meta().model_copy(update={"models": ["tested"], "helper_models": [self._model]})
 
     assert [j.spec.model for j in usable_judges(CONFIG, {"judge_a": Helper("judge_a", "vendor_a", "ja")})] == ["ja"]
+    # 辅助型号本来就只做不联网的小调用:这台仪器的被测型号不能闭卷,它也照样能当裁判(用户 2026-11-17 定)
+    no_closed_book = Helper("judge_a", "vendor_a", "ja", offline=False)
+    assert [j.spec.model for j in usable_judges(CONFIG, {"judge_a": no_closed_book})] == ["ja"]
 
 
 def test_picking_prefers_another_vendor_in_list_order():
     usable = usable_judges(CONFIG, adapters())
     assert pick_judge(usable, "vendor_x").spec.surface == "judge_a"
     assert pick_judge(usable, "vendor_a").spec.surface == "judge_b"
-    assert pick_judge(usable[:1], "vendor_a").spec.surface == "judge_a"  # 别家都请不到才自家判自家
+    assert pick_judge(usable[:1], "vendor_a").spec.surface == "judge_a"  # 都是同一家:照样请它判
     assert pick_judge([], "vendor_a") is None
 
 
@@ -235,8 +244,41 @@ def test_judge_picks_another_vendor_caches_and_records_each_call():
     assert judge.judge(run_with("x", run_id="r3", provider="vendor_a"), BRAND) is not None
 
 
-def test_own_vendor_judging_happens_only_as_a_last_resort_and_is_written_down():
-    """BR6(用户定):别家都请不到才自家判自家,判定行记下是谁判的、是不是自家。"""
+def test_a_wrapped_model_counts_as_the_vendor_that_really_writes():
+    """用户 2026-11-17 定「换一位裁判」:有的接口是替别家型号套了一层,适配器声明「实际是谁写的」;
+    挑裁判按它认——那一家的裁判排第一也跳过,换下一位;只剩那一家时照样判,判定行记下。"""
+
+    class Wrapper(ScriptedJudge):  # 自己的牌子是 vendor_w,被测型号 m1 背后是 vendor_a 的型号
+        def meta(self) -> SurfaceMeta:
+            return super().meta().model_copy(update={"models": ["m1", "own"], "made_by": {"m1": "vendor_a"}})
+
+    wrapper = Wrapper("s1", "vendor_w", "m1")
+    assert maker_of(wrapper.meta(), "m1") == "vendor_a" and maker_of(wrapper.meta(), "own") == "vendor_w"
+    ads = {**adapters(), "s1": wrapper}
+    judge = MentionJudge(CONFIG, ads, ledger=lambda r: None, locale="zh-CN")
+    wrapped = JudgeBrandMentionDetector(judge).detect(run_with("极光CRM 不错", provider="vendor_w"), BRAND)
+    assert wrapped.judged_by == "judge_b::jb" and not wrapped.own_vendor  # 回答的 surface=s1、model=m1
+    assert ads["judge_a"].requests == []
+
+    only_a = {"judge_a": ads["judge_a"], "s1": wrapper}
+    alone = MentionJudge(CONFIG, only_a, ledger=lambda r: None, locale="zh-CN")
+    same = JudgeBrandMentionDetector(alone).detect(run_with("极光CRM 不错", provider="vendor_w"), BRAND)
+    assert same.mentioned and same.judged_by == "judge_a::ja" and same.own_vendor
+
+    class WrappedJudge(ScriptedJudge):  # 裁判自己也是套了一层的:背后是 vendor_x
+        def meta(self) -> SurfaceMeta:
+            return super().meta().model_copy(update={"made_by": {self._model: "vendor_x"}})
+
+    usable = usable_judges(CONFIG, {"judge_a": WrappedJudge("judge_a", "vendor_a", "ja"),
+                                    "judge_b": ads["judge_b"]})
+    assert [j.maker for j in usable] == ["vendor_x", "vendor_b"]
+    assert pick_judge(usable, "vendor_x").spec.surface == "judge_b"
+    assert pick_judge(usable, "vendor_a").spec.surface == "judge_a"
+
+
+def test_same_vendor_judging_still_judges_and_is_written_down():
+    """BR6(用户 2026-11-17 定):先挑不是同一家的;只有同一家(只填了一家的 key)也照样判,
+    判定行记下是谁判的、是不是同一家。"""
     judge = MentionJudge(CONFIG, adapters(), ledger=lambda r: None, locale="zh-CN")
     run = run_with("极光CRM 不错", provider="vendor_a")
     other_vendor = JudgeBrandMentionDetector(judge).detect(run, BRAND)

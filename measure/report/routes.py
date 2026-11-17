@@ -16,7 +16,7 @@ from adapters.base import SurfaceAdapter
 from engine.ai_task import TaskFailed
 from engine.detectors.name_risk import is_risky
 from engine.drafting import PromptCandidate, draft_prompt_candidates
-from engine.judge import cannot_judge, pick_judge, usable_judges
+from engine.judge import cannot_judge, maker_of, pick_judge, usable_judges
 from engine.models import SearchMode, StopReason, SurfaceRun, Target
 from engine.page_check import BUDGET_S as VERIFY_BUDGET_S
 from engine.page_check import PageChecker
@@ -258,7 +258,7 @@ def confirm_estimate(
     def judging(method: MentionMethod, chosen_targets: list[Target]) -> dict[str, Any]:
         """裁判的钱:高档每条回答判一次(S9.3);中档名字有风险时按上限算,只判说不准的(BR4);其余不请。
         单价取这几个被测对象会请到的裁判里最贵的(上界,BR6);一家裁判都请不到就没有这笔钱。"""
-        picked = [pick_judge(usable, ctx.adapters[t.surface].meta().provider) for t in chosen_targets]
+        picked = [pick_judge(usable, maker_of(ctx.adapters[t.surface].meta(), t.model)) for t in chosen_targets]
         unit = [judge.spec.est_cost_per_call_usd for judge in picked if judge is not None]
         if not unit:
             return {}

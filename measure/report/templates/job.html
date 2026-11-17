@@ -45,7 +45,7 @@
   {% elif sampling_done and elapsed_minutes is not none %}
   <p class="kv">{{ t["sampling_done_line"].format(elapsed=elapsed_minutes|round(1)) }}</p>
   {% endif %}
-  {#- 高档 AI 裁判复核(S9.3):另一家 AI 逐条读回答判「提到你」,按已判条数走 -#}
+  {#- 高档 AI 裁判复核(S9.3):AI 裁判逐条读回答判「提到你」,按已判条数走 -#}
   {% if job.phase == "phase_judging" and job.state.value == "RUNNING" %}
   <p class="kv"><b>{{ t["judge_word"] }}</b> · {{ t["judge_line"].format(done=job.judge_done, total=job.judge_total) }}</p>
   <div class="bar"><div style="width: {{ (100 * job.judge_done / job.judge_total)|round|int if job.judge_total else 0 }}%"></div></div>

@@ -2,7 +2,8 @@
 
 防的是:平台改返回格式 → 翻译静默出错 → 污染入库数据。
 golden 来自 11-15 low 预设冒烟的真实回包(真身裁剪:长提示词与摘录截短,编号 / 标记 / 用量 / 费用原样):
-带引用(两轮搜索,编号接着编)/ 打开过网页 / 没搜(由真身去掉搜索项改造)/ status=failed / 限流错误。
+带引用(两轮搜索,编号接着编)/ 打开过网页 / 没搜(由真身去掉搜索项改造)/ status=failed / 限流错误;
+helper_no_tools 是 11-17 直接点名型号、不带工具的真实回包(裁判小调用,原样)。
 断言逐字段进行;全部 respx 模拟,零真实网络。
 """
 
@@ -20,7 +21,7 @@ from adapters.base import (
     CapabilityNotSupportedError,
     priced,
 )
-from adapters.perplexity_agent import PRESET, PerplexityAgentAdapter
+from adapters.perplexity_agent import HELPER_MODEL, PRESET, PerplexityAgentAdapter
 from engine.models import AskRequest, Outcome, SearchMode
 
 GOLDEN = Path(__file__).parent / "golden"
@@ -226,6 +227,47 @@ def test_agent_undeclared_capabilities_raise_explicitly():
         adapter.ask(make_request(search_mode=SearchMode.FORCED_SEARCH))
     with pytest.raises(CapabilityNotSupportedError):
         adapter.ask(make_request(region="US"))
+
+
+@respx.mock
+def test_helper_model_is_called_by_name_without_preset_or_tools():
+    """用户 2026-11-17 定「只有一家的 key 也照样判」:裁判这类不联网小调用直接点名型号,不放预设、不放工具;
+    它不被测(不在型号清单里),只接 search_disabled;费用照记平台自报的。"""
+    adapter = PerplexityAgentAdapter(api_key="test-key")
+    meta = adapter.meta()
+    assert meta.helper_models == [HELPER_MODEL] and HELPER_MODEL not in meta.models
+    assert HELPER_MODEL in meta.price_table and HELPER_MODEL not in meta.est_cost_per_call_usd
+    assert meta.capabilities.supports_search_disabled is False  # 被测的预设照旧不能闭卷
+
+    body = golden("perplexity_agent", "helper_no_tools.json")
+    route = respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json=body))
+    run = adapter.ask(make_request(model=HELPER_MODEL, search_mode=SearchMode.SEARCH_DISABLED, prompt_text="判一下"))
+    assert json.loads(route.calls[0].request.content) == {"model": HELPER_MODEL, "input": "判一下",
+                                                          "max_output_tokens": 4096}
+    assert run.outcome is Outcome.SUCCESS and run.model == HELPER_MODEL
+    assert run.search_mode is SearchMode.SEARCH_DISABLED and run.search_trace.search_triggered is False
+    assert run.answer.answer_text.startswith('{"mentioned":false') and run.answer.citations == []
+    assert run.cost_usd == pytest.approx(0.00019)
+    assert priced(meta.price_table[HELPER_MODEL], adapter.usage_of(body)) == pytest.approx(0.00019, abs=1e-5)
+
+    for bad in (dict(search_mode=SearchMode.DEFAULT), dict(search_mode=SearchMode.FORCED_SEARCH),
+                dict(search_mode=SearchMode.SEARCH_DISABLED, region="US")):
+        with pytest.raises(CapabilityNotSupportedError):  # 它不联网、不钉地区:别的用法显式报错
+            adapter.ask(make_request(model=HELPER_MODEL, **bad))
+    assert len(route.calls) == 1
+
+
+def test_who_really_writes_is_declared_and_matches_the_real_responses():
+    """low 预设和辅助型号背后都是 OpenAI 的型号:适配器声明出来,挑裁判时按它认「是不是同一家」(用户 2026-11-17 定)。
+    声明对不对,拿真实回包的 model 字段对一遍;换预设版本时这里会提醒重新核对。"""
+    from adapters.openai_web_search import OpenAIWebSearchAdapter
+
+    meta = PerplexityAgentAdapter(api_key="test-key").meta()
+    openai = OpenAIWebSearchAdapter(api_key="test-key").meta().provider
+    assert meta.made_by == {PRESET: openai, HELPER_MODEL: openai}
+    for name in ("success_with_citations.json", "success_with_fetch.json", "success_no_search.json",
+                 "helper_no_tools.json"):
+        assert golden("perplexity_agent", name)["model"] == HELPER_MODEL == "openai/gpt-6-luna"
 
 
 def test_unknown_model_is_rejected_before_any_call():

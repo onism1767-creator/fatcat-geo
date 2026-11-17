@@ -24,6 +24,9 @@
   status=failed(平台回了话却没办成)→ AdapterTransientError 交调度器重试,与另两家同口径(第三轮审核 A9);
   status=incomplete(截断)→ 回答仍有效,SUCCESS。
 - 费用记平台自报的 total_cost(分项齐全:输入三档、输出、搜索、打开网页);用量与牌价只给确认页估价。
+- 辅助型号 HELPER_MODEL(用户 2026-11-17 定「只有一家的 key 也照样判」):裁判这类不联网小调用走同一个接口,
+  请求里直接点名型号(`model`)、不放预设、不放工具——没有工具就不会搜。它不被测:不进档位、不上确认页。
+  只接 search_disabled;被测的预设照旧不声明闭卷(预设是 Perplexity 配好的一整套,自带搜索),请求了就报错。
 """
 
 from __future__ import annotations
@@ -34,7 +37,13 @@ from typing import Any
 
 import httpx
 
-from adapters.base import AdapterTransientError, CapabilityRegistry, SurfaceMeta, known_model
+from adapters.base import (
+    AdapterTransientError,
+    CapabilityNotSupportedError,
+    CapabilityRegistry,
+    SurfaceMeta,
+    known_model,
+)
 from adapters.http_support import STRUCTURE_ERRORS, HttpAdapter, domain_of, full_body, malformed, require_list, spent_on
 from engine.models import (
     Answer,
@@ -43,6 +52,7 @@ from engine.models import (
     JsonValue,
     Outcome,
     RetrievedSource,
+    SearchMode,
     SearchTrace,
     SurfaceRun,
 )
@@ -57,6 +67,11 @@ _SUCCESS_STATUSES = ("completed", "incomplete")  # incomplete = 截断,回答仍
 # web_search(快搜、15 条、每页 4,000 token)+ fetch_url(一次 1 个网页、共 1 万 token),推理力度 minimal;
 # 同页 fast / medium 也是 gpt-6-luna,high 是 gpt-6.1-terra。
 PRESET = "low@2026-11-11.0"
+# 辅助型号:裁判这类不联网小调用直接点名的型号,就是 low 预设背后的那一个(回包的 model 字段每次都写着它)。
+HELPER_MODEL = "openai/gpt-6-luna"
+# 这两个实际都是 OpenAI 的型号在写字(值 = 那一家适配器的 provider 名):挑裁判时按它认「是不是同一家」。
+# 换预设版本时要重新核对回包的 model 字段。
+_MADE_BY = {PRESET: "openai", HELPER_MODEL: "openai"}
 # 牌价(计费项与 _usage 读出的键一致;实际费用记平台自报的 total_cost,这张表只给确认页估价):
 # 2026-11-15 核对 Agent API 型号页 gpt-6-luna $0.10 / $0.50 每百万,并拿冒烟回包的分项验算
 # (缓存写入 1.25 倍、读取 0.1 倍、搜索每次 $0.001,四条与 total_cost 一分不差);
@@ -69,6 +84,13 @@ _PRICE_TABLE: dict[str, dict[str, float]] = {
         "output_tokens": 0.50 / 1e6,
         "searches": 0.001,
         "fetch_usd": 1.0,
+    },
+    # 直接点名型号、不带工具:只有 token 四项,价钱同上(同一个型号;2026-11-17 冒烟回包验算见 config/judges.yaml)
+    HELPER_MODEL: {
+        "input_tokens": 0.10 / 1e6,
+        "cache_write_tokens": 0.125 / 1e6,
+        "cached_input_tokens": 0.01 / 1e6,
+        "output_tokens": 0.50 / 1e6,
     },
 }
 # 型号标记(配置资产,用户定 2026-10-14;2026-11-15 定「主力 = 消费端默认在最新一代里的同款」、同日定「换成 low 预设」):
@@ -225,6 +247,8 @@ class PerplexityAgentAdapter(HttpAdapter):
             display_name="Perplexity",
             api_name="Perplexity Agent API",
             models=[PRESET],
+            helper_models=[HELPER_MODEL],
+            made_by=_MADE_BY,
             default_model=PRESET,
             consumer_default_model=_CONSUMER_DEFAULT_MODEL,
             main_model=_MAIN_MODEL,
@@ -240,9 +264,14 @@ class PerplexityAgentAdapter(HttpAdapter):
         return _usage(raw_payload) if isinstance(raw_payload, dict) else {}
 
     def ask(self, request: AskRequest) -> SurfaceRun:
-        _CAPABILITIES.require_request(request)
-        preset = known_model(request.model, PRESET, _PRICE_TABLE)
-        payload = {"effort": preset, "input": request.prompt_text, "max_output_tokens": MAX_OUTPUT_TOKENS}
+        model = known_model(request.model, PRESET, _PRICE_TABLE)
+        if model == HELPER_MODEL:  # 不联网小调用:直接点名型号,不放预设、不放工具
+            if request.search_mode is not SearchMode.SEARCH_DISABLED or request.region is not None:
+                raise CapabilityNotSupportedError(f"{HELPER_MODEL} 只做不联网的小调用(search_disabled、不钉地区)")
+            payload = {"model": model, "input": request.prompt_text, "max_output_tokens": MAX_OUTPUT_TOKENS}
+        else:
+            _CAPABILITIES.require_request(request)
+            payload = {"effort": model, "input": request.prompt_text, "max_output_tokens": MAX_OUTPUT_TOKENS}
         data, latency_ms, started_at = self._post(AGENT_URL, payload=payload, timeout_s=request.timeout_s)
         items = _output_items(data)
         status = data.get("status")
@@ -251,7 +280,7 @@ class PerplexityAgentAdapter(HttpAdapter):
             raise AdapterTransientError(f"平台返回 status={status!r}: {error.get('message') or '无说明'}",
                                         response_body=full_body(data), cost_usd=spent_on(lambda: _cost_usd(data)))
         try:
-            return _translate(request, preset, items, data, latency_ms, started_at)
+            return _translate(request, model, items, data, latency_ms, started_at)
         except STRUCTURE_ERRORS as exc:  # 字段类型怪(标题不是字符串、位置不是数字、成本不是数……):也算结构不符
             raise malformed(exc, data, lambda: _cost_usd(data)) from exc
 

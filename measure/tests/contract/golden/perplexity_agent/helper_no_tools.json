@@ -1,0 +1,68 @@
+{
+ "background": false,
+ "completed_at": 1794953822,
+ "created_at": 1794953822,
+ "error": null,
+ "frequency_penalty": 0,
+ "id": "resp_268053d4-43ad-49d2-8f2f-2daf4971d963",
+ "incomplete_details": null,
+ "instructions": null,
+ "max_output_tokens": 4096,
+ "max_tool_calls": null,
+ "metadata": {},
+ "model": "openai/gpt-6-luna",
+ "object": "response",
+ "output": [
+  {
+   "content": [
+    {
+     "annotations": [],
+     "text": "{\"mentioned\":false,\"spans\":[],\"confidence\":0.99,\"sentiment\":null,\"reason_code\":\"other_meaning\",\"new_spellings\":[],\"reason\":\"“北极光”在此指自然现象，并非登记的品牌名称。\"}",
+     "type": "output_text"
+    }
+   ],
+   "id": "msg_e5a8c4b7-2529-4413-9ba2-640bba759557",
+   "role": "assistant",
+   "status": "completed",
+   "type": "message"
+  }
+ ],
+ "parallel_tool_calls": true,
+ "presence_penalty": 0,
+ "previous_response_id": null,
+ "prompt_cache_key": null,
+ "reasoning": null,
+ "safety_identifier": null,
+ "service_tier": "default",
+ "status": "completed",
+ "store": true,
+ "temperature": 1,
+ "text": {
+  "format": {
+   "type": "text"
+  }
+ },
+ "tool_choice": "auto",
+ "tools": [],
+ "top_logprobs": 0,
+ "top_p": 1,
+ "truncation": "",
+ "usage": {
+  "cost": {
+   "currency": "USD",
+   "input_cost": 7e-05,
+   "output_cost": 0.00012,
+   "total_cost": 0.00019
+  },
+  "input_tokens": 707,
+  "input_tokens_details": {
+   "cached_tokens": 0
+  },
+  "output_tokens": 240,
+  "output_tokens_details": {
+   "reasoning_tokens": 181
+  },
+  "total_tokens": 947
+ },
+ "user": null
+}

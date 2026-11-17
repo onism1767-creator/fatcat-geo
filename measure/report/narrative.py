@@ -69,9 +69,9 @@ def sampling_lines(job: DiagnosisJob, name_of: Callable[[str, str], str], lang: 
         every_answer = tier.mention_method is MentionMethod.RULES_FUZZY_JUDGE
         lines.append(("judges", t["sampling_judges" if every_answer else "sampling_judges_unsure"].format(
             judges=";".join(name_of(x.surface, x.model) for x in sn.judge_targets))))
-    if sn.n_own_vendor:  # BR6:别家都请不到,自家判自家
+    if sn.n_own_vendor:  # BR6:判它的和写它的是同一家 AI,提醒一句(用户 2026-11-17 定)
         lines.append(("own_vendor", t["sampling_own_vendor"].format(n=sn.n_own_vendor)))
-    if sn.no_judge:  # BR6:一家裁判都请不到
+    if sn.no_judge:  # BR6:名单里一位裁判都用不上(以后新接的接口没配裁判)
         lines.append(("no_judge", t["sampling_no_judge"].format(names=" / ".join(sn.no_judge))))
     if sn.n_unsure:  # BR4:不进提及率分母,单独说清
         lines.append(("unsure", t["sampling_unsure"].format(n=sn.n_unsure)))

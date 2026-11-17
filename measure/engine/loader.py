@@ -96,6 +96,9 @@ def build_adapters(
         if missing_prices:
             raise ValueError(f"{entry.name} 的牌价表(price_table)漏了型号 {missing_prices}"
                              "——预估会静默漏计,禁止带病运行")
+        strangers = [m for m in meta.made_by if m not in (*meta.models, *meta.helper_models)]
+        if strangers:
+            raise ValueError(f"{entry.name} 的 made_by 写了清单里没有的型号 {strangers}")
         if meta.default_model not in meta.models:
             raise ValueError(f"{entry.name} 的默认型号 {meta.default_model!r} 不在型号清单里")
         for label, tagged in (("消费端默认", meta.consumer_default_model), ("主力", meta.main_model)):

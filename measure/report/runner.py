@@ -47,6 +47,7 @@ from engine.judge import (
     MentionJudge,
     cannot_judge,
     load_judges,
+    maker_of,
     pick_judge,
     usable_judges,
 )
@@ -306,8 +307,8 @@ def _precheck(
         to_check.setdefault(target.surface, adapter)
     if job.frozen_tier().mention_method is MentionMethod.RULES_FUZZY_JUDGE:
         usable = usable_judges(judges or load_judges(), adapters)
-        for adapter in adapter_of.values():
-            picked = pick_judge(usable, adapter.meta().provider)
+        for target, adapter in adapter_of.items():
+            picked = pick_judge(usable, maker_of(adapter.meta(), target.model))
             if picked is not None:
                 to_check.setdefault(picked.spec.surface, picked.adapter)
     unavailable: list[str] = []
@@ -365,7 +366,7 @@ def _sampling_note(
     adapters: dict[str, SurfaceAdapter],
 ) -> SamplingNote:
     """报告顶部的采样说明(S8.2):本单实际问了多少、有效多少、测了哪些接口与型号、官网名单情况、方法版本。
-    裁判写实际判过的那几家,自家判自家的条数单独说(BR6)。结束时刻由 _finish 落定后再填。"""
+    裁判写实际判过的那几家;判它的和写它的是同一家的条数单独提醒一句(BR6)。结束时刻由 _finish 落定后再填。"""
     runs = [run for batch in runs_by.values() for run in batch]
     dl = job.domain_list
     n_unsure = sum(m.mentioned is None for m in mentions)

@@ -60,13 +60,16 @@ def main() -> int:
           f"{'回答字数':>7} {'花费':>8} {'耗时':>7}  终止信号")
     try:
         for name, adapter in adapters.items():
-            for model in (*adapter.meta().models, *adapter.meta().helper_models):
+            meta = adapter.meta()
+            for model in (*meta.models, *meta.helper_models):
                 if args.only is not None and model not in args.only:
                     continue
+                # 辅助型号只做不联网的小调用(裁判),按它真正的用法问;有的仪器别的用法直接报错
+                search_mode = SearchMode.SEARCH_DISABLED if model in meta.helper_models else SearchMode.DEFAULT
                 request = AskRequest(
                     run_id=f"smoke-{uuid.uuid4().hex[:8]}", prompt_id="smoke-prompt",
                     run_index=1, prompt_text=SMOKE_PROMPT,
-                    search_mode=SearchMode.DEFAULT, model=model, locale="zh-CN", timeout_s=300.0,
+                    search_mode=search_mode, model=model, locale="zh-CN", timeout_s=300.0,
                 )
                 try:
                     run = adapter.ask(request)

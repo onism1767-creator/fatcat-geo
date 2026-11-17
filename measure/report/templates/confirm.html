@@ -71,7 +71,7 @@
     {% if calibration_text %}<p class="kv">{{ calibration_text }}</p>{% else %}<p class="kv muted">{{ t["tier_accuracy_note"] }}</p>{% endif %}
     {#- 名字有风险(BR4):太短或是常用词,先把会记「说不准」讲清楚 -#}
     {% if name_risky %}<p class="kv">{{ t["name_risky_note"] }}{% if not no_judge %}{{ t["name_risky_judges"] }}{% endif %}</p>{% endif %}
-    {#- 一家裁判都请不到(BR6):开跑前直接说 -#}
+    {#- 名单里一位裁判都用不上(BR6;现有接口各自都能单独判,以后新接的没配裁判才会出现):开跑前直接说 -#}
     {% if no_judge %}<p class="kv">{{ t["no_judge_note"].format(names=no_judge|join(" / "), candidates=judge_candidates|join(" / ")) }}</p>{% endif %}
 
     {#- 自定义(用户定 T8):以选中的档位为起点改型号与次数;「提到你」怎么认跟起点档走 -#}

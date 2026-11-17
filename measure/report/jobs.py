@@ -111,8 +111,10 @@ class SamplingNote(FrozenModel):
     domains_at: datetime | None  # 名单日期
     method_version: str  # engine/method.py::METHOD_VERSION,生成时冻结
     judge_targets: list[Target]  # 这单实际判过的 AI 裁判(S9.3,中档只判说不准的),没用裁判为空
-    n_own_vendor: int = 0  # 其中几条回答别家都请不到,是自家判自家(BR6):可能偏宽
-    no_judge: list[str] = []  # 该请裁判却一家都请不到时,无法进行 AI 判断的这几家(BR6);非空 = 这单没有裁判
+    n_own_vendor: int = 0  # 其中几条回答,判它的和写它的是同一家 AI(BR6;用户 2026-11-17 定:照样判,报告提醒一句)
+    # 该请裁判却名单里一位都用不上时,无法进行 AI 判断的这几家(BR6);非空 = 这单没有裁判。
+    # 现有的接口各自都能单独当裁判,只有以后新接的接口没配裁判才会非空
+    no_judge: list[str] = []
 
 
 class ReportPayload(FrozenModel):
