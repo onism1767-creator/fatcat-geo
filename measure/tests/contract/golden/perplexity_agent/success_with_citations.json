@@ -1,91 +1,366 @@
 {
-  "id": "resp_367113ed-7a1b-4b2e-bad7-93e53a6cbeca",
-  "object": "response",
-  "created_at": 1760400000,
-  "completed_at": 1760400006,
-  "model": "perplexity/sonar",
-  "status": "completed",
-  "error": null,
-  "output": [
+ "background": false,
+ "completed_at": 1794789095,
+ "created_at": 1794789095,
+ "effort": "low@2026-11-11.0",
+ "error": null,
+ "frequency_penalty": 0,
+ "id": "resp_2591284d-73fe-40d1-a9bf-788ab49faeb9",
+ "incomplete_details": null,
+ "instructions": null,
+ "max_output_tokens": 4096,
+ "max_tool_calls": null,
+ "metadata": {},
+ "model": "openai/gpt-6-luna",
+ "object": "response",
+ "output": [
+  {
+   "queries": [
+    "中小企业 CRM 推荐 2026 国内 纷享销客 销售易 Zoho",
+    "HubSpot CRM free pricing small business 2026",
+    "Zoho CRM pricing small business China"
+   ],
+   "results": [
     {
-      "type": "search_results",
-      "queries": [
-        "best CRM for small teams 2026"
-      ],
-      "results": [
-        {
-          "id": 1,
-          "title": "Best CRM for Small Teams (2026)",
-          "url": "https://www.example-review.com/best-crm-small-teams",
-          "date": "2026-05-11",
-          "last_updated": "2026-07-30",
-          "snippet": "We compared 12 CRMs on price, onboarding time and integrations…",
-          "source": "web"
-        },
-        {
-          "id": 2,
-          "title": "中小团队 CRM 选型指南",
-          "url": "https://blog.example.org/crm-selection-guide",
-          "date": "2026-03-02",
-          "last_updated": null,
-          "snippet": "从线索管理到自动化,本文给出五个评估维度…",
-          "source": "web"
-        },
-        {
-          "id": 3,
-          "title": "CRM 讨论帖",
-          "url": "https://forum.example.net/t/crm-for-small-teams",
-          "date": null,
-          "last_updated": null,
-          "snippet": "大家都在用什么 CRM?",
-          "source": "web"
-        }
-      ]
+     "id": 1,
+     "last_updated": "2026-10-15",
+     "snippet": "- ## ENTERPRISE\n### $ 35 /user/month\n...\n- ## PROFESSIONAL\n#",
+     "source": "web",
+     "title": "Zoho CRM - Editions & Pricing Attract, Retain and Delight More Customers. Grow Your Business Now With Zoho CRM.",
+     "url": "https://www.zoho.com.cn/crm/pricing.html"
     },
     {
-      "type": "message",
-      "id": "msg_1",
-      "role": "assistant",
-      "status": "completed",
-      "content": [
-        {
-          "type": "output_text",
-          "text": "对于中小团队,常被推荐的 CRM 包括 HubSpot 与 Zoho CRM[1],两者都提供免费档位[9]。",
-          "annotations": [
-            {
-              "type": "url_citation",
-              "start_index": 20,
-              "end_index": 27,
-              "url": "https://blog.example.org/crm-selection-guide",
-              "title": "中小团队 CRM 选型指南"
-            }
-          ],
-          "logprobs": []
-        }
-      ]
-    }
-  ],
-  "tools": [
-    {
-      "type": "web_search"
-    }
-  ],
-  "max_output_tokens": 4096,
-  "usage": {
-    "input_tokens": 4718,
-    "output_tokens": 450,
-    "total_tokens": 5168,
-    "cost": {
-      "currency": "USD",
-      "input_cost": 0.00118,
-      "output_cost": 0.001125,
-      "tool_calls_cost": 0.0025,
-      "total_cost": 0.03037
+     "id": 2,
+     "last_updated": "2026-11-08",
+     "snippet": "Foundational tools to get you started\n$0/mo\nFree for up to 2",
+     "source": "web",
+     "title": "Free Tools",
+     "url": "https://www.hubspot.com/pricing/crm"
     },
-    "tool_calls_details": {
-      "search_web": {
-        "invocation": 1
-      }
+    {
+     "date": "2025-09-24",
+     "id": 3,
+     "last_updated": "2026-10-29",
+     "snippet": "HubSpot's free CRM unifies all your customer data on one pla",
+     "source": "web",
+     "title": "Free CRM Software for Small Businesses | HubSpot",
+     "url": "https://www.hubspot.com/products/crm"
+    },
+    {
+     "date": "2026-05-19",
+     "id": 4,
+     "last_updated": "2026-10-27",
+     "snippet": "## Smart CRM Pricing That Grows With You\n### Free\nNo credit ",
+     "source": "web",
+     "title": "Free Online CRM",
+     "url": "https://www.hubspot.com/crm/pricing-cr160"
+    },
+    {
+     "id": 5,
+     "last_updated": "2026-11-14",
+     "snippet": "Foundational tools to get you started\n$0/mo\nFree for up to 2",
+     "source": "web",
+     "title": "Customer Platform Pricing",
+     "url": "https://www.hubspot.com/pricing/suite"
+    },
+    {
+     "id": 6,
+     "last_updated": "2026-10-29",
+     "snippet": "**Start with Free if:**\n- You have fewer than 5 users\n- Basi",
+     "source": "web",
+     "title": "CRM Software for Small Business | Free CRM",
+     "url": "https://www.hubspot.com/products/crm/small-business"
+    },
+    {
+     "date": "2026-09-23",
+     "id": 7,
+     "last_updated": "2026-11-14",
+     "snippet": "Starter unlocks higher usage limits, additional features, th",
+     "source": "web",
+     "title": "HubSpot's Starter Plan for Startups & Small Businesses",
+     "url": "https://www.hubspot.com/products/crm/starter"
+    },
+    {
+     "date": "2026-09-01",
+     "id": 8,
+     "last_updated": "2026-10-02",
+     "snippet": "Small teams can start with free tools and add products as th",
+     "source": "web",
+     "title": "16 best CRMs for small businesses [+ why you need one]",
+     "url": "https://blog.hubspot.com/sales/all-in-one-crm"
+    },
+    {
+     "date": "2026-10-28",
+     "id": 9,
+     "last_updated": "2026-11-07",
+     "snippet": "HubSpot's free CRM is a real no-expiry CRM for up to two use",
+     "source": "web",
+     "title": "HubSpot Review 2026: The Free CRM, Starter From $7 a Seat, and What Professional Really Costs",
+     "url": "https://javisreview.com/review/hubspot-review-2026/"
+    },
+    {
+     "date": "2026-10-28",
+     "id": 10,
+     "last_updated": "2026-11-03",
+     "snippet": "The jump from Starter to Professional takes you from $15 to ",
+     "source": "web",
+     "title": "HubSpot review 2026: free CRM limits, Sales Hub pricing",
+     "url": "https://www.bigin.com/crm-reviews/hubspot.html"
+    },
+    {
+     "date": "2026-11-02",
+     "id": 11,
+     "last_updated": "2026-11-03",
+     "snippet": "HubSpot offers a collection of free tools as part of its cus",
+     "source": "web",
+     "title": "HubSpot Products & Services Catalog | Free Tools",
+     "url": "https://legal.hubspot.com/hubspot-product-and-services-catalog/free-tools"
+    },
+    {
+     "id": 12,
+     "last_updated": "2026-11-04",
+     "snippet": "Zoho CRM Pricing and Editions - Free for 3 users\n...\nYes, Zo",
+     "source": "web",
+     "title": "Zoho CRM Pricing and Editions - Free for 3 users",
+     "url": "https://www.zoho.com/en-us/crm/zohocrm-pricing.html"
+    },
+    {
+     "date": "2020-07-30",
+     "id": 13,
+     "last_updated": "2026-10-09",
+     "snippet": "> 把 Gartner 等权威机构的评估结论、主流媒体的评测结果，以及国内外典型厂商的产品定位串在一起，给出一份**真正",
+     "source": "web",
+     "title": "2026年帮助销售主管“看得清、管得住”的CRM系统推荐 - Zoho中国",
+     "url": "https://www.zoho.com.cn/crm/articles/sales-manager0130.html"
+    },
+    {
+     "date": "2026-11-12",
+     "id": 14,
+     "last_updated": "2026-11-15",
+     "snippet": "2026年CRM选型应综合比较国产CRM与国际CRM在功能、价格、实施和扩展能力上的差异。Zoho CRM兼具国际产品能",
+     "source": "web",
+     "title": "CRM价格-CRM报价| Zoho CRM客户管理系统",
+     "url": "https://www.zoho.com.cn/crm/articles/crmprice"
+    },
+    {
+     "date": "2020-07-30",
+     "id": 15,
+     "last_updated": "2026-10-31",
+     "snippet": "2026-02-02393 阅读量10 分钟陈行远 | SaaS增长策略顾问\n> 2026年想轻松做销售报表，可优先考虑",
+     "source": "web",
+     "title": "2026年帮你轻松出销售报表的CRM系统推荐 - Zoho中国",
+     "url": "https://www.zoho.com.cn/crm/articles/sales-report0202.html"
     }
+   ],
+   "type": "search_results"
+  },
+  {
+   "queries": [
+    "Zoho Bigin pricing official small teams",
+    "纷享销客 CRM 中小企业 移动销售 官方",
+    "销售易 CRM 中小企业 官方 客户管理"
+   ],
+   "results": [
+    {
+     "id": 16,
+     "last_updated": "2026-10-09",
+     "snippet": "# Small teams do big things\n...\nBigin\n### Your escape from t",
+     "source": "web",
+     "title": "Zoho solution pricing for small teams",
+     "url": "https://www.zoho.com/r/small-teams/"
+    },
+    {
+     "id": 17,
+     "last_updated": "2026-10-14",
+     "snippet": "Bigin Pricing | Most Affordable CRM\n...\nGo Yearly and\nSAVE u",
+     "source": "web",
+     "title": "Bigin Pricing | Most Affordable CRM",
+     "url": "https://www.zoho.com/zohobigin/pricing.html"
+    },
+    {
+     "id": 18,
+     "last_updated": "2026-11-01",
+     "snippet": "# Feature Availability & Limits\n|Expand All|### Free TRY NOW",
+     "source": "web",
+     "title": "Feature Availability & Limits - Bigin",
+     "url": "https://www.zoho.com/zohobigin/help/feature-availability.html?source_from=biginpricing"
+    },
+    {
+     "id": 19,
+     "last_updated": "2026-10-31",
+     "snippet": "Affordable CRM for Small Business | From $7/User | Zoho CRM\n",
+     "source": "web",
+     "title": "Affordable CRM for Small Business | From $7/User",
+     "url": "https://www.zoho.com/crm/og-smb.html"
+    },
+    {
+     "id": 20,
+     "last_updated": "2026-11-04",
+     "snippet": "Zoho CRM Pricing and Editions - Free for 3 users\n# Close mor",
+     "source": "web",
+     "title": "Zoho CRM Pricing and Editions - Free for 3 users",
+     "url": "https://www.zoho.com/en-us/crm/zohocrm-pricing.html"
+    },
+    {
+     "id": 21,
+     "last_updated": "2026-11-14",
+     "snippet": "# Customer Information from your channels to your pipelines.",
+     "source": "web",
+     "title": "Bigin for Microsoft Teams",
+     "url": "https://www.zoho.com/zohobigin/integrations/microsoft-teams.html?src=integ_home"
+    },
+    {
+     "date": "2026-07-03",
+     "id": 22,
+     "last_updated": "2026-10-27",
+     "snippet": "Real numbers for small teams\n# How much does a CRM cost for ",
+     "source": "web",
+     "title": "How much does a CRM cost? Real numbers for small teams",
+     "url": "https://www.bigin.com/articles/how-much-does-a-crm-cost-small-business.html"
+    },
+    {
+     "id": 23,
+     "last_updated": "2026-11-14",
+     "snippet": "# Best-in-class sales and accounting for small businesses\nZo",
+     "source": "web",
+     "title": "Easy accounting with Zoho Books for Bigin | Bigin by Zoho CRM",
+     "url": "https://www.zoho.com/zohobigin/integrations/zoho-books.html?src=integ_home"
+    },
+    {
+     "date": "2021-08-05",
+     "id": 24,
+     "last_updated": "2026-09-21",
+     "snippet": "The price varies depending on the edition that you subscribe",
+     "source": "web",
+     "title": "How much does Bigin cost?",
+     "url": "https://help.zoho.com/portal/en/kb/bigin/faqs/billing-and-payment/articles/how-much-does-bigin-cost"
+    },
+    {
+     "id": 25,
+     "last_updated": "2026-11-03",
+     "snippet": "Bigin Pricing and Editions | The Most Affordable CRM\n...\n- 1",
+     "source": "web",
+     "title": "Bigin Pricing and Editions | The Most Affordable CRM",
+     "url": "https://www.bigin.com/pricing.html?src_from=zoho-desk-bigin-integ"
+    },
+    {
+     "id": 26,
+     "last_updated": "2026-10-03",
+     "snippet": "纷享销客开创 Agentic CRM 新时代，推动 CRM 从“记录与管理工具”升级为“懂业务、会思考、能工作的智能 C",
+     "source": "web",
+     "title": "纷享销客CRM - Google Play 上的应用",
+     "url": "https://play.google.com/store/apps/details?id=com.facishare.fsplay&hl=zh"
+    },
+    {
+     "id": 27,
+     "last_updated": "2026-11-03",
+     "snippet": "021-64225181\n021-64225003\n...\n|服务简介：|销售易提供营销、销售、服务一体化解决方案。包括",
+     "source": "web",
+     "title": "销售易移动CRM云平台",
+     "url": "https://www.ssme.sh.gov.cn/public/product!serviceDetail.do?productId=2c91c2876e215072016e25dcb59c1f89"
+    },
+    {
+     "date": "2026-11-02",
+     "id": 28,
+     "last_updated": "2026-11-10",
+     "snippet": "销售易——500强企业信赖的CRM\n官网：www.xiaoshouyi.com\n售前客服：400-089-8830",
+     "source": "web",
+     "title": "销售易CRM - ດາວໂຫຼດ ແລະ ຕິດຕັ້ງໃນ Windows",
+     "url": "https://apps.microsoft.com/detail/xpdc667w3prv21?hl=lo-LA&gl=CN"
+    },
+    {
+     "date": "2026-10-08",
+     "id": 29,
+     "last_updated": "2026-10-09",
+     "snippet": "依托“懂业务（四层 KnowHow）× 可治理 × 主动执行 × 持续进化”的 Agentic CRM 能力，纷享销客帮",
+     "source": "web",
+     "title": "关于纷享",
+     "url": "https://www.fxiaoke.com/crm/about-2/"
+    },
+    {
+     "date": "2026-10-27",
+     "id": 30,
+     "last_updated": "2026-10-06",
+     "snippet": "## 销售管理\n从线索到现金的客户全生命周期管理解决方案，驱动业绩可持续增长\n...\n请拨打咨询热线 400-1122-",
+     "source": "web",
+     "title": "用户手册-帮助中心",
+     "url": "https://www.fxiaoke.com/ap/datacenter/"
+    }
+   ],
+   "type": "search_results"
+  },
+  {
+   "content": [
+    {
+     "annotations": [],
+     "text": "如果没有更多背景，**3–20人的中小团队，我会先试 Zoho Bigin**：它主打轻量客户与商机管理，界面和流程相对简单；付费版公开价从每人每月 **7 美元（按年付）**起，另有单人免费版。[web:25]\n\n按需求选，可以这样看：\n\n| 你的情况 | 优先考虑 | 为什么 |\n|---|---|---|\n| 想快速把客户、跟进和销售阶段管起来，不想上复杂系统 | **Zoho Bigin** | 面向小团队，适合作为电子表格之外的轻量 CRM；免费版限 1 人、500 条记录，扩展后按用户付费。[web:25] |\n| 主要在中国做业务，重视本土销售协同、外勤或行业流程 | **纷享销客** | 提供线索、客户、商机到销售流程的管理，也覆盖移动销售场景；建议按你所在行业预约演示，确认报价和配置。[web:26] |\n| 国内业务流程较多，需要销售与服务等环节协同 | **销售易** | 覆盖营销、销售、服务等流程，也支持较灵活的业务配置；是否划算要结合实际报价和实施成本评估。[web:27] |\n| 主要做海外业务，想先低成本试用 | **HubSpot CRM** | 免费版可供最多 2 名用户使用，适合先试客户与商机管理；注意免费版有用户和联系人等限制。[web:2] |\n\n**一句话建议：**一般的小团队先试 Bigin；如果需要贴合国内行业流程或移动销售管理，再对比纷享销客、销售易。正式选型前，用真实客户数据试跑一周，重点检查手机端是否好用、跟进提醒是否够用、数据能否导出，以及总价是否包含培训和实施费用。",
+     "type": "output_text"
+    }
+   ],
+   "id": "msg_408929b5-199f-417b-8778-c139afcc462e",
+   "role": "assistant",
+   "status": "completed",
+   "type": "message"
   }
+ ],
+ "parallel_tool_calls": true,
+ "presence_penalty": 0,
+ "preset": "low@2026-11-11.0",
+ "previous_response_id": null,
+ "prompt_cache_key": null,
+ "reasoning": null,
+ "safety_identifier": null,
+ "service_tier": "default",
+ "status": "completed",
+ "store": true,
+ "temperature": 1,
+ "text": {
+  "format": {
+   "type": "text"
+  }
+ },
+ "tool_choice": "auto",
+ "tools": [
+  {
+   "type": "web_search"
+  },
+  {
+   "type": "fetch_url"
+  }
+ ],
+ "top_logprobs": 0,
+ "top_p": 1,
+ "truncation": "",
+ "usage": {
+  "cost": {
+   "cache_creation_cost": 0.00143,
+   "cache_read_cost": 0.0001,
+   "currency": "USD",
+   "input_cost": 0,
+   "output_cost": 0.00037,
+   "tool_calls_cost": 0.002,
+   "tool_calls_cost_details": {
+    "search_web": 0.002
+   },
+   "total_cost": 0.0039
+  },
+  "input_tokens": 21370,
+  "input_tokens_details": {
+   "cache_creation_input_tokens": 11441,
+   "cache_read_input_tokens": 9920,
+   "cached_tokens": 9920
+  },
+  "output_tokens": 736,
+  "output_tokens_details": {
+   "reasoning_tokens": 137
+  },
+  "tool_calls_details": {
+   "search_web": {
+    "cost_usd": 0.002,
+    "invocation": 2
+   }
+  },
+  "total_tokens": 22106
+ },
+ "user": null
 }

@@ -1,48 +1,82 @@
 {
-  "id": "resp_367113ed-7a1b-4b2e-bad7-93e53a6cbeca",
-  "object": "response",
-  "created_at": 1760400000,
-  "completed_at": 1760400006,
-  "model": "perplexity/sonar",
-  "status": "completed",
-  "error": null,
-  "output": [
+ "background": false,
+ "completed_at": 1794789158,
+ "created_at": 1794789158,
+ "effort": "low@2026-11-11.0",
+ "error": null,
+ "frequency_penalty": 0,
+ "id": "resp_56535a17-06bc-45c9-87fe-d07fe87282c6",
+ "incomplete_details": null,
+ "instructions": null,
+ "max_output_tokens": 4096,
+ "max_tool_calls": null,
+ "metadata": {},
+ "model": "openai/gpt-6-luna",
+ "object": "response",
+ "output": [
+  {
+   "content": [
     {
-      "type": "message",
-      "id": "msg_1",
-      "role": "assistant",
-      "status": "completed",
-      "content": [
-        {
-          "type": "output_text",
-          "text": "这个问题不需要查资料:先明确团队规模和预算。",
-          "annotations": [],
-          "logprobs": []
-        }
-      ]
+     "annotations": [],
+     "text": "For most beginners running on roads, **Brooks Ghost 18** is a sensible first pair: it’s a cushioned, straightforward daily trainer that works as a baseline while you learn what feels comfortable. *Runner’s World* names it its best overall beginner shoe and recommends it as a starting point for new runners.\n\nOther good options:\n\n- **ASICS Novablast 6** — a springier-feeling alternative; RTINGS and Tom’s Guide both rate it highly for beginners.\n- **New Balance Ellipse** — a value-focused option highlighted by *Runner’s World*.\n- **Brooks Adrenaline GTS 25** — worth trying if a running-store fitting suggests you’d benefit from a stability shoe.\n\n**Fit matters more than the model:** try shoes on with your usual running socks, ideally later in the day; look for about a thumb’s width of space in front of your longest toe, a secure heel, and no midfoot pressure. Walk or jog in a few pairs and choose the one that feels comfortable right away.",
+     "type": "output_text"
     }
-  ],
-  "tools": [
-    {
-      "type": "web_search"
-    }
-  ],
-  "max_output_tokens": 4096,
-  "usage": {
-    "input_tokens": 4718,
-    "output_tokens": 450,
-    "total_tokens": 5168,
-    "cost": {
-      "currency": "USD",
-      "input_cost": 0.00118,
-      "output_cost": 0.001125,
-      "tool_calls_cost": 0.0025,
-      "total_cost": 0.0012
-    },
-    "tool_calls_details": {
-      "search_web": {
-        "invocation": 1
-      }
-    }
+   ],
+   "id": "msg_7b43d479-b931-480b-8938-bbd3b0245d8c",
+   "role": "assistant",
+   "status": "completed",
+   "type": "message"
   }
+ ],
+ "parallel_tool_calls": true,
+ "presence_penalty": 0,
+ "preset": "low@2026-11-11.0",
+ "previous_response_id": null,
+ "prompt_cache_key": null,
+ "reasoning": null,
+ "safety_identifier": null,
+ "service_tier": "default",
+ "status": "completed",
+ "store": true,
+ "temperature": 1,
+ "text": {
+  "format": {
+   "type": "text"
+  }
+ },
+ "tool_choice": "auto",
+ "tools": [
+  {
+   "type": "web_search"
+  },
+  {
+   "type": "fetch_url"
+  }
+ ],
+ "top_logprobs": 0,
+ "top_p": 1,
+ "truncation": "",
+ "usage": {
+  "cost": {
+   "cache_creation_cost": 0.00052,
+   "cache_read_cost": 3e-05,
+   "currency": "USD",
+   "input_cost": 0,
+   "output_cost": 0.00019,
+   "tool_calls_cost": 0,
+   "total_cost": 0.00074
+  },
+  "input_tokens": 6986,
+  "input_tokens_details": {
+   "cache_creation_input_tokens": 4138,
+   "cache_read_input_tokens": 2842,
+   "cached_tokens": 2842
+  },
+  "output_tokens": 387,
+  "output_tokens_details": {
+   "reasoning_tokens": 68
+  },
+  "total_tokens": 7373
+ },
+ "user": null
 }

@@ -10,6 +10,8 @@
 surfaces:
   # 2026-10-14 迁到 Agent API(旧 Sonar chat/completions 2026-09-27 停止支持):output 里的 search_results 项暴露
   # 检索词与候选结果,supports_query_trace 改 true;引用 = 正文 [n] / [web:n] 标记指到的结果(平台自己的标记,机械解析)。
+  # 2026-11-15 用户定:改测 Perplexity 自己维护的 low 预设(固定版本 low@2026-11-11.0),删掉 sonar;预设给正文引用标记,
+  # 引用从「看不到」变成看得到。能力声明不变。
   - name: perplexity_agent
     provider: perplexity
     aliases: [sonar, pplx]

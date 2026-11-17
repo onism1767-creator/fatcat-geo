@@ -1,22 +1,29 @@
-"""Perplexity 生成+引用+检索通道(Agent API `POST /v1/agent`,S9.0 迁移;
-旧 Sonar chat/completions 已于 2026-09-27 停止支持)。
+"""Perplexity 生成+引用+检索通道(Agent API `POST /v1/agent`;S9.0 从旧 Sonar chat/completions 迁来)。
 
 只做翻译:AskRequest → 平台调用;平台返回 → SurfaceRun(6.3)。
 
-- 请求:`model` 用平台的「厂商/型号」写法(本仓库只测 Perplexity 自家的 perplexity/sonar),`input` 原样放题目,
-  带一个 `web_search` 工具;回答长度上限 MAX_OUTPUT_TOKENS 是本 surface 的固定口径。
-- 返回是一串 `output` 项:`search_results`(检索词 queries + 结果 results,每条有 id)、`message`(正文)。
-  Answer.citations 走两条机械通道合并:正文段落的 `annotations`(官方 schema 的 url_citation:start_index / url / title)
-  与正文里 `[n]` / `[web:n]` 标记指到的结果;按在正文里出现的位置排序、按 url 去重——都是平台自己给的对应,不判定。
-  搜了、但两条通道都是空的 → citations_available=False:平台没把回答和来源对上,「看不到」;
-  不得记成「引用 0 条」(2026-10-14 实测 perplexity/sonar 三次都是 annotations=[] 且正文无标记,见错误日志)。
-  没搜 → 没有来源可引,citations=[] 且 citations_available=True(真实的「没引」)。
-  SearchTrace.retrieved_sources = 全部检索结果(按平台返回的顺序,rank = 顺序)、generated_queries = 检索词:
-  两者 Agent API 都暴露,所以本 surface 自 S9.0 起 supports_query_trace=True(旧接口时期标「看不到」是因为平台不给)。
-- 没有机器可读的拒答信号(旧接口的 finish_reason=content_filter 在 Agent API 里没有对应):
-  不从正文猜「算不算拒答」(属 L2)。
-  status=failed(平台回了话却没办成,golden 里是「模型过载」)→ AdapterTransientError 交调度器重试,与另两家同口径
-  (第三轮审核 A9;原来记永久失败不重试、还进熔断窗口);status=incomplete(截断)→ 回答仍有效,SUCCESS。
+- 测什么(用户 2026-11-15 定「换成 low 预设」):Perplexity 自己维护的 **low 预设**(`effort`),固定版本 PRESET。
+  预设 = Perplexity 配好的一整套:型号、搜索设置、步数、系统提示词、工具(web_search、fetch_url)。
+  官方定位「日常研究问题」,和我们的题型对得上;它是「Perplexity 替你挑」的接口版,不是应用里的「Best」本身
+  (「Best」挑了哪个型号,接口里没有对应,记看不到)。
+  原来测的 perplexity/sonar 11-15 删掉:应用里已手选不到,Perplexity 自家的预设也不用它;旧的 sonar 回答留在库里。
+- 请求:`effort` 放固定版本(不放 model、不放 tools,都用预设自带的),`input` 原样放题目,
+  `max_output_tokens` = MAX_OUTPUT_TOKENS(回答长度保险丝是口径,用户定不放宽;预设本身不设,这里覆盖)。
+  版本固定后 Perplexity 改预设也不影响我们;回包的 `effort` 字段写明实际跑的版本,
+  `model` 字段写明背后的型号(都在 raw_payload)。
+- 返回是一串 `output` 项:`search_results`(检索词 queries + 结果 results,每条有 id;搜几轮就几项,id 全程接着编,
+  11-15 真实回包核过)、`fetch_url_results`(打开的网页:url / 标题 / 摘录)、`message`(正文)。
+  Answer.citations 走两条机械通道合并:正文段落的 `annotations`(url_citation)与正文里 `[n]` / `[web:n]` 标记指到的结果;
+  按在正文里出现的位置排序、按 url 去重——都是平台自己给的对应,不判定。
+  预设给正文标记(官方写「带正文内引用」,冒烟 4/4 有),这条通道是通的,所以 citations_available 一律 True:
+  搜了没标记就是真的没引,记 0 条。
+  (原来 sonar 从不给对应,「搜了却没对上」记看不到;方法版本 0.4.34 改。)
+  SearchTrace:retrieved_sources = 全部检索结果(按平台返回顺序,rank = 顺序),generated_queries = 检索词,
+  opened_sources = fetch_url 打开的网页(工具调用可见,没打开就是空列表)。
+- 没有机器可读的拒答信号:不从正文猜「算不算拒答」(属 L2)。
+  status=failed(平台回了话却没办成)→ AdapterTransientError 交调度器重试,与另两家同口径(第三轮审核 A9);
+  status=incomplete(截断)→ 回答仍有效,SUCCESS。
+- 费用记平台自报的 total_cost(分项齐全:输入三档、输出、搜索、打开网页);用量与牌价只给确认页估价。
 """
 
 from __future__ import annotations
@@ -30,7 +37,6 @@ import httpx
 from adapters.base import AdapterTransientError, CapabilityRegistry, SurfaceMeta, known_model
 from adapters.http_support import STRUCTURE_ERRORS, HttpAdapter, domain_of, full_body, malformed, require_list, spent_on
 from engine.models import (
-    NOT_OBSERVABLE,
     Answer,
     AskRequest,
     Citation,
@@ -46,33 +52,35 @@ AGENT_URL = f"{BASE_URL}/v1/agent"
 MAX_OUTPUT_TOKENS = 4096  # 回答长度上限(成本上界的一部分),属本 surface 的固定口径
 _SUCCESS_STATUSES = ("completed", "incomplete")  # incomplete = 截断,回答仍有效
 
-# 官方价目(2026-10-14 核对,docs.perplexity.ai/docs/agent-api/models):模型 → (输入, 输出) USD / MTok
-# 只列 Perplexity 自家当前一代型号;Agent API 里挂的 OpenAI / Anthropic / Google 型号由各自适配器直接测,这里不重复
-_TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
-    "perplexity/sonar": (0.25, 2.50),
-}
-_WEB_SEARCH_USD_PER_CALL = 0.0025  # 工具费:web_search 每次调用(同页)
-# 牌价(计费项与 _usage 读出的键一致):实际费用仍按平台自报的 total_cost 记(下面 _cost_usd),这张表只给确认页按用量估价用;
-# 平台另按同样的输入价收一笔「缓存建立费」,已含在它报的 input_tokens 里,所以用量 × 牌价和自报总价对得上
-# (2026-11-03 对过一条)
+# 被测对象 = 一个固定版本的预设(型号名就是平台的版本名,报告里写「Perplexity Agent API · low@2026-11-11.0」)。
+# 2026-11-15 核对 docs.perplexity.ai/docs/agent-api/effort:low 预设背后是 openai/gpt-6-luna,最多 5 步,
+# web_search(快搜、15 条、每页 4,000 token)+ fetch_url(一次 1 个网页、共 1 万 token),推理力度 minimal;
+# 同页 fast / medium 也是 gpt-6-luna,high 是 gpt-6.1-terra。
+PRESET = "low@2026-11-11.0"
+# 牌价(计费项与 _usage 读出的键一致;实际费用记平台自报的 total_cost,这张表只给确认页估价):
+# 2026-11-15 核对 Agent API 型号页 gpt-6-luna $0.10 / $0.50 每百万,并拿冒烟回包的分项验算
+# (缓存写入 1.25 倍、读取 0.1 倍、搜索每次 $0.001,四条与 total_cost 一分不差);
+# 打开网页的费用平台按它自己的抽取用量算、直接给美元,照搬(fetch_usd,单价 1)。
 _PRICE_TABLE: dict[str, dict[str, float]] = {
-    model: {"input_tokens": price_in / 1e6, "output_tokens": price_out / 1e6, "searches": _WEB_SEARCH_USD_PER_CALL}
-    for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
+    PRESET: {
+        "input_tokens": 0.10 / 1e6,
+        "cache_write_tokens": 0.125 / 1e6,
+        "cached_input_tokens": 0.01 / 1e6,
+        "output_tokens": 0.50 / 1e6,
+        "searches": 0.001,
+        "fetch_usd": 1.0,
+    },
 }
-_DEFAULT_MODEL = "perplexity/sonar"
-# 型号标记(配置资产,用户定 2026-10-14;2026-11-15 定「主力 = 消费端默认在最新一代里的同款」):2026-11-11 核对官方帮助中心
-# 「What is Perplexity Pro?」(10-26 更新):Pro 默认是「Best」模式,由它按问题自动挑型号,官方没写挑哪个;可选的自家型号
-# 只有 Sonar(其余是别家的 GPT / Claude / Gemini,归各家自己的适配器)。所以消费端默认与主力都是 sonar。
-# 2026-11-15 按工程原则 10 复核:Pro 介绍页 11-12 改过,可选型号变成 GPT-6.1 Sol / Claude Sonnet 5.5 / Gemini 3.8 Flash,
-# 整页不再提 Sonar;默认仍是「Best」自动挑(官方没写挑哪个)。Agent API 型号页自家仍只有 perplexity/sonar
-# ($0.25 / $2.50),所以标记不变;这台仪器测的 sonar 还能不能代表 Perplexity 应用,待用户定(任务列表第十五节)。
-_CONSUMER_DEFAULT_MODEL = "perplexity/sonar"
-_MAIN_MODEL = "perplexity/sonar"
-_MODELS_CHECKED = ("2026-10-14 官方 Agent API 型号与价目页;2026-11-11 官方帮助中心「What is Perplexity Pro?」:"
-                   "默认「Best」自动挑型号、自家只有 Sonar,消费端默认与主力都填 sonar;"
-                   "2026-11-15 主力规则改成「消费端默认在最新一代里的同款」,自家只有一款,结果不变;"
-                   "2026-11-15 复核:Pro 页不再列 Sonar,Agent API 自家仍只有 sonar,"
-                   "标记不变,代表性待用户定")
+# 型号标记(配置资产,用户定 2026-10-14;2026-11-15 定「主力 = 消费端默认在最新一代里的同款」、同日定「换成 low 预设」):
+# 应用默认是「Best」自动挑(免费版只能用它,官方没说挑哪个);接口里没有「Best」,
+# 最接近的是 Perplexity 自己维护、替你挑型号的预设。
+# 清单只有这一个,所以默认、消费端默认、主力都是它。
+_CONSUMER_DEFAULT_MODEL = PRESET
+_MAIN_MODEL = PRESET
+_MODELS_CHECKED = ("2026-11-15 官方帮助中心:Sonar 不在 Pro 手选清单(11-11 快照),应用默认「Best」自动挑、没说挑哪个;"
+                   "Agent API 预设页:fast / low / medium 背后是 openai/gpt-6-luna;"
+                   "用户定改测 low 预设、固定版本 low@2026-11-11.0,删掉 perplexity/sonar;"
+                   "冒烟 4 道题:引用 4/4 看得到,每次 $0.0017–0.0045")
 
 _CAPABILITIES = CapabilityRegistry(supports_query_trace=True, supports_citations=True)
 
@@ -104,6 +112,13 @@ def _search_results(items: list[dict[str, Any]]) -> tuple[list[str], list[dict[s
     return queries, results
 
 
+def _opened(items: list[dict[str, Any]]) -> list[str]:
+    """fetch_url 打开的网页网址,按出现顺序去重。"""
+    urls = [c["url"] for item in items if item.get("type") == "fetch_url_results"
+            for c in item.get("contents") or [] if isinstance(c, dict) and c.get("url")]
+    return list(dict.fromkeys(urls))
+
+
 def _citations(parts: list[dict[str, Any]], results: list[dict[str, Any]]) -> list[Citation]:
     """两条机械通道合并:段落 annotations(url_citation)与正文 [n] / [web:n] 标记指到的结果;
     按在正文里出现的位置排序、按 url 去重;标记指向不存在的 id 忽略(不猜)。"""
@@ -131,13 +146,22 @@ def _citations(parts: list[dict[str, Any]], results: list[dict[str, Any]]) -> li
 
 
 def _usage(data: dict[str, Any]) -> dict[str, float]:
-    """这次调用的计费用量:输入 / 输出 token、web_search 调用次数(费用本身按平台自报,见 _cost_usd)。"""
+    """这次调用的计费用量,键与 _PRICE_TABLE 一致:
+    输入三档(没命中缓存的 / 写入缓存的 / 命中缓存的,之和 = 平台报的 input_tokens)、
+    输出 token、搜索次数、打开网页的费用(平台直接给美元)。费用本身按平台自报,见 _cost_usd。"""
     usage = data.get("usage") or {}
-    searches = ((usage.get("tool_calls_details") or {}).get("search_web") or {}).get("invocation") or 0
+    details = usage.get("input_tokens_details") or {}
+    tools = usage.get("tool_calls_details") or {}
+    total_input = float(usage.get("input_tokens") or 0)
+    written = float(details.get("cache_creation_input_tokens") or 0)
+    cached = float(details.get("cache_read_input_tokens") or 0)
     return {
-        "input_tokens": float(usage.get("input_tokens") or 0),
+        "input_tokens": max(0.0, total_input - written - cached),
+        "cache_write_tokens": written,
+        "cached_input_tokens": cached,
         "output_tokens": float(usage.get("output_tokens") or 0),
-        "searches": float(searches),
+        "searches": float((tools.get("search_web") or {}).get("invocation") or 0),
+        "fetch_usd": float((tools.get("fetch_url") or {}).get("cost_usd") or 0),
     }
 
 
@@ -160,22 +184,14 @@ def _translate(
     parts = _text_parts(items)
     text = "".join(part["text"] for part in parts)
     searched = _search_results(items)
-    if searched is None:
-        trace = SearchTrace(search_triggered=False, generated_queries=[], retrieved_sources=[],
-                            opened_sources=NOT_OBSERVABLE)
-        citations: list[Citation] = []
-        citations_available = True  # 没搜就没有来源可引:「没引」是真实观测
-    else:
-        queries, results = searched
-        trace = SearchTrace(
-            search_triggered=True,
-            generated_queries=queries,
-            retrieved_sources=[RetrievedSource(url=r["url"], domain=domain_of(r["url"]), rank=i + 1)
-                               for i, r in enumerate(results)],
-            opened_sources=NOT_OBSERVABLE,
-        )
-        citations = _citations(parts, results)
-        citations_available = bool(citations)  # 搜了却一条都没对上:平台没给回答与来源的对应,看不到(不记 0 条)
+    queries, results = searched if searched is not None else ([], [])
+    trace = SearchTrace(
+        search_triggered=searched is not None,
+        generated_queries=queries,
+        retrieved_sources=[RetrievedSource(url=r["url"], domain=domain_of(r["url"]), rank=i + 1)
+                           for i, r in enumerate(results)],
+        opened_sources=_opened(items),
+    )
     return SurfaceRun(
         run_id=request.run_id,
         prompt_id=request.prompt_id,
@@ -188,7 +204,8 @@ def _translate(
         region=request.region,
         outcome=Outcome.SUCCESS,
         search_trace=trace,
-        answer=(Answer(answer_text=text, citations_available=citations_available, citations=citations)
+        # 预设给正文标记,对应这条通道是通的:没标记就是真的没引(0 条),不是看不到
+        answer=(Answer(answer_text=text, citations_available=True, citations=_citations(parts, results))
                 if text else None),
         raw_payload=data,
         timestamp=started_at,
@@ -207,19 +224,16 @@ class PerplexityAgentAdapter(HttpAdapter):
             surface="perplexity_agent",
             display_name="Perplexity",
             api_name="Perplexity Agent API",
-            models=list(_TOKEN_PRICES_PER_MTOK),
-            default_model=_DEFAULT_MODEL,
+            models=[PRESET],
+            default_model=PRESET,
             consumer_default_model=_CONSUMER_DEFAULT_MODEL,
             main_model=_MAIN_MODEL,
             models_checked=_MODELS_CHECKED,
             capabilities=_CAPABILITIES,
             price_table=_PRICE_TABLE,
-            # 口径:推导上界——官方样例一次搜索约 4,700 输入 token;按 6,000 输入 + 800 输出 + 1 次搜索:
-            # (6000×$0.25 + 800×$2.5)/1e6 + $0.0025 ≈ $0.006;有足量实测后确认页改读实测均值
-            est_cost_per_call_usd={
-                model: round((6000 * price_in + 800 * price_out) / 1e6 + _WEB_SEARCH_USD_PER_CALL, 3)
-                for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
-            },
+            # 口径:推导上界(冒烟实测 $0.0017–0.0045 / 次):30,000 输入全按缓存写入价 + 1,500 输出 + 5 次搜索(最多 5 步)
+            # + 打开网页 $0.005(冒烟一次 $0.0021)≈ $0.0145;有足量实测后确认页改读实测
+            est_cost_per_call_usd={PRESET: 0.015},
         )
 
     def usage_of(self, raw_payload: JsonValue) -> dict[str, float]:
@@ -227,13 +241,8 @@ class PerplexityAgentAdapter(HttpAdapter):
 
     def ask(self, request: AskRequest) -> SurfaceRun:
         _CAPABILITIES.require_request(request)
-        model = known_model(request.model, _DEFAULT_MODEL, _TOKEN_PRICES_PER_MTOK)
-        payload = {
-            "model": model,
-            "input": request.prompt_text,
-            "tools": [{"type": "web_search"}],
-            "max_output_tokens": MAX_OUTPUT_TOKENS,
-        }
+        preset = known_model(request.model, PRESET, _PRICE_TABLE)
+        payload = {"effort": preset, "input": request.prompt_text, "max_output_tokens": MAX_OUTPUT_TOKENS}
         data, latency_ms, started_at = self._post(AGENT_URL, payload=payload, timeout_s=request.timeout_s)
         items = _output_items(data)
         status = data.get("status")
@@ -242,9 +251,12 @@ class PerplexityAgentAdapter(HttpAdapter):
             raise AdapterTransientError(f"平台返回 status={status!r}: {error.get('message') or '无说明'}",
                                         response_body=full_body(data), cost_usd=spent_on(lambda: _cost_usd(data)))
         try:
-            return _translate(request, model, items, data, latency_ms, started_at)
+            return _translate(request, preset, items, data, latency_ms, started_at)
         except STRUCTURE_ERRORS as exc:  # 字段类型怪(标题不是字符串、位置不是数字、成本不是数……):也算结构不符
             raise malformed(exc, data, lambda: _cost_usd(data)) from exc
 
     def healthcheck(self) -> bool:
-        return self._probe(AGENT_URL, payload={"model": _DEFAULT_MODEL, "input": "ping", "max_output_tokens": 16})
+        """按同一个固定版本发最小请求:顺带确认这个版本还在(版本没了平台回 400,预检报 PRECHECK_REJECTED);
+        限 1 步、16 个输出 token,一次约一两厘钱。"""
+        return self._probe(AGENT_URL, payload={"effort": PRESET, "input": "ping", "max_output_tokens": 16,
+                                               "max_steps": 1})
