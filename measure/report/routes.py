@@ -56,9 +56,13 @@ def _home(request: Request, error: str) -> HTMLResponse:
     return ctx.render(request, "index.html", jobs=ctx.registry.recent(), surfaces=sorted(ctx.adapters), error=error)
 
 
+HOME_ERROR_PARAMS = ("ai", "model", "detail", "names")  # 跳回首页的错误句子用到的占位符(都在下面的跳转里拼)
+
+
 @router.get("/", response_class=HTMLResponse)
 def index(request: Request, error: str = ""):
-    params = {k: v for k, v in request.query_params.items() if k not in ("lang", "error")}  # 错误句子的占位符
+    # 只收这几个占位符:原来地址栏的参数全当关键字传进去,多带 code= / request= 就撞参数名、整页 500(第三轮审核 A20)
+    params = {k: request.query_params[k] for k in HOME_ERROR_PARAMS if k in request.query_params}
     return _home(request, error_text(request, error, **params))
 
 
@@ -75,6 +79,8 @@ def create_job(
 ):
     ctx = ctx_of(request)
     locale = locale if locale in ("zh-CN", "en-US") else "zh-CN"
+    if not brand_name.strip() or not category.strip():  # 只填空格也算没填:否则整单照跑照花钱(第三轮审核 A19)
+        return _home(request, error_text(request, "FORM_EMPTY_FIELD"))
     if website_host(website) is None:  # 不是网址就别往下走:否则官网名单为空、一单白花钱(审核 2026-10-27 黄 18)
         return _home(request, error_text(request, "FORM_BAD_WEBSITE"))
     brand, normalized = brand_from_form(brand_name, aliases, website)
@@ -213,7 +219,8 @@ def confirm_page(request: Request, job: DiagnosisJob = Depends(existing_job), er
     default_keys = {x.key for spec, targets in tier_cards if spec.name == tiers.default for x in targets}
     t = MESSAGES[lang_of(request)]
     basis = [  # 每个型号的单价是怎么来的,按依据分组各说一句(成本调研②:没实测过的说清是借同家默认型号的用量算的)
-        t[f"est_basis_{kind.value}"].format(names="、".join(ctx.target_name(x.surface, x.model) for x in targets))
+        t[f"est_basis_{kind.value}"].format(names=t["list_sep"].join(ctx.target_name(x.surface, x.model)
+                                                                     for x in targets))
         for kind, targets in prices.by_basis().items()
     ]
     basis.append(t["est_basis_tail"])

@@ -3,7 +3,7 @@
 {% block content %}
 <h1>{{ t["confirm_title"] }}</h1>
 <p class="muted">{{ t["brand_word"] }}:{{ job.brand.name }}({{ ", ".join(job.brand.domains) }}) ·
-{{ t["category_word"] }}:{{ job.category }} · {{ t["locale_word"] }}:{{ job.locale }}。
+{{ t["category_word"] }}:{{ job.category }} · {{ t["locale_word"] }}:{{ job.locale }}{{ t["sentence_end"] }}
 {{ t["confirm_note"] }}</p>
 {% if error %}<div class="err">{{ error }}</div>{% endif %}
 

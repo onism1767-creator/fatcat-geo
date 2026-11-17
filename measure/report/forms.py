@@ -19,7 +19,7 @@ from report.jobs import DiagnosisJob
 MAX_PROMPTS = 40  # 产品文档默认 24 道;用户可增删,封顶 40
 # 表单校验会返回的错误码(S10.1):都在 config/errors.yaml 里(测试把守),文案从库里取
 FORM_CODES = ("FORM_PROMPTS_COUNT", "FORM_NO_TARGET", "FORM_BAD_TIER", "FORM_RUNS_RANGE", "FORM_BAD_BUDGET",
-              "FORM_NO_QUESTION", "FORM_CATEGORY_EMPTY", "FORM_BAD_WEBSITE", "RESUME_MISSING_AI")
+              "FORM_NO_QUESTION", "FORM_CATEGORY_EMPTY", "FORM_BAD_WEBSITE", "FORM_EMPTY_FIELD", "RESUME_MISSING_AI")
 
 
 def lines_of(text: str) -> list[str]:

@@ -72,6 +72,7 @@ def test_response_page_shows_one_answer_with_its_recorded_judgements(storage):
     assert raw.json()["run_id"] == "r1" and raw.json()["raw_payload"] == {"platform": "raw"}
     en = client.get(f"/jobs/{job.job_id}/responses/r1?lang=en").text
     assert "Mentioned you?" in en and "Yes" in en
+    assert "“极光CRM 适合中小团队 &lt;script&gt;alert(1)&lt;/script&gt;”" in en  # 英文页用英文引号(第三轮审核 A21)
 
 
 def test_response_page_refuses_answers_outside_this_job(storage):

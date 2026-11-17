@@ -50,6 +50,12 @@ errors:
     trigger: {zh: "首页填的官网地址不是一个网址(拆不出主机名、没有点、有空段或空格等不许用的字符、不是 http / https)", en: "The website typed on the home page is not a web address (no host name, no dot, an empty part, a character not allowed in addresses such as a space, or not http / https)"}
     message: {zh: "官网地址看着不像一个网址,请检查后再填。", en: "The website does not look like a web address — please check it."}
     next_step: {zh: "填成 aurora-crm.com 或 https://www.aurora-crm.com 这样。", en: "Enter it like aurora-crm.com or https://www.aurora-crm.com."}
+  - code: FORM_EMPTY_FIELD
+    scope: form
+    resumable: false
+    trigger: {zh: "首页的品牌名或品类只填了空格", en: "The brand name or category on the home page is only spaces"}
+    message: {zh: "品牌名和品类都要填,不能只填空格。", en: "Brand name and category can't be left blank or just spaces."}
+    next_step: {zh: "填上再提交。", en: "Fill them in, then submit."}
   - code: FORM_CATEGORY_EMPTY
     scope: form
     resumable: false

@@ -54,6 +54,37 @@ def test_bad_website_is_refused_on_the_home_page_before_anything_is_spent():
     assert "does not look like a web address" in visible_text(en.text)
 
 
+def test_brand_name_or_category_of_only_spaces_is_refused_before_anything_is_spent():
+    """只填空格原来能过,整单照跑照花钱、全是没提到(第三轮审核 A19)。"""
+    client = _client()
+    for field in ("brand_name", "category"):
+        resp = client.post("/jobs?lang=zh", data={**FORM, field: "   "})
+        assert resp.status_code == 200 and "不能只填空格" in visible_text(resp.text), field
+    assert client.app.state.ctx.registry.recent() == []
+    en = client.post("/jobs?lang=en", data={**FORM, "brand_name": " "})
+    assert "left blank or just spaces" in visible_text(en.text)
+
+
+def test_extra_address_bar_params_on_the_home_page_are_ignored_not_a_500():
+    """地址栏多带的参数原来全当关键字传进错误句子,带 code= / request= 就整页 500(第三轮审核 A20)。"""
+    client = _client()
+    assert client.get("/?code=1&request=2&self=3&with_next_step=0").status_code == 200
+    page = client.get("/?lang=zh&error=DRAFTING_FAILED&detail=boom&code=1&request=2&lang2=x")
+    assert page.status_code == 200 and "boom" in visible_text(page.text)
+
+
+def test_every_placeholder_a_redirect_puts_in_the_home_address_is_let_through():
+    """首页只收白名单里的占位符:跳回首页的地址里拼的每个参数都得在名单里,不然那句错误就不显示了。"""
+    import re
+
+    from report.routes import HOME_ERROR_PARAMS
+
+    source = (ROOT / "report" / "routes.py").read_text(encoding="utf-8")
+    redirects = re.findall(r'f"/\?error=[^)]*', source)
+    used = {name for chunk in redirects for name in re.findall(r"&(\w+)=", chunk)}
+    assert used and used <= set(HOME_ERROR_PARAMS)
+
+
 def test_cross_site_posts_are_rejected_and_same_site_ones_pass():
     """建任务那条 POST 不要任务编号:别的网页发来的表单能替用户花钱出题,按 Origin 头拒绝(黄 19)。"""
     client = _client()

@@ -36,7 +36,7 @@ def sentiment_items_text(st: SentimentTally, lang: str) -> str:
     报告页与结果文件同用(第三轮审核 B4)。"""
     t = MESSAGES[lang]
     items = [("positive", st.positive), ("neutral", st.neutral), ("negative", st.negative), ("mixed", st.mixed)]
-    return t["sentiment_sep"].join(
+    return t["list_sep"].join(
         t["sentiment_item"].format(label=t["sentiment_" + key], n=n, p=pct(n, st.total))
         for key, n in items if n or key != "mixed")
 
@@ -95,9 +95,9 @@ def retest_swap_lines(swaps: list[ModelSwap], name_of: Callable[[str, str], str]
     t = MESSAGES[lang]
     lines = []
     for swap in swaps:
-        old = t["count_sep"].join(name_of(swap.surface, m) for m in swap.retired)
+        old = t["list_sep"].join(name_of(swap.surface, m) for m in swap.retired)
         if swap.current:
-            new = t["count_sep"].join(name_of(swap.surface, m) for m in swap.current)
+            new = t["list_sep"].join(name_of(swap.surface, m) for m in swap.current)
             lines.append(t["retest_swap_line"].format(old=old, new=new))
         else:
             lines.append(t["retest_swap_dropped"].format(old=old))
@@ -113,7 +113,7 @@ def api_line_text(line: ApiLine, lang: str) -> str:
             t["line_first" if i == 0 else "line_rest"].format(model=m, p=pct(r.k, r.n), k=r.k, n=r.n)
             for i, (m, r) in enumerate(line.unprompted)
         ]
-        unprompted = t["count_sep"].join(items)
+        unprompted = t["list_sep"].join(items)
     else:
         unprompted = t["line_unprompted_none"]
     sure = [flag for _, flag in line.prompted if flag is not None]
@@ -139,7 +139,7 @@ def count_models(counts: dict[str, int], n: int, lang: str) -> str:
     """「3 个型号里:1 个良好、1 个不够稳定、1 个较弱」——用词不用灯。"""
     t = MESSAGES[lang]
     items = [t["count_item"].format(k=counts[s], word=t["count_" + s]) for s in _STATUS_ORDER if counts.get(s)]
-    return t["count_models"].format(n=n, items=t["count_sep"].join(items))
+    return t["count_models"].format(n=n, items=t["list_sep"].join(items))
 
 
 def wrap_up_text(w: WrapUp, lang: str, reps: int, first_action: str | None) -> str:
@@ -207,7 +207,7 @@ def verdict_text(verdict: SurfaceVerdict, display: str, lang: str) -> str:
     # 每句都收尾,句与句之间按语言隔开(原来中文少句号、英文少空格,两句粘在一起;第二轮)
     text = t["sentence_sep"].join(s + t["sentence_end"] for s in sentences)
     if verdict.missing:
-        missing = t["count_sep"].join(render_msg(msg(code), lang, "plain") for code in verdict.missing)
+        missing = t["list_sep"].join(render_msg(msg(code), lang, "plain") for code in verdict.missing)
         text += f"{t['sentence_sep']}({t['missing_pre']}{missing})"
     return text
 
@@ -241,7 +241,7 @@ def calibration_text(report: CalibrationReport, lang: str) -> str:
     parts.append(t["calib_tail"])
     stale = report.stale_methods()
     if stale:  # 第 22 条:判定器升过版本,这份数字是旧版的,照实提示
-        parts.append(t["calib_stale"].format(methods=t["count_sep"].join(t[f"calib_method_{m}"] for m in stale)))
+        parts.append(t["calib_stale"].format(methods=t["list_sep"].join(t[f"calib_method_{m}"] for m in stale)))
     return "".join(parts)
 
 
@@ -252,7 +252,7 @@ def stop_detail_text(detail: StopDetail, lang: str, errors: ErrorLibrary, ai: st
     entry = errors[detail.stop_reason.value]
     if detail.search_mode is SearchMode.SEARCH_DISABLED:
         ai = ai + t["breaker_offline_leg"]
-    parts = t["breaker_sep"].join(t["breaker_code_" + code].format(c=n) for code, n in detail.failure_counts.items())
+    parts = t["list_sep"].join(t["breaker_code_" + code].format(c=n) for code, n in detail.failure_counts.items())
     lines = [
         entry.message[lang].format(ai=ai, model=detail.model),
         t["breaker_detail"].format(n=detail.n_attempts, k=sum(detail.failure_counts.values()),

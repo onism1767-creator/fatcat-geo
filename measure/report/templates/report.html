@@ -85,7 +85,7 @@
         <label style="font-weight:400"><input type="checkbox" name="confirm" value="{{ d.domain }}"> {{ t["official_add"] }}</label></li>
     {% endfor %}</ul>
     {% endif %}
-    {% if removed %}<p class="muted">{{ t["official_removed_intro"].format(domains="、".join(removed|map(attribute="domain"))) }}</p>{% endif %}
+    {% if removed %}<p class="muted">{{ t["official_removed_intro"].format(domains=t["list_sep"].join(removed|map(attribute="domain"))) }}</p>{% endif %}
     {% if dl.official_channels %}
     <p>{{ t["official_channels_intro"] }}</p>
     <ul class="ev">{% for c in dl.official_channels %}<li><b>{{ c.match }}</b>({{ c.platform }})— {{ ev(c.evidence) }}</li>{% endfor %}</ul>
@@ -95,7 +95,7 @@
   </form>
   {% if dl.user_changed %}<p class="muted">{{ t["official_changed"] }}</p>{% endif %}
   {% else %}
-  <p>{{ t["official_current"].format(domains="、".join(job.brand.domains)) }}</p>
+  <p>{{ t["official_current"].format(domains=t["list_sep"].join(job.brand.domains)) }}</p>
   {% endif %}
 </div>
 
@@ -208,7 +208,7 @@
             {{ t["sources_word"] }}:{{ "; ".join(rec.sources[lang]) }}
             {% if rec.guardrail %}<br>{{ t["guardrail_word"] }}:{{ rec.guardrail[lang] }}{% endif %}
             {% if rec.contraindications[lang] %}<br>{{ t["contra_word"] }}:{{ "; ".join(rec.contraindications[lang]) }}{% endif %}
-            <br>{{ t["supporters_summary"] }}:{% for intent, display in a.supporters %}「{{ intent_labels[intent] }}」× {{ display }}{% if not loop.last %};{% endif %}{% endfor %}</div>
+            <br>{{ t["supporters_summary"] }}:{% for intent, display in a.supporters %}{{ t["quote_l"] }}{{ intent_labels[intent] }}{{ t["quote_r"] }} × {{ display }}{% if not loop.last %};{% endif %}{% endfor %}</div>
         </details></td>
       <td>{{ rec.verify[lang] }}</td>
     </tr>
@@ -297,7 +297,7 @@
       <summary>{{ t["quotes_summary"] }}</summary>
       <ol class="ev">{% for pt in cr.prompt_texts %}{% set qs = sq.quotes|selectattr("prompt_no", "equalto", loop.index)|list %}
         <li>{{ pt }}<ul class="ev">{% for q in qs %}
-          <li><a class="muted" href="/jobs/{{ job.job_id }}/responses/{{ q.run_id }}?lang={{ lang }}">{{ t["quote_attempt"].format(i=q.run_index) }}</a>{% if q.mentioned %}「{{ q.sentence }}」{% elif q.unsure %}<span class="muted">{{ t["quote_unsure"] }}</span>{% elif q.mentioned is none %}<span class="muted">{{ t["quote_invalid"] }}</span>{% else %}<span class="muted">{{ t["quote_none"] }}</span>{% endif %}</li>{% endfor %}
+          <li><a class="muted" href="/jobs/{{ job.job_id }}/responses/{{ q.run_id }}?lang={{ lang }}">{{ t["quote_attempt"].format(i=q.run_index) }}</a>{% if q.mentioned %}{{ t["quote_l"] }}{{ q.sentence }}{{ t["quote_r"] }}{% elif q.unsure %}<span class="muted">{{ t["quote_unsure"] }}</span>{% elif q.mentioned is none %}<span class="muted">{{ t["quote_invalid"] }}</span>{% else %}<span class="muted">{{ t["quote_none"] }}</span>{% endif %}</li>{% endfor %}
         </ul></li>{% endfor %}</ol>
     </details>
     {% endif %}
@@ -346,7 +346,7 @@
   <form method="post" action="/jobs/{{ job.job_id }}/retest?lang={{ lang }}" style="margin-top:10px">
     <button type="submit" style="margin:0;padding:4px 12px;font-weight:400">{{ t["btn_retest"] }}</button>
     <span class="muted"> {{ t["retest_hint"] }}{% if job.budget_usd %} {{ t["retest_budget"].format(budget=job.budget_usd) }}{% endif %}
-    {%- if retired %} {{ t["retest_retired_hint"].format(models=t["count_sep"].join(retired)) }}{% endif %}</span>
+    {%- if retired %} {{ t["retest_retired_hint"].format(models=t["list_sep"].join(retired)) }}{% endif %}</span>
   </form>
   {% if retests %}<p class="muted">{{ t["retests_title"] }}
     {% for r in retests %}<a href="/jobs/{{ r.job_id }}{% if r.finished %}/report{% endif %}?lang={{ lang }}">{{ r.created_at|local_time }} · {{ state_labels[r.state.value] }}</a>{% if not loop.last %};{% endif %}{% endfor %}</p>{% endif %}

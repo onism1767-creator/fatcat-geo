@@ -82,6 +82,48 @@ def test_report_page_fully_english():
     assert "在 AI 自己的搜索习惯下" not in html  # 中文结论不残留
 
 
+CJK_PUNCTUATION = re.compile("[、，。：；（）「」【】！？《》]")  # 中文标点(全角)
+
+
+def test_english_text_tables_have_no_chinese_punctuation():
+    """英文文案里不得有中文标点(第三轮审核 A21:第二轮「英文不用顿号」只修了结论目录)。"""
+    from diagnosis.messages import CATALOG, PLAIN
+    from diagnosis.recommender import load_evidence_registry
+    from report.errors import load_errors
+    from report.i18n import INTENT_LABELS, LEVEL_LABELS, MESSAGES, STATUS_LABELS
+
+    texts = {f"ui.{k}": v for k, v in MESSAGES["en"].items() if isinstance(v, str)}
+    texts |= {f"label.{k}": v for table in (INTENT_LABELS, STATUS_LABELS, LEVEL_LABELS) for k, v in table["en"].items()}
+    texts |= {f"msg.{k}": v["en"] for table in (CATALOG, PLAIN) for k, v in table.items()}
+    texts |= {f"error.{e.code}.{part}": getattr(e, part)["en"] for e in load_errors().entries
+              for part in ("trigger", "message", "next_step") if getattr(e, part)}
+    texts |= {f"evidence.{e.id}.{name}": value["en"] for e in load_evidence_registry()
+              for name, value in e.model_dump().items() if isinstance(value, dict) and isinstance(value.get("en"), str)}
+    leaks = {where: text for where, text in texts.items() if CJK_PUNCTUATION.search(text)}
+    assert not leaks, leaks
+
+
+def test_english_pages_put_no_chinese_punctuation_around_the_words():
+    """页面模板与路由拼句时的列表分隔、引号、句号也随界面语言(A21):英文页不出现、、「」、。"""
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+                     evidence=REGISTRY, job_runner=lambda **kw: None, calibration=None,
+                     category_check=lambda job: None)
+    job = finished_job()  # 夹具里的品牌名、题目、AI 原话本身不带中文标点
+    app.state.ctx.registry.add(job)
+    client = TestClient(app)
+    draft = client.post("/jobs?lang=en", data={"brand_name": "Aurora", "aliases": "", "website": "aurora-crm.com",
+                                               "category": "CRM", "questions": "Which CRM?", "generate": ""},
+                        follow_redirects=False)
+    paths = ["/?lang=en", f"/jobs/{job.job_id}?lang=en", f"/jobs/{job.job_id}/report?lang=en", "/errors?lang=en",
+             draft.headers["location"].replace("lang=zh", "lang=en")]
+    for path in paths:
+        html = re.sub(r"<script.*?</script>|<style.*?</style>", "", client.get(path).text, flags=re.S)
+        text = re.sub(r"<[^>]+>", " ", html)
+        assert not CJK_PUNCTUATION.search(text), (path, CJK_PUNCTUATION.findall(text))
+    report = client.get(f"/jobs/{job.job_id}/report?lang=en").text
+    assert "“When users ask what is good in this category (category discovery)”" in report
+
+
 def test_catalog_bilingual_completeness():
     """每个结论码必须 zh/en 双版齐备——组句永不静默缺语言。"""
     from diagnosis.messages import CATALOG, PLAIN
