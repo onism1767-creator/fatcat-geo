@@ -134,8 +134,18 @@ def _third(sd: SurfaceDiagnosis, stage: Stage) -> StageFinding | None:
 def _cell(finding: StageFinding, code: str, *, headline_only: bool = False) -> StepCell:
     if finding.rate is not None and not headline_only:
         r = finding.rate
-        return StepCell(status=finding.status, text=msg(code, k=r.k, n=r.n, share=r.share))
+        text = msg(code, k=r.k, n=r.n, share=r.share)
+        no_search = _no_search(finding)
+        if no_search:  # 第二步:有 AI 没搜、凭记忆答的,同一格补一句(用户 2026-11-17 定稿)
+            text = msg("genret.no_search", presence=text, m=no_search)
+        return StepCell(status=finding.status, text=text)
     return StepCell(status=finding.status, text=finding.headline)
+
+
+def _no_search(finding: StageFinding) -> int:
+    """这一格的回答里 AI 没搜、凭记忆答的次数:取 L3 检索触发率那行的计数(n - k);没有那行就是 0。"""
+    line = next((m for m in finding.evidence_lines if m.code == "genret.triggered"), None)
+    return 0 if line is None else int(line.params["n"]) - int(line.params["k"])
 
 
 def _step_view(stage: Stage, reports: list[ClassReport], name_of: TargetNamer, api_name_of: ApiNamer) -> StepView:

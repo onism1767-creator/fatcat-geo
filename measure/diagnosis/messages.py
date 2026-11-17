@@ -164,6 +164,11 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": f"检索触发率:{_RATE};未触发检索的运行计入各分母——不检索本身就是自然行为的一部分",
         "en": f"Search trigger rate: {_RATE_EN}; runs without search count in denominators — not searching is itself part of natural behavior",
     },
+    "genret.no_search": {  # 第二步格子:在场比例后面补一句没搜的次数(用户 2026-11-17 定稿)
+        "zh": "{presence};其中 {m} 次未触发检索、凭模型记忆作答:这几次官网与第三方内容都影响不了回答",
+        "en": "{presence}; {m} of them triggered no search and were answered from model memory: neither the site nor "
+              "third-party content could affect those answers",
+    },
     # ── CITATION ─────────────────────────────────────────────────────
     "citation.headline.fail": {
         "zh": "品牌域名基本不进引用集",
@@ -974,7 +979,14 @@ PLAIN: dict[str, dict[str, str]] = {
     "caution.unobservable": {"zh": "以下项目本次看不到,没有参与判断:{stages}", "en": "The following items could not be observed and were not used: {stages}"},
     "caution.no_rewrite": {"zh": "问题主要出在「AI 能不能找到你」这一步,现在不建议大规模改写官网正文", "en": "The problem sits at \"can the AI find you\"; a large-scale rewrite of your site's copy is not advised now"},
     "caution.none": {"zh": "没有发现明显问题", "en": "No obvious problem found"},
-    "genret.presence": {"zh": "本次 {n} 次搜索里,{k} 次({share:.0%})结果中出现了你的官网", "en": "Your site appeared in {k} of {n} searches this time ({share:.0%})"},
+    # 分母是回答次数,里面有 AI 没搜的(原来写「N 次搜索里」不对;用户 2026-11-17 定稿)
+    "genret.presence": {"zh": "本次 {n} 次回答里,{k} 次({share:.0%})AI 搜到了你的官网",
+                        "en": "In {k} of {n} answers this time ({share:.0%}), the AI's search turned up your site"},
+    "genret.no_search": {"zh": "{presence};其中 {m} 次 AI 没搜、凭记忆回答:这几次你的官网和别人写你的文章都影响不了,"
+                               "只看 AI 记忆里有没有你",
+                         "en": "{presence}; in {m} of them the AI did not search and answered from memory — your site and "
+                               "other people's pages could not affect those answers, only what the AI already remembers "
+                               "about you"},
     "genret.query_entry": {"zh": "AI 自己拟的搜索词里,{n} 次有 {k} 次({share:.0%})带上了你的品牌名", "en": "The AI's own search queries included your brand name in {k} of {n} runs ({share:.0%})"},
     "citation.rate": {"zh": "本次 {n} 次回答里,{k} 次({share:.0%})拿你的官网当参考", "en": "In {k} of {n} answers this time ({share:.0%}), it used your site as a reference"},
     "citation.primary_rate": {"zh": "其中 {k} 次({share:.0%})参考的是你的主站", "en": "{k} of those ({share:.0%}) used your main site"},

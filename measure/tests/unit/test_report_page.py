@@ -251,7 +251,7 @@ def test_user_view_leads_with_plain_language(client_and_job):
     assert html.count('class="rec"') == 5  # s1 引用三条 + s2 搜到两条(第三方内容那条 S6 起归第三方线,D9)
     assert "用户问这类产品有哪些好的时(品类发现)" in html  # 题型人话
     assert "官网检索(AI 搜索时有没有找到你的官网)" in html  # 正式用词(口语解释),用户定 2026-10-13
-    assert "本次 30 次搜索里,0 次(0%)结果中出现了你的官网" in html  # 计数在前、百分比跟在后面(用户定 S8)
+    assert "本次 30 次回答里,0 次(0%)AI 搜到了你的官网" in html  # 计数在前、百分比跟在后面(用户定 S8)
     assert "让 AI 搜索时更容易找到你" in html  # 建议用人话版(注册表 plain)
     assert "建议先试" not in html  # 各 AI 详情不再重复列建议:「建议先做的事」已去重并标支持来源
     assert "研究主张原句" in html and "提高语义覆盖" in html  # 原句仍在「为什么这么建议」里
@@ -1232,3 +1232,26 @@ def test_confirm_page_says_page_checking_comes_on_top_of_the_estimate(client_and
     assert f"最多再 {BUDGET_S // 60} 分钟" in zh and "含提问前的准备" in zh
     en = visible_text(client.get(f"/jobs/{job.job_id}/confirm?lang=en").text)
     assert f"up to {BUDGET_S // 60} more minutes" in en
+
+
+def test_step_two_cell_says_how_many_answers_did_not_search(client_and_job):
+    """分母是回答次数,里面有 AI 没搜、凭记忆答的(原来写「30 次搜索里」不对):有就在同一格补一句,讲清这几次官网与
+    别人的文章都影响不了(任务列表第四节,用户 2026-11-17 定稿)。夹具 s2 在 30 次里搜了 25 次。"""
+    client, job, _ = client_and_job
+    zh = user_view_of(client.get(f"/jobs/{job.job_id}/report?lang=zh").text)
+    assert ("本次 30 次回答里,0 次(0%)AI 搜到了你的官网;其中 5 次 AI 没搜、凭记忆回答:"
+            "这几次你的官网和别人写你的文章都影响不了,只看 AI 记忆里有没有你") in zh
+    assert zh.count("凭记忆回答") == 1  # 只在有没搜的那一格(s1 不公开搜索结果,写的是看不到)
+    en = user_view_of(client.get(f"/jobs/{job.job_id}/report?lang=en").text)
+    assert ("In 0 of 30 answers this time (0%), the AI's search turned up your site; in 5 of them the AI did not "
+            "search and answered from memory") in en.replace("&#39;", "'")
+
+
+def test_step_two_cell_adds_nothing_when_every_answer_searched():
+    from diagnosis.generative_retrieval import diagnose_generative_retrieval
+    from diagnosis.messages import render_msg
+    from report.summary import _cell
+
+    finding = diagnose_generative_retrieval(make_metric(6, 30), [2], None, None, rate(30, 30))
+    text = render_msg(_cell(finding, "genret.presence").text, "zh", "plain")
+    assert text == "本次 30 次回答里,6 次(20%)AI 搜到了你的官网"
