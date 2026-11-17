@@ -28,6 +28,16 @@ def test_every_code_is_bilingual_with_a_next_step_and_a_known_scope():
         assert entry.code == entry.code.upper()
 
 
+def test_user_facing_texts_do_not_use_the_internal_word_instrument():
+    """「仪器 / instrument」是内部说法:错误库(页面与错误对照页都显示)和主视图人话目录里一律不用(B23)。"""
+    from diagnosis.messages import PLAIN
+
+    texts = [v for e in LIBRARY.entries for part in ("trigger", "message", "next_step", "causes")
+             for v in (getattr(e, part) or {}).values()]
+    texts += [v for versions in PLAIN.values() for v in versions.values()]
+    assert not [t for t in texts if "仪器" in t or "instrument" in t.lower()]
+
+
 def test_every_code_the_program_can_raise_is_in_the_library():
     codes = {e.code for e in LIBRARY.entries}
     assert set(FORM_CODES) <= codes and set(RUNNER_CODES) <= codes

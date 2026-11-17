@@ -216,9 +216,9 @@ errors:
   - code: SURFACE_DISABLED
     scope: breaker
     resumable: false
-    trigger: {zh: "这台仪器在 config/surfaces.yaml 里被关掉或没加载", en: "This instrument is disabled or not loaded in config/surfaces.yaml"}
+    trigger: {zh: "这家 AI 在 config/surfaces.yaml 里被关掉或没加载", en: "This AI is switched off or not loaded in config/surfaces.yaml"}
     causes: {zh: "config/surfaces.yaml 里 enabled 为 false,或启动时缺这家的 key 被跳过。", en: "enabled is false in config/surfaces.yaml, or its key was missing at startup so it was skipped."}
-    message: {zh: "{ai} 这次没有测:仪器没启用。", en: "{ai} was not tested: the instrument is not enabled."}
+    message: {zh: "{ai} 这次没有测:这家 AI 没有启用。", en: "{ai} was not tested: this AI is not switched on."}
     next_step: {zh: "需要的话启用它并补 key,新开一单。", en: "Enable it and add its key if needed, then start a new job."}
   - code: NOT_RESAMPLED
     scope: breaker
