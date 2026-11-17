@@ -40,6 +40,7 @@ from report.narrative import (
     count_models,
     pct,
     retest_swap_lines,
+    same_ai_reminder,
     sampling_lines,
     sentiment_items_text,
     verdict_text,
@@ -111,6 +112,7 @@ def _templates(target_name: TargetNamer) -> Jinja2Templates:
     env.globals["pct"] = pct
     env.globals["sentiment_items_text"] = sentiment_items_text
     env.globals["sampling_lines"] = lambda job, lang: sampling_lines(job, target_name, lang)
+    env.globals["same_ai_reminder"] = same_ai_reminder
     return templates
 
 

@@ -95,10 +95,12 @@ def test_summary_names_the_judges_and_where_they_fall_short(storage):
     job.sampling = job.sampling.model_copy(update={
         "judge_targets": [Target(surface="s1", model="m1"), Target(surface="s2", model="m2")], "n_own_vendor": 2})
     text = summary()
-    assert "AI 裁判:S1 · m1;s2 · m2;" in text and "其中 2 条回答,判别用的是写它的同一家 AI,存在判得偏宽的风险。" in text
+    reminder = "进行结论判断的时候测量和判断使用了同一家 AI,结论可能存在偏差。"
+    assert "AI 裁判:S1 · m1;s2 · m2;" in text
+    assert text.count(reminder) == 1 and text.index(reminder) < text.index("## 各 AI 一句话")  # 结果前,只一次
     job.sampling = job.sampling.model_copy(update={"judge_targets": [], "n_own_vendor": 0, "no_judge": ["S9"]})
     text = summary()
-    assert "S9 无法进行 AI 判断,这单没有 AI 裁判" in text and "AI 裁判:" not in text
+    assert "S9 无法进行 AI 判断,这单没有 AI 裁判" in text and "AI 裁判:" not in text and reminder not in text
 
 
 def test_bundle_is_only_for_finished_jobs(storage):

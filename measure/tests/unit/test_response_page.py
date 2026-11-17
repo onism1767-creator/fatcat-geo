@@ -148,19 +148,25 @@ def test_report_says_how_many_answers_it_could_not_tell():
 
 
 def test_report_names_the_judges_and_says_where_they_fall_short():
-    """BR6(用户定):写实际判过的那几家;判它的和写它的是同一家 AI 的条数只提醒一句(2026-11-17 定);
+    """BR6(用户定):写实际判过的那几家;判别和被测是同一家 AI 时只在结果前提醒一句、整页一次(2026-11-17 定);
     名单里一位裁判都用不上就直接说谁无法进行 AI 判断。"""
     job = finished_job()
     client = _client(job)
     both = [Target(surface="s1", model="m1"), Target(surface="s2", model="m2")]
     job.sampling = job.sampling.model_copy(update={"judge_targets": both, "n_own_vendor": 4})
     zh, en = (client.get(f"/jobs/{job.job_id}/report?lang={lang}").text for lang in ("zh", "en"))
-    assert "AI 裁判:S1 · m1;" in zh and "其中 4 条回答,判别用的是写它的同一家 AI,存在判得偏宽的风险。" in zh
-    assert "the judge was the same company’s AI that wrote the answer" in en and "judged too generously." in en
-    assert "自家判自家" not in zh and "请不到别家" not in zh
+    reminder = "进行结论判断的时候测量和判断使用了同一家 AI,结论可能存在偏差。"  # 用户 2026-11-17 定稿的原话
+    assert "AI 裁判:S1 · m1;" in zh and "自家判自家" not in zh and "请不到别家" not in zh
+    # 只在结果前提醒一句,一个页面只出现一次:不在「这次是怎么测的」清单里,紧挨在结论卡片前面
+    assert zh.count(reminder) == 1
+    assert zh.index("AI 裁判:S1 · m1;") < zh.index(reminder) < zh.index("这次检测告诉了我们什么")
+    en_reminder = ("The same company’s AI was used both for the answers we measured and for judging them, "
+                   "so the conclusions may be biased.")
+    assert en.count(en_reminder) == 1 and en.index(en_reminder) < en.index("What this check tells us")
     job.sampling = job.sampling.model_copy(update={"judge_targets": [], "n_own_vendor": 0, "no_judge": ["S9"]})
     zh, en = (client.get(f"/jobs/{job.job_id}/report?lang={lang}").text for lang in ("zh", "en"))
     assert "S9 无法进行 AI 判断,这单没有 AI 裁判,判不清的记「说不准」。" in zh and "AI 裁判:" not in zh
+    assert reminder not in zh and en_reminder not in en  # 没有这种回答就不提醒
     assert "S9 can’t do AI judging" in en
 
 

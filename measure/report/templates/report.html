@@ -38,6 +38,9 @@
 
 {# ══ 用户视图(v0.4.14):全部人话(plain 目录),技术词只在最后的「检测依据与方法」 ══ #}
 
+{#- 结果前的一句提醒(用户 2026-11-17 定):判别和被测用的是同一家 AI;整页只在这里出现一次 -#}
+{% set reminder = same_ai_reminder(job, lang) %}
+{% if reminder %}<div class="caution">{{ reminder }}</div>{% endif %}
 <div class="card exec">
   <h2 style="margin-top:0">{{ t["sec1_title"] }}</h2>
   <p><b>{{ t["access_word"] }}:</b>

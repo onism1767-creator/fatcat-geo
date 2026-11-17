@@ -31,6 +31,7 @@ from report.narrative import (
     action_card_lines,
     action_text,
     api_line_text,
+    same_ai_reminder,
     sampling_lines,
     sentiment_items_text,
     wrap_up_text,
@@ -184,6 +185,9 @@ def _summary_md(
     lines += ["- " + text for _, text in sampling_lines(job, name_of, lang)] + [""]  # 和报告页同一处拼(第三轮 B4)
     if stop_texts:  # S10.2:提前停的腿
         lines += [f"## {t['breaker_title']}", ""] + [f"- {text}({code})" for code, text in stop_texts] + [""]
+    reminder = same_ai_reminder(job, lang)
+    if reminder:  # 结果前的一句提醒,整份文件只这一次(用户 2026-11-17 定)
+        lines += [reminder, ""]
     lines += [f"## {t['verdicts_word']}", ""]
     for line in summary.api_lines:
         lines.append(f"- {api_line_text(line, lang)}")

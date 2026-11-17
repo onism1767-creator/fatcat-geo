@@ -41,6 +41,14 @@ def sentiment_items_text(st: SentimentTally, lang: str) -> str:
         for key, n in items if n or key != "mixed")
 
 
+def same_ai_reminder(job: DiagnosisJob, lang: str) -> str | None:
+    """结果前的一句提醒(用户 2026-11-17 定):这单有回答是写它的同一家 AI 判的(BR6)。
+    报告页与结果文件同一处取,各只在结果前出现一次,不进「这次是怎么测的」清单;
+    没有这种回答(或还没有采样说明)→ None。"""
+    sn = job.sampling
+    return MESSAGES[lang]["same_ai_reminder"] if sn is not None and sn.n_own_vendor else None
+
+
 def sampling_lines(job: DiagnosisJob, name_of: Callable[[str, str], str], lang: str) -> list[tuple[str, str]]:
     """「这次是怎么测的」每一条:(种类, 句子)。报告页与结果文件同一处拼(第三轮审核 B4:原来两处各拼一遍,
     第二轮 18 就是这么漏的);报告页把上一单 / 换型号两条放在顶部卡片里,按种类跳过,并在官网名单那条后面加链接。"""
@@ -69,8 +77,6 @@ def sampling_lines(job: DiagnosisJob, name_of: Callable[[str, str], str], lang: 
         every_answer = tier.mention_method is MentionMethod.RULES_FUZZY_JUDGE
         lines.append(("judges", t["sampling_judges" if every_answer else "sampling_judges_unsure"].format(
             judges=";".join(name_of(x.surface, x.model) for x in sn.judge_targets))))
-    if sn.n_own_vendor:  # BR6:判它的和写它的是同一家 AI,提醒一句(用户 2026-11-17 定)
-        lines.append(("own_vendor", t["sampling_own_vendor"].format(n=sn.n_own_vendor)))
     if sn.no_judge:  # BR6:名单里一位裁判都用不上(以后新接的接口没配裁判)
         lines.append(("no_judge", t["sampling_no_judge"].format(names=" / ".join(sn.no_judge))))
     if sn.n_unsure:  # BR4:不进提及率分母,单独说清
