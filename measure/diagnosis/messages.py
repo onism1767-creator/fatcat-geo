@@ -615,6 +615,13 @@ CATALOG: dict[str, dict[str, str]] = {
               "was stopped by the site's security layer; whether real AI crawlers are blocked only the site's own logs can "
               "tell — recorded as not observable, not a failure",
     },
+    "access.content.refused_protected": {
+        "zh": "浏览器身份和各个爬虫身份都没拿到能读的首页,拿到的是 {vendors} 的拦截 / 验证页:我们的检测被网站安全系统拦了;"
+              "真的 AI 爬虫被不被拦,只有网站后台的拦截记录说得清,记为看不到,不判定",
+        "en": "Neither the browser identity nor any crawler identity got a readable homepage; what came back is a {vendors} "
+              "block / challenge page: our probe was stopped by the site's security layer; whether real AI crawlers are "
+              "blocked only the site's own logs can tell — recorded as not observable, not a failure",
+    },
     "access.content.served_differently": {
         "zh": "我们拿到的首页只有约 {chars} 字符({label}),而真浏览器收到的原始网页(运行脚本之前)就有约 {document} 字符正文:"
               "网站对不同身份给了不同页面,多半是拦了我们的检测身份;真的 AI 爬虫拿到哪一种看不到,记为看不到,不判定",

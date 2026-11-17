@@ -449,7 +449,7 @@ def _check_content(
         label, chars = msg("access.content.label.browser"), browser_chars
         fallback = True
     else:
-        return _content(CheckStatus.UNKNOWN, msg("access.content.none")), fallback, skipped
+        return _check_content_refused(url, baseline, probes, renderer)
     evidence: dict[str, JsonValue] = {"visible_chars": chars, "browser_chars": browser_chars}
     if chars >= MIN_VISIBLE_TEXT_CHARS:
         prerender: Msg | str = (
@@ -515,6 +515,43 @@ def _check_content(
                                               rendered=rendered_chars, shell=shell_hint), evidence), fallback, seen
     return _content(CheckStatus.UNKNOWN, msg("access.content.thin_or_slow", chars=chars, label=label,
                                              rendered=rendered_chars), evidence), fallback, seen
+
+
+def _check_content_refused(
+    url: str, baseline: httpx.Response | None, probes: list[BotProbe], renderer: Renderer | None,
+) -> tuple[CheckResult, bool, CheckResult]:
+    """浏览器身份与各个爬虫身份都没拿到能读的首页(都被拒 / 都不是网页)——最常见的「被拦」那条路。
+    原来直接记「没拿到可分析的网页」,收集好的防护指纹被扔了、也不开真浏览器对照(第三轮审核 A13);
+    现在同样走 ① 指纹、② 真浏览器:是防护的拦截页就说像是被拦;真浏览器也被拦同上;真浏览器看得到就把它看到的写进说明。
+    结论一律看不到、不判挂:原始请求都被拒了,判不了「内容靠脚本」。"""
+    protection = [name for p in probes for name in p.protection]
+    if baseline is not None:
+        protection += protection_marks(baseline.headers, baseline.text)
+    evidence: dict[str, JsonValue] = {"protection": list(dict.fromkeys(protection))}
+    if protection:  # ① 指纹
+        return (_content(CheckStatus.UNKNOWN, msg("access.content.refused_protected", vendors=_names(protection)),
+                         evidence), False, _rendered(CheckStatus.UNKNOWN, msg("access.rendered.skipped")))
+    if renderer is None:
+        return (_content(CheckStatus.UNKNOWN, msg("access.content.none"), evidence), False,
+                _rendered(CheckStatus.UNKNOWN, msg("access.rendered.unavailable")))
+    page = renderer.render(url)  # ② 真浏览器打开一次首页对照
+    if page is None:
+        return (_content(CheckStatus.UNKNOWN, msg("access.content.none"), evidence), False,
+                _rendered(CheckStatus.UNKNOWN, msg("access.rendered.failed")))
+    browser_protection = protection_marks(None, page.html)
+    if page.document_html is not None:
+        browser_protection += protection_marks(None, page.document_html)
+    if page.http_status in PROTECTION_SUSPECT_STATUSES or browser_protection:
+        blocked_by = _names(browser_protection) or f"HTTP {page.http_status}"
+        return (_content(CheckStatus.UNKNOWN, msg("access.content.refused_protected", vendors=blocked_by), evidence),
+                False, _rendered(CheckStatus.UNKNOWN, msg("access.rendered.blocked", vendors=blocked_by)))
+    rendered_chars = visible_text_length(page.html)
+    document_chars = visible_text_length(page.document_html) if page.document_html is not None else None
+    evidence.update(rendered_chars=rendered_chars, document_chars=document_chars)
+    seen = _rendered(CheckStatus.PASS if rendered_chars >= MIN_VISIBLE_TEXT_CHARS else CheckStatus.UNKNOWN,
+                     msg("access.rendered.seen", chars=rendered_chars,
+                         document=document_chars if document_chars is not None else "—"))
+    return _content(CheckStatus.UNKNOWN, msg("access.content.none"), evidence), False, seen
 
 
 def _check_sitemap(client: httpx.Client, robots_base: str, sitemap_urls: list[str]) -> CheckResult:

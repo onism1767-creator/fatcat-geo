@@ -341,6 +341,57 @@ def test_a_protection_page_is_recognised_by_its_marks_without_opening_a_browser(
     assert probe.protection == ["Cloudflare"]
 
 
+def _refused_site(html="Access Denied"):
+    """浏览器身份和各个爬虫身份都被拒(403)——最常见的「被拦」那条路(第三轮审核 A13)。"""
+    respx.get(f"{SITE}/robots.txt").mock(
+        return_value=httpx.Response(200, text=ROBOTS_ALLOW_ALL + f"Sitemap: {SITE}/s.xml\n"))
+    respx.get(f"{SITE}/").mock(return_value=httpx.Response(403, html=html))
+
+
+@respx.mock
+def test_everyone_refused_with_protection_marks_says_blocked_without_opening_a_browser():
+    """各个身份都被拒、拒绝页带防护公司的标记:原来直接记「没拿到可分析的网页」、指纹被扔了;现在说像是被防护拦了。"""
+    _refused_site(CHALLENGE_HTML)
+    renderer = FakeRenderer(_page(html=RICH_HTML))
+    result = audit(SITE, BOTS, renderer=renderer)
+    content = check_by_name(result, "html_content")
+    assert content.status is CheckStatus.UNKNOWN and renderer.calls == []
+    zh, en = render_msg(content.detail, "zh"), render_msg(content.detail, "en")
+    assert "都没拿到能读的首页" in zh and "Cloudflare" in zh and "安全系统拦了" in zh
+    assert "Neither the browser identity nor any crawler identity" in en
+    assert content.evidence["protection"] == ["Cloudflare"]
+    assert check_by_name(result, "rendered_fetch").status is CheckStatus.UNKNOWN
+
+
+@respx.mock
+def test_everyone_refused_without_marks_opens_a_real_browser_once():
+    """拒绝页认不出是谁家的:开一次真浏览器对照。也被拦 → 像是被拦;看得到 → 把看到的写进说明。一律看不到、不判挂。"""
+    _refused_site()
+    blocked = audit(SITE, BOTS, renderer=FakeRenderer(_page(html="<html></html>", status=403)))
+    content = check_by_name(blocked, "html_content")
+    assert content.status is CheckStatus.UNKNOWN
+    assert "都没拿到能读的首页" in render_msg(content.detail, "zh") and "HTTP 403" in render_msg(content.detail, "zh")
+    assert "也被拦了" in render_msg(check_by_name(blocked, "rendered_fetch").detail, "zh")
+
+    renderer = FakeRenderer(_page(html=RICH_HTML))
+    seen = audit(SITE, BOTS, renderer=renderer)
+    assert renderer.calls == [SITE]
+    assert check_by_name(seen, "html_content").status is CheckStatus.UNKNOWN
+    rendered = check_by_name(seen, "rendered_fetch")
+    assert rendered.status is CheckStatus.PASS and "真浏览器打开首页" in render_msg(rendered.detail, "zh")
+    assert not any(c.status is CheckStatus.FAIL for c in seen.checks if c.gating)
+
+
+@respx.mock
+def test_everyone_refused_and_no_usable_browser_is_still_not_observable():
+    _refused_site()
+    no_browser = audit(SITE, BOTS)
+    assert check_by_name(no_browser, "html_content").status is CheckStatus.UNKNOWN
+    assert "没装真浏览器内核" in render_msg(check_by_name(no_browser, "rendered_fetch").detail, "zh")
+    failed = audit(SITE, BOTS, renderer=FakeRenderer(None))
+    assert "没能打开首页" in render_msg(check_by_name(failed, "rendered_fetch").detail, "zh")
+
+
 @respx.mock
 def test_cited_site_pages_are_added_as_a_cross_check_to_an_unresolved_homepage():
     """采样后 AI 引用的官网页面我们打开时读不读得到正文、有没有被拦,补进首页那条的说明(只补说明,不改结论)。"""
