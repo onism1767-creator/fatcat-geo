@@ -30,8 +30,9 @@
   Gemini is_error 同口径(第三轮审核 A10;原来记成「搜了、没候选、回答有效」还计检索费);
 - 平台不报美元成本:cost_usd = usage token × 官方价目 + 检索动作数 × $0.01
   ($10/千次,检索内容 token 计入 input_tokens 按模型价,确定性折算);输入 token 分三档:
-  没命中缓存的全价、命中缓存的 0.1 倍、写入缓存的 1.25 倍(三者都含在平台报的 input_tokens 里;
-  2026-11-03 对 astra 一天的账单逐行核过,一分不差;2026-11-11 起这样记,之前一律全价、记高,Q8);
+  没命中缓存的全价、命中缓存的按各型号的缓存价(输入价的 0.05–0.1 倍,逐个照官方价目页)、写入缓存的 1.25 倍
+  (三者都含在平台报的 input_tokens 里;2026-11-03 对 astra 一天的账单逐行核过,一分不差;
+  2026-11-11 起分档记,之前一律全价、记高,Q8;2026-11-17 缓存价改成按型号写);
 - 平台无检索次数上限参数(无 claude 的 max_uses 类比):成本保险丝是
   max_output_tokens 与调度器预算闸门;
 - external_web_access(仅缓存模式)存在但 v1 无消费方,未接入。
@@ -66,31 +67,34 @@ SEARCH_CONTEXT_SIZE = "medium"  # 显式钉死的检索上下文档位,属本 su
 MAX_OUTPUT_TOKENS = 4096  # 回答长度保险丝(成本上界的一部分)
 INCLUDE = ["web_search_call.action.sources"]  # 候选来源观测窗常开
 
-# 官方价目(2026-10-14 核对 developers.openai.com 价目页与型号页,与模型清单同步维护):模型 → (输入, 输出) USD / MTok
-# 当前一代 = GPT-6 系(astra / 6.1-sol / 6-sol / 6-luna);gpt-5.6-luna 保留,
-# 因为它仍是 ChatGPT 免费版的默认型号(帮助中心 2026-10)。
-# 上一代 gpt-5.6-terra / gpt-5.6-sol 2026-10-14 移出。新型号入清单前须经 scripts/smoke_models.py 真实冒烟(本批待冒烟)。
-_TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
-    "gpt-5.6-luna": (0.2, 1.2),
-    "gpt-6-luna": (0.10, 0.50),
-    "gpt-6-sol": (2.0, 10.0),
-    "gpt-6.1-sol": (2.0, 10.0),
-    # 2026-11-13 核对 developers.openai.com 价目页;列型号接口里有、原清单没收,按工程原则 9 冒烟后入清单
-    # (搜 7 次、候选 53、引用 3、正文 935 字、$0.042、18 秒,没截断)
-    "gpt-6.1-terra": (1.0, 5.0),
-    "gpt-6-astra": (10.0, 50.0),
+# 官方价目(2026-11-17 核对 developers.openai.com 价目页与型号页,标准价,与模型清单同步维护):
+# 模型 → (输入, 输出, 缓存命中的输入) USD / MTok。缓存命中的折扣各型号不同(6.1 / 6.2 代是输入价的 0.05 倍,其余 0.1 倍),
+# 所以逐个照价目页写(2026-11-17 改;原来一律按 0.1 倍算,6.1 两款记高,错误日志 11-17)。
+# 清单 = 现役一代(型号页 11-17:6.2 Astra / 6.2 Sol / 6.1 Terra / 6 Luna)
+# + 消费端默认 gpt-5.6-luna(ChatGPT 免费版默认,低档要测)。
+# 用户 2026-11-17 定「按清单改」(工程原则 9):6.2 两款真实冒烟通过后入清单
+# (6.2-sol:检索词 6、候选 39、引用 4、正文 985 字、$0.054、12 秒;
+# 6.2-astra:检索词 3、候选 19、引用 3、正文 933 字、$0.111、15 秒;输出各六百来个 token,没截断),
+# 上一代 gpt-6-astra、gpt-6.1-sol、gpt-6-sol 删掉(旧回答留库;gpt-6-sol 是付费版聊天默认,
+# 11-15 起付费版默认不再是标记)。更早:gpt-5.6-terra / gpt-5.6-sol 2026-10-14 移出;
+# gpt-6.1-terra 2026-11-13 冒烟后入(搜 7 次、候选 53、引用 3、正文 935 字、$0.042、18 秒)。
+_TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float, float]] = {
+    "gpt-5.6-luna": (0.20, 1.20, 0.02),
+    "gpt-6-luna": (0.10, 0.50, 0.01),
+    "gpt-6.1-terra": (1.00, 5.00, 0.05),
+    "gpt-6.2-sol": (2.00, 10.00, 0.10),
+    "gpt-6.2-astra": (8.00, 40.00, 0.40),
 }
-_SEARCH_USD_PER_CALL = 10.0 / 1000.0  # web search $10 / 千次(仅 search 动作计费)
-# 输入 token 的缓存分档(官方价目;2026-11-03 对 astra 一天的账单逐行核过,一分不差——任务列表第十四节第 5 条):
-# 命中缓存的输入按 0.1 倍,写入缓存的按 1.25 倍;两者都含在平台报的 input_tokens 里,算全价那份时要扣掉
-_CACHED_INPUT_FACTOR = 0.1
+_SEARCH_USD_PER_CALL = 10.0 / 1000.0  # web search $10 / 千次(仅 search 动作计费;2026-11-17 价目页没变)
+# 写入缓存的输入按输入价的 1.25 倍(30 分钟档,各型号一样;回包 cache_write_tokens_details.ttl_30m_tokens 对得上;
+# 2026-11-03 对 astra 一天的账单逐行核过)。命中缓存的与写入缓存的都含在平台报的 input_tokens 里,算全价那份时要扣掉
 _CACHE_WRITE_FACTOR = 1.25
 # 牌价(用量 × 牌价 = 费用;计费项与 _usage 读出的键一致):token 按每个 token 折,检索按每次
 _PRICE_TABLE: dict[str, dict[str, float]] = {
-    model: {"input_tokens": price_in / 1e6, "cached_input_tokens": price_in * _CACHED_INPUT_FACTOR / 1e6,
+    model: {"input_tokens": price_in / 1e6, "cached_input_tokens": price_cached / 1e6,
             "cache_write_tokens": price_in * _CACHE_WRITE_FACTOR / 1e6, "output_tokens": price_out / 1e6,
             "searches": _SEARCH_USD_PER_CALL}
-    for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
+    for model, (price_in, price_out, price_cached) in _TOKEN_PRICES_PER_MTOK.items()
 }
 # 2026-11-11 之前建的单按全价记了缓存命中的输入(用户 2026-11-03 定 Q8:已记的不改,旧单的报告注明)
 _CACHE_BILLING_NOTE = BillingNote(
@@ -103,22 +107,20 @@ _CACHE_BILLING_NOTE = BillingNote(
 )
 _DEFAULT_MODEL = "gpt-5.6-luna"
 # 型号标记(配置资产,用户定 2026-10-14「消费端默认按免费版」;2026-11-15 定「主力 = 消费端默认在最新一代里的同款」):
-# 2026-11-11 核对官方帮助中心「GPT-6 and other models in ChatGPT」(页面标注约 10-30 更新):免费版 / Go 默认 GPT-5.6 Luna;
-# 付费版普通聊天默认 GPT-6,由 GPT-6 Sol 驱动;Astra 只在 Pro 档的「Pro」思考档;GPT-6.1 Sol / Terra 只在 Work 与 Codex。
-# 消费端默认 gpt-5.6-luna 是 5.6 代;它在最新一代里的同款是 gpt-6-luna(第 6 代的 Luna;6.1 代没有 Luna)。
-# 帮助中心没提 gpt-6-luna 在 ChatGPT 里,所以中档测的是「免费用户今天看到的」加「下一代同款」。
-# 11-03 到 11-15 主力是付费版默认 gpt-6-sol;它仍在清单里,高档照测。
+# 2026-11-17 核对官方帮助中心「GPT-6 and other models in ChatGPT」(当天更新):免费版 / Go 默认 GPT-5.6 Luna;
+# 付费版普通聊天默认 GPT-6,由 GPT-6 Sol 驱动;6.2 Astra / 6.2 Sol 当天起只在 Work 与 Codex 推出,不进普通聊天。
+# 消费端默认 gpt-5.6-luna 是 5.6 代;它在最新一代里的同款是 gpt-6-luna
+# (6.1、6.2 代都没有 Luna,型号页现役阵容里的 Luna 就是它)。
+# 帮助中心没提 gpt-6-luna 在 ChatGPT 里,所以中档测的是「免费用户今天看到的」加「现役一代的同款」。
+# 11-03 到 11-15 主力是付费版默认 gpt-6-sol;11-17 它随上一代一起移出清单。
 _CONSUMER_DEFAULT_MODEL = "gpt-5.6-luna"
 _MAIN_MODEL = "gpt-6-luna"
-_MODELS_CHECKED = ("2026-11-11 官方帮助中心「GPT-6 and other models in ChatGPT」:免费版默认 GPT-5.6 Luna、"
-                   "付费版聊天默认 GPT-6(Sol);"
-                   "型号清单与价目仍按 2026-10-14 官方型号页 + 价目页;"
-                   "2026-11-13 列型号接口查到 gpt-6.1-terra,价目页 $1 / $5,冒烟通后入清单;"
-                   "2026-11-15 用户定主力 = 消费端默认在最新一代里的同款,填 gpt-6-luna;"
-                   "2026-11-15 按工程原则 10 复核:列型号接口没有新的第 6 代型号,"
-                   "帮助中心那页仍是约 10-30 那版,标记不变;"
-                   "2026-11-17 复核:列型号接口多出 gpt-6.2-astra / gpt-6.2-sol,帮助中心同日写明只在 Work 与 Codex、"
-                   "不进普通聊天,免费版与付费聊天默认都没变;标记不变,两款未入清单(先查价、冒烟,待用户定)")
+_MODELS_CHECKED = ("2026-11-17 官方型号页 + 价目页:现役阵容 6.2 Astra / 6.2 Sol / 6.1 Terra / 6 Luna,"
+                   "价目逐项核对(含各型号的缓存命中价);"
+                   "官方帮助中心「GPT-6 and other models in ChatGPT」(11-17 更新):免费版默认 GPT-5.6 Luna、"
+                   "付费版聊天默认 GPT-6(Sol),6.2 两款只在 Work 与 Codex;"
+                   "用户 11-15 定主力 = 消费端默认在最新一代里的同款(gpt-6-luna);"
+                   "用户 11-17 定按清单改:6.2 两款冒烟通过入清单,删 gpt-6-astra / gpt-6.1-sol / gpt-6-sol")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
@@ -320,12 +322,12 @@ class OpenAIWebSearchAdapter(HttpAdapter):
             est_cost_per_call_usd={
                 model: round((2000 + 3 * 12000) / 1e6 * price_in + 2000 / 1e6 * price_out
                              + 3 * _SEARCH_USD_PER_CALL, 3)
-                for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
+                for model, (price_in, price_out, _) in _TOKEN_PRICES_PER_MTOK.items()
             },
             # 闭卷腿口径:同源推导上界,无检索项:默认型号 (2000×$0.2 + 2000×$1.2)/1e6 ≈ $0.003
             est_cost_per_call_search_disabled_usd={
                 model: round((2000 * price_in + 2000 * price_out) / 1e6, 3)
-                for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
+                for model, (price_in, price_out, _) in _TOKEN_PRICES_PER_MTOK.items()
             },
             billing_notes=[_CACHE_BILLING_NOTE],
         )
