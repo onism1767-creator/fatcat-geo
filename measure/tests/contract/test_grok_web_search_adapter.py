@@ -369,7 +369,7 @@ def test_model_list_flags_and_the_helper_that_only_answers_closed_book():
         "xai", "grok_web_search", "Grok", "Grok API")
     assert meta.models == ["grok-4.5", "grok-4.7"] and meta.helper_models == [HELPER_MODEL] == ["grok-4.3"]
     assert (meta.default_model, meta.consumer_default_model, meta.main_model) == ("grok-4.5", "grok-4.5", "grok-4.7")
-    assert "待核对" in meta.models_checked and meta.made_by == {}
+    assert "用户 11-18 确认" in meta.models_checked and meta.made_by == {}  # 应用默认是 4.5,用户看过后确认
     assert set(meta.price_table) == {"grok-4.5", "grok-4.7", "grok-4.3"}
     assert meta.price_table["grok-4.5"]["cached_input_tokens"] == pytest.approx(0.30e-6)
     assert meta.price_table["grok-4.7"]["cached_input_tokens"] == pytest.approx(0.50e-6)
