@@ -12,7 +12,14 @@ from uuid import uuid4
 import pytest
 from conftest import TEST_DSN
 
-from adapters.base import AdapterAccountError, AdapterPermanentError, CapabilityRegistry, SurfaceAdapter, SurfaceMeta
+from adapters.base import (
+    AdapterAccountError,
+    AdapterPermanentError,
+    CapabilityRegistry,
+    MethodNote,
+    SurfaceAdapter,
+    SurfaceMeta,
+)
 from diagnosis.findings import Stage, StageStatus
 from diagnosis.recommender import load_evidence_registry
 from engine.detectors.matching import registrable
@@ -222,6 +229,7 @@ def test_two_models_of_one_surface_are_sampled_and_diagnosed_apart(storage, offl
     assert note.n_valid == 6 and note.n_offline_runs == 0 and note.method_version == METHOD_VERSION
     assert note.started_at is not None and note.finished_at is not None and note.finished_at == job.finished_at
     assert {(x.surface, x.model) for x in note.targets} == {("two_model", CITES), ("two_model", SILENT)}
+    assert note.method_notes == []  # 这台仪器没声明测法说明
     assert job.verify_started_at is not None and job.verify_total >= 1  # 核对网页阶段有开始时刻与总数(S8.5)
 
     # 续跑(重新生成报告):样本按「题 × 仪器 × 型号 × 模式 × 第几次」复用——零新调用,且两个型号的
@@ -230,6 +238,42 @@ def test_two_models_of_one_surface_are_sampled_and_diagnosed_apart(storage, offl
     assert job.state is JobState.DONE, job.error
     assert len(storage.runs_for_prompt(prompt.prompt_id, surface="two_model")) == 6
     assert _citation_status(job) == {CITES: StageStatus.PASS, SILENT: StageStatus.FAIL}
+
+
+class LeavesSomethingOutAdapter(TwoModelAdapter):
+    """声明了一句测法说明的仪器(产品界面会用、接口这边没开的一路来源)。用它自己的仪器名:
+    别的测试靠 two_model 的历史调用次数定预估(不到 10 次用声明价),这里不往那边添数。"""
+
+    SURFACE = "leaves_out"
+    NOTE = MethodNote(zh="本次这家的结果不包含某站内容。", en="This run leaves one source out.")
+
+    def meta(self) -> SurfaceMeta:
+        return super().meta().model_copy(update={"surface": self.SURFACE, "method_notes": [self.NOTE]})
+
+    def ask(self, request: AskRequest) -> SurfaceRun:
+        return super().ask(request).model_copy(update={"surface": self.SURFACE})
+
+
+def test_method_notes_of_the_tested_apis_are_frozen_into_the_sampling_note(storage, offline):
+    """被测接口声明的测法说明,生成报告时冻进采样说明(以后适配器改了,旧报告照旧这么写);
+    没被测的接口声明了也不带进来;一台仪器测两个型号只写一次。"""
+
+    class NotTested(TwoModelAdapter):
+        def meta(self) -> SurfaceMeta:
+            stray = MethodNote(zh="不该出现。", en="must not appear")
+            return super().meta().model_copy(update={"method_notes": [stray]})
+
+    prompt = Prompt(text=f"哪款降噪耳机值得买?({uuid4().hex[:6]})", intent=PromptIntent.CATEGORY_DISCOVERY,
+                    origin=PromptOrigin.USER, locale="zh-CN")
+    job = DiagnosisJob(brand=BRAND, website="https://aurora-crm.com", category="CRM",
+                       locale="zh-CN", candidates=[], competitors_suggested=[])
+    surface = LeavesSomethingOutAdapter.SURFACE
+    job.freeze(prompts=[prompt], competitors=[], budget_usd=None, tier=LOW,
+               targets=[Target(surface=surface, model=CITES), Target(surface=surface, model=SILENT)])
+    adapters = {surface: LeavesSomethingOutAdapter(), "two_model": NotTested()}
+    runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry())
+    assert job.state is JobState.DONE, job.error
+    assert job.sampling is not None and job.sampling.method_notes == [LeavesSomethingOutAdapter.NOTE]
 
 
 def test_account_problem_halts_job_plainly_and_resume_keeps_account_rows_out_of_metrics(storage, offline):

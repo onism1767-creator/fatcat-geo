@@ -73,6 +73,8 @@ def sampling_lines(job: DiagnosisJob, name_of: Callable[[str, str], str], lang: 
         start=local_time(sn.started_at) if sn.started_at else "—",
         end=local_time(sn.finished_at) if sn.finished_at else "—")))
     lines.append(("targets", t["sampling_targets_pre"] + ";".join(name_of(x.surface, x.model) for x in sn.targets)))
+    # 被测接口声明的测法说明(适配器写好的整句,这里只挑语言):紧跟在「测了哪些」后面
+    lines += [("method_note", note.zh if lang == "zh" else note.en) for note in sn.method_notes]
     if sn.judge_targets:  # S9.3:AI 裁判;中档只判说不准的(BR4)
         every_answer = tier.mention_method is MentionMethod.RULES_FUZZY_JUDGE
         lines.append(("judges", t["sampling_judges" if every_answer else "sampling_judges_unsure"].format(

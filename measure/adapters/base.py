@@ -146,6 +146,15 @@ class BillingNote(FrozenModel):
     en: str
 
 
+class MethodNote(FrozenModel):
+    """这台仪器测的东西和它的产品界面有一处读报告的人该知道的差别(配置资产,由适配器声明;例:产品界面会搜的某一路来源,
+    接口这边没开)。一句人话,zh / en 两套;生成报告时冻进采样说明(以后适配器改了,旧报告照旧这么写),
+    报告层按界面语言原样列在「这次是怎么测的」里,不认厂商名(用户 2026-11-18 定)。"""
+
+    zh: str
+    en: str
+
+
 class SurfaceMeta(FrozenModel):
     provider: str
     surface: str
@@ -183,6 +192,7 @@ class SurfaceMeta(FrozenModel):
     # 声明 supports_search_disabled 的适配器必须报价(加载器强制),否则为 None。
     est_cost_per_call_search_disabled_usd: dict[str, float] | None = None
     billing_notes: list[BillingNote] = []  # 记账规则改过的说明(Q8);没改过就空
+    method_notes: list[MethodNote] = []  # 测法上要告诉读者的差别(见 MethodNote);没有就空
 
 
 def known_model(requested: str | None, default: str, allowed: Iterable[str]) -> str:

@@ -376,7 +376,11 @@ def test_model_list_flags_and_the_helper_that_only_answers_closed_book():
     assert meta.price_table["grok-4.3"] == pytest.approx(
         {"input_tokens": 1.25e-6, "cached_input_tokens": 0.20e-6, "output_tokens": 2.50e-6, "searches": 0.005})
     assert set(meta.est_cost_per_call_usd) == set(meta.est_cost_per_call_search_disabled_usd) == set(meta.models)
-    assert meta.est_cost_per_call_usd["grok-4.5"] == pytest.approx(0.225)
+    # 联网问一次的估价 = 实测均值(样本少);4.7 有一次过了 20 万 token 整单双倍价,所以不写「上界」
+    assert meta.est_cost_per_call_usd == {"grok-4.5": 0.16, "grok-4.7": 0.27}
+    # 报告「这次是怎么测的」里的一句(用户 2026-11-18 定的原话):接口这边没开 X 帖子搜索
+    assert [(n.zh, n.en) for n in meta.method_notes] == [
+        ("本次 Grok 的结果不包含 X 内容。", "Grok's results in this run do not include content from X.")]
 
     route = respx.post(RESP_URL).mock(return_value=httpx.Response(200, json=golden("success_no_search.json")))
     run = adapter.ask(make_request(model=HELPER_MODEL, search_mode=SearchMode.SEARCH_DISABLED))

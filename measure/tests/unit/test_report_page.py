@@ -11,7 +11,7 @@ from datetime import UTC, datetime
 import pytest
 from fastapi.testclient import TestClient
 
-from adapters.base import BillingNote, CapabilityRegistry, SurfaceAdapter, SurfaceMeta
+from adapters.base import BillingNote, CapabilityRegistry, MethodNote, SurfaceAdapter, SurfaceMeta
 from diagnosis.citation_diag import VerificationSummary, diagnose_citation
 from diagnosis.diagnose import access_finding, diagnose_class, diagnose_surface
 from diagnosis.findings import Stage
@@ -434,6 +434,21 @@ def test_report_opens_with_a_sampling_note(client_and_job):
     en = client.get(f"/jobs/{job.job_id}/report?lang=en").text
     assert "How this was measured" in en and "1 questions · 2 models · each asked 3 times" in en
     assert "Tested: 2026-08-24 09:00 UTC+8 to 2026-08-24 09:30 UTC+8" in visible_text(en)
+
+
+def test_sampling_note_says_what_a_tested_api_leaves_out(client_and_job):
+    """用户 2026-11-18 定:接口这边没开、产品界面会用的那一路来源,在「这次是怎么测的」里说一句。
+    句子由适配器声明、生成报告时冻进采样说明;报告层只挑语言,紧跟在「实际调用的接口和型号」后面;没声明就没有这句。"""
+    client, job, _ = client_and_job
+    assert "不包含" not in user_view_of(client.get(f"/jobs/{job.job_id}/report?lang=zh").text)
+    job.sampling = job.sampling.model_copy(update={"method_notes": [
+        MethodNote(zh="本次甲家的结果不包含乙站内容。",
+                   en="Results from A in this run do not include content from B.")]})
+    zh = user_view_of(client.get(f"/jobs/{job.job_id}/report?lang=zh").text)
+    assert "本次甲家的结果不包含乙站内容。" in zh and "Results from A" not in zh
+    assert zh.index("实际调用的接口和型号") < zh.index("本次甲家的结果不包含乙站内容。") < zh.index("官网名单:已确认")
+    en = visible_text(client.get(f"/jobs/{job.job_id}/report?lang=en").text)
+    assert "Results from A in this run do not include content from B." in en and "本次甲家" not in en
 
 
 def test_every_time_on_the_report_is_local_and_says_its_zone(client_and_job):

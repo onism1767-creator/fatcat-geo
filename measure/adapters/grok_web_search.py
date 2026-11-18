@@ -6,8 +6,11 @@
 - 工具只开 {"type": "web_search"},只放官方文档写了的参数。回包会把工具回显成带 search_context_size="medium",
   那是平台默认值;文档没写这个参数,所以不发(发了也不知道它认不认)。
 - **不开 X 帖子搜索(x_search)**:用户 2026-11-17 定「试一轮,搜不到就砍掉」。同一道题把网页与 X 帖子两个工具都开着
-  问了一次(grok-4.5):搜了 6 次网页、X 帖子 0 次(平台自报 x_search_calls=0、x_posts_fetched=0)→ 砍掉。
-  Grok 应用里两样都会搜,这一点和应用里的回答有差别;和另外四家同口径(都只搜网页)。
+  问了一次(grok-4.5,推荐类的题):搜了 6 次网页、X 帖子 0 次(平台自报 x_search_calls=0、x_posts_fetched=0)→ 砍掉。
+  11-18 用户定补一轮(含口碑题),两个工具都开着,4.5 / 4.7 各 3 道:**口碑题 4 / 4 次都去搜了 X**(每次 1–5 回、
+  拿回 5–32 条帖子;4.5 有一次把 4 条帖子挂在正文上当出处),**推荐题 2 / 2 次没搜**(加上 11-17 那次是 3 / 3)。
+  也就是它搜不搜 X 看题型,不是一律不搜。现在仍然不开(和另外四家同口径,都只搜网页);
+  报告「这次是怎么测的」里写一句(_NO_X_NOTE)。开不开等用户看了补测结果再定。
 - store=false:测量调用不在平台侧留存;不设推理力度与温度:测平台默认状态
   (回包写明默认推理力度:grok-4.5 / grok-4.7 是 high,grok-4.3 是 low)。
 - max_output_tokens = MAX_OUTPUT_TOKENS:回答长度保险丝(成本上界的一部分),不放宽;推理 token 也占它。
@@ -38,7 +41,8 @@
 牌价与自报费用拿三发真实回包验算过,一个 tick 不差:
 没命中缓存的输入 + 命中缓存的输入 + 输出(含推理)+ 网页搜索每次 $0.005。
 单次提示达到 20 万 token 时平台整单按双倍价计(官方价目页),牌价表只写 20 万以内的价;
-真到了那一档,实际费用仍以平台自报为准。
+真到了那一档,实际费用仍以平台自报为准。这一档真实撞到过:2026-11-18 grok-4.7 一次搜了 12 回、输入 23.6 万 token,
+自报 $0.573,按双倍价验算一个 tick 不差(搜索来的内容都算输入,搜得多就过线)。
 """
 
 from __future__ import annotations
@@ -52,6 +56,7 @@ from adapters.base import (
     AdapterTransientError,
     CapabilityNotSupportedError,
     CapabilityRegistry,
+    MethodNote,
     SurfaceMeta,
     known_model,
     priced,
@@ -93,6 +98,8 @@ _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float, float]] = {
 HELPER_MODEL = "grok-4.3"
 _HELPER_PRICES_PER_MTOK = (1.25, 0.20, 2.50)
 _SEARCH_USD_PER_CALL = 5.0 / 1000.0  # 网页搜索 $5 / 千次(官方价目页「Tools pricing」)
+# 联网问一次的实测均值(确认页在库里攒够实测前用它估价;来历见 meta() 里的口径说明)
+_MEASURED_USD_PER_CALL = {"grok-4.5": 0.16, "grok-4.7": 0.27}
 
 
 def _prices(price_in: float, price_cached: float, price_out: float) -> dict[str, float]:
@@ -120,6 +127,10 @@ _MODELS_CHECKED = ("2026-11-17 接口列型号(免费):grok-4.7 / 4.6 / 4.5 / 4.
                    "用户 11-17 定清单 = 4.5 + 4.7、只搜网页(X 帖子试一轮没搜,砍掉);"
                    "冒烟 11-17 / 18:4.5 一次 $0.12、4.7 三次 $0.12–0.22,都没截断;"
                    "4.7 三次都不在正文里标出处(引用记看不到),4.5 三次都标")
+
+# 报告「这次是怎么测的」里的一句(用户 2026-11-18 定的原话):接口这边没开 X 帖子搜索,应用里会搜
+_NO_X_NOTE = MethodNote(zh="本次 Grok 的结果不包含 X 内容。",
+                        en="Grok's results in this run do not include content from X.")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
@@ -292,13 +303,12 @@ class GrokWebSearchAdapter(HttpAdapter):
             models_checked=_MODELS_CHECKED,
             capabilities=_CAPABILITIES,
             price_table=_PRICE_TABLE,
-            # 口径:推导上界(没有检索次数上限参数)。按 8 万输入全价 + 输出打满保险丝 + 8 次搜索:
-            # (80000×$2 + 4096×$6)/1e6 + 8×$0.005 ≈ $0.225。2026-11-17 真实回包:grok-4.5 一次 7.4 万输入、
-            # 2,203 输出、6 次搜索,$0.142。有足量实测后确认页改读实测均值。
-            est_cost_per_call_usd={
-                model: round((80000 * price_in + MAX_OUTPUT_TOKENS * price_out) / 1e6 + 8 * _SEARCH_USD_PER_CALL, 3)
-                for model, (price_in, _, price_out) in _TOKEN_PRICES_PER_MTOK.items()
-            },
+            method_notes=[_NO_X_NOTE],
+            # 口径:实测均值(样本少,2026-11-17 / 18 只搜网页的真实回答):grok-4.5 三次 $0.12 / $0.14 / $0.23;
+            # grok-4.7 四次 $0.12 / $0.15 / $0.22 / $0.57。最贵那次搜了 12 回、输入 23.6 万 token,过了 20 万那条线,
+            # 整单双倍价——没有检索次数上限参数,所以写不出靠得住的上界(原来写的「推导上界 $0.225」被这一次打破,
+            # 错误日志 11-18)。库里攒够实测后确认页改读库里的均值;真实花费由预算闸门把守。
+            est_cost_per_call_usd=dict(_MEASURED_USD_PER_CALL),
             # 闭卷腿口径:同源推导上界,无检索项:(500×$2 + 4096×$6)/1e6 ≈ $0.026
             est_cost_per_call_search_disabled_usd={
                 model: round((500 * price_in + MAX_OUTPUT_TOKENS * price_out) / 1e6, 3)

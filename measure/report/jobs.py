@@ -21,7 +21,7 @@ from uuid import uuid4
 
 import structlog
 
-from adapters.base import SurfaceAdapter
+from adapters.base import MethodNote, SurfaceAdapter
 from diagnosis.access_audit import AccessAuditResult
 from diagnosis.diagnose import ClassDiagnosis
 from diagnosis.verdict import SurfaceVerdict
@@ -115,6 +115,8 @@ class SamplingNote(FrozenModel):
     # 该请裁判却名单里一位都用不上时,无法进行 AI 判断的这几家(BR6);非空 = 这单没有裁判。
     # 现有的接口各自都能单独当裁判,只有以后新接的接口没配裁判才会非空
     no_judge: list[str] = []
+    # 被测接口各自声明的测法说明(adapters 的 SurfaceMeta.method_notes),生成报告时冻在这里;没有就空
+    method_notes: list[MethodNote] = []
 
 
 class ReportPayload(FrozenModel):

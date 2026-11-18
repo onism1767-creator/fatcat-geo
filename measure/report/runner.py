@@ -386,6 +386,8 @@ def _sampling_note(
         judge_targets=[Target.parse(key) for key in dict.fromkeys(m.judged_by for m in mentions if m.judged_by)],
         n_own_vendor=sum(m.own_vendor for m in mentions),
         no_judge=cannot_judge(adapters) if missing_judge else [],
+        method_notes=[note for surface in dict.fromkeys(target.surface for target in job.targets)
+                      if surface in adapters for note in adapters[surface].meta().method_notes],
     )
 
 
