@@ -1,0 +1,415 @@
+{
+  "created_at": 1794960870,
+  "completed_at": 1794960928,
+  "id": "931c2bab-996f-4972-a238-8b93907c94d8",
+  "max_output_tokens": 4096,
+  "model": "grok-4.7",
+  "object": "response",
+  "output": [
+    {
+      "id": "rs_931c2bab-996f-4972-a238-8b93907c94d8",
+      "summary": [
+        {
+          "text": "正在分析中小团队适用的 CRM 产品推荐。\n\n正在筛选适合中小团队的 CRM 选项。重点考虑 HubSpot、Zoho、",
+          "type": "summary_text"
+        }
+      ],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "ws_931c2bab-996f-4972-a238-8b93907c94d8_call-9daed19d-3a94-404f-8523-5301ea0b2f7a-0",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "中小团队 CRM 推荐 2024",
+        "sources": [
+          {
+            "type": "url",
+            "url": "https://monday.com/blog/zh_TW/crm-and-sales-zh/best_crm_for_small_business/"
+          },
+          {
+            "type": "url",
+            "url": "https://worktile.com/kb/p/3970584"
+          },
+          {
+            "type": "url",
+            "url": "https://www.sohu.com/a/961095907_122556853"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws_931c2bab-996f-4972-a238-8b93907c94d8_call-9daed19d-3a94-404f-8523-5301ea0b2f7a-1",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "best CRM for small teams 2024",
+        "sources": [
+          {
+            "type": "url",
+            "url": "https://vettlo.com/tools/best-crm-for-small-business/"
+          },
+          {
+            "type": "url",
+            "url": "https://www.itechguides.com/best/small-business-crm-software/"
+          },
+          {
+            "type": "url",
+            "url": "https://busynessprofile.com/best/small-business-crm-tools/"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws_931c2bab-996f-4972-a238-8b93907c94d8_call-9daed19d-3a94-404f-8523-5301ea0b2f7a-2",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "中小企业 CRM 选型 纷享销客 销售易 HubSpot",
+        "sources": [
+          {
+            "type": "url",
+            "url": "https://cordys.cn/blog/crm-review-fxiaoke-xiaoshouyi-zoho-2026.html"
+          },
+          {
+            "type": "url",
+            "url": "https://www.dkmeco.com/community/blog/hubspot/detail-635"
+          },
+          {
+            "type": "url",
+            "url": "https://www.dkmeco.com/community/blog/hubspot/detail-634"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tco_931c2bab-996f-4972-a238-8b93907c94d8_call-9daed19d-3a94-404f-8523-5301ea0b2f7a-0",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "tco_931c2bab-996f-4972-a238-8b93907c94d8_call-9daed19d-3a94-404f-8523-5301ea0b2f7a-1",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "tco_931c2bab-996f-4972-a238-8b93907c94d8_call-9daed19d-3a94-404f-8523-5301ea0b2f7a-2",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "rs_931c2bab-996f-4972-a238-8b93907c94d8",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "ws_931c2bab-996f-4972-a238-8b93907c94d8_call-9daed19d-3a94-404f-8523-5301ea0b2f7a-3",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "纷享销客 价格 中小企业",
+        "sources": [
+          {
+            "type": "url",
+            "url": "https://www.itangsoft.com/baike/show-221723.html"
+          },
+          {
+            "type": "url",
+            "url": "https://www.36dianping.com/price/3727002022"
+          },
+          {
+            "type": "url",
+            "url": "https://www.ding.cn/center/701061.html"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws_931c2bab-996f-4972-a238-8b93907c94d8_call-9daed19d-3a94-404f-8523-5301ea0b2f7a-4",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "HubSpot CRM 免费版 用户限制 2025 OR 2026",
+        "sources": [
+          {
+            "type": "url",
+            "url": "https://claritysoft.com/hubspot-free-plan-limitations/"
+          },
+          {
+            "type": "url",
+            "url": "https://www.mo.agency/blog/what-are-the-limitations-of-hubspots-free-crm"
+          },
+          {
+            "type": "url",
+            "url": "https://costbench.com/software/crm/hubspot/free-plan/"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws_931c2bab-996f-4972-a238-8b93907c94d8_call-9daed19d-3a94-404f-8523-5301ea0b2f7a-5",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "简道云 CRM 适合中小团队",
+        "sources": [
+          {
+            "type": "url",
+            "url": "https://www.sohu.com/a/1035054113_121453371"
+          },
+          {
+            "type": "url",
+            "url": "https://www.ding.cn/center/790856.html"
+          },
+          {
+            "type": "url",
+            "url": "https://www.jiandaoyun.com/nblog/389464/"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tco_931c2bab-996f-4972-a238-8b93907c94d8_call-9daed19d-3a94-404f-8523-5301ea0b2f7a-3",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "tco_931c2bab-996f-4972-a238-8b93907c94d8_call-9daed19d-3a94-404f-8523-5301ea0b2f7a-4",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "tco_931c2bab-996f-4972-a238-8b93907c94d8_call-9daed19d-3a94-404f-8523-5301ea0b2f7a-5",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "rs_931c2bab-996f-4972-a238-8b93907c94d8",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "content": [
+        {
+          "type": "output_text",
+          "text": "中小团队选 CRM，核心不是“功能最多”，而是**员工愿意用、价格扛得住、能跟着业务长大**。国内团队还要优先看企业微信/钉钉/飞书集成和数据是否在境内。\n\n下面按常见场景给可落地的选择（价格均为公开信息大致区间，以官网最新报价为准）。\n\n## 按场景直接选\n\n| 你的情况 | 优先考虑 | 为什么适合 |\n|---|---|---|\n| 国内 ToB 销售（制造、商贸、企服），10–200 人 | **纷享销客** | 销售过程管理成熟，企微/钉钉集成好，本地服务和境内数据更省心，中小企业使用面广 |\n| 流程经常变、没有专职 IT，想自己改字段和审批 | **简道云** | 零代码拖拽搭建，模板多，和钉钉/企微/飞书打通方便，小团队年费通常比传统 CRM 低一个量级 |\n| 工贸/生产，还要管进销存、订单、生产 | **超兔一体云** | CRM + 进销存 + 轻生产一体，少做多系统对接 |\n| 预算极紧、或有跨境/多语言需求 | **Zoho CRM** | 免费版可先用（约 3 用户），付费起步低，功能全，适合外贸和想低成本起步的团队 |\n| 以销售漏斗跟单为主，要极简上手 | **Pipedrive** | 管道可视化强，销售几天能用起来，营销功能弱一些 |\n| 营销获客 + 销售一体，或有海外获客 | **HubSpot** | 免费版可验证流程，但现在限制较严（约 2 用户、1000 联系人）；付费后营销自动化强。注意数据与合规 |\n| 零售、教培、强依赖微信私域 | 企业微信 + SCRM（如微伴等） | 客户本来就在微信里，比再上一套重 CRM 更顺 |\n\n",
+          "logprobs": [],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "url": "https://www.36dianping.com/price/3727002022",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.36dianping.com/price/3727002022"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.dkmeco.com/community/blog/hubspot/detail-635",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.dkmeco.com/community/blog/hubspot/detail-635"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.ding.cn/center/701061.html",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.ding.cn/center/701061.html"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.mo.agency/blog/what-are-the-limitations-of-hubspots-free-crm",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.mo.agency/blog/what-are-the-limitations-of-hubspots-free-crm"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://monday.com/blog/zh_TW/crm-and-sales-zh/best_crm_for_small_business/",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://monday.com/blog/zh_TW/crm-and-sales-zh/best_crm_for_small_business/"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://costbench.com/software/crm/hubspot/free-plan/",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://costbench.com/software/crm/hubspot/free-plan/"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.itangsoft.com/baike/show-221723.html",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.itangsoft.com/baike/show-221723.html"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.jiandaoyun.com/nblog/389464/",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.jiandaoyun.com/nblog/389464/"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://vettlo.com/tools/best-crm-for-small-business/",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://vettlo.com/tools/best-crm-for-small-business/"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.dkmeco.com/community/blog/hubspot/detail-634",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.dkmeco.com/community/blog/hubspot/detail-634"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://worktile.com/kb/p/3970584",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://worktile.com/kb/p/3970584"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://cordys.cn/blog/crm-review-fxiaoke-xiaoshouyi-zoho-2026.html",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://cordys.cn/blog/crm-review-fxiaoke-xiaoshouyi-zoho-2026.html"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.sohu.com/a/1035054113_121453371",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.sohu.com/a/1035054113_121453371"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://busynessprofile.com/best/small-business-crm-tools/",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://busynessprofile.com/best/small-business-crm-tools/"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.itechguides.com/best/small-business-crm-software/",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.itechguides.com/best/small-business-crm-software/"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.ding.cn/center/790856.html",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.ding.cn/center/790856.html"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://claritysoft.com/hubspot-free-plan-limitations/",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://claritysoft.com/hubspot-free-plan-limitations/"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.sohu.com/a/961095907_122556853",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.sohu.com/a/961095907_122556853"
+            }
+          ]
+        }
+      ],
+      "id": "msg_931c2bab-996f-4972-a238-8b93907c94d8",
+      "role": "assistant",
+      "type": "message",
+      "status": "completed"
+    }
+  ],
+  "parallel_tool_calls": true,
+  "previous_response_id": null,
+  "reasoning": {
+    "effort": "high",
+    "summary": "detailed"
+  },
+  "temperature": 0.7,
+  "text": {
+    "format": {
+      "type": "text"
+    }
+  },
+  "tool_choice": "auto",
+  "tools": [
+    {
+      "type": "web_search",
+      "search_context_size": "medium"
+    }
+  ],
+  "top_p": 0.95,
+  "usage": {
+    "input_tokens": 74274,
+    "input_tokens_details": {
+      "cached_tokens": 30720
+    },
+    "output_tokens": 2940,
+    "output_tokens_details": {
+      "reasoning_tokens": 1810
+    },
+    "total_tokens": 77214,
+    "num_sources_used": 0,
+    "num_server_side_tools_used": 6,
+    "cost_in_usd_ticks": 1501080000,
+    "server_side_tool_usage_details": {
+      "web_search_calls": 6,
+      "x_search_calls": 0,
+      "x_posts_fetched": 0,
+      "x_users_fetched": 0,
+      "code_interpreter_calls": 0,
+      "file_search_calls": 0,
+      "mcp_calls": 0,
+      "document_search_calls": 0,
+      "image_generation_calls": 0
+    },
+    "context_details": {
+      "input_tokens": 45640,
+      "output_tokens": 1766
+    }
+  },
+  "user": null,
+  "incomplete_details": null,
+  "status": "completed",
+  "store": false,
+  "metadata": {
+    "system_fingerprint": "fp_c60958d81f66f847"
+  },
+  "background": false,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "top_logprobs": 0,
+  "presence_penalty": 0.0,
+  "frequency_penalty": 0.0,
+  "prompt_cache_key": null,
+  "max_tool_calls": null,
+  "safety_identifier": null,
+  "error": null,
+  "instructions": null
+}

@@ -178,6 +178,9 @@ OFFICIAL_ACCOUNT_BODIES = (
           'is not met (for example, disabled billing)."}}', RunErrorType.ACCOUNT_RESTRICTED, "没开通付费"),
     (429, '{"error":{"code":"quota_exceeded","message":"You have exceeded your daily quota."}}',
      RunErrorType.ACCOUNT_QUOTA, "等额度重置"),
+    # 2026-11-18 真实回包(不是文档):有一家 key 写错回 HTTP 400 而不是 401,靠原话认——不认就成了「非法请求」
+    (400, '{"code":"invalid-argument","error":"Incorrect API key provided. You can obtain an API key from '
+          'https://console.x.ai."}', RunErrorType.ACCOUNT_AUTH, "无效或已失效(HTTP 400)"),
 )
 
 

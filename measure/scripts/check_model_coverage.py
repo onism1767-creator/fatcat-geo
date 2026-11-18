@@ -48,11 +48,18 @@ def _gemini(client: httpx.Client, key: str) -> list[str]:
     return [m["name"].removeprefix("models/") for m in resp.json()["models"]]
 
 
+def _xai(client: httpx.Client, key: str) -> list[str]:
+    resp = client.get("https://api.x.ai/v1/models", headers={"Authorization": f"Bearer {key}"})
+    resp.raise_for_status()
+    return [m["id"] for m in resp.json()["data"]]
+
+
 # provider → (key 的环境变量, 列型号函数);没列在这里的 provider = 平台无此接口
 _LISTERS: dict[str, tuple[str, Callable[[httpx.Client, str], list[str]]]] = {
     "anthropic": ("ANTHROPIC_API_KEY", _anthropic),
     "openai": ("OPENAI_API_KEY", _openai),
     "gemini": ("GOOGLE_API_KEY", _gemini),
+    "xai": ("XAI_API_KEY", _xai),
 }
 
 

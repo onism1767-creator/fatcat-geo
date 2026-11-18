@@ -1,0 +1,329 @@
+"""Grok 生成+引用通道(xAI 的 Responses API + web_search 托管工具;2026-11-17 接入,用户定)。
+
+只做翻译:AskRequest → 平台调用;平台返回 → SurfaceRun(6.3)。
+
+口径(2026-11-17 按官方文档 docs.x.ai 与四发真实回包核对;官方文档没给原始返回的样子,下面的形状都来自真实回包):
+- 工具只开 {"type": "web_search"},只放官方文档写了的参数。回包会把工具回显成带 search_context_size="medium",
+  那是平台默认值;文档没写这个参数,所以不发(发了也不知道它认不认)。
+- **不开 X 帖子搜索(x_search)**:用户 2026-11-17 定「试一轮,搜不到就砍掉」。同一道题把网页与 X 帖子两个工具都开着
+  问了一次(grok-4.5):搜了 6 次网页、X 帖子 0 次(平台自报 x_search_calls=0、x_posts_fetched=0)→ 砍掉。
+  Grok 应用里两样都会搜,这一点和应用里的回答有差别;和另外四家同口径(都只搜网页)。
+- store=false:测量调用不在平台侧留存;不设推理力度与温度:测平台默认状态
+  (回包写明默认推理力度:grok-4.5 / grok-4.7 是 high,grok-4.3 是 low)。
+- max_output_tokens = MAX_OUTPUT_TOKENS:回答长度保险丝(成本上界的一部分),不放宽;推理 token 也占它。
+
+本 surface 的可观测面:
+- 检索词:web_search_call.action(type=search)的 query,一次动作一个词;
+- 候选来源:同一个 action 的 sources(只有网址,没有标题和排名,位次即顺序;不用另外开开关,默认就给);
+- 打开的网页:官方说这个工具「搜索并浏览网页」,但真实回包里只见过 search 动作,浏览了哪些页没有暴露
+  → opened_sources 记 NOT_OBSERVABLE(不拿「没看见」当「没打开」);
+- 引用:message 正文段落的 url_citation 锚注(平台默认在正文里插 [[n]](网址) 并给锚注),按首次出现去重成引用池;
+  锚注的 title 是引用编号(「1」「2」),不是网页标题 → Citation.title 记 None,不拿编号冒充标题;
+  **只认落在正文一段字上的锚注**(end_index > start_index)。2026-11-17 冒烟:grok-4.7 一次回答正文里没有任何
+  [[n]] 标记,却把搜到的 65 个网页全部挂成锚注(start_index = end_index = 0、title 就是网址,和 sources 一个不差)——
+  那是「搜到的」又报了一遍,不是「引用的」;搜到与引用本来就分两格记(用户 2026-11-18 确认),它们只进 retrieved_sources。
+  11-18 又问了 grok-4.7 两道题(一英一中),三次全是这样:正文零标记、锚注全是零宽度、与去重后的 sources 一个不差;
+  同样的题 grok-4.5 三次都给落在正文上的锚注。所以按回包本身机械地分三种(与当年另一家「搜了却没对上」同口径,铁律 7):
+  有落在正文上的锚注 → 照记;只有零宽度清单、一条落在正文上的都没有 → 哪些被引用看不到,citations_available=False
+  (不记「引用 0 条」);什么锚注都没有 → 真的没引,0 条;
+- 正文:一次回答可能有不止一个 message 项(真实回包见过:搜索前先说一句、搜完再给正式回答),
+  按出现顺序全收,项与项之间空一行;正文里的 [[n]](网址) 原样保留;
+- 没见到任何 web_search_call = search_triggered=False 的真实负观测;search_disabled = 不带工具;
+- 检索动作失败(web_search_call.status == "failed")= 本次采样被检索基础设施污染,按瞬时错误上抛,与另外几家同口径;
+- 顶层 status:completed / incomplete(截断,回答仍有效)算成功;其余(failed 等)按瞬时错误上抛、花费随失败行落;
+- 没查到机器可读的拒答信号:不从正文猜「算不算拒答」(属 L2);
+- 地区、强制检索:官方文档没写对应参数,不声明(请求了就报错,不静默降级)。
+
+费用:平台自报(usage.cost_in_usd_ticks,1 美元 = 10^10 个 tick),照搬;没报时按牌价折算(预算闸门不能失明)。
+牌价与自报费用拿三发真实回包验算过,一个 tick 不差:
+没命中缓存的输入 + 命中缓存的输入 + 输出(含推理)+ 网页搜索每次 $0.005。
+单次提示达到 20 万 token 时平台整单按双倍价计(官方价目页),牌价表只写 20 万以内的价;
+真到了那一档,实际费用仍以平台自报为准。
+"""
+
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+
+import httpx
+
+from adapters.base import (
+    AdapterTransientError,
+    CapabilityNotSupportedError,
+    CapabilityRegistry,
+    SurfaceMeta,
+    known_model,
+    priced,
+)
+from adapters.http_support import STRUCTURE_ERRORS, HttpAdapter, domain_of, full_body, malformed, require_list, spent_on
+from engine.models import (
+    NOT_OBSERVABLE,
+    Answer,
+    AskRequest,
+    Citation,
+    JsonValue,
+    Outcome,
+    RetrievedSource,
+    SearchMode,
+    SearchTrace,
+    SurfaceRun,
+)
+
+BASE_URL = "https://api.x.ai"
+RESPONSES_URL = f"{BASE_URL}/v1/responses"
+TOOL_TYPE = "web_search"  # 改动前必须重做真实对照并更新 golden
+MAX_OUTPUT_TOKENS = 4096  # 回答长度保险丝(成本上界的一部分)
+_SUCCESS_STATUSES = ("completed", "incomplete")  # incomplete = 截断,回答仍有效
+_TICKS_PER_USD = 1e10  # usage.cost_in_usd_ticks 的单位(三发真实回包与牌价验算一致)
+
+# 官方价目(2026-11-17 核对 docs.x.ai 价目页,并与接口 /v1/language-models 自报的价目逐项对上):
+# 型号 → (输入, 命中缓存的输入, 输出) USD / MTok,20 万 token 以内的档。
+# 被测清单(用户 2026-11-17 定「4.5 + 4.7」,工程原则 9):
+#   grok-4.5:Grok 应用里用的那款——官方 2026-07-22 公告「Grok 4.5 now powers Grok wherever you use it」
+#             (grok.com / X / iOS / Android);之后 4.6、4.7 的公告只说进了 Cursor、Grok Build 与接口,没提进应用;
+#   grok-4.7:最新一代(2026-09-21 发布,官方型号页:聊天与写代码都用它)。
+# 上一款 grok-4.6 与更早的 grok-4.3 / grok-4.20 系列不入被测清单。
+_TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float, float]] = {
+    "grok-4.5": (2.00, 0.30, 6.00),
+    "grok-4.7": (2.00, 0.50, 6.00),
+}
+# 辅助型号:只做裁判这类不联网小调用,不被测(不进档位、不上确认页)。挑便宜的一款;
+# 2026-11-17 真实回包:不带工具时没有任何检索动作,费用与牌价对得上。
+HELPER_MODEL = "grok-4.3"
+_HELPER_PRICES_PER_MTOK = (1.25, 0.20, 2.50)
+_SEARCH_USD_PER_CALL = 5.0 / 1000.0  # 网页搜索 $5 / 千次(官方价目页「Tools pricing」)
+
+
+def _prices(price_in: float, price_cached: float, price_out: float) -> dict[str, float]:
+    """牌价(用量 × 牌价 = 费用;计费项与 _usage 读出的键一致):token 按每个 token 折,搜索按每次。"""
+    return {"input_tokens": price_in / 1e6, "cached_input_tokens": price_cached / 1e6,
+            "output_tokens": price_out / 1e6, "searches": _SEARCH_USD_PER_CALL}
+
+
+_PRICE_TABLE: dict[str, dict[str, float]] = {
+    **{model: _prices(*prices) for model, prices in _TOKEN_PRICES_PER_MTOK.items()},
+    HELPER_MODEL: _prices(*_HELPER_PRICES_PER_MTOK),
+}
+_DEFAULT_MODEL = "grok-4.5"
+# 型号标记(配置资产;规矩见 CLAUDE.md 工程原则 9 / 10):
+# 消费端默认 = grok-4.5(依据是上面那条 07-22 官方公告;免费版与付费版默认是否不同,官方没写——待核对,不猜);
+# 主力 = 消费端默认那款在最新一代里的同款 = grok-4.7(Grok 只有一条产品线,最新一代就是它)。
+_CONSUMER_DEFAULT_MODEL = "grok-4.5"
+_MAIN_MODEL = "grok-4.7"
+_MODELS_CHECKED = ("2026-11-17 接口列型号(免费):grok-4.7 / 4.6 / 4.5 / 4.3 / 4.20 系列 / grok-build-0.1;"
+                   "官方型号页(09-21 更新):旗舰 Grok 4.7,聊天与写代码都用它;价目页逐项核对,与接口自报价目一致;"
+                   "官方公告 07-22:Grok 4.5 进 grok.com / X / iOS / Android,"
+                   "之后 4.6(08-12)、4.7(09-21)的公告没提进应用;"
+                   "免费版默认是否与付费版不同:官方没写,待核对;"
+                   "用户 11-17 定清单 = 4.5 + 4.7、只搜网页(X 帖子试一轮没搜,砍掉);"
+                   "冒烟 11-17 / 18:4.5 一次 $0.12、4.7 三次 $0.12–0.22,都没截断;"
+                   "4.7 三次都不在正文里标出处(引用记看不到),4.5 三次都标")
+
+_CAPABILITIES = CapabilityRegistry(
+    supports_query_trace=True,
+    supports_citations=True,
+    supports_search_disabled=True,
+)
+
+
+def _usage(data: dict[str, Any]) -> dict[str, float]:
+    """这次调用的计费用量,键与 _PRICE_TABLE 一致:输入分两档(没命中缓存的 / 命中缓存的,之和 = 平台报的 input_tokens,
+    检索回来的内容已计入)、输出 token(平台已把推理 token 计入)、计费的网页搜索次数(平台自报)。"""
+    usage = data.get("usage") or {}
+    details = usage.get("input_tokens_details") or {}
+    tools = usage.get("server_side_tool_usage_details") or {}
+    total_input = float(usage.get("input_tokens") or 0)
+    cached = float(details.get("cached_tokens") or 0)
+    return {
+        "input_tokens": max(0.0, total_input - cached),
+        "cached_input_tokens": cached,
+        "output_tokens": float(usage.get("output_tokens") or 0),
+        "searches": float(tools.get("web_search_calls") or 0),
+    }
+
+
+def _cost_usd(data: dict[str, Any], model: str) -> float:
+    """平台自报的费用照搬;没报就按牌价折算(确定性折算,不是臆造——预算闸门不能因为少一个字段就失明)。"""
+    ticks = (data.get("usage") or {}).get("cost_in_usd_ticks")
+    if isinstance(ticks, (int, float)) and not isinstance(ticks, bool):
+        return ticks / _TICKS_PER_USD
+    return priced(_PRICE_TABLE[model], _usage(data))
+
+
+def _anchored(note: dict[str, Any]) -> bool:
+    """这条锚注有没有落在正文的一段字上(end_index > start_index)。平台有时把搜到的网页整份再挂一遍、位置全是 0
+    (见模块说明「引用」一条):那是「搜到的」,已经记在 retrieved_sources,不进引用池。"""
+    return int(note.get("end_index") or 0) > int(note.get("start_index") or 0)
+
+
+def _payload(request: AskRequest, model: str, search_disabled: bool) -> dict[str, Any]:
+    """AskRequest → 平台请求体(口径钉死)。"""
+    payload: dict[str, Any] = {
+        "model": model,
+        "input": request.prompt_text,
+        "max_output_tokens": MAX_OUTPUT_TOKENS,
+        "store": False,
+    }
+    if not search_disabled:
+        payload["tools"] = [{"type": TOOL_TYPE}]
+    return payload
+
+
+def _translate(
+    request: AskRequest,
+    model: str,
+    search_disabled: bool,
+    data: Any,
+    latency_ms: int,
+    started_at: datetime,
+) -> SurfaceRun:
+    """平台返回 → SurfaceRun。只翻译,不判定;结构不对按 Permanent 上抛(平台改格式须显式暴露)。"""
+    output = require_list(data, "output")
+    status = data.get("status")
+    if status not in _SUCCESS_STATUSES:  # 平台回了话、钱照计,却报失败:花费随失败行落
+        raise AdapterTransientError(f"响应 status={status!r}: {data.get('error')}", response_body=full_body(data),
+                                    cost_usd=spent_on(lambda: _cost_usd(data, model)))
+
+    messages: list[str] = []
+    queries: list[str] = []
+    sources: list[RetrievedSource] = []
+    citations: list[Citation] = []
+    cited_urls: set[str] = set()
+    search_observed = False
+    unanchored_seen = False  # 见过没落在正文上的锚注(平台把搜到的清单又挂了一遍)
+    try:
+        for item in output:
+            item_type = item.get("type")
+            if item_type == "web_search_call":
+                search_observed = True
+                if item.get("status") == "failed":  # 检索动作本身失败:本次采样被检索基础设施污染,交调度器重采
+                    raise AdapterTransientError(f"web_search_call 检索动作失败(status=failed,id={item.get('id')!r})",
+                                                response_body=full_body(data),
+                                                cost_usd=spent_on(lambda: _cost_usd(data, model)))
+                action = item.get("action") or {}
+                if action.get("type") != "search":
+                    continue  # 没见过的动作类型不猜,原样留在 raw_payload
+                if action.get("query"):
+                    queries.append(action["query"])
+                for entry in action.get("sources") or []:
+                    sources.append(RetrievedSource(
+                        url=entry["url"],
+                        domain=domain_of(entry["url"]),
+                        title=None,  # 平台只给网址,不臆造
+                        rank=len(sources) + 1,  # 有序列表位次
+                    ))
+            elif item_type == "message":
+                parts: list[str] = []
+                for part in item.get("content") or []:
+                    if part.get("type") != "output_text":
+                        continue
+                    parts.append(part["text"])
+                    for note in part.get("annotations") or []:
+                        if note.get("type") != "url_citation":
+                            continue
+                        if not _anchored(note):
+                            unanchored_seen = True
+                            continue
+                        if note["url"] in cited_urls:
+                            continue  # 引用池按首次出现去重;重复锚点在 raw_payload
+                        cited_urls.add(note["url"])
+                        citations.append(Citation(
+                            url=note["url"],
+                            domain=domain_of(note["url"]),
+                            title=None,  # 锚注的 title 是引用编号,不是网页标题
+                            position=len(citations) + 1,
+                        ))
+                if parts:
+                    messages.append("".join(parts))
+    except STRUCTURE_ERRORS as exc:  # 列表项不是 dict、字段类型怪:也算结构不符
+        raise malformed(exc, data, lambda: _cost_usd(data, model)) from exc
+
+    answer_text = "\n\n".join(messages)  # 不止一个 message 项时(搜索前先说一句)项与项之间空一行
+    # 平台只给了没落在正文上的清单、一条落在正文上的都没有:哪些被引用了看不到(不是「引用 0 条」)
+    citations_hidden = unanchored_seen and not citations
+    return SurfaceRun(
+        run_id=request.run_id,
+        prompt_id=request.prompt_id,
+        run_index=request.run_index,
+        provider="xai",
+        surface="grok_web_search",
+        model=model,
+        search_mode=request.search_mode,
+        locale=request.locale,
+        region=request.region,
+        outcome=Outcome.SUCCESS,
+        search_trace=SearchTrace(
+            # 检索是显式工具调用:触发 / 检索词 / 候选真实可观测;浏览了哪些页平台没暴露
+            search_triggered=False if search_disabled else search_observed,
+            generated_queries=queries,
+            retrieved_sources=sources,
+            opened_sources=NOT_OBSERVABLE,
+        ),
+        answer=(
+            Answer(answer_text=answer_text, citations_available=not (search_disabled or citations_hidden),
+                   citations=citations)
+            if answer_text
+            else None
+        ),
+        raw_payload=data,
+        timestamp=started_at,
+        latency_ms=latency_ms,
+        cost_usd=_cost_usd(data, model),
+    )
+
+
+class GrokWebSearchAdapter(HttpAdapter):
+    def __init__(self, api_key: str, client: httpx.Client | None = None) -> None:
+        super().__init__(headers={"Authorization": f"Bearer {api_key}"}, client=client)
+
+    def meta(self) -> SurfaceMeta:
+        return SurfaceMeta(
+            provider="xai",
+            surface="grok_web_search",
+            display_name="Grok",
+            api_name="Grok API",
+            models=list(_TOKEN_PRICES_PER_MTOK),
+            helper_models=[HELPER_MODEL],
+            default_model=_DEFAULT_MODEL,
+            consumer_default_model=_CONSUMER_DEFAULT_MODEL,
+            main_model=_MAIN_MODEL,
+            models_checked=_MODELS_CHECKED,
+            capabilities=_CAPABILITIES,
+            price_table=_PRICE_TABLE,
+            # 口径:推导上界(没有检索次数上限参数)。按 8 万输入全价 + 输出打满保险丝 + 8 次搜索:
+            # (80000×$2 + 4096×$6)/1e6 + 8×$0.005 ≈ $0.225。2026-11-17 真实回包:grok-4.5 一次 7.4 万输入、
+            # 2,203 输出、6 次搜索,$0.142。有足量实测后确认页改读实测均值。
+            est_cost_per_call_usd={
+                model: round((80000 * price_in + MAX_OUTPUT_TOKENS * price_out) / 1e6 + 8 * _SEARCH_USD_PER_CALL, 3)
+                for model, (price_in, _, price_out) in _TOKEN_PRICES_PER_MTOK.items()
+            },
+            # 闭卷腿口径:同源推导上界,无检索项:(500×$2 + 4096×$6)/1e6 ≈ $0.026
+            est_cost_per_call_search_disabled_usd={
+                model: round((500 * price_in + MAX_OUTPUT_TOKENS * price_out) / 1e6, 3)
+                for model, (price_in, _, price_out) in _TOKEN_PRICES_PER_MTOK.items()
+            },
+        )
+
+    def usage_of(self, raw_payload: JsonValue) -> dict[str, float]:
+        return _usage(raw_payload) if isinstance(raw_payload, dict) else {}
+
+    def ask(self, request: AskRequest) -> SurfaceRun:
+        """适配器只做两件事(CLAUDE.md 硬边界 3):AskRequest → 平台调用(_payload),平台返回 → SurfaceRun(_translate)。"""
+        _CAPABILITIES.require_request(request)
+        search_disabled = request.search_mode is SearchMode.SEARCH_DISABLED
+        model = known_model(request.model, _DEFAULT_MODEL, _PRICE_TABLE)
+        if model == HELPER_MODEL and not search_disabled:
+            raise CapabilityNotSupportedError(f"{HELPER_MODEL} 只做不联网的小调用(search_disabled),不被测")
+        data, latency_ms, started_at = self._post(
+            RESPONSES_URL, payload=_payload(request, model, search_disabled), timeout_s=request.timeout_s,
+        )
+        return _translate(request, model, search_disabled, data, latency_ms, started_at)
+
+    def healthcheck(self) -> bool:
+        return self._probe(RESPONSES_URL, payload={
+            "model": _DEFAULT_MODEL,
+            "input": "ping",
+            "max_output_tokens": 16,  # 不带检索工具,成本近零
+            "store": False,
+        })

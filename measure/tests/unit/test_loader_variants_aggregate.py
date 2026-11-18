@@ -28,9 +28,9 @@ from engine.observe import RunObservations
 
 def test_registry_loads_bundled_config():
     entries = load_surface_registry(DEFAULT_SURFACES_PATH)
-    assert len(entries) == 4
+    assert len(entries) == 5
     enabled = [e for e in entries if e.enabled]
-    assert len(enabled) == 4  # 四个生成+引用 surface(搜索接口 v0.4.26 S1 下线)
+    assert len(enabled) == 5  # 五个生成+引用 surface(搜索接口 v0.4.26 S1 下线;第五家 2026-11-18 接入)
 
 
 def test_build_adapters_with_key_and_capability_consistency():
@@ -39,10 +39,11 @@ def test_build_adapters_with_key_and_capability_consistency():
         "ANTHROPIC_API_KEY": "test-key",
         "OPENAI_API_KEY": "test-key",
         "GOOGLE_API_KEY": "test-key",
+        "XAI_API_KEY": "test-key",
     })
     assert set(adapters) == {
         "perplexity_agent", "claude_web_search",
-        "openai_web_search", "gemini_grounding",
+        "openai_web_search", "gemini_grounding", "grok_web_search",
     }
     for name, adapter in adapters.items():
         meta = adapter.meta()

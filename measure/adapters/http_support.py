@@ -54,6 +54,9 @@ _ACCOUNT_REGION_MARKERS = (  # 不对请求所在的国家或地区开放:和 ke
 )
 _ACCOUNT_KEY_MARKERS = (  # 确实是 key 的事:换 key 有用
     "your api key was reported as leaked",           # Gemini 403(故障排除页原话)
+    # Grok:key 写错回的是 HTTP 400(不是 401),code=invalid-argument,原话以这句开头(2026-11-18 真实回包;
+    # 官方排错页只写了 401)。不认的话会落到「非法请求」,预检叫人改适配器而不是换 key
+    "incorrect api key provided",
 )
 _ACCOUNT_RESTRICTED_MARKERS = (  # 账户或项目被限制:没开通付费、免费额度不对项目开放、有欠款、被暂停
     "your project has been denied access",           # Gemini 403(故障排除页原话)
@@ -128,7 +131,7 @@ def classify_account_problem(http_status: int | None, body: str | None) -> RunEr
 
     if http_status in (400, 403) and says(_ACCOUNT_REGION_MARKERS):
         return RunErrorType.ACCOUNT_REGION
-    if http_status == 403 and says(_ACCOUNT_KEY_MARKERS):
+    if http_status in (400, 403) and says(_ACCOUNT_KEY_MARKERS):
         return RunErrorType.ACCOUNT_AUTH
     if http_status in (400, 403) and says(_ACCOUNT_RESTRICTED_MARKERS):
         return RunErrorType.ACCOUNT_RESTRICTED
@@ -146,8 +149,8 @@ def classify_account_problem(http_status: int | None, body: str | None) -> RunEr
 def _account_explanation(kind: RunErrorType, status: int) -> str:
     """账户问题的一句人话解释(进 RunError.message,任务页的「平台原话」前面那句)。"""
     if kind is RunErrorType.ACCOUNT_AUTH:
-        if status == 401:
-            return "API key 无效或已失效(HTTP 401)"
+        if status in (400, 401):  # 400:有的平台 key 写错不回 401,靠原话认出来的
+            return f"API key 无效或已失效(HTTP {status})"
         return "API key 没有使用权限,或者账户被平台限制(HTTP 403,平台没写明是哪种,先看平台原话)"
     return {
         RunErrorType.ACCOUNT_CREDIT: f"账户额度不足、欠费或到了花费上限(HTTP {status})",
