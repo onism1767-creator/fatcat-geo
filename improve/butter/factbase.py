@@ -27,6 +27,7 @@ T_STRUCT, T_META, T_TITLE, T_LOCAL = 0, 1, 2, 3
 KIND_LABEL = {
     "jsonld": "JSON-LD", "microdata": "microdata", "meta": "meta", "og": "og", "title": "标题", "sitemap": "sitemap",
     "link": "页面链接", "url": "网址", "potato_brands": "brands.yml", "toast_brand_domains": "brand-domains.json",
+    "owner_edit": "站长在 Butter 里改的",
 }
 _APP_TYPES = frozenset({"SoftwareApplication", "WebApplication", "MobileApplication"})
 _SKIP_PRODUCT_PATHS = (".isRelatedTo", ".isSimilarTo", ".hasVariant", ".isVariantOf", ".isAccessoryOrSparePartFor",

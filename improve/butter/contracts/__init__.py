@@ -29,7 +29,8 @@ from butter.contracts.extract import (
     AttrText, HiddenText, JsonLdBlock, Link, MetaTag, PageExtract, RawDate, StructuredNode, TextBlock,
 )
 from butter.contracts.factbase import (
-    EntityFacts, FactBase, FactField, FactValue, Gap, MergedInput, PageFacts, ProductFacts, SourceKind, SpecFact,
+    EntityFacts, FactBase, FactEdit, FactField, FactValue, Gap, MergedInput, PageFacts, ProductFacts, SourceKind,
+    SpecFact,
 )
 from butter.contracts.jobs import Job, JobEvent, JobKind, JobState
 from butter.contracts.llm import Completion, ErrorKind, ModelPrice, Pricing, Provider
@@ -38,7 +39,10 @@ from butter.contracts.registry import (
     ACCESS_CHECK_NAMES, DATA_CONDITIONS, EVIDENCE_LEVELS, OUTPUT_LEVELS, REQUIRED_LANGS, EntryKind, EvidenceEntry,
     PromptIntent, RegistryOrigin, RegistrySource, Stage,
 )
-from butter.contracts.siblings import PotatoBrand, PotatoBrands, Question, QuestionBoard, ToastBrandDomains
+from butter.contracts.siblings import (
+    PotatoBrand, PotatoBrands, Question, QuestionBoard, ToastBrandDomains, ToastCitedDomain, ToastExport, ToastLight,
+    ToastStageLine,
+)
 from butter.contracts.snapshot import (
     FetchedPage, RobotsFetch, RobotsState, SitemapEntry, SiteSnapshot, SnapshotSource, StopReason,
 )
@@ -52,9 +56,10 @@ __all__ = [
     # extract
     "AttrText", "HiddenText", "JsonLdBlock", "Link", "MetaTag", "PageExtract", "RawDate", "StructuredNode", "TextBlock",
     # siblings
-    "PotatoBrand", "PotatoBrands", "Question", "QuestionBoard", "ToastBrandDomains",
+    "PotatoBrand", "PotatoBrands", "Question", "QuestionBoard", "ToastBrandDomains", "ToastCitedDomain", "ToastExport",
+    "ToastLight", "ToastStageLine",
     # factbase
-    "EntityFacts", "FactBase", "FactField", "FactValue", "Gap", "MergedInput", "PageFacts", "ProductFacts",
+    "EntityFacts", "FactBase", "FactEdit", "FactField", "FactValue", "Gap", "MergedInput", "PageFacts", "ProductFacts",
     "SourceKind", "SpecFact",
     # audit
     "AuditFinding", "AuditReport", "CheckName", "FindingLevel",

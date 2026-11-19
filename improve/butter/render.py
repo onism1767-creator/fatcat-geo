@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from butter.contracts import AuditReport, FactBase, FactField, SiteSnapshot
+from butter.contracts.siblings import ToastExport
 from butter.factbase import KIND_LABEL
 from butter.util import collapse_ws, md_cell, stop_label
 
-LEVEL_LABEL = {"problem": "问题", "notice": "提示", "pass": "通过", "not_checkable": "查不了"}
+LEVEL_LABEL = {"problem": "问题", "notice": "提示", "pass": "通过", "not_checkable": "查不了", "not_applicable": "不适用"}
 CHECK_LABEL = {
     "meta_robots": "meta robots(noindex / nosnippet / noarchive / max-snippet)",
     "visible_date": "可见日期真实性",
@@ -81,14 +82,41 @@ def factbase_md(fb: FactBase) -> str:
     return "\n".join(lines) + "\n"
 
 
-def audit_md(report: AuditReport, snapshot: SiteSnapshot) -> str:
+def toast_md(export: ToastExport) -> list[str]:
+    """审计报告末尾的一节:照抄 Toast 汇总里的灯。导出包里没有逐项检查结果,所以只能说到这个粗细。"""
+    lines = ["## Toast 的诊断怎么说(照抄,粗粒度)", "",
+             f"来自 Toast 的报告导出包:`{_cell(export.path, 200)}`。"
+             "下面是那份报告汇总里的原话,Butter 没有重新判。导出包里只有每一步的结论,没有是哪几项检查没过。", ""]
+    if not export.stage_lines:
+        lines += ["汇总里没有找到带结论的行。", ""]
+    section = None
+    for row in export.stage_lines:
+        if row.section != section:
+            section = row.section
+            lines += [f"### {_cell(section, 80) or '(没有小标题)'}", ""]
+        who = _cell(row.surface, 80) or "补充"
+        lines.append(f"- {who}:" + ";".join(f"{_cell(light.label, 80)} {_cell(light.text, 40)}" for light in row.lights))
+    if export.stage_lines:
+        lines.append("")
+    if export.cited_other:
+        lines += ["### AI 引用过、但既不是你的也不是竞品的网站(近似)", "",
+                  "按被引用的次数排。这份名单比 Toast 自己的那份多:导出包里分不出「存档」和「只读到标题」的页面,所以没法照 Toast 的规则去掉。", ""]
+        lines += [f"- {_cell(c.domain, 80)}:{c.citations} 次" for c in export.cited_other]
+        lines.append("")
+    lines += [f"- {_cell(note, 200)}" for note in export.notes]
+    return lines + ([""] if export.notes else [])
+
+
+def audit_md(report: AuditReport, snapshot: SiteSnapshot, toast: ToastExport | None = None) -> str:
     counts = {level: sum(1 for f in report.findings if f.level == level) for level in LEVEL_LABEL}
     lines = [f"# 审计报告 · {snapshot.host}", "", f"- 网址:{report.site_url}", f"- 运行号:{report.run_id}",
              f"- 生成时间:{report.generated_at.isoformat(timespec='seconds')}",
              f"- 检查了 {len(report.pages_checked)} 个页面;"
              + ("来源:你存在本机的 HTML 文件(没有联网)" if snapshot.source == "local_files"
                 else f"抓取结束原因:{stop_label(snapshot.stop_reason)}"), "",
-             f"**合计:问题 {counts['problem']} · 提示 {counts['notice']} · 通过 {counts['pass']} · 查不了 {counts['not_checkable']}**", "",
+             f"**能查的 {counts['problem'] + counts['notice'] + counts['pass']} 项里:问题 {counts['problem']} · 提示 {counts['notice']}"
+             f" · 通过 {counts['pass']}。另有查不了 {counts['not_checkable']} 项、不适用 {counts['not_applicable']} 项。**", "",
+             "「查不了」是想查但读不到(比如页面靠脚本渲染);「不适用」是这页上没有这一项可查的东西(比如没有任何日期)。两种都不算问题,也不算通过。", "",
              "五项检查都是规则判断,没有用模型。每条发现挂一个证据注册表条目 ID。"
              "robots 放行、可达性、CDN、服务端渲染的判定不在这里(Toast 负责)。", ""]
     if snapshot.notes:
@@ -101,7 +129,7 @@ def audit_md(report: AuditReport, snapshot: SiteSnapshot) -> str:
         if not group:
             lines += ["没有可检查的页面。", ""]
             continue
-        order = {"problem": 0, "notice": 1, "not_checkable": 2, "pass": 3}
+        order = {"problem": 0, "notice": 1, "not_checkable": 2, "pass": 3, "not_applicable": 4}
         for f in sorted(group, key=lambda f: order[f.level]):
             where = f.page_url or "全站"
             lines.append(f"- **{LEVEL_LABEL[f.level]}** `{f.finding_id}` {where}")
@@ -111,5 +139,7 @@ def audit_md(report: AuditReport, snapshot: SiteSnapshot) -> str:
                 lines.append(f"  - {key}:`{shown}`")
             lines.append(f"  - 条目 ID:`{f.entry_id}`")
         lines.append("")
+    if toast is not None:
+        lines += toast_md(toast)
     lines += ["## 已知限制", ""] + [f"- {text}" for text in report.limitations]
     return "\n".join(lines) + "\n"

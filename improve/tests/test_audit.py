@@ -95,7 +95,7 @@ def test_visible_date_on_fixture(acme_audit):
 
 def test_visible_date_other_cases():
     none = visible_date.check([ex("<html><body><p>no dates</p></body></html>")], snap_of(), NOW)
-    assert [f.level for f in none] == ["not_checkable", "not_checkable"]
+    assert [f.level for f in none] == ["not_applicable", "not_applicable"], "没有日期、没有 sitemap:这一项不适用,不是查不了"
 
     hidden_date = ex('<html><head><script type="application/ld+json">{"@context":"https://schema.org","@type":"Article","headline":"h",'
                      '"datePublished":"2026-01-02","dateModified":"2026-02-03"}</script></head><body><p>x</p></body></html>')
@@ -215,7 +215,7 @@ def test_jsonld_price_mismatch_and_thin_pages():
     thin = ex(f"<html><head>{ld}</head><body><div id='app'></div></body></html>")
     assert [f.level for f in jsonld_consistency.check([thin], "x.test")] == ["not_checkable"], "可见文字太少时不下结论"
     none = ex(f"<html><body>{FILLER}</body></html>")
-    assert [f.level for f in jsonld_consistency.check([none], "x.test")] == ["not_checkable"]
+    assert [f.level for f in jsonld_consistency.check([none], "x.test")] == ["not_applicable"], "没有结构化数据:不适用"
 
 
 def test_clean_page_passes_everything():
@@ -224,7 +224,7 @@ def test_clean_page_passes_everything():
             f'</script></head><body><h1>Blue Mug</h1>{FILLER}<p>Price: 12.50 EUR.</p></body></html>')
     report = run_audit(snap_of(), [ex(html)], run_id="t", now=NOW)
     page_levels = {f.check: f.level for f in report.findings if f.page_url}
-    assert page_levels == {"meta_robots": "pass", "visible_date": "not_checkable", "numeric_traceability": "pass",
+    assert page_levels == {"meta_robots": "pass", "visible_date": "not_applicable", "numeric_traceability": "pass",
                            "hidden_text": "pass", "jsonld_consistency": "pass"}
     assert report.limitations
 
@@ -264,3 +264,23 @@ def test_jsonld_context_variants():
         assert levels(fine) == ["pass"], fine
     assert levels("") == ["problem"], "没写 @context"
     assert levels('"@context":"https://example.org/vocab",') == ["problem"]
+
+
+def test_not_applicable_is_neither_a_problem_nor_a_pass():
+    """audit/2(设计 §5.1):没有东西可查记"不适用";想查但读不到记"查不了"。空集合不判通过(aeo.js 是反例)。"""
+    from butter.contracts import AuditReport
+    from butter.contracts.audit import RULES_VERSION
+    from butter.render import audit_md
+
+    report = run_audit(snap_of(), [ex(f"<html><body>{FILLER}</body></html>")], run_id="t", now=NOW)
+    assert report.schema_version == "audit/2" and report.rules_version == RULES_VERSION
+    levels = {f.check: f.level for f in report.findings if f.page_url}
+    assert levels["jsonld_consistency"] == "not_applicable" and levels["visible_date"] == "not_applicable"
+    assert "pass" not in (levels["jsonld_consistency"], levels["visible_date"])
+    thin = run_audit(snap_of(), [ex("<html><body><p>hi</p></body></html>")], run_id="t", now=NOW)
+    assert {f.check: f.level for f in thin.findings if f.page_url}["numeric_traceability"] == "not_checkable"
+    text = audit_md(report, snap_of())
+    assert "能查的" in text and "不适用" in text and "两种都不算问题,也不算通过" in text
+    old = report.model_dump(mode="json") | {"schema_version": "audit/1"}
+    old.pop("rules_version")
+    assert AuditReport.model_validate(old).rules_version == ""      # 旧的 audit/1 文件照样能读

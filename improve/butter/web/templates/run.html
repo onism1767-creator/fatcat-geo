@@ -13,10 +13,12 @@
     <span><span class="chip warn">提示 {{ v.audit_counts.notice }}</span></span>
     <span><span class="chip ok">通过 {{ v.audit_counts.pass }}</span></span>
     <span><span class="chip plain">查不了 {{ v.audit_counts.not_checkable }}</span></span>
+    <span><span class="chip plain">不适用 {{ v.audit_counts.not_applicable }}</span></span>
   </div>
   <p class="row">
     <a href="/runs/{{ v.run_id }}/package.zip">下载改动包(zip）</a>
     <a href="/runs/{{ v.run_id }}/questions">出题和勾选</a>
+    <a href="/runs/{{ v.run_id }}/facts">读错了？改事实</a>
     {% if v.batch_id %}<a href="/batches/{{ v.batch_id }}">看这批改动的进展</a>{% endif %}
   </p>
   {% if v.draft %}
@@ -72,7 +74,7 @@
     <thead><tr><th>是什么</th><th>读到的值</th><th>从哪读到的</th></tr></thead>
     <tbody>
     {% for f in v.facts %}
-      <tr><th scope="row">{{ f.label }}</th><td class="wrap">{{ f.value or "(网站上没写）" }}{% if f.conflict %} <span class="chip warn">几处写得不一样</span>{% endif %}</td><td class="wrap muted">{{ f.source }}</td></tr>
+      <tr><th scope="row">{{ f.label }}</th><td class="wrap">{{ f.value or "(网站上没写）" }}{% if f.edited %} <span class="chip ok">你改过</span>{% endif %}{% if f.conflict %} <span class="chip warn">几处写得不一样</span>{% endif %}</td><td class="wrap muted">{{ f.source }}</td></tr>
     {% endfor %}
     </tbody>
   </table>

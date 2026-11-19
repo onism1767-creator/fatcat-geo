@@ -195,3 +195,24 @@ def test_canonical_on_another_host_is_flagged_for_a_human():
     fb2 = build_factbase(snap.model_copy(update={"pages": [same]}), extract_site([same], []),
                          platforms=sources.load_platforms(), run_id="t", now=NOW)
     assert not any(g.code == "CANONICAL_OTHER_HOST" for g in fb2.gaps), "www 有无算同一个站"
+
+
+def test_brand_domains_keeps_every_counted_domain(tmp_path):
+    """Toast 的 brand.domains 是"计入的官网,主站在前";主站不在 list.domains 里,list 为空时原来只读到主站一个。"""
+    import json
+
+    from butter.sources import load_brand_domains_json
+
+    path = tmp_path / "brand-domains.json"
+    path.write_text(json.dumps({"brand": {"name": "Acme", "domains": ["acme.test", "acme-shop.test", "acme.cn"]},
+                                "list": None}), encoding="utf-8")
+    loaded = load_brand_domains_json(path)
+    assert loaded.primary == "acme.test" and loaded.confirmed_domains == ["acme-shop.test", "acme.cn"]
+    path.write_text(json.dumps({
+        "brand": {"name": "Acme", "domains": ["acme.test", "acme-shop.test", "acme.cn"]},
+        "list": {"primary": "acme.test", "domains": [
+            {"domain": "acme-shop.test", "status": "confirmed"}, {"domain": "acme-old.test", "status": "unconfirmed"},
+            {"domain": "gone.test", "status": "removed"}]}}), encoding="utf-8")
+    loaded = load_brand_domains_json(path)
+    assert loaded.confirmed_domains == ["acme-shop.test", "acme.cn"]        # 不重复,去掉的不算
+    assert loaded.unconfirmed_domains == ["acme-old.test"] and "acme.test" not in loaded.confirmed_domains

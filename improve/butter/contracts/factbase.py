@@ -10,6 +10,7 @@ from butter.contracts.extract import RawDate
 
 SourceKind = Literal[
     "jsonld", "microdata", "meta", "og", "title", "link", "sitemap", "url", "potato_brands", "toast_brand_domains",
+    "owner_edit",  # 站长在 Butter 里改的:优先级最高(设计 §5.2 FactEdit)
 ]
 
 
@@ -98,3 +99,14 @@ class FactBase(Frozen):
     pages: list[PageFacts] = []
     gaps: list[Gap] = []
     merged_inputs: list[MergedInput] = []
+
+
+class FactEdit(Frozen):
+    """站长改的一个事实(factedit/1)。只追加进 events/facts.jsonl;同一字段以最后一次为准。"""
+
+    schema_version: Literal["factedit/1"] = "factedit/1"
+    site_host: str
+    field: str        # 如 entity.name、products[acme-kettle].price
+    value: str        # 空 = 这个值不要用
+    note: str = ""
+    at: str           # ISO 时间

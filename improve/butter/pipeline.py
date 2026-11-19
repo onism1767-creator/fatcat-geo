@@ -14,7 +14,8 @@ from pathlib import Path
 import butter
 from butter import sources, store
 from butter.audit import run_audit
-from butter.contracts import AuditReport, Completion, DraftOutcome, FactBase, PackageBundle, SiteSnapshot
+from butter.contracts import AuditReport, Completion, DraftOutcome, FactBase, FactEdit, PackageBundle, SiteSnapshot
+from butter.factedit import apply_edits
 from butter.draft import build_contexts, build_tasks, draft_site
 from butter.extract.html import extract_site
 from butter.factbase import build_factbase
@@ -40,9 +41,11 @@ class RunOptions:
     out_root: Path
     brands_path: Path | None = None
     brand_domains_path: Path | None = None
+    toast_export_path: Path | None = None  # Toast 的报告导出包(zip 或文件夹);里面的官网域名和结论会用上
     questions_path: Path | None = None
     training: str = "keep"  # keep = 训练类爬虫不改动;optout = 写 Disallow
     draft: DraftSettings | None = None  # None = 不起草(不调模型、不花钱)
+    fact_edits: tuple[FactEdit, ...] = ()  # 站长改过的事实;只用本站的,盖在读到的事实上
 
 
 @dataclass
@@ -70,11 +73,16 @@ def process_snapshot(
     run_id = run_id or new_run_id(moment)
     brands = sources.load_brands_yml(options.brands_path) if options.brands_path else None
     brand_domains = sources.load_brand_domains_json(options.brand_domains_path) if options.brand_domains_path else None
+    toast = sources.load_toast_export(options.toast_export_path) if options.toast_export_path else None
+    if brand_domains is None and toast is not None:
+        brand_domains = toast.brand_domains  # 没有单独给 brand-domains.json 时,用导出包里的那份
     board = sources.load_questions_yml(options.questions_path) if options.questions_path else None
 
     extracts = extract_site(snapshot.pages, snapshot.sitemap_entries)
     factbase = build_factbase(snapshot, extracts, platforms=sources.load_platforms(), run_id=run_id, now=moment,
                               brands=brands, brand_domains=brand_domains)
+    factbase, edit_notes = apply_edits(factbase, list(options.fact_edits))
+    owner_edits = sum(1 for e in {e.field for e in options.fact_edits if e.site_host == factbase.host}) - len(edit_notes)
     audit = run_audit(snapshot, extracts, run_id=run_id, now=moment)
     drafts: DraftOutcome | None = None
     if options.draft is not None and extracts:
@@ -87,7 +95,7 @@ def process_snapshot(
                            excluded=sources.load_excluded_vendors(), platforms=sources.load_platforms(), board=board,
                            training=options.training, now=moment, drafts=drafts)
 
-    warnings: list[str] = []
+    warnings: list[str] = list(edit_notes)
     if not extracts:
         warnings.append("没有拿到任何可分析的页面:事实库只有网址和本机文件里的值,五项审计都记「查不了」,"
                         "改动包不含 JSON-LD 和事实页。请看 run.json 里的抓取备注。")
@@ -97,7 +105,7 @@ def process_snapshot(
     run_dir = store.new_run_dir(options.out_root, snapshot.host, run_id)
     store.save_snapshot(run_dir, snapshot)
     counts = {level: sum(1 for f in audit.findings if f.level == level)
-              for level in ("problem", "notice", "pass", "not_checkable")}
+              for level in ("problem", "notice", "pass", "not_checkable", "not_applicable")}
     run_meta = {
         "run_id": run_id, "tool": "butter", "tool_version": butter.__version__, "site_url": snapshot.site_url,
         "host": snapshot.host, "generated_at": moment.isoformat(timespec="seconds"),
@@ -112,8 +120,13 @@ def process_snapshot(
         "sitemaps_read": snapshot.sitemap_urls, "sitemap_entries": len(snapshot.sitemap_entries),
         "inputs": {"brands": str(options.brands_path) if options.brands_path else None,
                    "brand_domains": str(options.brand_domains_path) if options.brand_domains_path else None,
+                   "toast_export": str(options.toast_export_path) if options.toast_export_path else None,
                    "questions": str(options.questions_path) if options.questions_path else None,
                    "training": options.training},
+        "owner_edits": owner_edits,
+        "toast": ({"files_found": toast.files_found, "stage_lines": [row.model_dump() for row in toast.stage_lines],
+                   "cited_other": [c.model_dump() for c in toast.cited_other], "notes": toast.notes}
+                  if toast else None),
         "models_called": drafts.calls if drafts else 0, "cost_usd": drafts.cost_usd if drafts else 0,
         "draft": ({"provider": drafts.provider, "model": drafts.model, "prompt_version": drafts.prompt_version,
                    "accepted": len(drafts.items), "voided": len(drafts.voided), "stopped": drafts.stopped}
@@ -121,7 +134,7 @@ def process_snapshot(
         "audit_counts": counts, "change_items": len(bundle.package.items), "warnings": warnings,
     }
     store.save_outputs(run_dir, factbase=factbase, factbase_md=factbase_md(factbase), audit=audit,
-                       audit_md=audit_md(audit, snapshot), bundle=bundle, run_meta=run_meta)
+                       audit_md=audit_md(audit, snapshot, toast), bundle=bundle, run_meta=run_meta)
     store.append_run_index(options.out_root, {
         "run_id": run_id, "host": snapshot.host, "site_url": snapshot.site_url,
         "generated_at": moment.isoformat(timespec="seconds"), "run_dir": str(run_dir),

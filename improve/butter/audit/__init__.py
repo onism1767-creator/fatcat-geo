@@ -10,6 +10,7 @@ from datetime import datetime
 
 from butter.audit import hidden_text, jsonld_consistency, meta_robots, numeric_traceability, visible_date
 from butter.audit.base import finding
+from butter.contracts.audit import RULES_VERSION
 from butter.contracts import AuditFinding, AuditReport, PageExtract, SiteSnapshot
 from butter.registry.ids import (
     ACCESS_META_SNIPPET, FAKE_TIMESTAMP, HIDDEN_TEXT_INJECTION, JSONLD_BODY_CONSISTENCY, NUMERIC_TRACEABILITY,
@@ -58,5 +59,5 @@ def run_audit(snapshot: SiteSnapshot, extracts: list[PageExtract], *, run_id: st
         limitations += LOCAL_LIMITATIONS
         if any(p.rendered_dom for p in snapshot.pages):
             limitations.append(RENDERED_LIMITATION)
-    return AuditReport(site_url=snapshot.site_url, run_id=run_id, generated_at=now,
+    return AuditReport(rules_version=RULES_VERSION, site_url=snapshot.site_url, run_id=run_id, generated_at=now,
                        pages_checked=[p.url for p in extracts], findings=findings, limitations=limitations)

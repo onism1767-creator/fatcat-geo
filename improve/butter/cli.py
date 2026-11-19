@@ -33,6 +33,8 @@ def _parser() -> argparse.ArgumentParser:
                           "可选再放 robots.txt、sitemap.xml 和 urls.txt(每行「文件名 网址」)")
     run.add_argument("--brands", type=Path, help="Potato 的 brands.yml(只读)")
     run.add_argument("--brand-domains", type=Path, help="Toast 导出的 brand-domains.json(只读)")
+    run.add_argument("--toast-export", type=Path,
+                     help="Toast 的报告导出包(zip 或解开的文件夹,只读):用里面的官网域名,并在审计报告里照抄 Toast 的结论")
     run.add_argument("--questions", type=Path, help="Potato 的 questions.yml(只读;给了才出按题板的标题建议)")
     run.add_argument("--training", choices=("keep", "optout"), default="keep",
                      help="训练类爬虫:keep 不改动(默认),optout 写 Disallow")
@@ -144,6 +146,7 @@ def main(argv: list[str] | None = None) -> int:
         print("--html-dir 要和网址一起给,不能和 --snapshot 同用。", file=sys.stderr)
         return 2
     options = RunOptions(out_root=args.out, brands_path=args.brands, brand_domains_path=args.brand_domains,
+                         toast_export_path=args.toast_export,
                          questions_path=args.questions, training=args.training,
                          draft=_draft_settings(args, args.out))
     try:
@@ -172,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
         print(f"没跑成:{exc}", file=sys.stderr)
         return 1
 
-    counts = {lv: sum(1 for f in result.audit.findings if f.level == lv) for lv in ("problem", "notice", "pass", "not_checkable")}
+    counts = {lv: sum(1 for f in result.audit.findings if f.level == lv) for lv in ("problem", "notice", "pass", "not_checkable", "not_applicable")}
     if result.snapshot.source == "local_files":
         print(f"导入了 {len(result.snapshot.pages)} 个本机 HTML 文件,其中可分析的 {len(result.factbase.pages)} 个(没有联网)。")
     else:
@@ -181,7 +184,8 @@ def main(argv: list[str] | None = None) -> int:
     for note in result.snapshot.notes:
         print(f"  · {note}")
     print(f"事实库:{len(result.factbase.products)} 个商品,{len(result.factbase.gaps)} 条空缺。")
-    print(f"审计:问题 {counts['problem']} · 提示 {counts['notice']} · 通过 {counts['pass']} · 查不了 {counts['not_checkable']}。")
+    print(f"审计:问题 {counts['problem']} · 提示 {counts['notice']} · 通过 {counts['pass']} · 查不了 {counts['not_checkable']}"
+          f" · 不适用 {counts['not_applicable']}。")
     print(f"改动包:{len(result.bundle.package.items)} 条改动,{len(result.bundle.package.not_generated)} 项没有产出。")
     if result.drafts is not None:
         d = result.drafts

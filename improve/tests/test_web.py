@@ -54,7 +54,8 @@ def test_run_page_shows_facts_audit_and_package(site):
     client, result, _ = site
     data = client.get("/runs/run-web.json").json()
     assert len(data["changes"]) == len(result.bundle.package.items) and data["pages"] == 4
-    assert data["facts"][0] == {"label": "名称", "value": "Acme Kettles", "source": data["facts"][0]["source"], "conflict": True}  # 夹具站的名称故意写了两种
+    assert data["facts"][0] == {"label": "名称", "value": "Acme Kettles", "source": data["facts"][0]["source"], "conflict": True,
+                                "edited": False}  # 夹具站的名称故意写了两种
     assert sum(data["audit_counts"].values()) == len(result.audit.findings)
     assert data["draft"] is None
     html = client.get("/runs/run-web").text

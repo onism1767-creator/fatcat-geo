@@ -11,6 +11,7 @@ from typing import Any
 
 from butter.config.core import Defaults
 from butter.contracts import BatchState, Card, CardsView, GeneratedQuestion, Job, Pricing
+from butter.factedit import editable_fields
 from butter.registry.core import Registry
 
 LEVEL_TEXT = {"problem": "问题", "notice": "提示", "pass": "通过", "not_checkable": "查不了", "not_applicable": "不适用"}
@@ -97,7 +98,8 @@ def run_detail(run: dict, registry: Registry, cards_view: CardsView) -> dict[str
     fb, audit, package, meta = run["factbase"], run["audit"], run["package"], run["meta"]
     entries = {e.id: e for e in registry.entries}
     facts = [{"label": label, "value": _first(field), "source": field.values[0].source_url if field.values else "",
-              "conflict": field.conflict}
+              "conflict": field.conflict,
+              "edited": bool(field.values) and field.values[0].source_kind == "owner_edit"}
              for label, field in (("名称", fb.entity.name), ("别名", fb.entity.aliases), ("品类", fb.entity.category),
                                   ("官网域名", fb.entity.official_domain), ("简介", fb.entity.description))]
     products = [{"name": _first(p.name), "page_url": p.page_url, "price": " ".join(filter(None, [_first(p.price), _first(p.currency)])),
@@ -131,6 +133,19 @@ def run_detail(run: dict, registry: Registry, cards_view: CardsView) -> dict[str
                   if draft else None),
         "batch_id": batch.batch.batch_id if batch else "",
     }
+
+
+def facts(run: dict) -> dict[str, Any]:
+    fb = run["factbase"]
+    groups: list[dict] = []
+    for row in editable_fields(fb):
+        if not groups or groups[-1]["name"] != row["group"]:
+            groups.append({"name": row["group"], "rows": []})
+        groups[-1]["rows"].append({"dom_id": f"fact-{sum(len(g['rows']) for g in groups) + 1}",
+                                   "field": row["field"], "label": row["label"], "value": row["value"],
+                                   "edited": row["edited"], "long": len(row["value"]) > 80})
+    return {"title": "改事实", "run_id": run["meta"]["run_id"], "host": fb.host, "groups": groups,
+            "edited_count": sum(1 for g in groups for r in g["rows"] if r["edited"])}
 
 
 def questions(run: dict, inputs: dict, generated: list[GeneratedQuestion], matches: dict[str, list[str]],

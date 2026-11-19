@@ -167,8 +167,8 @@ def check(extracts: list[PageExtract], host: str) -> list[AuditFinding]:
         page_findings: list[AuditFinding] = _structure_findings(page, host)
         if not page.nodes:
             if not page_findings:
-                page_findings.append(finding(CHECK, JSONLD_BODY_CONSISTENCY, "not_checkable", page.url,
-                                             "本页原始 HTML 里没有结构化数据(JSON-LD / microdata),没有可比对的东西。"))
+                page_findings.append(finding(CHECK, JSONLD_BODY_CONSISTENCY, "not_applicable", page.url,
+                                             "本页原始 HTML 里没有结构化数据(JSON-LD / microdata),没有可比对的东西,这一项不适用。"))
             findings.extend(page_findings)
             continue
         if len(page.visible_text) < _MIN_TEXT:

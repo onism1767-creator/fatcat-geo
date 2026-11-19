@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from butter import cards, store
-from butter.contracts import ChangePackage, Job, JobEvent, SiteSnapshot
+from butter.contracts import ChangePackage, Job, JobEvent, OwnerNote, SiteSnapshot
 from butter.drafting import draft_settings
 from butter.fetch import FetchLimits, fetch_site
 from butter.pipeline import RunOptions, RunResult, process_snapshot
@@ -74,6 +74,7 @@ class JobManager:
         self._queue: queue.Queue[str] = queue.Queue()
         self._lock = threading.Lock()
         self._params: dict[str, dict[str, Any]] = {}
+        self._kinds: dict[str, str] = {}
         self._mark_interrupted()
         if start_worker:
             threading.Thread(target=self._work, name="butter-jobs", daemon=True).start()
@@ -82,8 +83,9 @@ class JobManager:
 
     def _emit(self, job_id: str, state: str, progress: str = "", **extra: Any) -> None:
         with self._lock:
-            store.append_job_event(self.workspace, JobEvent(job_id=job_id, at=_now(), state=state, progress=progress,
-                                                           **extra))
+            kind = self._kinds.get(job_id, "run")
+            store.append_job_event(self.workspace, JobEvent(job_id=job_id, at=_now(), kind=kind, state=state,
+                                                           progress=progress, **extra))
 
     def jobs(self) -> dict[str, Job]:
         return fold_jobs(store.read_job_events(self.workspace))
@@ -105,6 +107,18 @@ class JobManager:
             raise ValueError("最多读几页要在 1 到 30 之间。")
         job_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
         params = {"url": url, "max_pages": max_pages, "draft": bool(draft), "budget_usd": budget_usd}
+        return self._enqueue(job_id, "run", params)
+
+    def submit_recompute(self, run_id: str) -> Job:
+        """排一个\"按改过的事实重出改动包\"的作业:不重新读网站,用那次运行存下的页面。不调模型,不花钱。"""
+        run_dir = store.find_run_dir(self.out_root, run_id)
+        if run_dir is None:
+            raise ValueError("没有这次运行，或者它的文件夹已经不在了。")
+        job_id = datetime.now(UTC).strftime("%Y%m%d-%H%M%S") + "-" + secrets.token_hex(3)
+        return self._enqueue(job_id, "recompute", {"run_id": run_id, "url": f"按改过的事实重出（{run_id}）"})
+
+    def _enqueue(self, job_id: str, kind: str, params: dict[str, Any]) -> Job:
+        self._kinds[job_id] = kind
         self._params[job_id] = params
         self._emit(job_id, "CONFIRMED", "排队中", params=params)
         self._queue.put(job_id)
@@ -127,21 +141,41 @@ class JobManager:
         params = self._params.pop(job_id, None)
         if params is None:
             return
+        kind = self._kinds.get(job_id, "run")
         try:
-            self._emit(job_id, "RUNNING", "正在读你的网站（每秒最多读一页）")
-            snapshot = self._fetch(params["url"], params["max_pages"])
-            settings, offer = (draft_settings(self.env, self.workspace / "cache" / "llm", max_pages=params["max_pages"],
-                                              budget_usd=params["budget_usd"]) if params["draft"] else (None, None))
-            self._emit(job_id, "RUNNING", "正在整理事实、检查、生成改动" + ("，并让模型起草文字" if settings else ""))
-            result: RunResult = process_snapshot(snapshot, RunOptions(out_root=self.out_root, draft=settings))
+            settings = offer = None
+            old_run = ""
+            if kind == "recompute":
+                old_run = params["run_id"]
+                run_dir = store.find_run_dir(self.out_root, old_run)
+                if run_dir is None:
+                    raise ValueError("那次运行的文件夹已经不在了，没法重出。")
+                self._emit(job_id, "RUNNING", "正在按你改过的事实重新整理（不重新读网站）")
+                snapshot = store.load_snapshot(run_dir)
+                source = f"facts-edit:{old_run}"
+            else:
+                self._emit(job_id, "RUNNING", "正在读你的网站（每秒最多读一页）")
+                snapshot = self._fetch(params["url"], params["max_pages"])
+                source = "fetched"
+                if params["draft"]:
+                    settings, offer = draft_settings(self.env, self.workspace / "cache" / "llm",
+                                                     max_pages=params["max_pages"], budget_usd=params["budget_usd"])
+                self._emit(job_id, "RUNNING", "正在整理事实、检查、生成改动" + ("，并让模型起草文字" if settings else ""))
+            edits = tuple(store.read_fact_edits(self.workspace, snapshot.host))
+            result: RunResult = process_snapshot(snapshot, RunOptions(out_root=self.out_root, draft=settings,
+                                                                     fact_edits=edits), snapshot_source=source)
             notes = list(result.warnings)
-            if params["draft"] and settings is None:
+            if kind == "run" and params["draft"] and settings is None:
                 notes.append("没有找到任何一家模型的 key，这次没有让模型起草；规则生成的部分照常出了。")
+            if kind == "recompute":
+                notes.append("这次没有让模型重写文字。想要模型按新的事实写，回首页重新生成一次改动包。")
             categories = categories_from_factbase(result.factbase)
             batch_id, problems = create_batch(self.workspace, result.bundle.package, site_host=result.factbase.host,
                                               industry=categories[0] if categories else "",
                                               lang=guess_lang(result.factbase))
             notes += problems
+            if kind == "recompute" and batch_id:
+                notes += self._retire_old_batch(old_run, result.run_id)
             drafts = result.drafts
             outcome = {
                 "run_id": result.run_id, "batch_id": batch_id, "pages": len(result.factbase.pages),
@@ -156,3 +190,13 @@ class JobManager:
             self._emit(job_id, "FAILED", "没做成", error=str(exc)[:500])
         except Exception as exc:  # 作业线程不能死:任何意外都记下来,换下一个
             self._emit(job_id, "FAILED", "没做成", error=f"{type(exc).__name__}: {str(exc)[:400]}")
+
+    def _retire_old_batch(self, old_run: str, new_run: str) -> list[str]:
+        """事实改了、改动包重出了:旧的那一批如果还没测过、没放上网站,就标成放弃,免得两批并排。测过或放上去的不动。"""
+        view, _ = cards.load(self.workspace)
+        old = next((b for b in view.batches if b.batch.run_id == old_run), None)
+        if old is None or old.phase != "已出包":
+            return [] if old is None else ["旧的那批改动已经测过或放上网站了，没有动它；新的一批另外建了。"]
+        decision = cards.submit(self.workspace, at=datetime.now(UTC), actor="owner", batch_id=old.batch.batch_id,
+                                type="abandoned", payload=OwnerNote(reason=f"事实改过,改动包重出了(新的运行 {new_run})"))
+        return [] if decision.ok else [f"旧的那批没能标成放弃:{decision.reason}"]

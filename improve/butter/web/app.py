@@ -30,6 +30,7 @@ from butter import cards, sources, store
 from butter.config import load_defaults, load_pricing
 from butter.contracts import AuditReport, ChangePackage, FactBase
 from butter.drafting import draft_offer
+from butter.factedit import changed_edits
 from butter.jobs import JobManager
 from butter.llm.keys import available_providers
 from butter.questions import categories_from_factbase, draft_questions, guess_lang, match_by_category, to_board_questions
@@ -256,6 +257,25 @@ def create_app(settings: WebSettings) -> FastAPI:
         store.save_text_files(settings.workspace / "panels" / run_id / folder,
                               {"panel.json": json.dumps(record, ensure_ascii=False, indent=2) + "\n"})
         return RedirectResponse(f"/runs/{run_id}/questions?saved={folder}", status_code=303)
+
+    @app.get("/runs/{run_id}/facts.json")
+    @app.get("/runs/{run_id}/facts")
+    def facts_page(request: Request, run_id: str):
+        return render(request, "facts.html", views.facts(load_run(run_id)))
+
+    @app.post("/runs/{run_id}/facts")
+    async def save_facts(request: Request, run_id: str, token: str = Form(""), note: str = Form("")):
+        check_token(token)
+        run = load_run(run_id)
+        form = await request.form()
+        submitted = {key[5:]: str(value) for key, value in form.items() if key.startswith("fact:")}
+        edits = changed_edits(run["factbase"], submitted, note=note,
+                              at=datetime.now(UTC).isoformat(timespec="seconds"))
+        if not edits:
+            raise HTTPException(400, "你什么都没改。改了至少一处再保存。")
+        store.append_fact_edits(settings.workspace, edits)
+        job = jobs.submit_recompute(run_id)
+        return RedirectResponse(f"/jobs/{job.job_id}", status_code=303)
 
     @app.get("/batches.json")
     @app.get("/batches")

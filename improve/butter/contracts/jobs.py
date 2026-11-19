@@ -7,7 +7,7 @@ from typing import Any, Literal
 from butter.contracts.common import Frozen
 
 JobState = Literal["DRAFT", "CONFIRMED", "RUNNING", "DONE", "PARTIAL", "FAILED", "INTERRUPTED"]
-JobKind = Literal["run"]  # 抓站 + 出包 + 建批次与卡;测量是另一条路(测量驱动,设计 §10.2)
+JobKind = Literal["run", "recompute"]  # run:抓站 + 出包 + 建批次与卡;recompute:站长改了事实,不重新抓站,按存下的快照重出
 
 
 class JobEvent(Frozen):

@@ -51,8 +51,8 @@ def check(extracts: list[PageExtract], snapshot: SiteSnapshot, now: datetime) ->
         dated = [(d, _d(d)) for d in trusted]
         parsed = [(d, day) for d, day in dated if day is not None]
         if not page.dates:
-            findings.append(finding(CHECK, FAKE_TIMESTAMP, "not_checkable", page.url,
-                                    "本页没有找到任何日期(正文、<time>、结构化数据、meta、sitemap、HTTP 头都没有),查不了。"))
+            findings.append(finding(CHECK, FAKE_TIMESTAMP, "not_applicable", page.url,
+                                    "本页没有找到任何日期(正文、<time>、结构化数据、meta、sitemap、HTTP 头都没有),这一项不适用。"))
             continue
         if not trusted:
             reason = next(d.suspect for d in page.dates if d.suspect)
@@ -131,8 +131,8 @@ def check(extracts: list[PageExtract], snapshot: SiteSnapshot, now: datetime) ->
     lastmods = [(e.loc, to_iso_date(e.lastmod)) for e in snapshot.sitemap_entries if e.lastmod]
     days = [date.fromisoformat(iso) for _, iso in lastmods if iso]
     if not days:
-        findings.append(finding(CHECK, FAKE_TIMESTAMP, "not_checkable", None,
-                                "没有读到 sitemap,或其中没有 lastmod,查不了 sitemap 的日期。"))
+        findings.append(finding(CHECK, FAKE_TIMESTAMP, "not_applicable", None,
+                                "没有读到 sitemap,或其中没有 lastmod,sitemap 的日期这一项不适用。"))
     else:
         site_findings: list[AuditFinding] = []
         future = [(loc, iso) for loc, iso in lastmods if iso and date.fromisoformat(iso) > today + timedelta(days=1)]

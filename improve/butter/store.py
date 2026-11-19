@@ -16,7 +16,9 @@ from contextlib import closing, contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from butter.contracts import AuditReport, CardEvent, FactBase, FetchedPage, JobEvent, PackageBundle, SiteSnapshot
+from butter.contracts import (
+    AuditReport, CardEvent, FactBase, FactEdit, FetchedPage, JobEvent, PackageBundle, SiteSnapshot,
+)
 
 SNAPSHOT_INDEX = "snapshot.json"
 CARD_EVENTS = "events/cards.jsonl"  # 批次与卡片的事件:唯一事实来源,只追加(设计 §6)
@@ -361,3 +363,61 @@ def read_job_events(workspace: Path) -> list[JobEvent]:
             except ValueError:
                 continue
     return events
+
+
+# ── 站长改事实的记录(只追加) ──────────────────────────────────────────
+
+FACT_EVENTS = "events/facts.jsonl"
+
+
+def append_fact_edits(workspace: Path, edits: list[FactEdit]) -> None:
+    if edits:
+        with _single_writer(workspace / "events" / "facts.lock"):
+            _append_lines(workspace / FACT_EVENTS, [e.model_dump_json() for e in edits])
+
+
+def read_fact_edits(workspace: Path, site_host: str | None = None) -> list[FactEdit]:
+    """读站长改过的事实(只读),按记下的先后。给了 site_host 就只要这个站的。"""
+    try:
+        raw = (workspace / FACT_EVENTS).read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return []
+    out = []
+    for line in raw.split("\n"):
+        if line.strip():
+            try:
+                edit = FactEdit.model_validate_json(line)
+            except ValueError:
+                continue
+            if site_host is None or edit.site_host == site_host:
+                out.append(edit)
+    return out
+
+
+def read_run_index(out_root: Path) -> list[dict]:
+    """运行索引(只读)。读不了的行跳过。"""
+    try:
+        raw = (out_root / "runs.jsonl").read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return []
+    rows = []
+    for line in raw.split("\n"):
+        if line.strip():
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(row, dict) and row.get("run_id"):
+                rows.append(row)
+    return rows
+
+
+def find_run_dir(out_root: Path, run_id: str) -> Path | None:
+    """按运行号找它的文件夹。只认产出目录里面、确实存在的文件夹。"""
+    root = out_root.resolve()
+    for row in read_run_index(out_root):
+        if row["run_id"] == run_id:
+            path = Path(str(row.get("run_dir", ""))).resolve()
+            if path.is_dir() and root in path.parents:
+                return path
+    return None
