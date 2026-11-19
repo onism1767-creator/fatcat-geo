@@ -391,7 +391,9 @@ def _sampling_note(
         n_own_vendor=sum(m.own_vendor for m in mentions),
         no_judge=cannot_judge(adapters) if missing_judge else [],
         method_notes=[note for surface in dict.fromkeys(target.surface for target in job.targets)
-                      if surface in adapters for note in adapters[surface].meta().method_notes],
+                      if surface in adapters for note in adapters[surface].meta().method_notes
+                      # 只对某几个型号说的:这一单测了其中一个才写
+                      if not note.models or any(t.surface == surface and t.model in note.models for t in job.targets)],
     )
 
 

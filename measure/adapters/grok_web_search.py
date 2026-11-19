@@ -142,6 +142,14 @@ _MODELS_CHECKED = ("2026-11-17 接口列型号(免费):grok-4.7 / 4.6 / 4.5 / 4.
 # 报告「这次是怎么测的」里的一句(用户 2026-11-18 定的原话):接口这边没开 X 帖子搜索,应用里会搜
 _NO_X_NOTE = MethodNote(zh="本次 Grok 的结果不包含 X 内容。",
                         en="Grok's results in this run do not include content from X.")
+# 只在这一单测了 grok-4.7 时写(用户 2026-11-18:「加一行提示解释一下这个单独型号的状态」;句子是 Claude 拟的):
+# 它 7 份真实回答都只附搜到的清单、不在正文里标出处,那样的回答引用记「看不到」(见模块说明「引用」一条)
+_NO_MARKS_NOTE = MethodNote(
+    models=["grok-4.7"],
+    zh="Grok 4.7 的回答通常不标出处,它引用了哪些网页看不到(不是 0);它搜到了哪些网页照常统计。",
+    en="Grok 4.7 usually does not mark its sources in the answer, so which pages it cited cannot be observed "
+       "(this is not zero); the pages it found are still counted.",
+)
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
@@ -314,7 +322,7 @@ class GrokWebSearchAdapter(HttpAdapter):
             models_checked=_MODELS_CHECKED,
             capabilities=_CAPABILITIES,
             price_table=_PRICE_TABLE,
-            method_notes=[_NO_X_NOTE],
+            method_notes=[_NO_X_NOTE, _NO_MARKS_NOTE],
             # 口径:实测均值(样本少,2026-11-17 / 18 只搜网页的真实回答):grok-4.5 六次 $0.12–0.23,均 $0.18;
             # grok-4.7 五次 $0.12 / $0.15 / $0.22 / $0.54 / $0.57,均 $0.32。最贵两次各搜了 4 轮(11、12 回)、
             # 输入过了 20 万 token 那条线,整单双倍价。搜索次数封不了顶(见模块说明),所以写不出靠得住的上界

@@ -379,8 +379,13 @@ def test_model_list_flags_and_the_helper_that_only_answers_closed_book():
     # 联网问一次的估价 = 实测均值(样本少);4.7 有一次过了 20 万 token 整单双倍价,所以不写「上界」
     assert meta.est_cost_per_call_usd == {"grok-4.5": 0.18, "grok-4.7": 0.32}
     # 报告「这次是怎么测的」里的一句(用户 2026-11-18 定的原话):接口这边没开 X 帖子搜索
-    assert [(n.zh, n.en) for n in meta.method_notes] == [
-        ("本次 Grok 的结果不包含 X 内容。", "Grok's results in this run do not include content from X.")]
+    whole, only_47 = meta.method_notes
+    assert (whole.zh, whole.en, whole.models) == (
+        "本次 Grok 的结果不包含 X 内容。", "Grok's results in this run do not include content from X.", [])
+    # 单个型号的状况(用户 2026-11-18):只在测了 grok-4.7 的单上写——它通常不标出处,引用看不到
+    assert only_47.models == ["grok-4.7"]
+    assert only_47.zh == "Grok 4.7 的回答通常不标出处,它引用了哪些网页看不到(不是 0);它搜到了哪些网页照常统计。"
+    assert only_47.en.startswith("Grok 4.7 usually does not mark its sources in the answer")
 
     route = respx.post(RESP_URL).mock(return_value=httpx.Response(200, json=golden("success_no_search.json")))
     run = adapter.ask(make_request(model=HELPER_MODEL, search_mode=SearchMode.SEARCH_DISABLED))

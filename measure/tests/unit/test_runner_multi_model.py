@@ -251,9 +251,13 @@ class LeavesSomethingOutAdapter(TwoModelAdapter):
 
     SURFACE = "leaves_out"
     NOTE = MethodNote(zh="本次这家的结果不包含某站内容。", en="This run leaves one source out.")
+    # 只对某个型号说的:测了它才写
+    ONE_MODEL_NOTE = MethodNote(zh="这个型号通常不标出处。", en="This model rarely marks sources.", models=[SILENT])
+    OTHER_MODEL_NOTE = MethodNote(zh="不该出现(没测这个型号)。", en="must not appear", models=["m-not-in-this-check"])
 
     def meta(self) -> SurfaceMeta:
-        return super().meta().model_copy(update={"surface": self.SURFACE, "method_notes": [self.NOTE]})
+        notes = [self.NOTE, self.ONE_MODEL_NOTE, self.OTHER_MODEL_NOTE]
+        return super().meta().model_copy(update={"surface": self.SURFACE, "method_notes": notes})
 
     def ask(self, request: AskRequest) -> SurfaceRun:
         return super().ask(request).model_copy(update={"surface": self.SURFACE})
@@ -261,7 +265,7 @@ class LeavesSomethingOutAdapter(TwoModelAdapter):
 
 def test_method_notes_of_the_tested_apis_are_frozen_into_the_sampling_note(storage, offline):
     """被测接口声明的测法说明,生成报告时冻进采样说明(以后适配器改了,旧报告照旧这么写);
-    没被测的接口声明了也不带进来;一台仪器测两个型号只写一次。"""
+    没被测的接口声明了也不带进来;一台仪器测两个型号只写一次;只对某个型号说的,测了那个型号才写。"""
 
     class NotTested(TwoModelAdapter):
         def meta(self) -> SurfaceMeta:
@@ -278,7 +282,8 @@ def test_method_notes_of_the_tested_apis_are_frozen_into_the_sampling_note(stora
     adapters = {surface: LeavesSomethingOutAdapter(), "two_model": NotTested()}
     runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry())
     assert job.state is JobState.DONE, job.error
-    assert job.sampling is not None and job.sampling.method_notes == [LeavesSomethingOutAdapter.NOTE]
+    assert job.sampling is not None and job.sampling.method_notes == [
+        LeavesSomethingOutAdapter.NOTE, LeavesSomethingOutAdapter.ONE_MODEL_NOTE]
 
 
 class StopsItselfAdapter(TwoModelAdapter):
