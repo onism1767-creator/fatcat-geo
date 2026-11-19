@@ -31,6 +31,7 @@ from butter.contracts.extract import (
 from butter.contracts.factbase import (
     EntityFacts, FactBase, FactField, FactValue, Gap, MergedInput, PageFacts, ProductFacts, SourceKind, SpecFact,
 )
+from butter.contracts.jobs import Job, JobEvent, JobKind, JobState
 from butter.contracts.llm import Completion, ErrorKind, ModelPrice, Pricing, Provider
 from butter.contracts.questions import GeneratedQuestion, QuestionIntent, QuestionTemplates, TemplateSet
 from butter.contracts.registry import (
@@ -69,6 +70,8 @@ __all__ = [
     "DRAFT_FIELDS", "CheckContext", "CheckOutcome", "CheckResult", "DraftAttempt", "DraftFact", "DraftField",
     "DraftLimits", "DraftOutcome", "DraftProposal", "DraftTask", "DraftedItem", "OnFail", "RuleId", "Verdict",
     "VoidedDraft",
+    # jobs
+    "Job", "JobEvent", "JobKind", "JobState",
     # llm
     "Completion", "ErrorKind", "ModelPrice", "Pricing", "Provider",
     # cards(批次、实验卡、事件)

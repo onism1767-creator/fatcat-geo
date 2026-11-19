@@ -9,6 +9,7 @@ import zipfile
 import pytest
 from fastapi.testclient import TestClient
 
+from butter.jobs import JobManager
 from butter.pipeline import RunOptions, process_snapshot
 from butter.web.app import WebSettings, create_app
 from butter.web.views import validation_text
@@ -23,7 +24,10 @@ ORIGIN = {"origin": BASE}
 def site(tmp_path, acme_snapshot):
     out = tmp_path / "out"
     result = process_snapshot(acme_snapshot, RunOptions(out_root=out), now=lambda: NOW, run_id="run-web")
-    settings = WebSettings(out_root=out, workspace=tmp_path / "workspace", token="test-token")
+    workspace = tmp_path / "workspace"
+    env = {"ANTHROPIC_API_KEY": "super-secret-value"}
+    jobs = JobManager(out, workspace, env=env, fetch=lambda url, max_pages: acme_snapshot, start_worker=False)
+    settings = WebSettings(out_root=out, workspace=workspace, token="test-token", env=env, jobs=jobs)
     return TestClient(create_app(settings), base_url=BASE), result, settings
 
 
@@ -125,7 +129,6 @@ def test_only_local_hosts_are_served(site):
 
 def test_registry_and_settings_speak_plainly_and_never_show_keys(site, monkeypatch):
     client, _, _ = site
-    monkeypatch.setenv("ANTHROPIC_API_KEY", "super-secret-value")
     reg = client.get("/registry.json").json()
     assert reg["total"] == 33 and all(e["plain"] for e in reg["entries"])
     data = client.get("/settings.json").json()

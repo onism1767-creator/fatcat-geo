@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import socket
 import webbrowser
+from collections.abc import Mapping
 from pathlib import Path
 
 import uvicorn
@@ -25,12 +26,12 @@ def free_port() -> int | None:
     return None
 
 
-def serve(out_root: Path, workspace: Path, *, open_browser: bool = True) -> int:
+def serve(out_root: Path, workspace: Path, *, env: Mapping[str, str], open_browser: bool = True) -> int:
     port = free_port()
     if port is None:
         print(f"端口 {PORTS.start} 到 {PORTS.stop - 1} 都被占了,服务没有启动。")
         return 1
-    app = create_app(WebSettings(out_root=out_root, workspace=workspace, port=port))
+    app = create_app(WebSettings(out_root=out_root, workspace=workspace, port=port, env=dict(env)))
     url = f"http://{HOST}:{port}/"
     print(f"Butter 服务已启动:{url}")
     print("关掉这个窗口就停止服务。")

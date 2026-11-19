@@ -29,6 +29,8 @@ import butter
 from butter import cards, sources, store
 from butter.config import load_defaults, load_pricing
 from butter.contracts import AuditReport, ChangePackage, FactBase
+from butter.drafting import draft_offer
+from butter.jobs import JobManager
 from butter.llm.keys import available_providers
 from butter.questions import categories_from_factbase, draft_questions, guess_lang, match_by_category, to_board_questions
 from butter.registry import load_registry
@@ -46,6 +48,8 @@ class WebSettings:
     workspace: Path                # 卡片库、题板、提案
     token: str = field(default_factory=lambda: secrets.token_urlsafe(24))  # 每次启动一个新令牌
     port: int = 8700
+    env: dict[str, str] = field(default_factory=dict)   # 环境变量(含 .env 里读到的 key);只交给 llm,不显示
+    jobs: JobManager | None = None                      # 测试可以塞一个不起线程的
 
 
 def _env() -> Environment:
@@ -65,6 +69,7 @@ def _host_only(value: str) -> str:
 def create_app(settings: WebSettings) -> FastAPI:
     app = FastAPI(title="Butter", docs_url=None, redoc_url=None, openapi_url=None)
     env = _env()
+    jobs = settings.jobs or JobManager(settings.out_root, settings.workspace, env=settings.env)
 
     # ── 安全 ──────────────────────────────────────────────────────────
 
@@ -151,7 +156,24 @@ def create_app(settings: WebSettings) -> FastAPI:
     @app.get("/index.json")
     def home(request: Request):
         view, _ = cards_view()
-        return render(request, "home.html", views.home(run_index(), view))
+        return render(request, "home.html", views.home(run_index(), view, draft_offer(settings.env),
+                                                        [j for j in jobs.jobs().values() if j.active]))
+
+    @app.post("/runs")
+    def new_run(token: str = Form(""), url: str = Form(""), max_pages: int = Form(10), draft: str = Form("")):
+        check_token(token)
+        try:
+            job = jobs.submit_run(url, max_pages=max_pages, draft=draft == "on")
+        except ValueError as exc:
+            raise HTTPException(400, str(exc)) from exc
+        return RedirectResponse(f"/jobs/{job.job_id}", status_code=303)
+
+    @app.get("/jobs/{job_id}")
+    def job_page(request: Request, job_id: str):
+        job = jobs.get(job_id.removesuffix(".json"))
+        if job is None:
+            raise HTTPException(404, "没有这个任务。")
+        return render(request, "job.html", views.job(job))
 
     @app.get("/runs/{run_id}")
     def run_detail(request: Request, run_id: str):
@@ -260,7 +282,7 @@ def create_app(settings: WebSettings) -> FastAPI:
     @app.get("/settings")
     def settings_page(request: Request):
         return render(request, "settings.html", views.settings(
-            settings.out_root, settings.workspace, available_providers(), load_defaults(), load_pricing(),
+            settings.out_root, settings.workspace, available_providers(settings.env), load_defaults(), load_pricing(),
             load_registry()))
 
     return app

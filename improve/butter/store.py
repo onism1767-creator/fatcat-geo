@@ -16,7 +16,7 @@ from contextlib import closing, contextmanager
 from pathlib import Path, PurePosixPath
 from typing import Any
 
-from butter.contracts import AuditReport, CardEvent, FactBase, FetchedPage, PackageBundle, SiteSnapshot
+from butter.contracts import AuditReport, CardEvent, FactBase, FetchedPage, JobEvent, PackageBundle, SiteSnapshot
 
 SNAPSHOT_INDEX = "snapshot.json"
 CARD_EVENTS = "events/cards.jsonl"  # 批次与卡片的事件:唯一事实来源,只追加(设计 §6)
@@ -335,3 +335,29 @@ def read_card_index(workspace: Path, table: str) -> list[dict]:
         except sqlite3.OperationalError:
             return []
     return [dict(zip(columns, row, strict=True)) for row in rows]
+
+
+# ── 作业事件日志(只追加) ──────────────────────────────────────────────
+
+JOB_EVENTS = "events/jobs.jsonl"
+
+
+def append_job_event(workspace: Path, event: JobEvent) -> None:
+    with _single_writer(workspace / "events" / "jobs.lock"):
+        _append_lines(workspace / JOB_EVENTS, [event.model_dump_json()])
+
+
+def read_job_events(workspace: Path) -> list[JobEvent]:
+    """读作业事件(只读)。读不了的行跳过;最后一行是半行也容忍。"""
+    try:
+        raw = (workspace / JOB_EVENTS).read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return []
+    events = []
+    for line in raw.split("\n"):
+        if line.strip():
+            try:
+                events.append(JobEvent.model_validate_json(line))
+            except ValueError:
+                continue
+    return events

@@ -57,6 +57,7 @@ def _parser() -> argparse.ArgumentParser:
     web.add_argument("--out", type=Path, default=DEFAULT_OUT, help=f"运行产出目录(默认 {DEFAULT_OUT})")
     web.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE, help=f"工作目录(默认 {DEFAULT_WORKSPACE})")
     web.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
+    web.add_argument("--env-file", type=Path, help="从这个 .env 文件读模型的 key(只读);不给就只看环境变量")
     return parser
 
 
@@ -93,41 +94,32 @@ def _rebuild_index(args) -> int:
     return 0
 
 
+def _env(env_file: Path | None) -> dict[str, str]:
+    """整份环境变量,再加上 .env 文件里的模型 key(只读)。cli 自己不认变量名,原样交给 llm。"""
+    import os
+
+    from butter.llm.keys import read_env_file
+
+    env = dict(os.environ)
+    if env_file:
+        env.update(read_env_file(env_file))
+    return env
+
+
 def _draft_settings(args, out_root: Path) -> DraftSettings | None:
     """按命令行和手上的 key 决定起不起草、用哪家。没有 key 就不起草,照常出规则生成的部分。"""
     if args.no_draft:
         return None
-    import os
+    from butter.drafting import draft_settings
 
-    from butter.config import load_pricing
-    from butter.draft import PROMPT_VERSION, SYSTEM
-    from butter.llm import choose_provider, complete, find_price, upper_bound_usd
-    from butter.llm.keys import available_providers, read_env_file
-
-    env = dict(os.environ)
-    if args.env_file:
-        env.update(read_env_file(args.env_file))
-    pricing = load_pricing()
-    choice = choose_provider(pricing, available_providers(env), args.draft_provider)
-    if choice is None:
-        print("没有找到任何一家模型的 key,这次不起草;规则生成的部分照常出。")
+    settings, offer = draft_settings(_env(args.env_file), out_root / ".llm-cache", max_pages=args.max_pages,
+                                     budget_usd=args.draft_budget, provider=args.draft_provider, model=args.draft_model)
+    if settings is None:
+        print("没有找到可用的模型 key(或者价目表里没有指定的型号),这次不起草;规则生成的部分照常出。")
         return None
-    provider, model = choice[0], args.draft_model or choice[1]
-    price = find_price(pricing, provider, model)
-    if price is None:
-        print(f"价目表里没有 {provider}:{model},这次不起草。", file=sys.stderr)
-        return None
-    from datetime import date
-
-    bound = min(args.draft_budget, upper_bound_usd(price, args.max_pages, 4000, 4000, date.today().isoformat()))
-    print(f"起草用 {provider}:{model},这次最多花约 ${bound:.2f}(上限 ${args.draft_budget:.2f});不想起草加 --no-draft。")
-    cache_dir = out_root / ".llm-cache"
-
-    def ask(prompt: str, schema: dict):
-        return complete(provider, model, prompt, pricing=pricing, prompt_version=PROMPT_VERSION, system=SYSTEM,
-                        schema=schema, cache_dir=cache_dir, env=env)
-
-    return DraftSettings(provider=provider, model=model, ask=ask, budget_usd=args.draft_budget, max_pages=args.max_pages)
+    print(f"起草用 {offer['provider']}:{offer['model']},这次最多花约 ${offer['upper_bound_usd']:.2f}"
+          f"(上限 ${args.draft_budget:.2f});不想起草加 --no-draft。")
+    return settings
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -138,7 +130,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == "serve":
         from butter.web.serve import serve
 
-        return serve(args.out, args.workspace, open_browser=not args.no_browser)
+        return serve(args.out, args.workspace, open_browser=not args.no_browser, env=_env(args.env_file))
     if args.command in ("proposals", "rebuild-index"):
         try:
             return _proposals(args) if args.command == "proposals" else _rebuild_index(args)

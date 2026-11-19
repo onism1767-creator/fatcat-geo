@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from butter.config.core import Defaults
-from butter.contracts import BatchState, Card, CardsView, GeneratedQuestion, Pricing
+from butter.contracts import BatchState, Card, CardsView, GeneratedQuestion, Job, Pricing
 from butter.registry.core import Registry
 
 LEVEL_TEXT = {"problem": "问题", "notice": "提示", "pass": "通过", "not_checkable": "查不了", "not_applicable": "不适用"}
@@ -60,7 +60,22 @@ def _counts(findings) -> dict[str, int]:
     return out
 
 
-def home(runs: list[dict], cards_view: CardsView) -> dict[str, Any]:
+JOB_STATE_TEXT = {"DRAFT": "还没开始", "CONFIRMED": "排队中", "RUNNING": "正在做", "DONE": "做完了",
+                  "PARTIAL": "做完了，有几处要留意", "FAILED": "没做成", "INTERRUPTED": "中断了"}
+
+
+def job(job: Job) -> dict[str, Any]:
+    return {"title": "任务进度", "job_id": job.job_id, "state": job.state, "state_text": JOB_STATE_TEXT[job.state],
+            "active": job.active, "progress": job.progress, "url": job.params.get("url", ""),
+            "created_at": job.created_at, "updated_at": job.updated_at, "error": job.error,
+            "run_id": job.result.get("run_id", ""), "batch_id": job.result.get("batch_id", ""),
+            "pages": job.result.get("pages", 0), "change_items": job.result.get("change_items", 0),
+            "notes": job.result.get("notes", []), "cost_usd": job.result.get("cost_usd", 0),
+            "drafted": job.result.get("drafted", 0), "draft_model": job.result.get("draft_model", "")}
+
+
+def home(runs: list[dict], cards_view: CardsView, offer: dict | None = None, active_jobs: list[Job] | None = None,
+         ) -> dict[str, Any]:
     sites: dict[str, dict] = {}
     for row in sorted(runs, key=lambda r: r.get("generated_at", ""), reverse=True):
         site = sites.setdefault(row.get("host", ""), {"host": row.get("host", ""), "runs": []})
@@ -71,7 +86,11 @@ def home(runs: list[dict], cards_view: CardsView) -> dict[str, Any]:
             "change_items": row.get("change_items", 0),
         })
     return {"title": "Butter", "sites": list(sites.values()), "run_count": len(runs),
-            "batch_count": len(cards_view.batches)}
+            "batch_count": len(cards_view.batches),
+            "draft_offer": ({"provider": PROVIDER_TEXT.get(offer["provider"], offer["provider"]), "model": offer["model"],
+                             "upper_bound_usd": offer["upper_bound_usd"]} if offer else None),
+            "active_jobs": [{"job_id": j.job_id, "url": j.params.get("url", ""), "progress": j.progress}
+                            for j in (active_jobs or [])]}
 
 
 def run_detail(run: dict, registry: Registry, cards_view: CardsView) -> dict[str, Any]:
