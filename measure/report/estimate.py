@@ -10,14 +10,14 @@
 from __future__ import annotations
 
 import math
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterable, Sequence
 from enum import StrEnum
 
 from adapters.base import SurfaceAdapter, priced
 from engine.models import FrozenModel, SearchMode, Target
 from engine.page_check import BUDGET_S as VERIFY_BUDGET_S
 from engine.storage import CallStat
-from report.jobs import PLAN_CONCURRENCY
+from report.jobs import PLAN_CONCURRENCY, LegProgress
 
 # 兜底值(v0.4.17):库里没有足量历史时用;有历史即按实测均值(香奈儿首单加权均值 20.2 s)
 AVG_SECONDS_PER_CALL = 20.0
@@ -244,6 +244,47 @@ def estimate_job(
         judge_calls=judge_calls,
         judge_cost_usd=judge_cost,
         judge_upto=judge_limit is not None,
+    )
+
+
+# 边跑边重估(用户 2026-11-18 定;任务列表第十七节 1):
+REESTIMATE_MIN_RUNS = 5  # 一个型号自己真花钱问满这么多次,才用它这一单的均价;不够的先按开跑前的单价
+OVERRUN_FACTOR = 1.5  # 预计总花费到了开跑前预估的这么多倍(超出五成)才提醒
+
+
+class Projection(FrozenModel):
+    """照目前的花费,这一单问完要多少钱。"""
+
+    total_usd: float  # 已花的 + 没问的次数 × 各条腿现在的单价(不看上限,假装都问得完)
+    estimate_usd: float | None  # 开跑前估的;旧单没有
+    over_estimate: bool  # 比开跑前估的贵出 OVERRUN_FACTOR 倍以上
+    cap_pct: int | None  # 有腿会在问完之前到它那份费用上限时:整单大约问到百分之几;都问得完 → None
+
+
+def project_spend(legs: Iterable[LegProgress], *, spent_usd: float, estimate_usd: float | None) -> Projection | None:
+    """开跑前的预估猜不准 AI 会搜几次,所以开跑后拿这一单自己的数再算一遍。每条腿各算各的:真花钱问满
+    REESTIMATE_MIN_RUNS 次的用它自己的均价,不够的仍用开跑前的单价。还没有哪条腿问够、或者都问完了 → None(不显示)。
+    spent_usd 是整单已花的(含出题等辅助调用),腿以外的那部分照实加上。只读数字,不改任何东西。"""
+    legs = list(legs)
+    if not any(leg.paid_runs >= REESTIMATE_MIN_RUNS for leg in legs) or all(leg.done >= leg.slots for leg in legs):
+        return None
+    total = spent_usd - sum(leg.spent_usd for leg in legs)
+    reach = 0
+    capped = False
+    for leg in legs:
+        unit = leg.spent_usd / leg.paid_runs if leg.paid_runs >= REESTIMATE_MIN_RUNS else leg.unit_usd
+        remaining = max(0, leg.slots - leg.done)
+        total += leg.spent_usd + remaining * unit
+        affordable = remaining
+        if leg.budget_usd is not None and unit > 0:  # 调度器在「已花 ≥ 这条腿的上限」时才停:还发得出几次
+            affordable = min(remaining, max(0, math.ceil((leg.budget_usd - leg.spent_usd) / unit)))
+            capped = capped or affordable < remaining
+        reach += leg.done + affordable
+    slots = sum(leg.slots for leg in legs)
+    return Projection(
+        total_usd=total, estimate_usd=estimate_usd,
+        over_estimate=bool(estimate_usd) and total >= OVERRUN_FACTOR * (estimate_usd or 0.0),
+        cap_pct=round(100 * reach / slots) if capped and slots else None,
     )
 
 

@@ -6,7 +6,8 @@ import pytest
 from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
 from engine.models import SearchMode, Target
 from engine.storage import CallStat
-from report.estimate import AVG_SECONDS_PER_CALL, PriceBasis, unit_prices
+from report.estimate import AVG_SECONDS_PER_CALL, PriceBasis, project_spend, unit_prices
+from report.jobs import LegProgress
 
 CHEAP, PRICEY = "m-cheap", "m-pricey"
 PRICES = {
@@ -157,3 +158,49 @@ def test_a_bucket_without_usage_records_uses_the_recorded_average_and_lends_noth
     prices = unit_prices(ADAPTERS, [stat(CHEAP, "zh-CN", 12, usage={}, cost=0.07, n_usage=0)], locale="zh-CN")
     assert prices.default[cheap.key].cost_usd == 0.07 and prices.default[cheap.key].basis is PriceBasis.MEASURED
     assert prices.default[pricey.key].basis is PriceBasis.DECLARED
+
+
+# ── 边跑边重估(用户 2026-11-18 定;任务列表第十七节 1) ───────────────────────
+
+
+def _leg(**fields):
+    base = dict(slots=20, done=0, spent_usd=0.0, paid_runs=0, unit_usd=0.10, budget_usd=None)
+    return LegProgress(**{**base, **fields})
+
+
+def test_reestimate_waits_until_one_model_has_five_paid_answers_of_its_own():
+    assert project_spend([_leg(done=4, paid_runs=4, spent_usd=1.0)], spent_usd=1.0, estimate_usd=2.0) is None
+    assert project_spend([], spent_usd=0.0, estimate_usd=None) is None
+    done = _leg(done=20, paid_runs=20, spent_usd=5.0)
+    assert project_spend([done], spent_usd=5.0, estimate_usd=2.0) is None  # 都问完了:没什么可预计的
+    # 缓存复制来的不花钱,不算进「问满 5 次」:10 条里只有 3 条真花了钱
+    assert project_spend([_leg(done=10, paid_runs=3, spent_usd=0.9)], spent_usd=0.9, estimate_usd=2.0) is None
+
+
+def test_each_leg_uses_its_own_average_once_it_has_five_and_the_prerun_price_until_then():
+    pricey = _leg(done=5, paid_runs=5, spent_usd=1.5)  # 自己的均价 $0.30,比开跑前的 $0.10 贵两倍
+    fresh = _leg(done=2, paid_runs=2, spent_usd=1.0)  # 还不够 5 次:剩下 18 次仍按开跑前的 $0.10
+    p = project_spend([pricey, fresh], spent_usd=2.5 + 0.2, estimate_usd=4.2)  # 另有 $0.2 是出题等辅助调用
+    assert p is not None and p.total_usd == pytest.approx(0.2 + (1.5 + 15 * 0.30) + (1.0 + 18 * 0.10))
+    assert p.estimate_usd == 4.2 and p.cap_pct is None
+    assert p.over_estimate is True  # 9.0 ≥ 1.5 × 4.2
+    calm = project_spend([_leg(done=5, paid_runs=5, spent_usd=0.6)], spent_usd=0.6, estimate_usd=2.0)
+    assert calm is not None and calm.total_usd == pytest.approx(0.6 + 15 * 0.12)
+    assert calm.over_estimate is False  # 1.2 倍:不提醒
+    edge = project_spend([_leg(done=5, paid_runs=5, spent_usd=0.75)], spent_usd=0.75, estimate_usd=2.0)
+    assert edge is not None and edge.total_usd == pytest.approx(3.0) and edge.over_estimate is True  # 正好五成:提醒
+    old = project_spend([_leg(done=5, paid_runs=5, spent_usd=5.0)], spent_usd=5.0, estimate_usd=None)
+    assert old is not None and old.over_estimate is False  # 旧单没有开跑前的预估:只报数,不比
+
+
+def test_a_leg_that_will_hit_its_share_of_the_cap_says_how_far_the_check_will_get():
+    # 这条腿分到 $2:已花 $1.5(5 次,均价 $0.30),还发得出 ⌈0.5 ÷ 0.3⌉ = 2 次 → 问到 7/20;另一条腿便宜,问得完
+    tight = _leg(done=5, paid_runs=5, spent_usd=1.5, budget_usd=2.0)
+    cheap = _leg(done=5, paid_runs=5, spent_usd=0.05, budget_usd=2.0)
+    p = project_spend([tight, cheap], spent_usd=1.55, estimate_usd=4.0)
+    assert p is not None and p.cap_pct == round(100 * (7 + 20) / 40)
+    roomy = project_spend([_leg(done=5, paid_runs=5, spent_usd=0.5, budget_usd=5.0)], spent_usd=0.5, estimate_usd=2.0)
+    assert roomy is not None and roomy.cap_pct is None  # 上限够:不提
+    over = _leg(done=6, paid_runs=6, spent_usd=2.4, budget_usd=2.0)
+    spent_out = project_spend([over], spent_usd=2.4, estimate_usd=2.0)
+    assert spent_out is not None and spent_out.cap_pct == 30  # 已经过了它那份:一次也发不出了

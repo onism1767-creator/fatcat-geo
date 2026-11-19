@@ -9,7 +9,7 @@ from engine.models import SearchMode, StopReason
 from engine.scheduler import StopDetail
 from report import runner
 from report.estimate import split_budget
-from report.jobs import JobState
+from report.jobs import JobState, LegProgress
 from tests.unit.test_report_page import finished_job, visible_text
 from tests.unit.test_response_page import _client, _run
 
@@ -86,7 +86,10 @@ def test_spent_grows_with_every_answer_stored():
         def insert_surface_run(self, run) -> None:
             pass
 
-    sink = runner._ProgressSink(Store(), job, threading.Lock())  # type: ignore[arg-type]
+    leg = LegProgress(slots=3, done=0, spent_usd=0.0, paid_runs=0, unit_usd=0.01, budget_usd=None)
+    sink = runner._ProgressSink(Store(), job, threading.Lock(), leg)  # type: ignore[arg-type]
     for cost in (0.02, 0.03):
         sink.insert_surface_run(_run("p", run_id="x", index=1).model_copy(update={"cost_usd": cost}))
     assert job.spent_usd == pytest.approx(0.05) and job.completed_runs == 2
+    # 这条腿自己的进度与花费也逐条跟着走(边跑边重估用,用户 2026-11-18 定)
+    assert (leg.done, leg.paid_runs) == (2, 2) and leg.spent_usd == pytest.approx(0.05)

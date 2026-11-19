@@ -230,6 +230,11 @@ def test_two_models_of_one_surface_are_sampled_and_diagnosed_apart(storage, offl
     assert note.started_at is not None and note.finished_at is not None and note.finished_at == job.finished_at
     assert {(x.surface, x.model) for x in note.targets} == {("two_model", CITES), ("two_model", SILENT)}
     assert note.method_notes == []  # 这台仪器没声明测法说明
+    # 边跑边重估(用户 2026-11-18 定):开跑前的预估第一次开跑时定下(这台假仪器声明价 $0.01 / $0.001 × 3 次),
+    # 每条腿自己的进度与花费逐条记着
+    assert job.estimate_usd == pytest.approx(3 * 0.01 + 3 * 0.001)
+    legs = sorted((leg.slots, leg.done, leg.paid_runs, round(leg.spent_usd, 4), leg.budget_usd) for leg in job.legs)
+    assert legs == [(3, 3, 3, 0.003, None), (3, 3, 3, 0.03, None)]
     assert job.verify_started_at is not None and job.verify_total >= 1  # 核对网页阶段有开始时刻与总数(S8.5)
 
     # 续跑(重新生成报告):样本按「题 × 仪器 × 型号 × 模式 × 第几次」复用——零新调用,且两个型号的
@@ -403,6 +408,8 @@ def test_resume_gives_the_raised_cap_to_the_legs_that_still_need_it(storage, off
     assert [(d.model, d.n_attempts) for d in job.stop_details if d.truncated] == [(CITES, 1)]
     assert job.spent_usd == pytest.approx(0.02 + 0.003)
     first_start = job.started_at
+    first_estimate = job.estimate_usd
+    assert first_estimate == pytest.approx(0.06)  # 两个型号各 3 次 × 声明价 $0.01
     job.raise_budget(0.045)
     runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry())
     assert job.state is JobState.DONE, job.error
@@ -410,6 +417,7 @@ def test_resume_gives_the_raised_cap_to_the_legs_that_still_need_it(storage, off
     # 起测时刻只在第一次开跑时定:续跑后报告「测试时间」从第一次算起(第三轮审核;原来只剩续跑那段)
     assert first_start is not None and job.started_at == first_start and job.sampling.started_at == first_start
     assert job.sampling_base_runs == 1 + 3  # 续跑开场复用了贵的 1 条 + 便宜的 3 条:「预计还需」只按这次新问的算
+    assert job.estimate_usd == first_estimate  # 开跑前的预估只在第一次开跑时定,续跑不改
 
 
 def test_replaying_a_partial_job_keeps_it_partial_and_keeps_why_it_stopped(storage, offline):

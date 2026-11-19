@@ -33,6 +33,16 @@
   <div class="bar" style="margin-top:10px"><div style="width: {{ job.sampling_pct }}%"></div></div>
   <p class="kv">{{ t["progress_word"] }} {{ job.sampling_pct }}%({{ t["runs_done_word"] }} {{ job.completed_runs }}/{{ job.total_runs }})
      · {{ t["spent_word"] }} ${{ "%.4f"|format(job.spent_usd) }}{% if job.budget_usd %} / {{ t["budget_word"] }} ${{ job.budget_usd }}{% endif %}</p>
+  {#- 边跑边重估(用户 2026-11-18 定):照这一单自己的花费算问完要多少;会撞上限或比开跑前估的贵出五成才提醒,只提醒、照常跑 -#}
+  {% if projection %}
+  {% set total = "%.2f"|format(projection.total_usd) %}
+  <p class="kv">{% if projection.estimate_usd is not none %}{{ t["reest_line"].format(total=total, estimate="%.2f"|format(projection.estimate_usd)) }}{% else %}{{ t["reest_line_plain"].format(total=total) }}{% endif %}</p>
+  {% if projection.cap_pct is not none %}
+  <div class="caution">{{ t["reest_cap"].format(pct=projection.cap_pct, cap=job.budget_usd) }}</div>
+  {% elif projection.over_estimate %}
+  <div class="caution">{{ t["reest_over"].format(total=total, ratio="%.1f"|format(projection.total_usd / projection.estimate_usd)) }}{% if not job.budget_usd %} {{ t["reest_no_cap"] }}{% endif %}</div>
+  {% endif %}
+  {% endif %}
   {#- 提问阶段的剩余时间按实际速度算;提问完了之后是核对网页(S8.5):有自己的进度条,时间按预算给上限 -#}
   {% set sampling_done = job.total_runs and job.completed_runs >= job.total_runs and not job.finished %}
   {% if elapsed_minutes is not none and not sampling_done %}

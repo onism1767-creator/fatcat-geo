@@ -24,7 +24,7 @@ from engine.scheduler import AccountProblem
 from engine.spellings import suggest_spellings
 from engine.storage import STORAGE_DOWN_ERRORS, Storage
 from engine.tiers import MentionMethod, tier_targets
-from report.estimate import VERIFY_MAX_MINUTES, UnitPrices, estimate_job, unit_prices
+from report.estimate import VERIFY_MAX_MINUTES, UnitPrices, estimate_job, project_spend, unit_prices
 from report.export import build_bundle, content_disposition
 from report.forms import (
     brand_from_form,
@@ -432,7 +432,11 @@ def job_status(request: Request, job: DiagnosisJob = Depends(existing_job)):
     stalled = (ctx.errors["JOB_STALLED"].text(lang, with_next_step=True, minutes=str(round(quiet)))
                if quiet is not None and quiet >= STALL_MINUTES else None)
     form_error = error_text(request, request.query_params.get("error", ""))  # 接着跑时费用上限填错(S10.3)
-    return ctx.render(request, "job.html", job=job, runs_per_prompt=job.frozen_tier().runs_per_prompt,
+    # 边跑边重估:只在提问阶段显示(用户 2026-11-18 定)
+    projection = (project_spend(job.legs, spent_usd=job.spent_usd, estimate_usd=job.estimate_usd)
+                  if job.state is JobState.RUNNING and job.phase == "phase_sampling" else None)
+    return ctx.render(request, "job.html", job=job, projection=projection,
+                      runs_per_prompt=job.frozen_tier().runs_per_prompt,
                       elapsed_minutes=job.elapsed_minutes(now), eta_minutes=job.eta_minutes(now),
                       verify_remaining_minutes=job.verify_remaining_minutes(now, VERIFY_BUDGET_S),
                       error_text=failure, quiet_minutes=quiet, stalled_text=stalled,

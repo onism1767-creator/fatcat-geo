@@ -8,7 +8,7 @@ from fastapi.testclient import TestClient
 from diagnosis.recommender import load_evidence_registry
 from engine.models import BrandSpec, Prompt, PromptIntent, PromptOrigin, Target
 from report.app import create_app
-from report.jobs import DiagnosisJob, JobState
+from report.jobs import DiagnosisJob, JobState, LegProgress
 from tests.unit.test_job_error_page import DummyAdapter
 from tests.unit.test_report_page import LOW
 
@@ -92,3 +92,47 @@ def test_a_failed_job_does_not_keep_counting_down_the_page_check():
     page = _page(job)
     assert "最多再等" not in page and "已开 4/10 个" not in page
     assert "预计还需约" not in page and "下一步核对" not in page
+
+
+def _sampling_job(now: datetime, *, budget: float | None, estimate: float | None, leg: dict) -> DiagnosisJob:
+    job = _running_job(now)
+    job.phase, job.total_runs, job.completed_runs = "phase_sampling", 20, leg["done"]
+    job.budget_usd, job.estimate_usd, job.spent_usd = budget, estimate, leg["spent_usd"]
+    job.legs = [LegProgress(slots=20, unit_usd=0.10, budget_usd=budget, **leg)]
+    return job
+
+
+def test_the_job_page_reestimates_from_this_checks_own_spend_and_warns_only_when_it_matters():
+    """边跑边重估(用户 2026-11-18 定):一个型号自己问满 5 次起,任务页写
+    「照目前的花费,这一单预计共约 $N(开跑前估的是 $M)」;
+    会在问完之前到费用上限、或比开跑前估的贵出五成才提醒;只提醒,照常跑。"""
+    now = datetime.now(UTC)
+    # 均价 $0.30(开跑前估 $0.10):预计 1.5 + 15 × 0.3 = $6.00,是预估 $2.00 的 3 倍;没设上限
+    pricey = dict(done=5, paid_runs=5, spent_usd=1.5)
+    page = _page(_sampling_job(now, budget=None, estimate=2.0, leg=pricey))
+    assert "照目前的花费,这一单预计共约 $6.00(开跑前估的是 $2.00)。" in page
+    assert "这一单比开跑前估的贵:预计共约 $6.00,是开跑前估的 3.0 倍。 没有设费用上限,会一直问完。" in page  # noqa: E501
+    en = _page(_sampling_job(now, budget=None, estimate=2.0, leg=pricey), "en")
+    assert "At the current spend this check will cost about $6.00 in all (estimated $2.00 before it started)." in en
+    assert "This check is costing more than estimated: about $6.00 in all, 3.0 times the estimate." in en
+    assert "No spending cap is set, so it will run to the end." in en
+
+    # 设了上限 $3:还发得出 ⌈1.5 ÷ 0.3⌉ = 5 次 → 问到 10/20 = 50% 左右就到上限;提醒说上限,不再重复说「比预估贵」
+    capped = _page(_sampling_job(now, budget=3.0, estimate=2.0, leg=pricey))
+    assert ("照这个速度,问到 50% 左右就会到费用上限 $3.0,问不完。"
+            "到上限会自动停,已问的都保留,停下后可以选择补齐。") in capped
+    assert "这一单比开跑前估的贵" not in capped and "没有设费用上限" not in capped
+    assert "at around 50%" in _page(_sampling_job(now, budget=3.0, estimate=2.0, leg=pricey), "en")
+
+    # 和预估差不多(1.2 倍):只有那一句,不提醒
+    calm = _page(_sampling_job(now, budget=None, estimate=2.0, leg=dict(done=5, paid_runs=5, spent_usd=0.6)))
+    assert "照目前的花费,这一单预计共约 $2.40(开跑前估的是 $2.00)。" in calm and "这一单比开跑前估的贵" not in calm
+    # 旧单没有开跑前的预估:只报数
+    plain = _page(_sampling_job(now, budget=None, estimate=None, leg=pricey))
+    assert "照目前的花费,这一单预计共约 $6.00。" in plain and "开跑前估的" not in plain
+    # 还没问满 5 次、或者已经不在提问阶段:不显示
+    early = _page(_sampling_job(now, budget=None, estimate=2.0, leg=dict(done=4, paid_runs=4, spent_usd=1.2)))
+    assert "照目前的花费" not in early
+    later = _sampling_job(now, budget=None, estimate=2.0, leg=pricey)
+    later.phase = "phase_verify"
+    assert "照目前的花费" not in _page(later)

@@ -95,6 +95,7 @@ from report.jobs import (
     ClassReport,
     DiagnosisJob,
     JobState,
+    LegProgress,
     SamplingNote,
     SurfaceQuotes,
     current_code_version,
@@ -113,8 +114,8 @@ class _ProgressSink:
     「最近一次新结果在几分钟前」,超过阈值就报 JOB_STALLED(v0.4.22)。原来花费要等一条腿跑完才整笔加,
     页面看着像只花了一分钱(小米真跑 2026-11-03)。"""
 
-    def __init__(self, storage: Storage, job: DiagnosisJob, lock: threading.Lock) -> None:
-        self._storage, self._job, self._lock = storage, job, lock
+    def __init__(self, storage: Storage, job: DiagnosisJob, lock: threading.Lock, leg: LegProgress) -> None:
+        self._storage, self._job, self._lock, self._leg = storage, job, lock, leg
 
     def insert_surface_run(self, run: SurfaceRun) -> None:
         self._storage.insert_surface_run(run)
@@ -122,6 +123,9 @@ class _ProgressSink:
             self._job.completed_runs += 1
             self._job.spent_usd += run.cost_usd
             self._job.last_result_at = datetime.now(UTC)
+            self._leg.done += 1  # 这条腿自己的进度与花费:任务页边跑边重估用
+            self._leg.spent_usd += run.cost_usd
+            self._leg.paid_runs += 1
 
     def insert_call_usage(self, run_id: str, usage: dict[str, float]) -> None:
         self._storage.insert_call_usage(run_id, usage)
@@ -479,6 +483,7 @@ def _reset_progress(job: DiagnosisJob) -> None:
     job.total_runs = 0
     job.completed_runs = 0
     job.spent_usd = 0.0
+    job.legs = []
     job.class_reports = []
     job.surface_verdicts = []
     job.stop_details = []
@@ -526,6 +531,15 @@ def _sample(
 
     budgets = split_budget(job.budget_usd, {plan: weight(plan) for plan in plans}, spent)
     job.total_runs = calls * len(plans)
+    # 边跑边重估(用户 2026-11-18 定):记下每条腿问到哪、花了多少、开跑前估的单价与它那份上限;
+    # 开跑前的预估只在第一次真开跑时定(续跑不改;只重算的不定)
+    legs = {plan: LegProgress(
+        slots=calls, done=taken[plan], spent_usd=spent[plan],
+        paid_runs=sum(run.cost_usd > 0 for runs in prior[plan].values() for run in runs),
+        unit_usd=prices.cost(plan[0].key, plan[1]), budget_usd=budgets[plan]) for plan in plans}
+    job.legs = list(legs.values())
+    if job.estimate_usd is None and not replay:
+        job.estimate_usd = job.spent_usd + sum(weight(plan) for plan in plans)
     # 「预计还需」只按这次新问的速度算(第三轮审核 A15);进度写进快照,中途断了重启也知道问到哪
     job.sampling_started_at, job.sampling_base_runs = datetime.now(UTC), job.completed_runs
     with Storage(dsn) as store:
@@ -543,7 +557,7 @@ def _sample(
         adapter = adapter_of[target]
         plan_storage = Storage(dsn)  # psycopg 连接非线程安全:每计划独立连接
         try:
-            sampler = RepeatSampler(_ProgressSink(plan_storage, job, progress_lock))
+            sampler = RepeatSampler(_ProgressSink(plan_storage, job, progress_lock, legs[plan]))
             plan_policy = policy.model_copy(update={"budget_usd": budgets[plan]})
             result = sampler.run_plan(adapter, job.prompts, policy=plan_policy, search_mode=mode, model=target.model,
                                       locale=job.locale, prior_runs=prior[plan], allow_new_calls=not replay)

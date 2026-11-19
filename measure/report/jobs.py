@@ -14,6 +14,7 @@ import math
 import subprocess
 import threading
 from collections.abc import Mapping
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from enum import StrEnum
 from pathlib import Path
@@ -87,6 +88,19 @@ class ClassReport(FrozenModel):
     prompt_texts: list[str]  # 本题型的题目原文(与采样同序)
     diagnosis: ClassDiagnosis
     quotes: list[SurfaceQuotes]  # AI 原话(S7)
+
+
+@dataclass
+class LegProgress:
+    """一条腿(一个被测对象 × 一种检索模式)问到哪、花了多少:任务页「边跑边重估」用(用户 2026-11-18 定)。
+    只在内存里、随执行推进;重启后不在跑就不需要,续跑时执行器按库里重数。"""
+
+    slots: int  # 这条腿一共要问几次
+    done: int  # 已有结果的次数(含续跑复用、缓存复制的)
+    spent_usd: float  # 这条腿已花的钱
+    paid_runs: int  # 其中真花了钱的次数(缓存复制来的不算):这一单自己的均价 = spent_usd ÷ paid_runs
+    unit_usd: float  # 开跑前估的单价(问得还不够多时先用它)
+    budget_usd: float | None  # 费用上限分给这条腿的那一份;没设上限 = None
 
 
 class SamplingNote(FrozenModel):
@@ -200,6 +214,10 @@ class DiagnosisJob:
         self.model_swaps: list[ModelSwap] = []
         self.fingerprint = ""
 
+        # 开跑前估的花费(已经花掉的出题等辅助调用 + 提问部分的预估):第一次开跑时定、进快照,续跑不改;
+        # 任务页拿它和「照目前的花费预计共约多少」比(边跑边重估,用户 2026-11-18 定)。不是口径,不进指纹
+        self.estimate_usd: float | None = None
+        self.legs: list[LegProgress] = []  # 各条腿的进度(边跑边重估用),只在内存里
         self.total_runs = 0  # 本单要发的提问次数(题数 × 每题次数 × 腿数)
         self.completed_runs = 0  # 已落库(含续跑复用)的次数
         self.spent_usd = 0.0
@@ -416,6 +434,7 @@ class DiagnosisJob:
             # 进度(第三轮审核:原来不进快照,重启后任务页「已问 0/0」);被中断 / 出错的单重启时由 archive 按库里重数
             "progress": {"total_runs": self.total_runs, "completed_runs": self.completed_runs,
                          "spent_usd": self.spent_usd},
+            "estimate_usd": self.estimate_usd,
             "fingerprint": self.fingerprint,
             "domain_list": self.domain_list.model_dump(mode="json") if self.domain_list is not None else None,
             "error": {"code": self.error_code, "params": self.error_params, "text": self.error},
@@ -482,6 +501,7 @@ class DiagnosisJob:
         job.total_runs = progress.get("total_runs", 0)
         job.completed_runs = progress.get("completed_runs", 0)
         job.spent_usd = progress.get("spent_usd", 0.0)
+        job.estimate_usd = snapshot.get("estimate_usd")  # 2026-11-18 起才写;更早的单没有就是不知道
         job.fingerprint = snapshot["fingerprint"]
         if snapshot["domain_list"] is not None:
             job.domain_list = BrandDomainList.model_validate(snapshot["domain_list"])
