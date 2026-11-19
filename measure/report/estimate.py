@@ -272,7 +272,7 @@ def project_spend(legs: Iterable[LegProgress], *, spent_usd: float, estimate_usd
     reach = 0
     capped = False
     for leg in legs:
-        unit = leg.spent_usd / leg.paid_runs if leg.paid_runs >= REESTIMATE_MIN_RUNS else leg.unit_usd
+        unit = _unit_now(leg)
         remaining = max(0, leg.slots - leg.done)
         total += leg.spent_usd + remaining * unit
         affordable = remaining
@@ -286,6 +286,29 @@ def project_spend(legs: Iterable[LegProgress], *, spent_usd: float, estimate_usd
         over_estimate=bool(estimate_usd) and total >= OVERRUN_FACTOR * (estimate_usd or 0.0),
         cap_pct=round(100 * reach / slots) if capped and slots else None,
     )
+
+
+def _unit_now(leg: LegProgress) -> float:
+    """这条腿现在按什么单价算:自己真花钱问满 REESTIMATE_MIN_RUNS 次用这一单的均价,不够的用开跑前的单价。"""
+    return leg.spent_usd / leg.paid_runs if leg.paid_runs >= REESTIMATE_MIN_RUNS else leg.unit_usd
+
+
+def suggested_cap(projection: Projection, budget_usd: float) -> float:
+    """任务页「把上限提高到 $N」的 N:照目前的花费问完要的钱再留一成余量,向上取到 0.1 美元;至少比现在的上限高 0.1
+    (上限只能往上调)。"""
+    return max((int(projection.total_usd * 1.1 * 10) + 1) / 10, round(budget_usd + 0.1, 1))
+
+
+def rebalance(legs: Iterable[LegProgress], budget_usd: float) -> None:
+    """中途提高了上限:新上限按「还要花的」比例重新分给还在问的腿,当场改它们的 budget_usd(提问循环每次提问前读)。
+    和开跑时同一个分法(split_budget),只是单价换成各条腿现在的单价;这一次已经停了的腿不再占额度,停在它已花的数,
+    想补齐它们要等跑完后「接着跑」。"""
+    legs = list(legs)
+    weights = {i: 0.0 if leg.finished else max(0, leg.slots - leg.done) * _unit_now(leg) for i, leg in enumerate(legs)}
+    shares = split_budget(budget_usd, weights, {i: leg.spent_usd for i, leg in enumerate(legs)})
+    for i, leg in enumerate(legs):
+        if not leg.finished:
+            leg.budget_usd = shares[i]
 
 
 def split_budget[K](

@@ -484,6 +484,7 @@ def _reset_progress(job: DiagnosisJob) -> None:
     job.completed_runs = 0
     job.spent_usd = 0.0
     job.legs = []
+    job.stop_requested = False
     job.class_reports = []
     job.surface_verdicts = []
     job.stop_details = []
@@ -559,12 +560,16 @@ def _sample(
         try:
             sampler = RepeatSampler(_ProgressSink(plan_storage, job, progress_lock, legs[plan]))
             plan_policy = policy.model_copy(update={"budget_usd": budgets[plan]})
+            # 上限读这条腿的现值(任务页中途提高上限时当场改);用户点了「现在停下」就在下一次提问前停
             result = sampler.run_plan(adapter, job.prompts, policy=plan_policy, search_mode=mode, model=target.model,
-                                      locale=job.locale, prior_runs=prior[plan], allow_new_calls=not replay)
+                                      locale=job.locale, prior_runs=prior[plan], allow_new_calls=not replay,
+                                      live_budget=lambda: legs[plan].budget_usd,
+                                      stop_requested=lambda: job.stop_requested)
         except AccountProblem:
             halt.set()
             raise
         finally:
+            legs[plan].finished = True
             plan_storage.close()
         with progress_lock:
             results[plan] = result

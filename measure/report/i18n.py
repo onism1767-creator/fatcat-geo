@@ -205,6 +205,9 @@ MESSAGES: dict[str, dict[str, str]] = {
         "reest_cap": "照这个速度,问到 {pct}% 左右就会到费用上限 ${cap},问不完。到上限会自动停,已问的都保留,停下后可以选择补齐。",
         "reest_over": "这一单比开跑前估的贵:预计共约 ${total},是开跑前估的 {ratio} 倍。",
         "reest_no_cap": "没有设费用上限,会一直问完。",
+        "reest_raise_btn": "把上限提高到 ${cap}",
+        "reest_stop_btn": "现在停下",
+        "reest_stopping": "正在停下:手头正在问的这几次回来后就不再提问,已问的都保留,接着出一份部分完成的报告。",
         "eta_waiting": "已用 {elapsed} 分钟;第一批结果还没回来,稍后会显示预计剩余时间",
         # 核对网页阶段(S8.5):提问完之后开网页,最多 15 分钟,有自己的进度
         "sampling_done_line": "提问已全部完成(已用 {elapsed} 分钟),下一步核对 AI 引用的网页",
@@ -629,6 +632,10 @@ MESSAGES: dict[str, dict[str, str]] = {
                      "It stops by itself at the cap, keeps everything already asked, and you can then choose to fill the rest.",
         "reest_over": "This check is costing more than estimated: about ${total} in all, {ratio} times the estimate.",
         "reest_no_cap": "No spending cap is set, so it will run to the end.",
+        "reest_raise_btn": "Raise the cap to ${cap}",
+        "reest_stop_btn": "Stop now",
+        "reest_stopping": "Stopping: once the questions being asked right now come back, no more are asked. "
+                          "Everything already asked is kept and a partial report follows.",
         "eta_waiting": "{elapsed} min so far; the first results are not back yet — remaining time will show shortly",
         "sampling_done_line": "All questions asked ({elapsed} min so far); next: checking the pages the AIs cited",
         "verify_word": "Checking pages",

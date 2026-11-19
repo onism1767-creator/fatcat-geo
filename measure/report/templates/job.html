@@ -37,11 +37,19 @@
   {% if projection %}
   {% set total = "%.2f"|format(projection.total_usd) %}
   <p class="kv">{% if projection.estimate_usd is not none %}{{ t["reest_line"].format(total=total, estimate="%.2f"|format(projection.estimate_usd)) }}{% else %}{{ t["reest_line_plain"].format(total=total) }}{% endif %}</p>
-  {% if projection.cap_pct is not none %}
-  <div class="caution">{{ t["reest_cap"].format(pct=projection.cap_pct, cap=job.budget_usd) }}</div>
+  {#- 提醒里的两个按钮(用户 2026-11-18 定):中途提高上限(只在会撞上限时)、现在停下;点了「现在停下」后换成一句「正在停下」 -#}
+  {% set stop_form %}<form method="post" action="/jobs/{{ job.job_id }}/stop?lang={{ lang }}" style="display:inline"><button type="submit">{{ t["reest_stop_btn"] }}</button></form>{% endset %}
+  {% if job.stop_requested %}
+  <div class="caution">{{ t["reest_stopping"] }}</div>
+  {% elif projection.cap_pct is not none %}
+  <div class="caution">{{ t["reest_cap"].format(pct=projection.cap_pct, cap=job.budget_usd) }}
+    <p style="margin:8px 0 0">{% if raise_to %}<form method="post" action="/jobs/{{ job.job_id }}/raise_cap?lang={{ lang }}" style="display:inline"><input type="hidden" name="budget" value="{{ raise_to }}"><button type="submit">{{ t["reest_raise_btn"].format(cap=raise_to) }}</button></form> {% endif %}{{ stop_form }}</p></div>
   {% elif projection.over_estimate %}
-  <div class="caution">{{ t["reest_over"].format(total=total, ratio="%.1f"|format(projection.total_usd / projection.estimate_usd)) }}{% if not job.budget_usd %} {{ t["reest_no_cap"] }}{% endif %}</div>
+  <div class="caution">{{ t["reest_over"].format(total=total, ratio="%.1f"|format(projection.total_usd / projection.estimate_usd)) }}{% if not job.budget_usd %} {{ t["reest_no_cap"] }}{% endif %}
+    <p style="margin:8px 0 0">{{ stop_form }}</p></div>
   {% endif %}
+  {% elif job.stop_requested and job.state.value == "RUNNING" and job.phase == "phase_sampling" %}
+  <div class="caution">{{ t["reest_stopping"] }}</div>
   {% endif %}
   {#- 提问阶段的剩余时间按实际速度算;提问完了之后是核对网页(S8.5):有自己的进度条,时间按预算给上限 -#}
   {% set sampling_done = job.total_runs and job.completed_runs >= job.total_runs and not job.finished %}

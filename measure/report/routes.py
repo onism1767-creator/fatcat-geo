@@ -24,7 +24,15 @@ from engine.scheduler import AccountProblem
 from engine.spellings import suggest_spellings
 from engine.storage import STORAGE_DOWN_ERRORS, Storage
 from engine.tiers import MentionMethod, tier_targets
-from report.estimate import VERIFY_MAX_MINUTES, UnitPrices, estimate_job, project_spend, unit_prices
+from report.estimate import (
+    VERIFY_MAX_MINUTES,
+    UnitPrices,
+    estimate_job,
+    project_spend,
+    rebalance,
+    suggested_cap,
+    unit_prices,
+)
 from report.export import build_bundle, content_disposition
 from report.forms import (
     brand_from_form,
@@ -361,6 +369,35 @@ def resume(
         return _relaunch(request, job, replay=only_recompute)
 
 
+def _sampling_now(job: DiagnosisJob) -> bool:
+    return job.state is JobState.RUNNING and job.phase == "phase_sampling"
+
+
+@router.post("/jobs/{job_id}/raise_cap")
+def raise_cap(request: Request, job: DiagnosisJob = Depends(existing_job), budget: str = Form("")):
+    """提问进行中提高费用上限(用户 2026-11-18 定,任务页「边跑边重估」提醒里的按钮):新上限当场按「还要花的」比例重分给
+    还在问的型号;不在提问阶段、或这一单本来没设上限,就什么也不做。只许往上调。"""
+    with job.lock:
+        if not _sampling_now(job) or job.budget_usd is None:
+            return redirect(request, f"/jobs/{job.job_id}")
+        try:
+            job.raise_budget(float(budget))
+        except ValueError:
+            return redirect(request, f"/jobs/{job.job_id}?error=FORM_BAD_BUDGET")
+        rebalance(job.legs, job.budget_usd)  # 新上限随执行器收尾时的任务快照落库
+    return redirect(request, f"/jobs/{job.job_id}")
+
+
+@router.post("/jobs/{job_id}/stop")
+def stop_now(request: Request, job: DiagnosisJob = Depends(existing_job)):
+    """提问进行中叫停(用户 2026-11-18 定):各型号在下一次提问前停,手头正在问的那一次照常收;已问的都保留,
+    接着核对网页、出一份部分完成的报告,之后可以「接着跑」补齐。不在提问阶段就什么也不做。"""
+    with job.lock:
+        if _sampling_now(job):
+            job.stop_requested = True
+    return redirect(request, f"/jobs/{job.job_id}")
+
+
 @router.post("/jobs/{job_id}/retest")
 def retest(request: Request, job: DiagnosisJob = Depends(existing_job)):
     """「修好后再测」(S11.3):按这一单冻结的口径新开一单,一律重新提问、不走回答缓存,直接开跑(费用上限与上一单相同),
@@ -434,8 +471,10 @@ def job_status(request: Request, job: DiagnosisJob = Depends(existing_job)):
     form_error = error_text(request, request.query_params.get("error", ""))  # 接着跑时费用上限填错(S10.3)
     # 边跑边重估:只在提问阶段显示(用户 2026-11-18 定)
     projection = (project_spend(job.legs, spent_usd=job.spent_usd, estimate_usd=job.estimate_usd)
-                  if job.state is JobState.RUNNING and job.phase == "phase_sampling" else None)
-    return ctx.render(request, "job.html", job=job, projection=projection,
+                  if _sampling_now(job) else None)
+    raise_to = (suggested_cap(projection, job.budget_usd)
+                if projection is not None and projection.cap_pct is not None and job.budget_usd is not None else None)
+    return ctx.render(request, "job.html", job=job, projection=projection, raise_to=raise_to,
                       runs_per_prompt=job.frozen_tier().runs_per_prompt,
                       elapsed_minutes=job.elapsed_minutes(now), eta_minutes=job.eta_minutes(now),
                       verify_remaining_minutes=job.verify_remaining_minutes(now, VERIFY_BUDGET_S),

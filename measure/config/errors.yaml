@@ -213,6 +213,13 @@ errors:
     causes: {zh: "你设的费用上限按各型号的预估费用比例分到每个型号,哪个型号的实际费用超出它那份就先停(AI 回答比预估长会这样);或题数 × 次数 × 型号数本身超过了上限。", en: "Your cap is split across the models in proportion to their estimated cost; a model stops when its real cost exceeds its share (answers longer than estimated do that); or questions × repeats × models simply exceed the cap."}
     message: {zh: "{ai} 的 {model} 提前停了:到了费用上限。", en: "{ai}'s {model} stopped early: the spending cap was reached."}
     next_step: {zh: "跑完后任务页会弹窗问要不要补齐,建议的新上限已经算好;也可以就按部分完成的报告看。补齐只补没问完的,已问过的不重问。", en: "When the run ends the job page asks whether to fill the rest, with a suggested new cap already worked out; or read the partly completed report as is. Filling only asks what was not asked."}
+  - code: USER_STOPPED
+    scope: breaker
+    resumable: true
+    trigger: {zh: "提问进行到一半,你在任务页点了「现在停下」", en: "You pressed \"Stop now\" on the job page while questions were still being asked"}
+    causes: {zh: "任务页提醒这一单会比开跑前估的贵、或者问不完就会到费用上限,你选择了现在停。", en: "The job page warned that this check would cost more than estimated, or would reach the spending cap before finishing, and you chose to stop."}
+    message: {zh: "{ai} 的 {model} 提前停了:你点了「现在停下」。", en: "{ai}'s {model} stopped early: you pressed \"Stop now\"."}
+    next_step: {zh: "已经问到的都保留,可以先看这份部分完成的报告;想补齐就点「接着跑」,只补没问完的,已问过的不重问。", en: "Everything already asked is kept, so you can read this partial report first; to fill the rest press \"Continue\" - only what was not asked is asked."}
   - code: SURFACE_DISABLED
     scope: breaker
     resumable: false

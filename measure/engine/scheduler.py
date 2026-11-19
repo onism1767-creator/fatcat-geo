@@ -150,8 +150,9 @@ class StopDetail(FrozenModel):
 
     @property
     def truncated(self) -> bool:
-        """提前停了(熔断 / 预算),报告要说清;问完的和重算不补采的不算。"""
-        return self.stop_reason in (StopReason.FAILURE_RATE_EXCEEDED, StopReason.BUDGET_EXHAUSTED)
+        """提前停了(熔断 / 预算 / 用户叫停),报告要说清;问完的和重算不补采的不算。"""
+        return self.stop_reason in (StopReason.FAILURE_RATE_EXCEEDED, StopReason.BUDGET_EXHAUSTED,
+                                    StopReason.USER_STOPPED)
 
 
 class RepeatSampler:
@@ -178,8 +179,13 @@ class RepeatSampler:
         region: str | None = None,
         prior_runs: dict[str, list[SurfaceRun]] | None = None,
         allow_new_calls: bool = True,
+        live_budget: Callable[[], float | None] | None = None,
+        stop_requested: Callable[[], bool] | None = None,
     ) -> SamplingResult:
-        """prior_runs:幂等续跑(v0.4.9)——按题已落库的运行(调用方必须已按 surface × 型号 × 检索模式
+        """live_budget:本计划的成本上限会在跑的中途被调高时,调用方给一个取现值的函数(给了就不看 policy.budget_usd);
+        stop_requested:用户要求现在停下时返回 True——下一次提问前停、记 USER_STOPPED,已经发出的那一次照常落库
+        (两个都只在每次提问前看一眼;2026-11-18,任务页「边跑边重估」的两个按钮)。
+        prior_runs:幂等续跑(v0.4.9)——按题已落库的运行(调用方必须已按 surface × 型号 × 检索模式
         筛过;型号是口径的一部分,v0.4.19)。已填的槽位(run_index)直接复用,指标与成本合并计算。
         allow_new_calls=False:只按既有样本重算(重新生成报告),一次新调用都不发;
         有空槽位就记 NOT_RESAMPLED。"""
@@ -213,6 +219,8 @@ class RepeatSampler:
                     continue
                 stop_reason = self._pre_call_stop(
                     recent_failures, total_cost, policy, allow_new_calls=allow_new_calls, surface=meta.surface,
+                    budget_usd=live_budget() if live_budget is not None else policy.budget_usd,
+                    user_stop=stop_requested is not None and stop_requested(),
                 )
                 if stop_reason is not None:
                     break
@@ -272,7 +280,7 @@ class RepeatSampler:
     @staticmethod
     def _pre_call_stop(
         recent_failures: deque[bool], total_cost: float, policy: SamplingPolicy, *,
-        allow_new_calls: bool, surface: str,
+        allow_new_calls: bool, surface: str, budget_usd: float | None, user_stop: bool,
     ) -> StopReason | None:
         """采样前检查(会阻止花钱的停止条件)。"""
         if (
@@ -282,11 +290,14 @@ class RepeatSampler:
             log.warning("failure_breaker_tripped", surface=surface,
                         window=len(recent_failures), failures=sum(recent_failures))
             return StopReason.FAILURE_RATE_EXCEEDED
-        if policy.budget_usd is not None and total_cost >= policy.budget_usd:
+        if budget_usd is not None and total_cost >= budget_usd:
             log.warning("budget_exhausted", surface=surface, cost_usd=total_cost)
             return StopReason.BUDGET_EXHAUSTED
         if not allow_new_calls:  # 只重算:结构上不可能再花钱
             return StopReason.NOT_RESAMPLED
+        if user_stop:
+            log.warning("stopped_by_user", surface=surface, cost_usd=total_cost)
+            return StopReason.USER_STOPPED
         return None
 
 

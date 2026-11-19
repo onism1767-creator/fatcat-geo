@@ -3,6 +3,7 @@
 
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 
 from diagnosis.recommender import load_evidence_registry
@@ -136,3 +137,61 @@ def test_the_job_page_reestimates_from_this_checks_own_spend_and_warns_only_when
     later = _sampling_job(now, budget=None, estimate=2.0, leg=pricey)
     later.phase = "phase_verify"
     assert "照目前的花费" not in _page(later)
+
+
+def _app_with(job: DiagnosisJob) -> TestClient:
+    app = create_app(call_stats=lambda brand=None: [], adapters={"s1": DummyAdapter()}, dsn="postgresql://unused",
+                     evidence=load_evidence_registry(), job_runner=lambda **kw: None)
+    app.state.ctx.registry.add(job)
+    return TestClient(app)
+
+
+def test_the_warning_carries_a_raise_the_cap_button_and_a_stop_button_that_work_midway():
+    """提醒里的两个按钮(用户 2026-11-18 定):会撞上限时给「把上限提高到 $N」和「现在停下」;
+    只是比预估贵时只给「现在停下」。
+    提高上限当场重分给还在问的型号;点了停下,页面换成「正在停下」,各型号下一次提问前停。"""
+    now = datetime.now(UTC)
+    pricey = dict(done=5, paid_runs=5, spent_usd=1.5)  # 预计 $6.00
+    job = _sampling_job(now, budget=3.0, estimate=2.0, leg=pricey)
+    client = _app_with(job)
+    page = client.get(f"/jobs/{job.job_id}?lang=zh").text
+    assert "把上限提高到 $6.7" in page and "现在停下" in page  # 6.0 × 1.1 向上取到 0.1
+    assert f'action="/jobs/{job.job_id}/raise_cap?lang=zh"' in page and 'name="budget" value="6.7"' in page
+    assert "Raise the cap to $6.7" in client.get(f"/jobs/{job.job_id}?lang=en").text
+
+    # 比现在低的上限被挡回(只能往上调),什么也没变
+    bad = client.post(f"/jobs/{job.job_id}/raise_cap?lang=zh", data={"budget": "1"}, follow_redirects=False)
+    assert bad.status_code == 303 and "FORM_BAD_BUDGET" in bad.headers["location"]
+    assert job.budget_usd == 3.0 and job.legs[0].budget_usd == 3.0
+    ok = client.post(f"/jobs/{job.job_id}/raise_cap?lang=zh", data={"budget": "6.7"}, follow_redirects=False)
+    assert ok.status_code == 303 and job.budget_usd == 6.7
+    assert job.legs[0].budget_usd == pytest.approx(6.7)  # 只有一条腿在问:新上限全给它
+    after = client.get(f"/jobs/{job.job_id}?lang=zh").text
+    assert "上限 $6.7" in after and "就会到费用上限" not in after  # 够问完了:提醒收起
+
+    assert job.stop_requested is False
+    assert client.post(f"/jobs/{job.job_id}/stop?lang=zh", follow_redirects=False).status_code == 303
+    assert job.stop_requested is True
+    stopping = client.get(f"/jobs/{job.job_id}?lang=zh").text
+    assert "正在停下:手头正在问的这几次回来后就不再提问,已问的都保留" in stopping and "把上限提高到" not in stopping
+
+
+def test_only_a_stop_button_when_there_is_no_cap_and_nothing_happens_outside_the_asking_phase():
+    now = datetime.now(UTC)
+    pricey = dict(done=5, paid_runs=5, spent_usd=1.5)
+    job = _sampling_job(now, budget=None, estimate=2.0, leg=pricey)
+    client = _app_with(job)
+    page = client.get(f"/jobs/{job.job_id}?lang=zh").text
+    assert "这一单比开跑前估的贵" in page and "现在停下" in page and "把上限提高到" not in page
+    client.post(f"/jobs/{job.job_id}/raise_cap?lang=zh", data={"budget": "9"}, follow_redirects=False)
+    assert job.budget_usd is None  # 这一单本来没设上限:提高上限什么也不做
+
+    job.phase = "phase_verify"  # 已经问完、在核对网页:两个动作都不生效
+    client.post(f"/jobs/{job.job_id}/stop?lang=zh", follow_redirects=False)
+    assert job.stop_requested is False
+    done = _sampling_job(now, budget=3.0, estimate=2.0, leg=pricey)
+    done.state = JobState.DONE
+    client2 = _app_with(done)
+    client2.post(f"/jobs/{done.job_id}/stop?lang=zh", follow_redirects=False)
+    client2.post(f"/jobs/{done.job_id}/raise_cap?lang=zh", data={"budget": "9"}, follow_redirects=False)
+    assert done.stop_requested is False and done.budget_usd == 3.0

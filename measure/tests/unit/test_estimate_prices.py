@@ -6,7 +6,14 @@ import pytest
 from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
 from engine.models import SearchMode, Target
 from engine.storage import CallStat
-from report.estimate import AVG_SECONDS_PER_CALL, PriceBasis, project_spend, unit_prices
+from report.estimate import (
+    AVG_SECONDS_PER_CALL,
+    PriceBasis,
+    project_spend,
+    rebalance,
+    suggested_cap,
+    unit_prices,
+)
 from report.jobs import LegProgress
 
 CHEAP, PRICEY = "m-cheap", "m-pricey"
@@ -204,3 +211,25 @@ def test_a_leg_that_will_hit_its_share_of_the_cap_says_how_far_the_check_will_ge
     over = _leg(done=6, paid_runs=6, spent_usd=2.4, budget_usd=2.0)
     spent_out = project_spend([over], spent_usd=2.4, estimate_usd=2.0)
     assert spent_out is not None and spent_out.cap_pct == 30  # 已经过了它那份:一次也发不出了
+
+
+def test_raising_the_cap_midway_resplits_it_among_the_legs_still_asking():
+    """中途提高上限(任务页按钮):新上限按「还要花的」比例重分——单价用各条腿现在的(问满 5 次用自己的均价);
+    这一次已经停了的腿不再占额度,停在它已花的数。"""
+    pricey = _leg(done=5, paid_runs=5, spent_usd=1.5, budget_usd=2.0)  # 还要 15 × $0.30 = $4.50
+    # 不够 5 次,用开跑前的单价:还要 18 × $0.10 = $1.80
+    fresh = _leg(done=2, paid_runs=2, spent_usd=0.2, budget_usd=2.0)
+    stopped = _leg(done=4, paid_runs=4, spent_usd=2.0, budget_usd=2.0, finished=True)  # 到上限停了:不再分
+    rebalance([pricey, fresh, stopped], 10.0)
+    left = 10.0 - (1.5 + 0.2 + 2.0)  # 剩下的额度全给还在问的两条腿
+    assert pricey.budget_usd == pytest.approx(1.5 + left * 4.5 / 6.3)
+    assert fresh.budget_usd == pytest.approx(0.2 + left * 1.8 / 6.3)
+    assert stopped.budget_usd == 2.0  # 原样:想补齐它要等跑完后「接着跑」
+    assert pricey.budget_usd + fresh.budget_usd + stopped.spent_usd == pytest.approx(10.0)  # 总数不超新上限
+
+
+def test_the_suggested_new_cap_covers_the_projection_with_a_tenth_to_spare_and_only_goes_up():
+    p = project_spend([_leg(done=5, paid_runs=5, spent_usd=1.5, budget_usd=3.0)], spent_usd=1.5, estimate_usd=2.0)
+    assert p is not None and p.total_usd == pytest.approx(6.0)
+    assert suggested_cap(p, 3.0) == 6.7  # 6.0 × 1.1 = 6.6,向上取到 0.1
+    assert suggested_cap(p, 9.0) == 9.1  # 现在的上限已经更高:至少再高 0.1(上限只能往上调)

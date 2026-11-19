@@ -100,7 +100,8 @@ class LegProgress:
     spent_usd: float  # 这条腿已花的钱
     paid_runs: int  # 其中真花了钱的次数(缓存复制来的不算):这一单自己的均价 = spent_usd ÷ paid_runs
     unit_usd: float  # 开跑前估的单价(问得还不够多时先用它)
-    budget_usd: float | None  # 费用上限分给这条腿的那一份;没设上限 = None
+    budget_usd: float | None  # 费用上限分给这条腿的那一份;没设上限 = None。中途提高上限时当场改,提问循环每次提问前读它
+    finished: bool = False  # 这条腿这一次已经停了(问完、到上限、熔断、被叫停):中途再提高上限也轮不到它,等「接着跑」
 
 
 class SamplingNote(FrozenModel):
@@ -218,6 +219,7 @@ class DiagnosisJob:
         # 任务页拿它和「照目前的花费预计共约多少」比(边跑边重估,用户 2026-11-18 定)。不是口径,不进指纹
         self.estimate_usd: float | None = None
         self.legs: list[LegProgress] = []  # 各条腿的进度(边跑边重估用),只在内存里
+        self.stop_requested = False  # 用户在任务页点了「现在停下」(2026-11-18):各条腿下一次提问前停;只在内存里
         self.total_runs = 0  # 本单要发的提问次数(题数 × 每题次数 × 腿数)
         self.completed_runs = 0  # 已落库(含续跑复用)的次数
         self.spent_usd = 0.0

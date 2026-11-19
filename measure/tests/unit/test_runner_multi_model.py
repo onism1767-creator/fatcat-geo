@@ -281,6 +281,54 @@ def test_method_notes_of_the_tested_apis_are_frozen_into_the_sampling_note(stora
     assert job.sampling is not None and job.sampling.method_notes == [LeavesSomethingOutAdapter.NOTE]
 
 
+class StopsItselfAdapter(TwoModelAdapter):
+    """第一次被问到时替用户点下「现在停下」。用它自己的仪器名,不往 two_model 的历史调用里添数。"""
+
+    SURFACE = "stops_itself"
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.job: DiagnosisJob | None = None
+        self.asks = 0
+
+    def meta(self) -> SurfaceMeta:
+        return super().meta().model_copy(update={"surface": self.SURFACE})
+
+    def ask(self, request: AskRequest) -> SurfaceRun:
+        self.asks += 1
+        if self.job is not None:
+            self.job.stop_requested = True
+        return super().ask(request).model_copy(update={"surface": self.SURFACE})
+
+
+def test_stop_now_ends_the_check_as_partial_keeps_the_answers_and_resume_fills_the_rest(storage, offline):
+    """任务页「现在停下」(用户 2026-11-18 定):各型号下一次提问前停,已问的都保留,出一份部分完成的报告,
+    停止原因写明是用户叫停;之后「接着跑」只补没问完的。"""
+    prompt = Prompt(text=f"哪款扫地机器人好?({uuid4().hex[:6]})", intent=PromptIntent.CATEGORY_DISCOVERY,
+                    origin=PromptOrigin.USER, locale="zh-CN")
+    job = DiagnosisJob(brand=BRAND, website="https://aurora-crm.com", category="CRM",
+                       locale="zh-CN", candidates=[], competitors_suggested=[])
+    surface = StopsItselfAdapter.SURFACE
+    job.freeze(prompts=[prompt], competitors=[], budget_usd=None, tier=LOW,
+               targets=[Target(surface=surface, model=CITES), Target(surface=surface, model=SILENT)])
+    adapter = StopsItselfAdapter()
+    adapter.job = job
+    runner.execute_job(job=job, adapters={surface: adapter}, dsn=TEST_DSN, evidence=load_evidence_registry())
+    assert job.state is JobState.PARTIAL, job.error
+    stopped = [d for d in job.stop_details if d.truncated]
+    assert stopped and all(d.stop_reason is StopReason.USER_STOPPED for d in stopped)
+    assert 1 <= adapter.asks < 6 and job.completed_runs == adapter.asks  # 没问完;已问的都落了库
+    assert len(storage.runs_for_prompt(prompt.prompt_id, surface=surface)) == adapter.asks
+    assert job.sampling is not None and job.sampling.n_runs == adapter.asks  # 部分完成的报告照出
+
+    adapter.job = None  # 用户这次不叫停了
+    asked_before = adapter.asks
+    runner.execute_job(job=job, adapters={surface: adapter}, dsn=TEST_DSN, evidence=load_evidence_registry())
+    assert job.state is JobState.DONE, job.error
+    assert job.stop_requested is False and adapter.asks == 6  # 开关随新一次执行清掉;只补没问完的
+    assert adapter.asks - asked_before == 6 - asked_before and job.completed_runs == 6
+
+
 def test_account_problem_halts_job_plainly_and_resume_keeps_account_rows_out_of_metrics(storage, offline):
     """v0.4.21:账户没钱 → 任务立刻停、任务页说人话、不再花钱;充值后「接着跑」——账户问题行
     照常在库里,但不进分母、不进失败率、不触发熔断;两型号结论与正常跑完全一致。"""

@@ -419,3 +419,49 @@ def test_non_contract_exception_says_it_may_be_the_adapters_own_bug_and_keeps_wh
     assert "也可能是适配器自己的代码出错" in failure.error.message and "出错位置" in failure.error.message
     evidence = failure.raw_payload["contract_violation"]
     assert evidence["exception"] == "KeyError" and evidence["at"].startswith("test_scheduler.py:")
+
+
+# ── 任务页「边跑边重估」的两个按钮(用户 2026-11-18 定):叫停、上限当场改 ──────────────
+
+
+def test_a_user_stop_ends_the_plan_before_the_next_ask_and_keeps_what_was_asked():
+    storage = MemoryStorage()
+    asked: list[int] = []
+
+    def stop() -> bool:  # 每次提问前看一眼:问过 2 次后用户点了「现在停下」
+        return len(storage.runs) >= 2
+
+    class Counting(ScriptedAdapter):
+        def ask(self, request: AskRequest) -> SurfaceRun:
+            asked.append(request.run_index)
+            return super().ask(request)
+
+    result = make_sampler(storage).run_plan(Counting(["ok"]), [P1, P2], stop_requested=stop)
+    assert result.stop_reason is StopReason.USER_STOPPED
+    assert result.n_attempts == 2 == len(storage.runs) == len(asked)  # 第 3 次没有发出去;已问的两条照常落库、进口径
+    assert result.accounting.n_valid == 2 and result.total_cost_usd == pytest.approx(0.01)
+    from engine.scheduler import StopDetail
+
+    assert StopDetail.from_result(result).truncated  # 提前停,报告要说清
+    # 只重算(重新生成报告)时不记成用户叫停:结构上本来就不提问
+    replay = make_sampler(MemoryStorage()).run_plan(ScriptedAdapter(["ok"]), [P1], allow_new_calls=False,
+                                                   stop_requested=lambda: True)
+    assert replay.stop_reason is StopReason.NOT_RESAMPLED
+
+
+def test_the_cap_is_read_before_every_ask_so_raising_it_midway_lets_the_plan_go_on():
+    storage = MemoryStorage()
+    cap = {"usd": 0.01}  # 每次 $0.005:原上限问 2 次就到
+
+    def live() -> float:
+        if len(storage.runs) == 2:  # 用户在任务页把上限提高了
+            cap["usd"] = 1.0
+        return cap["usd"]
+
+    result = make_sampler(storage).run_plan(ScriptedAdapter(["ok"]), [P1, P2], live_budget=live,
+                                            policy=SamplingPolicy(budget_usd=0.001))  # 给了现值就不看 policy 里那个
+    assert result.stop_reason is StopReason.COMPLETED and result.n_attempts == 6
+    fixed = make_sampler(MemoryStorage()).run_plan(ScriptedAdapter(["ok"]), [P1, P2], live_budget=lambda: 0.01)
+    assert fixed.stop_reason is StopReason.BUDGET_EXHAUSTED and fixed.n_attempts == 2  # 没人提高:照旧到上限停
+    unlimited = make_sampler(MemoryStorage()).run_plan(ScriptedAdapter(["ok"]), [P1], live_budget=lambda: None)
+    assert unlimited.stop_reason is StopReason.COMPLETED
