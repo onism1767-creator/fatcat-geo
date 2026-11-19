@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from butter.config.core import Defaults
-from butter.contracts import BatchState, Card, CardsView, GeneratedQuestion, Job, Pricing
+from butter.contracts import BatchState, Card, CardsView, GeneratedQuestion, Job, LegProgress, MeasurePlan, Pricing
 from butter.factedit import editable_fields
 from butter.registry.core import Registry
 
@@ -28,7 +28,7 @@ INTENT_TEXT = {"discovery": "随便问问", "comparison": "横向比较", "local
 STAGE_TEXT = {"ACCESS": "能不能被读到", "RETRIEVAL": "能不能被搜到", "CITATION": "会不会被引用",
               "REPRESENTATION": "说得对不对"}
 KIND_OF_ENTRY = {"technical_fix": "官方文档要求的做法", "geo_method": "还在验证的做法"}
-PROVIDER_TEXT = {"anthropic": "Anthropic(Claude）", "openai": "OpenAI", "gemini": "Google(Gemini）"}
+PROVIDER_TEXT = {"anthropic": "Anthropic(Claude）", "openai": "OpenAI", "gemini": "Google(Gemini）", "grok": "xAI(Grok）"}
 DEFAULT_TEXT = {
     "remeasure.interval_days": "改完之后，推荐隔多久再测",
     "compare.baseline_valid_days": "改之前测的结果，几天内放上网站才算数",
@@ -183,7 +183,28 @@ def batches(cards_view: CardsView, problems: list[str]) -> dict[str, Any]:
     return {"title": "改动批次", "batches": rows, "problems": problems}
 
 
-def batch_detail(state: BatchState, cards_view: CardsView, defaults: Defaults) -> dict[str, Any]:
+LANG_TEXT = {"zh": "中文", "en": "英文"}
+CAN_MEASURE = ("已出包", "基线就绪")  # 这两步可以测"改之前"
+
+
+def _leg_name(provider: str, lang: str) -> str:
+    return f"{PROVIDER_TEXT.get(provider, provider)} · {LANG_TEXT.get(lang, lang)}"
+
+
+def _plan_view(plan: MeasurePlan) -> dict[str, Any]:
+    return {
+        "typical_usd": plan.typical_usd, "upper_usd": plan.upper_usd, "minutes": int(plan.minutes),
+        "n_treated": plan.n_treated, "n_control": plan.n_control, "band_pp": plan.band_pp, "notes": plan.notes,
+        "questions": sum(plan.n_questions.values()), "runs": plan.freeze.plan.runs_per_question,
+        "legs": [{"name": _leg_name(leg.provider, leg.lang), "model": leg.model, "calls": leg.calls,
+                  "typical_usd": leg.typical_usd, "minutes": int(leg.minutes), "judged": leg.judged}
+                 for leg in plan.legs],
+    }
+
+
+def batch_detail(state: BatchState, cards_view: CardsView, defaults: Defaults, *, plan: MeasurePlan | None = None,
+                 plan_error: str | None = None, legs: list[LegProgress] | None = None, alive: bool = False,
+                 ) -> dict[str, Any]:
     batch = state.batch
     cards = [_card_row(c) for c in cards_view.cards if c.batch_id == batch.batch_id]
     interval = defaults.entry("remeasure.interval_days")
@@ -194,6 +215,15 @@ def batch_detail(state: BatchState, cards_view: CardsView, defaults: Defaults) -
         "readings": [{"day": r.day, "lines": r.lines} for r in state.readings],
         "abandoned_reason": state.abandoned_reason,
         "remeasure_hint": f"推荐改完隔 {interval.value} 天测一次，看看改动后的效果。",
+        "can_measure": state.phase in CAN_MEASURE, "plan": _plan_view(plan) if plan else None,
+        "plan_error": plan_error or "", "measured_before": state.baseline is not None,
+        "measuring": state.phase in ("测基线中", "再测中"), "driver_alive": alive,
+        "legs": [{"name": _leg_name(leg.provider, leg.lang), "state": leg.state, "done": leg.done, "total": leg.total,
+                  "failed": leg.failed, "cost_usd": leg.cost_usd, "note": leg.note} for leg in (legs or [])],
+        "last_failure": state.measure_failures[-1] if state.measure_failures else "",
+        "baseline_legs": [{"name": _leg_name(leg.provider, leg.lang), "mention_rate": leg.mention_rate,
+                           "citation_rate": leg.citation_rate, "ok": leg.ok, "expected": leg.expected}
+                          for leg in (state.baseline.legs if state.baseline else [])],
     }
 
 

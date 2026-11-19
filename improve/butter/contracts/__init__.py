@@ -34,6 +34,9 @@ from butter.contracts.factbase import (
 )
 from butter.contracts.jobs import Job, JobEvent, JobKind, JobState
 from butter.contracts.llm import Completion, ErrorKind, ModelPrice, Pricing, Provider
+from butter.contracts.measure import (
+    LegEstimate, LegProgress, LegReading, MeasureKind, MeasurePlan, MeasureReading, PotatoSettings, QuestionCount,
+)
 from butter.contracts.questions import GeneratedQuestion, QuestionIntent, QuestionTemplates, TemplateSet
 from butter.contracts.registry import (
     ACCESS_CHECK_NAMES, DATA_CONDITIONS, EVIDENCE_LEVELS, OUTPUT_LEVELS, REQUIRED_LANGS, EntryKind, EvidenceEntry,
@@ -86,6 +89,9 @@ __all__ = [
     "LegSample", "MeasureDone", "MeasureFailed", "Measurement", "MeasureStart", "MethodDirection",
     "MethodExperiment", "MethodSummary", "MethodValidation", "OwnerNote", "PanelSource", "Reading", "SkippedEvent",
     "Surface",
+    # measure
+    "LegEstimate", "LegProgress", "LegReading", "MeasureKind", "MeasurePlan", "MeasureReading", "PotatoSettings",
+    "QuestionCount",
     # questions
     "GeneratedQuestion", "QuestionIntent", "QuestionTemplates", "TemplateSet",
     # registry

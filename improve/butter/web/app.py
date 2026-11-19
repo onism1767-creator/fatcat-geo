@@ -28,11 +28,12 @@ from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoes
 import butter
 from butter import cards, sources, store
 from butter.config import load_defaults, load_pricing
-from butter.contracts import AuditReport, ChangePackage, FactBase
+from butter.contracts import AuditReport, ChangePackage, FactBase, PotatoSettings
 from butter.drafting import draft_offer
 from butter.factedit import changed_edits
 from butter.jobs import JobManager
 from butter.llm.keys import available_providers
+from butter.measure import driver
 from butter.questions import categories_from_factbase, draft_questions, guess_lang, match_by_category, to_board_questions
 from butter.registry import load_registry
 from butter.web import views
@@ -51,6 +52,8 @@ class WebSettings:
     port: int = 8700
     env: dict[str, str] = field(default_factory=dict)   # 环境变量(含 .env 里读到的 key);只交给 llm,不显示
     jobs: JobManager | None = None                      # 测试可以塞一个不起线程的
+    potato: PotatoSettings | None = None                # 不给就用同级文件夹里的 Potato
+    spawn: Any = None                                   # 起测量驱动的动作;测试可以换成当场跑完的
 
 
 def _env() -> Environment:
@@ -71,6 +74,8 @@ def create_app(settings: WebSettings) -> FastAPI:
     app = FastAPI(title="Butter", docs_url=None, redoc_url=None, openapi_url=None)
     env = _env()
     jobs = settings.jobs or JobManager(settings.out_root, settings.workspace, env=settings.env)
+    potato = settings.potato or driver.default_potato()
+    spawn = settings.spawn or driver.spawn
 
     # ── 安全 ──────────────────────────────────────────────────────────
 
@@ -290,7 +295,43 @@ def create_app(settings: WebSettings) -> FastAPI:
         state = next((b for b in view.batches if b.batch.batch_id == batch_id), None)
         if state is None:
             raise HTTPException(404, "没有这一批改动。")
-        return render(request, "batch.html", views.batch_detail(state, view, load_defaults()))
+        plan = plan_error = None
+        if state.phase in views.CAN_MEASURE:
+            try:
+                plan = driver.prepare(settings.workspace, settings.out_root, batch_id, env=settings.env, potato=potato)
+            except (ValueError, OSError) as exc:
+                plan_error = str(exc)
+        _, legs, alive = driver.current_progress(settings.workspace, batch_id)
+        return render(request, "batch.html", views.batch_detail(state, view, load_defaults(), plan=plan,
+                                                                 plan_error=plan_error, legs=legs, alive=alive))
+
+    @app.post("/batches/{batch_id}/baseline")
+    def start_baseline(batch_id: str, token: str = Form("")):
+        check_token(token)
+        try:
+            plan = driver.prepare(settings.workspace, settings.out_root, batch_id, env=settings.env, potato=potato)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        reason = driver.start(settings.workspace, plan)
+        if reason:
+            raise HTTPException(400, reason)
+        spawn(settings.workspace, settings.out_root, batch_id, "baseline", env=settings.env, potato=potato)
+        driver.wait_started(settings.workspace, batch_id)
+        return RedirectResponse(f"/batches/{batch_id}", status_code=303)
+
+    @app.post("/batches/{batch_id}/resume")
+    def resume_measure(batch_id: str, token: str = Form("")):
+        check_token(token)
+        view, _ = cards_view()
+        state = next((b for b in view.batches if b.batch.batch_id == batch_id), None)
+        if state is None or state.phase not in ("测基线中", "再测中"):
+            raise HTTPException(400, "这一批现在没有测到一半的测量。")
+        _, _, alive = driver.current_progress(settings.workspace, batch_id)
+        if not alive:
+            spawn(settings.workspace, settings.out_root, batch_id, "baseline" if state.phase == "测基线中" else "remeasure",
+                  env=settings.env, potato=potato)
+            driver.wait_started(settings.workspace, batch_id)
+        return RedirectResponse(f"/batches/{batch_id}", status_code=303)
 
     @app.get("/registry.json")
     @app.get("/registry")

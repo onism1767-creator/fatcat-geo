@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% block head %}{% if v.measuring and v.driver_alive %}<meta http-equiv="refresh" content="5">{% endif %}{% endblock %}
 {% block main %}
 <p><a href="/batches">← 回改动批次</a></p>
 <h1>{{ v.site_host }} 的一批改动</h1>
@@ -12,6 +13,101 @@
   {% if v.abandoned_reason %}<p class="muted">这一批已放弃：{{ v.abandoned_reason }}</p>{% endif %}
   <p><a href="/runs/{{ v.run_id }}">看这批改动出自哪次运行</a></p>
 </div>
+
+{% if v.measuring %}
+<h2 id="h-legs">正在测</h2>
+{% if v.driver_alive %}
+<div class="notice" role="status">
+  <p><strong>正在一家一家地问 AI。</strong></p>
+  <p class="muted">这一页每 5 秒自己刷新一次。关掉这个网页也不要紧，它会接着测完；电脑别关机就行。</p>
+</div>
+{% else %}
+<div class="notice" role="alert">
+  <p><strong>测到一半停了。</strong>可能是电脑关过机，或者断过网。已经问到的不会丢，也不会重复收费。</p>
+  <form method="post" action="/batches/{{ v.batch_id }}/resume">
+    <input type="hidden" name="token" value="{{ token }}">
+    <button type="submit">接着测</button>
+  </form>
+</div>
+{% endif %}
+{% if v.legs %}
+<div class="table-wrap" tabindex="0" role="region" aria-labelledby="h-legs">
+  <table>
+    <thead><tr><th>问的是谁</th><th>到哪了</th><th>问了几次</th><th>没问成</th><th>已花</th></tr></thead>
+    <tbody>
+    {% for leg in v.legs %}
+      <tr>
+        <th scope="row">{{ leg.name }}</th>
+        <td>{{ leg.state }}{% if leg.note %}<br><span class="muted">{{ leg.note }}</span>{% endif %}</td>
+        <td>{{ leg.done }} / {{ leg.total }}</td>
+        <td>{{ leg.failed }}</td>
+        <td>${{ "%.2f" | format(leg.cost_usd) }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endif %}
+
+{% if v.baseline_legs %}
+<h2 id="h-base">改之前测到的（{{ v.baseline_on }}）</h2>
+<div class="table-wrap" tabindex="0" role="region" aria-labelledby="h-base">
+  <table>
+    <thead><tr><th>问的是谁</th><th>提到你品牌的回答</th><th>引用你官网的回答</th><th>问成了几次</th></tr></thead>
+    <tbody>
+    {% for leg in v.baseline_legs %}
+      <tr>
+        <th scope="row">{{ leg.name }}</th>
+        <td>{{ leg.mention_rate | pct }}</td>
+        <td>{{ leg.citation_rate | pct }}</td>
+        <td>{{ leg.ok }} / {{ leg.expected }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="muted">这里只算对上了要改页面的那些题。</p>
+{% endif %}
+
+{% if v.can_measure %}
+<h2 id="h-plan">{{ "再测一次改之前的情况" if v.measured_before else "先测一次改之前的情况" }}</h2>
+<div class="card">
+  {% if v.last_failure %}<p class="wrap">上一次没测成：{{ v.last_failure }}<br><span class="muted">再点一次「测一次」，已经问完的那几家不会重问。</span></p>{% endif %}
+  {% if v.plan %}
+  <p>把你选好的 {{ v.plan.questions }} 道题拿去问 AI，每道题问 {{ v.plan.runs }} 次，记下它们现在提不提你的品牌。等改动放上网站以后再测一次，两次一比就知道有没有变化。</p>
+  <p><strong>测一次：预计 ${{ "%.2f" | format(v.plan.typical_usd) }}、约 {{ v.plan.minutes }} 分钟。</strong>{% if v.plan.upper_usd is not none %}最多不会超过 ${{ "%.2f" | format(v.plan.upper_usd) }}。{% endif %}</p>
+  <p>这批有 {{ v.plan.n_treated }} 道题对上了要改的页面{% if v.plan.band_pp is not none %}；什么都不改时，前后两次的差通常在 ±{{ v.plan.band_pp }} 个百分点以内{% endif %}。</p>
+  <div class="table-wrap" tabindex="0" role="region" aria-labelledby="h-plan">
+    <table>
+      <thead><tr><th>问的是谁</th><th>用的模型</th><th>要问几次</th><th>预计花</th><th>预计用时</th></tr></thead>
+      <tbody>
+      {% for leg in v.plan.legs %}
+        <tr>
+          <th scope="row">{{ leg.name }}{% if not leg.judged %}<br><span class="muted">只列数字</span>{% endif %}</th>
+          <td>{{ leg.model }}</td>
+          <td>{{ leg.calls }}</td>
+          <td>${{ "%.2f" | format(leg.typical_usd) }}</td>
+          <td>约 {{ leg.minutes }} 分钟</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% if v.plan.notes %}
+  <p>要你留意的：</p>
+  <ul>{% for n in v.plan.notes %}<li>{{ n }}</li>{% endfor %}</ul>
+  {% endif %}
+  <form method="post" action="/batches/{{ v.batch_id }}/baseline">
+    <input type="hidden" name="token" value="{{ token }}">
+    <button type="submit">测一次</button>
+  </form>
+  {% else %}
+  <p>现在还测不了：{{ v.plan_error }}</p>
+  <p><a href="/runs/{{ v.run_id }}/questions">去出题和勾选</a></p>
+  {% endif %}
+</div>
+{% endif %}
 
 {% if v.readings %}
 <h2>测到的结果</h2>

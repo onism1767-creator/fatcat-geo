@@ -14,6 +14,7 @@ ENV_NAMES: dict[str, tuple[str, ...]] = {
     "anthropic": ("ANTHROPIC_API_KEY",),
     "openai": ("OPENAI_API_KEY",),
     "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    "grok": ("XAI_API_KEY",),  # 只用来测量;起草不用(价格表里没有它)
 }
 
 
@@ -43,3 +44,16 @@ def secret_for(provider: str, env: Mapping[str, str] | None = None) -> str | Non
 
 def available_providers(env: Mapping[str, str] | None = None) -> list[str]:
     return [p for p in ENV_NAMES if secret_for(p, env)]
+
+
+def child_process_env(env: Mapping[str, str] | None = None) -> dict[str, str]:
+    """给子进程(Potato、测量驱动)用的环境:系统环境 + 各家的 key。
+
+    Potato 开跑前的检查只认 GEMINI 那个变量名,所以只有 GOOGLE 那个时补一份(E0 的跑批脚本也是这样做的)。
+    """
+    out = dict(os.environ)
+    for provider, names in ENV_NAMES.items():
+        secret = secret_for(provider, env)
+        if secret:
+            out[names[0]] = secret
+    return out

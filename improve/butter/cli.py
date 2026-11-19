@@ -55,6 +55,15 @@ def _parser() -> argparse.ArgumentParser:
                            help="Toast 的 config/evidence_registry.yaml(只读);不给就找旁边的 Toast 文件夹,找不到用自带快照")
     index = sub.add_parser("rebuild-index", help="按事件日志整份重建卡片索引(index.sqlite 删了、坏了时用)")
     index.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE, help=f"工作目录(默认 {DEFAULT_WORKSPACE})")
+    drv = sub.add_parser("measure-batch", help="测量驱动:给一批改动跑一次测量(一般由网页上的按钮起,不用手动敲)")
+    drv.add_argument("batch_id")
+    drv.add_argument("--kind", choices=("baseline", "remeasure"), default="baseline")
+    drv.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    drv.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
+    drv.add_argument("--env-file", type=Path, help="从这个 .env 文件读模型的 key(只读)")
+    drv.add_argument("--potato-dir", help="Potato 所在的文件夹(默认是同级的 AI checker)")
+    drv.add_argument("--potato-python", help="Potato 的解释器")
+    drv.add_argument("--potato-pythonpath", default="", help="额外的模块搜索路径(测试用)")
     web = sub.add_parser("serve", help="在本机打开 Butter 的网页界面(只有这台电脑能访问)")
     web.add_argument("--out", type=Path, default=DEFAULT_OUT, help=f"运行产出目录(默认 {DEFAULT_OUT})")
     web.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE, help=f"工作目录(默认 {DEFAULT_WORKSPACE})")
@@ -129,6 +138,19 @@ def main(argv: list[str] | None = None) -> int:
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
     args = _parser().parse_args(argv)
+    if args.command == "measure-batch":
+        from butter.contracts import PotatoSettings
+        from butter.measure import driver
+
+        base = driver.default_potato()
+        potato = PotatoSettings(potato_dir=args.potato_dir or base.potato_dir, python=args.potato_python or base.python,
+                                pythonpath=args.potato_pythonpath)
+        try:
+            print(driver.run(args.workspace, args.batch_id, args.kind, env=_env(args.env_file), potato=potato))
+        except (ValueError, OSError) as exc:
+            print(f"没做成:{exc}", file=sys.stderr)
+            return 1
+        return 0
     if args.command == "serve":
         from butter.web.serve import serve
 

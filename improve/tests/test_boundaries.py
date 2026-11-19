@@ -16,7 +16,8 @@ PURE = [p for p in FILES if p.parent.name in ("extract", "audit", "generate", "c
         or (p.parent.name == "cards" and p.name != "service.py")
         or (p.parent.name in ("registry", "config") and p.name not in ("load.py", "__init__.py"))
         or (p.parent.name == "registry" and p.name == "__init__.py")
-        or (p.parent.name == "llm" and p.name in ("wire.py", "pricing.py"))]
+        or (p.parent.name == "llm" and p.name in ("wire.py", "pricing.py"))
+        or (p.parent.name == "measure" and p.name == "plan.py")]
 NETWORK = {"httpx", "requests", "urllib3", "aiohttp", "socket", "http", "ftplib", "smtplib", "websockets", "playwright"}
 SIBLINGS = {"aivis", "engine", "diagnosis", "report", "adapters", "crawler", "trafilatura", "psycopg", "psycopg2",
             "sqlalchemy"}
@@ -68,6 +69,11 @@ def test_only_fetch_touches_the_network():
 def test_no_sibling_modules_and_no_model_sdks():
     for path in FILES:
         roots = imported_roots(path)
+        if path.parent.name == "bridges" and path.name == "potato_read.py":
+            # 读取桥:由 Potato 自己的解释器执行的脚本,Butter 不 import 它(ADR-B03)。它只许碰 aivis.storage。
+            assert roots & SIBLINGS == {"aivis"} and "butter" not in roots
+            assert "aivis.storage" in path.read_text(encoding="utf-8")
+            continue
         assert not roots & SIBLINGS, f"{path.name} import 了兄弟模块:{roots & SIBLINGS}"
         assert not roots & MODEL_SDKS, f"{path.name} import 了模型 SDK:{roots & MODEL_SDKS}"
 
@@ -124,5 +130,5 @@ def test_secrets_only_via_environment():
         assert "sk-" not in text and "api_key" not in text, path.name
         if not (path.parent.name == "llm" and path.name == "keys.py"):
             assert "API_KEY" not in text, path.name
-            if path.parent.name != "llm" and path.name != "cli.py":  # cli 只把整份环境交给 llm,自己不认变量名
+            if path.parent.name != "llm" and path.name not in ("cli.py",):  # cli 只把整份环境交给 llm,自己不认变量名
                 assert "os.environ" not in text and "getenv" not in text, f"{path.name} 不该读环境变量"

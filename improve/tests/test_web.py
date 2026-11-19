@@ -133,7 +133,7 @@ def test_registry_and_settings_speak_plainly_and_never_show_keys(site, monkeypat
     reg = client.get("/registry.json").json()
     assert reg["total"] == 33 and all(e["plain"] for e in reg["entries"])
     data = client.get("/settings.json").json()
-    assert [k["ready"] for k in data["keys"]] == [True, False, False]
+    assert [k["ready"] for k in data["keys"]] == [True, False, False, False]
     html = client.get("/settings").text
     assert "super-secret-value" not in html and "super-secret-value" not in json.dumps(data)
     interval = next(d for d in data["defaults"] if d["key"] == "remeasure.interval_days")

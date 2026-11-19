@@ -27,6 +27,11 @@ class SourceFileError(ValueError):
     """给的文件读不了或形状不对。"""
 
 
+def read_yaml(path: Path) -> Any:
+    """读一个 YAML 文件(只读);读不了抛 SourceFileError。"""
+    return _read_yaml(path)
+
+
 def _read_yaml(path: Path) -> Any:
     try:
         return yaml.safe_load(path.read_text(encoding="utf-8"))

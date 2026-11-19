@@ -55,9 +55,9 @@ defaults:
     validation_state: 占位
 
   - key: measure.abort_failure_rate
-    value: 0.30
+    value: 0.10
     unit: 比例
-    source: "E0 跑批教训:额度用完时失败会连片出现(第 0 天 OpenAI 150 次里 99 次失败)。失败超过三成就停,免得白花钱"
+    source: "设计 §10.2:一条腿问满 20 次后,失败超过一成就停这条腿。成功率不到九成的腿本来就不能比(compare.min_success_rate),接着问只是白花钱。E0 教训:额度用完时失败会连片出现(第 0 天 OpenAI 150 次里 99 次失败)"
     source_plain: "失败太多时自动停下,免得白花钱"
     measured_on: "2026-11-06"
     validation_state: 占位
@@ -93,4 +93,116 @@ defaults:
     source: "95% 波动范围用的系数"
     source_plain: "统计上的常用做法"
     measured_on: "2026-11-17"
+    validation_state: 占位
+
+  - key: measure.abort_min_rows
+    value: 20
+    unit: 次
+    source: "设计 §10.2:问满 20 次再看失败率,免得开头偶然的一两次失败就停"
+    source_plain: "失败太多时自动停下,免得白花钱"
+    measured_on: "2026-11-14"
+    validation_state: 占位
+
+  - key: measure.budget_cap_per_call_usd
+    value: 0.25
+    unit: 美元
+    source: "每条腿的花费上限 = 这个数 × 要问的次数(24 题 × 3 次 = $18),写进 Potato 的配置;Potato 开跑前拿自己的保守估价和它比,超了就不跑,跑的时候真实花费到了也停。真 Potato 2026-11-19 的保守估价折到每次:OpenAI $0.036、Gemini $0.073、Claude $0.126、Grok $0.21,取 0.25 都放得过;E0 实测每次 $0.01–0.05。原来是固定 $15,Grok 的估价 $15.12 刚好被拦,题多时别家也会被拦,所以改成按次数算。上限算在 Potato 的配置指纹里:同一批的题板冻结后次数不变,所以前后两次的上限一样"
+    source_plain: "每家 AI 每次测量最多花的钱,按要问的次数算;到了就停"
+    measured_on: "2026-11-19"
+    validation_state: 占位
+
+  - key: measure.model.anthropic
+    value: claude-sonnet-5
+    unit: "—"
+    source: "E0 用的型号。不改动时的波动范围就是在这个型号上量的,换型号波动范围不一定适用"
+    source_plain: "FatCat GEO 2026 年 11 月实测时用的就是这个型号"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.model.openai
+    value: gpt-6-luna
+    unit: "—"
+    source: "同上"
+    source_plain: "FatCat GEO 2026 年 11 月实测时用的就是这个型号"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.model.gemini
+    value: gemini-3.8-flash
+    unit: "—"
+    source: "同上"
+    source_plain: "FatCat GEO 2026 年 11 月实测时用的就是这个型号"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.model.grok
+    value: grok-4.3
+    unit: "—"
+    source: "Potato 2026-11-19 接入 Grok(提交 1f2ff1d)。选 grok-4.3:Potato 目录里 Grok 的省钱档;grok-4.7 真机试的两次回答都不写行内引用标记,被引率会读成 0,所以不用。E0 没有测过 Grok,这个型号上没有波动数据:只列数字,不判变没变"
+    source_plain: "Potato 2026 年 11 月接入 Grok 时试过的型号里,这个便宜,而且看得出它引用了谁"
+    measured_on: "2026-11-19"
+    validation_state: 占位
+
+  - key: measure.cost_per_call.anthropic
+    value: 0.05
+    unit: 美元
+    source: "E0 实测(experiments/E0/进度.md):Claude 一条腿 150 次花 $6.84–8.09,每次约 $0.046–0.054"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:问一次大约花这么多"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.cost_per_call.openai
+    value: 0.022
+    unit: 美元
+    source: "E0 实测:OpenAI 一条腿 150 次花 $3.07–3.36,每次约 $0.021–0.022"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:问一次大约花这么多"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.cost_per_call.gemini
+    value: 0.014
+    unit: 美元
+    source: "E0 实测:Gemini 一条腿 150 次花 $1.37–2.13,每次约 $0.009–0.014,取高的"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:问一次大约花这么多"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.cost_per_call.grok
+    value: 0.05
+    unit: 美元
+    source: "Potato 接入 Grok 时的真机试打(providers/grok.py 注释):grok-4.3 一次实际 $0.048。只有 1 次,等 Butter 真测过再换"
+    source_plain: "Potato 2026 年 11 月试打过 1 次:问一次大约花这么多。次数太少,只能当参考"
+    measured_on: "2026-11-19"
+    validation_state: 占位
+
+  - key: measure.seconds_per_call.anthropic
+    value: 30
+    unit: 秒
+    source: "E0 实测:Claude 一条腿 150 次用 39–75 分钟,取慢的"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:问一次大约要这么久"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.seconds_per_call.openai
+    value: 18
+    unit: 秒
+    source: "E0 实测:OpenAI 一条腿 150 次用 31–45 分钟,取慢的"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:问一次大约要这么久"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.seconds_per_call.gemini
+    value: 24
+    unit: 秒
+    source: "E0 实测:Gemini 一条腿 150 次用 51–61 分钟,取慢的"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:问一次大约要这么久"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.seconds_per_call.grok
+    value: 30
+    unit: 秒
+    source: "没有实测。先照三家里最慢的 Claude(30 秒)填,等 Butter 真测过再换"
+    source_plain: "还没有实测,先按最慢的那家估"
+    measured_on: "2026-11-19"
     validation_state: 占位

@@ -110,8 +110,10 @@ def _judge(rules: CompareRules, facts: BatchFacts, data: LegData) -> LegResult:
     if len(t) < th.min_treated:
         return stop("not_comparable", f"处理组只有 {len(t)} 题,少于 {th.min_treated} 题", **sizes)
     tier = pick_tier(rules.noise, data.metric, data.lang, data.provider, gap)
-    if tier is None:
-        return stop("not_comparable", "没有这条腿的波动数据", **sizes)
+    if tier is None:  # 数照列,只是不判变没变
+        pre = stats.mean([q.pre_hits / q.pre_n for q in t])
+        post = stats.mean([q.post_hits / q.post_n for q in t])
+        return stop("not_comparable", "没有这条腿的波动数据", pre_T=pre, post_T=post, d_T=post - pre, **sizes)
 
     d_t = [q.post_hits / q.post_n - q.pre_hits / q.pre_n for q in t]
     d_c = [q.post_hits / q.post_n - q.pre_hits / q.pre_n for q in c]

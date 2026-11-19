@@ -180,7 +180,9 @@ def test_row6_too_few_treated_or_leg_not_compared():
     assert r.label == "not_comparable" and "不比被引率" in r.reason
     assert run(UP, FLAT, metric="citation", pre_searched_share=None).label == "not_comparable"
     assert run(UP, FLAT, metric="citation", pre_searched_share=0.5).label == "up"
-    assert run(UP, FLAT, provider="perplexity").label == "not_comparable"  # 没有这条腿的波动数据
+    bare = run(UP, FLAT, provider="perplexity")
+    assert bare.label == "not_comparable" and bare.band_T is None and bare.ci_T is None  # 没有这条腿的波动数据:不判
+    assert bare.pre_T is not None and bare.d_T == pytest.approx(bare.post_T - bare.pre_T) and bare.d_T > 0  # 但数照列
 
 
 def test_row7_no_valid_control_keeps_direction_but_is_inconclusive():

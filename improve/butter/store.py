@@ -421,3 +421,82 @@ def find_run_dir(out_root: Path, run_id: str) -> Path | None:
             if path.is_dir() and root in path.parents:
                 return path
     return None
+
+
+# ── 测量:进度日志(只追加)、输出日志、驱动的锁 ────────────────────────
+
+def append_jsonl(path: Path, record: dict) -> None:
+    _append_lines(path, [json.dumps(record, ensure_ascii=False)])
+
+
+def read_jsonl(path: Path) -> list[dict]:
+    """读一个只追加的 JSONL(只读)。读不了的行跳过;最后一行是半行也容忍。"""
+    try:
+        raw = path.read_text(encoding="utf-8", errors="replace")
+    except FileNotFoundError:
+        return []
+    out = []
+    for line in raw.split("\n"):
+        if line.strip():
+            try:
+                value = json.loads(line)
+            except ValueError:
+                continue
+            if isinstance(value, dict):
+                out.append(value)
+    return out
+
+
+def append_text(path: Path, text: str) -> None:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with open(path, "a", encoding="utf-8", newline="\n") as handle:
+        handle.write(text)
+
+
+def write_new_json(path: Path, record: dict) -> None:
+    _write_new(path, json.dumps(record, ensure_ascii=False, indent=2) + "\n")
+
+
+class LockHeld(OSError):
+    """这把锁正被另一个进程拿着。"""
+
+
+@contextmanager
+def hold_lock(lock_path: Path) -> Iterator[None]:
+    """拿住一把进程级的锁,直到退出 with。拿不到立刻抛 LockHeld,不等。进程没了锁自动放开,不会留下死锁。
+
+    测量驱动用它保证同一个批次同一时刻只有一个驱动在跑(设计 §6 规则 5)。
+    """
+    lock_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(lock_path, "a+b") as handle:
+        handle.seek(0)
+        try:
+            if os.name == "nt":
+                import msvcrt
+
+                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+            else:
+                import fcntl
+
+                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except OSError as exc:
+            raise LockHeld(str(lock_path)) from exc
+        try:
+            yield
+        finally:
+            handle.seek(0)
+            if os.name == "nt":
+                msvcrt.locking(handle.fileno(), msvcrt.LK_UNLCK, 1)
+            else:
+                fcntl.flock(handle.fileno(), fcntl.LOCK_UN)
+
+
+def lock_is_held(lock_path: Path) -> bool:
+    """这把锁现在是不是有进程拿着(只是看一眼:拿到就立刻放开)。"""
+    if not lock_path.exists():
+        return False
+    try:
+        with hold_lock(lock_path):
+            return False
+    except LockHeld:
+        return True
