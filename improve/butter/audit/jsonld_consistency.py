@@ -14,7 +14,7 @@ import re
 from butter.audit.base import finding
 from butter.contracts import AuditFinding, PageExtract, StructuredNode
 from butter.extract.jsonld import ARTICLE_TYPES, ORG_TYPES, PRODUCT_TYPES, WEBSITE_TYPES, as_list, has_type, is_top_level, text_of
-from butter.registry_ids import STRUCT
+from butter.registry.ids import JSONLD_BODY_CONSISTENCY
 from butter.util import host_of, norm_text, safe_http_url, same_site, snippet
 
 CHECK = "jsonld_consistency"
@@ -62,7 +62,7 @@ def _structure_findings(page: PageExtract, host: str) -> list[AuditFinding]:
         where = f"jsonld[{block.index}]"
         if block.error:
             out.append(finding(
-                CHECK, STRUCT, "problem", page.url,
+                CHECK, JSONLD_BODY_CONSISTENCY, "problem", page.url,
                 f"第 {block.index + 1} 个 JSON-LD 块解析失败,搜索引擎和 AI 读不了它。{block.error}",
                 location=where, snippet=snippet(block.raw, 160)))
             continue
@@ -72,13 +72,13 @@ def _structure_findings(page: PageExtract, host: str) -> list[AuditFinding]:
             context = top.get("@context")
             if context is None:
                 out.append(finding(
-                    CHECK, STRUCT, "problem", page.url,
+                    CHECK, JSONLD_BODY_CONSISTENCY, "problem", page.url,
                     f"第 {block.index + 1} 个 JSON-LD 块没有写 @context。没有它,解析器不知道这些字段按哪套词表读。",
                     location=f"{where}.@context", expected="https://schema.org"))
             elif not _mentions_schema_org(context):
                 shown = context if isinstance(context, str) else str(context)
                 out.append(finding(
-                    CHECK, STRUCT, "problem", page.url,
+                    CHECK, JSONLD_BODY_CONSISTENCY, "problem", page.url,
                     f"第 {block.index + 1} 个 JSON-LD 块的 @context 写的是「{snippet(shown, 80)}」,不是 https://schema.org。"
                     "按 schema.org 读结构化数据的解析器不会认这一块。",
                     location=f"{where}.@context", observed=shown, expected="https://schema.org"))
@@ -89,7 +89,7 @@ def _structure_findings(page: PageExtract, host: str) -> list[AuditFinding]:
                 proper = _BY_FOLDED.get(kind.casefold())
                 if proper and proper != kind:
                     out.append(finding(
-                        CHECK, STRUCT, "notice", page.url,
+                        CHECK, JSONLD_BODY_CONSISTENCY, "notice", page.url,
                         f"JSON-LD 的 @type 写的是「{kind}」,schema.org 里的写法是「{proper}」(区分大小写),解析器可能不认。",
                         location=f"{node.path}.@type", observed=kind, expected=proper))
         types = frozenset(_BY_FOLDED.get(t.casefold(), t) for t in node.types)
@@ -100,11 +100,11 @@ def _structure_findings(page: PageExtract, host: str) -> list[AuditFinding]:
             safe = safe_http_url(url, page.url)
             if safe is None or "." not in host_of(safe):
                 out.append(finding(
-                    CHECK, STRUCT, "problem", page.url,
+                    CHECK, JSONLD_BODY_CONSISTENCY, "problem", page.url,
                     f"{_label(node)} 的 url 写的是「{snippet(url, 80)}」,不是一个可用的网址。",
                     location=f"{node.path}.url", observed=url, expected=f"https://{host}/"))
             elif not same_site(host_of(safe), host):
-                out.append(finding(CHECK, STRUCT, "notice", page.url,
+                out.append(finding(CHECK, JSONLD_BODY_CONSISTENCY, "notice", page.url,
                                    f"{_label(node)} 的 url 指向别的主机 {host_of(safe)},不是本站 {host}。",
                                    location=f"{node.path}.url", observed=url, expected=host))
     return out
@@ -117,13 +117,13 @@ def _check_node(node: StructuredNode, page: PageExtract, text: str, text_norm: s
 
     if has_type(node, ORG_TYPES | WEBSITE_TYPES) and is_top_level(node):
         if name and norm_text(name) not in text_norm:
-            out.append(finding(CHECK, STRUCT, "notice", page.url,
+            out.append(finding(CHECK, JSONLD_BODY_CONSISTENCY, "notice", page.url,
                                f"{_label(node)} 写的名称「{snippet(name, 60)}」在本页文字和标题里找不到。",
                                location=f"{node.path}.name", observed=name))
 
     if has_type(node, PRODUCT_TYPES):
         if name and norm_text(name) not in text_norm:
-            out.append(finding(CHECK, STRUCT, "notice", page.url,
+            out.append(finding(CHECK, JSONLD_BODY_CONSISTENCY, "notice", page.url,
                                f"{_label(node)} 写的商品名「{snippet(name, 60)}」在本页文字里找不到。",
                                location=f"{node.path}.name", observed=name))
         for offer in as_list(node.props.get("offers")):
@@ -133,7 +133,7 @@ def _check_node(node: StructuredNode, page: PageExtract, text: str, text_norm: s
                 price = text_of(offer.get(prop))
                 if price and not number_in_text(price, text):
                     out.append(finding(
-                        CHECK, STRUCT, "problem", page.url,
+                        CHECK, JSONLD_BODY_CONSISTENCY, "problem", page.url,
                         f"{_label(node)} 写的价格 {price} 在本页文字里找不到。结构化数据里的价格应当与读者看到的一致。"
                         "(如果价格是脚本渲染出来的,这条可能是误报。)",
                         location=f"{node.path}.offers.{prop}", observed=price, expected="页面文字里出现同一个数"))
@@ -143,7 +143,7 @@ def _check_node(node: StructuredNode, page: PageExtract, text: str, text_norm: s
                 value = text_of(rating.get(prop))
                 if value and not number_in_text(value, text):
                     out.append(finding(
-                        CHECK, STRUCT, "problem", page.url,
+                        CHECK, JSONLD_BODY_CONSISTENCY, "problem", page.url,
                         f"{_label(node)} 的评分数据 {prop}={value} 在本页文字里找不到。评分标记应当对应读者看得到的评价。"
                         "(如果评分是脚本渲染出来的,这条可能是误报。)",
                         location=f"{node.path}.aggregateRating.{prop}", observed=value, expected="页面文字里出现同一个数"))
@@ -154,7 +154,7 @@ def _check_node(node: StructuredNode, page: PageExtract, text: str, text_norm: s
             h = norm_text(headline)
             heads = [norm_text(t) for t in [page.title or "", *page.h1]]
             if h not in text_norm and not any(h in t or (t and t in h) for t in heads):
-                out.append(finding(CHECK, STRUCT, "notice", page.url,
+                out.append(finding(CHECK, JSONLD_BODY_CONSISTENCY, "notice", page.url,
                                    f"{_label(node)} 写的标题「{snippet(headline, 60)}」与本页的标题、H1 和正文都对不上。",
                                    location=f"{node.path}.headline", observed=headline,
                                    expected=snippet(" / ".join([page.title or "", *page.h1]), 120)))
@@ -167,13 +167,13 @@ def check(extracts: list[PageExtract], host: str) -> list[AuditFinding]:
         page_findings: list[AuditFinding] = _structure_findings(page, host)
         if not page.nodes:
             if not page_findings:
-                page_findings.append(finding(CHECK, STRUCT, "not_checkable", page.url,
+                page_findings.append(finding(CHECK, JSONLD_BODY_CONSISTENCY, "not_checkable", page.url,
                                              "本页原始 HTML 里没有结构化数据(JSON-LD / microdata),没有可比对的东西。"))
             findings.extend(page_findings)
             continue
         if len(page.visible_text) < _MIN_TEXT:
             page_findings.append(finding(
-                CHECK, STRUCT, "not_checkable", page.url,
+                CHECK, JSONLD_BODY_CONSISTENCY, "not_checkable", page.url,
                 f"本页有结构化数据,但原始 HTML 里的可见文字太少({len(page.visible_text)} 字),可能靠脚本渲染:"
                 "名称、价格这些和正文对不对得上,比不了。"))
             findings.extend(page_findings)
@@ -188,7 +188,7 @@ def check(extracts: list[PageExtract], host: str) -> list[AuditFinding]:
                 page_findings.extend(_check_node(node, page, text, text_norm))
         if not page_findings:
             page_findings.append(finding(
-                CHECK, STRUCT, "pass", page.url,
+                CHECK, JSONLD_BODY_CONSISTENCY, "pass", page.url,
                 f"本页 {len(page.nodes)} 个结构化数据节点里比对了 {compared} 个(机构 / 网站 / 商品 / 文章的名称、价格、评分、标题),"
                 "未见与页面文字不一致。"))
         findings.extend(page_findings)

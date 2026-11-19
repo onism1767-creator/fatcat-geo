@@ -12,7 +12,7 @@ from __future__ import annotations
 from butter.audit.base import finding
 from butter.audit.instructions import find_instructions
 from butter.contracts import AuditFinding, PageExtract
-from butter.registry_ids import HIDDEN_TEXT_INJECTION
+from butter.registry.ids import HIDDEN_TEXT_INJECTION
 from butter.util import snippet
 
 CHECK = "hidden_text"

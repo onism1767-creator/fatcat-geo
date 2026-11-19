@@ -1,0 +1,22 @@
+{% extends "base.html" %}
+{% block main %}
+<h1>证据表</h1>
+<p>Butter 给的每一条改动，都要在这张表里找得到依据。一共 {{ v.total }} 条。"证据等级"从 A 到 E,A 最强。只有两次独立测量都测到变多的做法，才算站得住。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-label="证据表">
+  <table>
+    <thead><tr><th>这条说的是什么</th><th>等级</th><th>管哪一步</th><th>是哪一类</th><th class="num">用过几次</th><th>测下来</th></tr></thead>
+    <tbody>
+    {% for e in v.entries %}
+      <tr>
+        <th scope="row" class="wrap">{{ e.plain }}<br><code class="muted">{{ e.id }}</code></th>
+        <td>{{ e.level }}</td>
+        <td>{{ e.stage_text }}</td>
+        <td>{{ e.kind_text }}</td>
+        <td class="num">{{ e.cards }}</td>
+        <td>{% if e.more %}{{ e.more }}{% endif %}{% if e.more and e.fewer %}<br>{% endif %}{% if e.fewer %}{{ e.fewer }}{% endif %}{% if not e.more and not e.fewer %}<span class="muted">还没有结果</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}

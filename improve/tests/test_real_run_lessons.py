@@ -51,7 +51,7 @@ def test_phrases_are_adjacent_content_words_or_three_characters():
 def test_board_match_needs_a_shared_phrase(acme_factbase):
     """真实运行里:扫地机器人商品页因 home、options、available 三个词被配到「睡眠呼吸暂停筛查」。"""
     board = QuestionBoard(path="q.yml", prompt_version="v1", locale="en-US", questions=[
-        Question(id="good", intent="discovery", text="What is the best stovetop kettle for induction hobs?"),
+        Question(id="good", intent="discovery", text="Which stovetop kettle works on induction hobs?"),
         Question(id="loose", intent="discovery", text="Which classic novels are best for kettle lovers?"),
         Question(id="none", intent="discovery", text="What at-home sleep apnea testing options are available?"),
     ])

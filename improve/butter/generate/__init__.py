@@ -1,4 +1,4 @@
-"""确定性生成器:事实库 + 站点快照 → 改动包(清单 + 文件内容)。纯函数,不联网、不写盘、不调用任何模型。
+"""生成器:事实库 + 站点快照(+ 已过检查的草稿)→ 改动包(清单 + 文件内容)。纯函数,不联网、不写盘、不调用任何模型。
 
 不产出 llms.txt(证据注册表里是 E 级,永不输出)。
 Butter 不改任何人的站:改动包里的每一条都要站长自己放上服务器。
@@ -8,10 +8,13 @@ from __future__ import annotations
 
 from datetime import datetime
 
+import json
+
 from butter.contracts import (
-    ChangeItem, ChangePackage, ExcludedVendor, FactBase, NotGenerated, PackageBundle, PageExtract, Platform,
-    QuestionBoard, SiteSnapshot, UaEntry,
+    ChangeItem, ChangePackage, DraftOutcome, ExcludedVendor, FactBase, NotGenerated, PackageBundle, PageExtract,
+    Platform, QuestionBoard, SiteSnapshot, UaEntry,
 )
+from butter.generate.drafts import build_draft_parts, model_alternatives, model_meta_urls
 from butter.generate.headings import build_headings
 from butter.generate.jsonld import build_jsonld
 from butter.generate.pages import build_pages
@@ -22,6 +25,8 @@ FORBIDDEN_OUTPUTS = ("llms.txt", "llms-full.txt")
 KIND_LABEL = {
     "robots": "robots.txt 三段式", "jsonld_organization": "Organization JSON-LD", "jsonld_product": "Product JSON-LD",
     "fact_page": "事实页", "fact_block": "价格 / 规格事实块", "heading_suggestion": "标题 / H1 / H2 / meta 建议",
+    "meta_description": "meta 描述(模型起草)", "fact_block_lead": "事实块引导句(模型起草)",
+    "answer_first": "首屏短答(模型起草)",
 }
 ACTION_LABEL = {"add": "新增", "replace": "修改现有", "none": "无需改", "review": "供你参考"}
 PURPOSE_LABEL = {"search_index": "搜索 / 引用", "training": "训练", "user_fetch": "用户触发取页",
@@ -130,6 +135,7 @@ def build_package(
     board: QuestionBoard | None,
     training: str,
     now: datetime,
+    drafts: DraftOutcome | None = None,
 ) -> PackageBundle:
     today = now.date().isoformat()
     ordered = sorted(extracts, key=lambda p: 0 if p.role == "home" else (1 if p.role == "given" else 2))
@@ -150,11 +156,17 @@ def build_package(
     for part_files, part_items, part_missing in (
         build_robots(snapshot.robots, ua_table, training=training, sitemap_urls=snapshot.sitemap_urls, today=today),
         *content_parts,
-        build_headings(fb, board),
+        build_headings(fb, board, model_alts=model_alternatives(drafts), model_meta=model_meta_urls(drafts)),
     ):
         files.update(part_files)
         items.extend(part_items)
         missing.extend(part_missing)
+    titles = files.get("suggestions/titles.json")
+    with_rule = frozenset(s["page_url"] for s in json.loads(titles)["suggestions"]) if titles else frozenset()
+    part_files, part_items, part_missing = build_draft_parts(drafts, with_rule)
+    files.update(part_files)
+    items.extend(part_items)
+    missing.extend(part_missing)
 
     package = ChangePackage(site_url=snapshot.site_url, run_id=fb.run_id, generated_at=now, items=items,
                             not_generated=missing)

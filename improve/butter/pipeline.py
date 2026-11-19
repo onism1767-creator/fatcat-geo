@@ -14,12 +14,25 @@ from pathlib import Path
 import butter
 from butter import sources, store
 from butter.audit import run_audit
-from butter.contracts import AuditReport, FactBase, PackageBundle, SiteSnapshot
+from butter.contracts import AuditReport, Completion, DraftOutcome, FactBase, PackageBundle, SiteSnapshot
+from butter.draft import build_contexts, build_tasks, draft_site
 from butter.extract.html import extract_site
 from butter.factbase import build_factbase
 from butter.generate import build_package
+from butter.generate.headings import assign_questions
 from butter.render import audit_md, factbase_md
 from butter.util import stop_label
+
+
+@dataclass(frozen=True)
+class DraftSettings:
+    """起草用哪家、最多花多少。ask 由外壳给:一次调模型的动作(提示词, 输出格式)→ 回答。"""
+
+    provider: str
+    model: str
+    ask: Callable[[str, dict], Completion]
+    budget_usd: float = 1.0
+    max_pages: int = 10
 
 
 @dataclass(frozen=True)
@@ -29,6 +42,7 @@ class RunOptions:
     brand_domains_path: Path | None = None
     questions_path: Path | None = None
     training: str = "keep"  # keep = 训练类爬虫不改动;optout = 写 Disallow
+    draft: DraftSettings | None = None  # None = 不起草(不调模型、不花钱)
 
 
 @dataclass
@@ -40,6 +54,7 @@ class RunResult:
     audit: AuditReport
     bundle: PackageBundle
     warnings: list[str] = field(default_factory=list)
+    drafts: DraftOutcome | None = None
 
 
 def new_run_id(now: datetime) -> str:
@@ -61,9 +76,16 @@ def process_snapshot(
     factbase = build_factbase(snapshot, extracts, platforms=sources.load_platforms(), run_id=run_id, now=moment,
                               brands=brands, brand_domains=brand_domains)
     audit = run_audit(snapshot, extracts, run_id=run_id, now=moment)
+    drafts: DraftOutcome | None = None
+    if options.draft is not None and extracts:
+        tasks, skipped = build_tasks(factbase, assign_questions(factbase.pages, board),
+                                     max_pages=options.draft.max_pages)
+        drafts = draft_site(tasks, build_contexts(factbase, tasks, extracts, brands), options.draft.ask,
+                            budget_usd=options.draft.budget_usd, skipped=skipped,
+                            provider=options.draft.provider, model=options.draft.model)
     bundle = build_package(snapshot, extracts, factbase, ua_table=sources.load_ua_table(),
                            excluded=sources.load_excluded_vendors(), platforms=sources.load_platforms(), board=board,
-                           training=options.training, now=moment)
+                           training=options.training, now=moment, drafts=drafts)
 
     warnings: list[str] = []
     if not extracts:
@@ -92,7 +114,10 @@ def process_snapshot(
                    "brand_domains": str(options.brand_domains_path) if options.brand_domains_path else None,
                    "questions": str(options.questions_path) if options.questions_path else None,
                    "training": options.training},
-        "models_called": 0, "cost_usd": 0,
+        "models_called": drafts.calls if drafts else 0, "cost_usd": drafts.cost_usd if drafts else 0,
+        "draft": ({"provider": drafts.provider, "model": drafts.model, "prompt_version": drafts.prompt_version,
+                   "accepted": len(drafts.items), "voided": len(drafts.voided), "stopped": drafts.stopped}
+                  if drafts else None),
         "audit_counts": counts, "change_items": len(bundle.package.items), "warnings": warnings,
     }
     store.save_outputs(run_dir, factbase=factbase, factbase_md=factbase_md(factbase), audit=audit,
@@ -103,4 +128,4 @@ def process_snapshot(
         "stop_reason": snapshot.stop_reason, "audit_counts": counts, "change_items": len(bundle.package.items),
     })
     return RunResult(run_id=run_id, run_dir=run_dir, snapshot=snapshot, factbase=factbase, audit=audit, bundle=bundle,
-                     warnings=warnings)
+                     warnings=warnings, drafts=drafts)

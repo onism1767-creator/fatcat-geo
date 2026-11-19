@@ -7,8 +7,16 @@ from pathlib import Path
 
 PKG = Path(__file__).resolve().parents[1] / "butter"
 FILES = sorted(p for p in PKG.rglob("*.py"))
-PURE = [p for p in FILES if p.parent.name in ("extract", "audit", "generate")
-        or p.name in ("factbase.py", "render.py", "contracts.py", "util.py", "registry_ids.py")]
+# registry/ 里只有 load.py 读文件(外壳),其余是纯层
+# config/ 里只有 load.py 读文件,core.py 是纯层;compare/、check/ 全是纯层(随机数自己实现,不 import random)
+# cards/ 里只有 service.py 是外壳(经 store.py 落盘),其余是纯层;proposals/ 全是纯层(只出文本,由调用方落盘)
+PURE = [p for p in FILES if p.parent.name in ("extract", "audit", "generate", "contracts", "compare", "check", "draft",
+                                              "proposals", "questions")
+        or p.name in ("factbase.py", "render.py", "util.py")
+        or (p.parent.name == "cards" and p.name != "service.py")
+        or (p.parent.name in ("registry", "config") and p.name not in ("load.py", "__init__.py"))
+        or (p.parent.name == "registry" and p.name == "__init__.py")
+        or (p.parent.name == "llm" and p.name in ("wire.py", "pricing.py"))]
 NETWORK = {"httpx", "requests", "urllib3", "aiohttp", "socket", "http", "ftplib", "smtplib", "websockets", "playwright"}
 SIBLINGS = {"aivis", "engine", "diagnosis", "report", "adapters", "crawler", "trafilatura", "psycopg", "psycopg2",
             "sqlalchemy"}
@@ -49,8 +57,10 @@ def test_only_fetch_touches_the_network():
     for path in FILES:
         roots = imported_roots(path)
         hit = roots & NETWORK | {r for r in roots if r == "urllib.request"}
-        if path.name == "fetch.py":
-            assert hit == {"httpx"}
+        if path.name == "fetch.py" or (path.parent.name == "llm" and path.name == "client.py"):
+            assert hit == {"httpx"}  # 抓站,和调模型:全仓库只有这两处联网
+        elif path.parent.name == "web" and path.name == "serve.py":
+            assert hit == {"socket"}  # 只为了在本机 127.0.0.1 上找一个空端口
         else:
             assert not hit, f"{path.name} 不该联网:{hit}"
 
@@ -94,8 +104,25 @@ def test_pure_layers_do_no_io_and_read_no_clock():
                     f"{path.name} 读了系统时钟:{owner}.{name}()"
 
 
+def test_cards_and_proposals_are_pure_and_only_store_touches_sqlite():
+    """卡片状态机、投影、提案都在纯层名单里;卡片库的外壳只有 service.py;SQLite 只有 store.py 碰。"""
+    pure = {(p.parent.name, p.name) for p in PURE}
+    for name in ("machine.py", "judge.py", "project.py", "methods.py", "build.py", "index.py", "text.py"):
+        assert ("cards", name) in pure, name
+    assert ("cards", "service.py") not in pure
+    for name in ("render.py", "notes.py"):
+        assert ("proposals", name) in pure, name
+    for path in FILES:
+        if path.name != "store.py":
+            assert "sqlite3" not in imported_roots(path), f"{path.name} 不该直接碰 SQLite"
+
+
 def test_secrets_only_via_environment():
-    """本周不调用任何模型、不需要任何密钥:代码里不该出现读密钥的地方,也不该有像密钥的字面量。"""
+    """密钥只从环境变量来:只有 llm/keys.py 知道变量名;任何文件里都不该有像密钥的字面量,也不该有别的读密钥的地方。"""
     for path in FILES:
         text = path.read_text(encoding="utf-8")
-        assert "API_KEY" not in text and "api_key" not in text and "sk-" not in text, path.name
+        assert "sk-" not in text and "api_key" not in text, path.name
+        if not (path.parent.name == "llm" and path.name == "keys.py"):
+            assert "API_KEY" not in text, path.name
+            if path.parent.name != "llm" and path.name != "cli.py":  # cli 只把整份环境交给 llm,自己不认变量名
+                assert "os.environ" not in text and "getenv" not in text, f"{path.name} 不该读环境变量"

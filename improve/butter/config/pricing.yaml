@@ -1,0 +1,72 @@
+# 起草器用的型号与价目(pricing/1)。每个价格带来源和核对日期;有到期日的促销价写 valid_until。
+# 单位:美元 / 百万 token。输出价含思考 token(三家都按输出价计)。
+# 起草一个站的花费很小(设计 §7.5:最贵的型号一个站约 $0.3–0.5),主要花费在测量,不在这里。
+#
+# 默认顺序(设计 §17 第 2 问,用户 2026-11-14 定):站长有哪家的 key 就用哪家;几家都有时按 provider_order 取第一家。
+# OpenAI、Gemini 的默认型号按「和 Opus 5.5 同一档」选(2026-11-17):OpenAI 取 6.2 Sol($2 / $10;
+# 再上一档 6.2 Astra 是 $8 / $40,和 Fable 同档,不取),Gemini 取 4 Argon。设置页可改。
+provider_order: [anthropic, openai, gemini]
+default_models:
+  anthropic: claude-opus-5-5
+  openai: gpt-6.2-sol
+  gemini: gemini-4-argon
+
+models:
+  - provider: anthropic
+    model: claude-opus-5-5
+    input_per_mtok: 4.00
+    output_per_mtok: 20.00
+    source: "Anthropic 接口说明里的型号目录(Claude Code 自带的 claude-api 参考,models.md):Opus 5.5 $4 / $20"
+    checked_on: "2026-11-17"
+  - provider: anthropic
+    model: claude-sonnet-5-5
+    input_per_mtok: 2.00
+    output_per_mtok: 10.00
+    source: "同上:Sonnet 5.5 $2 / $10"
+    checked_on: "2026-11-17"
+  - provider: anthropic
+    model: claude-haiku-5-5
+    input_per_mtok: 0.10
+    output_per_mtok: 0.50
+    source: "同上:Haiku 5.5 $0.10 / $0.50(单次输入 10 万 token 以内的档;起草一页远低于此)"
+    checked_on: "2026-11-17"
+
+  - provider: openai
+    model: gpt-6.2-sol
+    input_per_mtok: 2.00
+    output_per_mtok: 10.00
+    source: "OpenAI 官方价目页与型号页;Toast 适配器 2026-11-17 逐项核对并真实冒烟通过(adapters/openai_web_search.py 的价目注释)"
+    checked_on: "2026-11-17"
+  - provider: openai
+    model: gpt-6.1-terra
+    input_per_mtok: 1.00
+    output_per_mtok: 5.00
+    source: "同上"
+    checked_on: "2026-11-17"
+  - provider: openai
+    model: gpt-6-luna
+    input_per_mtok: 0.10
+    output_per_mtok: 0.50
+    source: "同上;E0 实测用的就是这个型号"
+    checked_on: "2026-11-17"
+
+  - provider: gemini
+    model: gemini-4-argon
+    input_per_mtok: 2.00
+    output_per_mtok: 10.00
+    valid_until: "2026-11-30"
+    after: {input_per_mtok: 4.00, output_per_mtok: 20.00}
+    source: "Google AI Studio 价目页(aistudio.google.com/docs/pricing);Toast 适配器 2026-11-12 核对并冒烟通过。优惠价到 11-30,12-01 起 $4 / $20"
+    checked_on: "2026-11-12"
+  - provider: gemini
+    model: gemini-4-hydrogen
+    input_per_mtok: 1.50
+    output_per_mtok: 7.50
+    source: "同上:4 Hydrogen $1.5 / $7.5"
+    checked_on: "2026-11-12"
+  - provider: gemini
+    model: gemini-3.5-flash-lite
+    input_per_mtok: 0.30
+    output_per_mtok: 2.50
+    source: "同上:3.5 Flash-Lite $0.30 / $2.50"
+    checked_on: "2026-11-12"

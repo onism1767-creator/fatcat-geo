@@ -1,0 +1,96 @@
+# Butter 默认值(defaults/1)。每个数都带来源、一句人话来源(界面只用 source_plain)、测量日期、验证态。
+# 验证态:占位(还没有自己的数据支持) / 单次观测 / 临时 / 已复现。
+# 「不改动时的波动」(σ、τ)在 defaults_noise.yaml,由 E0 的脚本生成,不要手改。
+# 第一版 2026-11-17(设计 §9.5 原定 11-16)。之后三次填数:心跳 1、2、3 之后。
+defaults:
+  - key: remeasure.interval_days
+    value: 28
+    unit: 天
+    source: "Profound:持续被引的页面从首次被引到峰值,中位 36–46 天;Ahrefs:改动前后各看 30 天。用户 2026-11-15 定 28 天(设计 §17 第 4 问),不由 E0 替换"
+    source_plain: "参考公开的行业数据:网页从第一次被 AI 引用,到被引用得最多,一般要一个多月"
+    measured_on: "2026-11-15"
+    validation_state: 占位
+    note: "文献值。界面那句话:推荐改完隔 28 天测一次,看看改动后的效果"
+
+  - key: compare.baseline_valid_days
+    value: 7
+    unit: 天
+    source: "设计 §9.4 总表第 5 行:部署日要在基线后 7 天内。E0:7 天内只有 8–19% 的「题 × 品牌」有变化"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:同一批问题、不改网页,一周内的回答变化不大"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: compare.min_treated_questions
+    value: 5
+    unit: 题
+    source: "E0 事后配对分析:单题前后差的标准差 σ 约 0.10–0.21;5 题时前后差的 95% 波动范围约 9–19 个百分点,再少就看不出东西"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:题太少时,正常起伏就能盖过改动的效果"
+    measured_on: "2026-11-17"
+    validation_state: 占位
+    note: "下限是人定的,E0 只给出量级"
+
+  - key: compare.min_control_questions
+    value: 5
+    unit: 题
+    source: "E0 事后配对分析:5 题对 5 题的差中差,95% 分位 13–33 个百分点;对照组再小就起不到看住漂移的作用"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:对照的题太少时,看不出是不是所有题一起变了"
+    measured_on: "2026-11-17"
+    validation_state: 占位
+    note: "下限是人定的,E0 只给出量级"
+
+  - key: measure.runs_per_question
+    value: 3
+    unit: 次
+    source: "E0 配方:每题同日 3 跑。H5:同题多跑高度相关(ICC 0.71–0.87),再多跑信息量有限"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:同一个问题多问几次,答案差不多,问 3 次够用"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: compare.min_success_rate
+    value: 0.90
+    unit: 比例
+    source: "设计 §9.4 总表第 4 行。E0 各腿正常完成时都是 150/150"
+    source_plain: "一次测量里,成功拿到回答的要占九成以上才算数"
+    measured_on: "2026-11-14"
+    validation_state: 占位
+
+  - key: measure.abort_failure_rate
+    value: 0.30
+    unit: 比例
+    source: "E0 跑批教训:额度用完时失败会连片出现(第 0 天 OpenAI 150 次里 99 次失败)。失败超过三成就停,免得白花钱"
+    source_plain: "失败太多时自动停下,免得白花钱"
+    measured_on: "2026-11-06"
+    validation_state: 占位
+
+  - key: compare.citation_min_searched_share
+    value: 0.30
+    unit: 比例
+    source: "E0 第 0 天各腿搜索过的回答占比:Gemini 2%(中)/ 17%(英),Claude 45% / 53%,OpenAI 94% / 98%。低于三成的腿不比被引率"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:有的 AI 很少上网搜索,这时比「引用了谁」没有意义"
+    measured_on: "2026-11-17"
+    validation_state: 占位
+    note: "阈值是人定的:它把 Gemini 排除在外,留下 Claude 和 OpenAI"
+
+  - key: compare.bootstrap_draws
+    value: 2000
+    unit: 次
+    source: "常用取值;随机种子固定,结果可重现"
+    source_plain: "统计上的常用做法"
+    measured_on: "2026-11-17"
+    validation_state: 占位
+
+  - key: compare.seed
+    value: 20261116
+    unit: "—"
+    source: "固定随机种子"
+    source_plain: "统计上的常用做法"
+    measured_on: "2026-11-17"
+    validation_state: 占位
+
+  - key: compare.z
+    value: 1.96
+    unit: "—"
+    source: "95% 波动范围用的系数"
+    source_plain: "统计上的常用做法"
+    measured_on: "2026-11-17"
+    validation_state: 占位

@@ -1,0 +1,93 @@
+# 由 experiments/E0/analysis/export_noise_defaults.py 生成,不要手改。
+# σ 单题前后差的标准差,τ 所有题一起漂的部分,都是比例(0.18 = 18 个百分点)。
+defaults:
+  - key: noise.mention.zh.anthropic.7d
+    value: {sigma: 0.2089, tau: 0.0306}
+    unit: 比例
+    source: "E0 事后配对分析(posthoc_paired_band.py),day0 对 day7,zh × anthropic,19 个品牌、每个品牌约 10 题;跨周波动待心跳数据"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:同一批问题、不改网页,隔 7 天再测一次"
+    measured_on: "2026-11-14"
+    validation_state: 临时
+  - key: noise.citation.zh.anthropic.7d
+    value: {sigma: 0.2089, tau: 0.0306}
+    unit: 比例
+    source: "E0 事后配对分析(posthoc_paired_band.py),day0 对 day7,zh × anthropic,19 个品牌、每个品牌约 10 题;跨周波动待心跳数据"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:同一批问题、不改网页,隔 7 天再测一次"
+    measured_on: "2026-11-14"
+    validation_state: 临时
+    note: "被引率自己的估计 σ=0.1323 τ=0.0(只有 4 个品牌有数);取它与提及率估计里较大的"
+  - key: noise.mention.zh.openai.7d
+    value: {sigma: 0.152, tau: 0.01}
+    unit: 比例
+    source: "E0 事后配对分析(posthoc_paired_band.py),day0 对 day7,zh × openai,14 个品牌、每个品牌约 10 题;跨周波动待心跳数据"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:同一批问题、不改网页,隔 7 天再测一次"
+    measured_on: "2026-11-14"
+    validation_state: 临时
+  - key: noise.citation.zh.openai.7d
+    value: {sigma: 0.152, tau: 0.0115}
+    unit: 比例
+    source: "E0 事后配对分析(posthoc_paired_band.py),day0 对 day7,zh × openai,14 个品牌、每个品牌约 10 题;跨周波动待心跳数据"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:同一批问题、不改网页,隔 7 天再测一次"
+    measured_on: "2026-11-14"
+    validation_state: 临时
+    note: "被引率自己的估计 σ=0.1414 τ=0.0115(只有 14 个品牌有数);取它与提及率估计里较大的"
+  - key: noise.mention.zh.gemini.7d
+    value: {sigma: 0.1781, tau: 0.0475}
+    unit: 比例
+    source: "E0 事后配对分析(posthoc_paired_band.py),day0 对 day7,zh × gemini,20 个品牌、每个品牌约 10 题;跨周波动待心跳数据"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:同一批问题、不改网页,隔 7 天再测一次"
+    measured_on: "2026-11-14"
+    validation_state: 临时
+  - key: noise.citation.zh.gemini.7d
+    value: {sigma: 0.3, tau: 0.0475}
+    unit: 比例
+    source: "E0 事后配对分析(posthoc_paired_band.py),day0 对 day7,zh × gemini,20 个品牌、每个品牌约 10 题;跨周波动待心跳数据"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:同一批问题、不改网页,隔 7 天再测一次"
+    measured_on: "2026-11-14"
+    validation_state: 临时
+    note: "被引率自己的估计 σ=0.3 τ=0.0(只有 1 个品牌有数);取它与提及率估计里较大的"
+  - key: noise.mention.en.anthropic.7d
+    value: {sigma: 0.1711, tau: 0.0235}
+    unit: 比例
+    source: "E0 事后配对分析(posthoc_paired_band.py),day0 对 day7,en × anthropic,15 个品牌、每个品牌约 10 题;跨周波动待心跳数据"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:同一批问题、不改网页,隔 7 天再测一次"
+    measured_on: "2026-11-14"
+    validation_state: 临时
+  - key: noise.citation.en.anthropic.7d
+    value: {sigma: 0.1711, tau: 0.0235}
+    unit: 比例
+    source: "E0 事后配对分析(posthoc_paired_band.py),day0 对 day7,en × anthropic,15 个品牌、每个品牌约 10 题;跨周波动待心跳数据"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:同一批问题、不改网页,隔 7 天再测一次"
+    measured_on: "2026-11-14"
+    validation_state: 临时
+    note: "被引率自己的估计 σ=0.1344 τ=0.0(只有 4 个品牌有数);取它与提及率估计里较大的"
+  - key: noise.mention.en.openai.7d
+    value: {sigma: 0.1038, tau: 0.0}
+    unit: 比例
+    source: "E0 事后配对分析(posthoc_paired_band.py),day0 对 day7,en × openai,13 个品牌、每个品牌约 10 题;跨周波动待心跳数据"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:同一批问题、不改网页,隔 7 天再测一次"
+    measured_on: "2026-11-14"
+    validation_state: 临时
+  - key: noise.citation.en.openai.7d
+    value: {sigma: 0.1128, tau: 0.0189}
+    unit: 比例
+    source: "E0 事后配对分析(posthoc_paired_band.py),day0 对 day7,en × openai,13 个品牌、每个品牌约 10 题;跨周波动待心跳数据"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:同一批问题、不改网页,隔 7 天再测一次"
+    measured_on: "2026-11-14"
+    validation_state: 临时
+    note: "被引率自己的估计 σ=0.1128 τ=0.0189(只有 13 个品牌有数);取它与提及率估计里较大的"
+  - key: noise.mention.en.gemini.7d
+    value: {sigma: 0.1608, tau: 0.0}
+    unit: 比例
+    source: "E0 事后配对分析(posthoc_paired_band.py),day0 对 day7,en × gemini,15 个品牌、每个品牌约 10 题;跨周波动待心跳数据"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:同一批问题、不改网页,隔 7 天再测一次"
+    measured_on: "2026-11-14"
+    validation_state: 临时
+  - key: noise.citation.en.gemini.7d
+    value: {sigma: 0.1608, tau: 0.0}
+    unit: 比例
+    source: "E0 事后配对分析(posthoc_paired_band.py),day0 对 day7,en × gemini,15 个品牌、每个品牌约 10 题;跨周波动待心跳数据"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:同一批问题、不改网页,隔 7 天再测一次"
+    measured_on: "2026-11-14"
+    validation_state: 临时
+    note: "被引率自己的估计 σ=0.0707 τ=0.0(只有 2 个品牌有数);取它与提及率估计里较大的"

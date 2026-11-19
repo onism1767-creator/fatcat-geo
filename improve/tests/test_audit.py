@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from butter import registry_ids as ids
+from butter.registry import ids
 from butter.audit import hidden_text, jsonld_consistency, meta_robots, numeric_traceability, run_audit, visible_date
 from butter.audit.instructions import find_instructions
 from butter.audit.jsonld_consistency import number_in_text
@@ -44,9 +44,9 @@ def test_every_finding_has_a_known_entry_id(acme_audit):
     by_check = {c: {f.entry_id for f in acme_audit.findings if f.check == c} for c in CHECKS}
     assert by_check["meta_robots"] == {ids.ACCESS_META_SNIPPET}
     assert by_check["visible_date"] <= {ids.FAKE_TIMESTAMP, ids.FRESHNESS_VISIBLE_DATE}
-    assert by_check["numeric_traceability"] == {ids.STATS}
+    assert by_check["numeric_traceability"] == {ids.NUMERIC_TRACEABILITY}
     assert by_check["hidden_text"] == {ids.HIDDEN_TEXT_INJECTION}
-    assert by_check["jsonld_consistency"] == {ids.STRUCT}
+    assert by_check["jsonld_consistency"] == {ids.JSONLD_BODY_CONSISTENCY}
 
 
 # ── 一:meta robots ──
@@ -249,7 +249,7 @@ def test_broken_jsonld_is_reported_even_when_the_page_has_no_text():
     assert url.level == "problem" and url.evidence["observed"] == "https://https://www.x.test/"
     thin = [f for f in found if f.level == "not_checkable"]
     assert len(thin) == 1 and "比不了" in thin[0].message, "正文太少:和正文的比对仍记查不了"
-    assert all(f.entry_id == "EVIDENCE_STRUCT_V1" for f in found)
+    assert all(f.entry_id == ids.JSONLD_BODY_CONSISTENCY for f in found)
 
 
 def test_jsonld_context_variants():

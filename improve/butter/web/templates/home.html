@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block main %}
+<h1>你的网站</h1>
+<p>Butter 读你的网站，整理出上面已有的事实，检查几项容易出错的地方，再给出一包可以放上网站的改动。改不改、测不测，都由你定。</p>
+
+{% if not v.sites %}
+<div class="notice">
+  <p>还没有任何运行记录。</p>
+  <p class="muted">这一版先在命令行里跑：<code>python -m butter run https://你的网站</code>。跑完刷新这一页就能看到。</p>
+</div>
+{% endif %}
+
+{% for site in v.sites %}
+<h2 id="site-{{ loop.index }}">{{ site.host }}</h2>
+<div class="table-wrap" tabindex="0" role="region" aria-labelledby="site-{{ loop.index }}">
+  <table>
+    <thead><tr><th>什么时候跑的</th><th>从哪个网址开始</th><th class="num">查出的问题</th><th class="num">提示</th><th class="num">改动条数</th><th></th></tr></thead>
+    <tbody>
+    {% for run in site.runs %}
+      <tr>
+        <td>{{ run.generated_at[:16] | replace("T", " ") }}</td>
+        <td class="wrap">{{ run.site_url }}</td>
+        <td class="num">{{ run.problems }}</td>
+        <td class="num">{{ run.notices }}</td>
+        <td class="num">{{ run.change_items }}</td>
+        <td><a href="/runs/{{ run.run_id }}">打开<span class="visually-hidden">{{ run.generated_at[:16] }} 的这次运行</span></a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+
+{% if v.batch_count %}
+<p><a href="/batches">看 {{ v.batch_count }} 批改动的进展</a></p>
+{% endif %}
+{% endblock %}

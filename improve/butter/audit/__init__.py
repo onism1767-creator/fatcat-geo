@@ -11,7 +11,9 @@ from datetime import datetime
 from butter.audit import hidden_text, jsonld_consistency, meta_robots, numeric_traceability, visible_date
 from butter.audit.base import finding
 from butter.contracts import AuditFinding, AuditReport, PageExtract, SiteSnapshot
-from butter.registry_ids import ACCESS_META_SNIPPET, FAKE_TIMESTAMP, HIDDEN_TEXT_INJECTION, STATS, STRUCT
+from butter.registry.ids import (
+    ACCESS_META_SNIPPET, FAKE_TIMESTAMP, HIDDEN_TEXT_INJECTION, JSONLD_BODY_CONSISTENCY, NUMERIC_TRACEABILITY,
+)
 
 LIMITATIONS = [
     "Butter 不执行页面脚本:原始 HTML 里没有的内容(脚本渲染的正文、脚本注入的 JSON-LD)看不到,相关检查可能漏报或误报。",
@@ -35,8 +37,8 @@ RENDERED_LIMITATION = ("有的文件是浏览器「网页,全部」方式保存�
 _NO_PAGES = "本次没有抓到任何可分析的页面,这一项查不了(不代表站上没有问题,也不代表有问题)。"
 _ENTRY_WHEN_NO_PAGES = (
     (meta_robots.CHECK, ACCESS_META_SNIPPET), (visible_date.CHECK, FAKE_TIMESTAMP),
-    (numeric_traceability.CHECK, STATS), (hidden_text.CHECK, HIDDEN_TEXT_INJECTION),
-    (jsonld_consistency.CHECK, STRUCT),
+    (numeric_traceability.CHECK, NUMERIC_TRACEABILITY), (hidden_text.CHECK, HIDDEN_TEXT_INJECTION),
+    (jsonld_consistency.CHECK, JSONLD_BODY_CONSISTENCY),
 )
 
 

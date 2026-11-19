@@ -8,7 +8,7 @@ import re
 
 import pytest
 
-from butter import registry_ids as ids
+from butter.registry import ids
 from butter import sources
 from butter.contracts import FactField, RobotsFetch
 from butter.extract.robots import parse_robots, rules_allow

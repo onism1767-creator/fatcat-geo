@@ -1,0 +1,26 @@
+{% extends "base.html" %}
+{% block main %}
+<h1>改动批次</h1>
+<p>一次改完的几处算一批，一起测、一起比。测不测、什么时候测，都由你定。</p>
+{% for p in v.problems %}<div class="notice">{{ p }}</div>{% endfor %}
+{% if not v.batches %}
+<div class="notice"><p>还没有任何批次。生成改动包之后，这里会出现一批。</p></div>
+{% else %}
+<div class="table-wrap" tabindex="0" role="region" aria-label="改动批次">
+  <table>
+    <thead><tr><th>网站</th><th>现在到哪一步</th><th class="num">改动条数</th><th>最近更新</th><th></th></tr></thead>
+    <tbody>
+    {% for b in v.batches %}
+      <tr>
+        <th scope="row">{{ b.site_host }}</th>
+        <td>{{ b.phase_text }}</td>
+        <td class="num">{{ b.cards }}</td>
+        <td>{{ b.updated_at | replace("T", " ") }}</td>
+        <td><a href="/batches/{{ b.batch_id }}">打开<span class="visually-hidden">{{ b.site_host }} 的这一批</span></a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

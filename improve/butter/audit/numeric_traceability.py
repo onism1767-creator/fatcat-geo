@@ -12,7 +12,7 @@ from collections import Counter
 
 from butter.audit.base import finding
 from butter.contracts import AuditFinding, PageExtract
-from butter.registry_ids import STATS
+from butter.registry.ids import NUMERIC_TRACEABILITY
 from butter.util import norm_text, snippet
 
 CHECK = "numeric_traceability"
@@ -57,7 +57,7 @@ def check(extracts: list[PageExtract]) -> list[AuditFinding]:
     boilerplate = boilerplate_blocks(extracts)
     for page in extracts:
         if len(page.visible_text) < _MIN_TEXT:
-            findings.append(finding(CHECK, STATS, "not_checkable", page.url,
+            findings.append(finding(CHECK, NUMERIC_TRACEABILITY, "not_checkable", page.url,
                                     f"原始 HTML 里的可见文字太少({len(page.visible_text)} 字),查不了。可能靠脚本渲染。"))
             continue
         total = 0
@@ -75,15 +75,15 @@ def check(extracts: list[PageExtract]) -> list[AuditFinding]:
                 untraced.extend(claims)
         skipped = f"另有 {in_boilerplate} 处在多页重复的模板文字(页头、页脚、弹窗)里,没有计。" if in_boilerplate else ""
         if total == 0:
-            findings.append(finding(CHECK, STATS, "pass", page.url,
+            findings.append(finding(CHECK, NUMERIC_TRACEABILITY, "pass", page.url,
                                     f"正文里没有找到统计型数字(百分比、倍数、大数量)。{skipped}"))
         elif not untraced:
-            findings.append(finding(CHECK, STATS, "pass", page.url,
+            findings.append(finding(CHECK, NUMERIC_TRACEABILITY, "pass", page.url,
                                     f"正文里 {total} 处统计型数字,所在段落都带来源链接或出处字样。{skipped}"))
         else:
             evidence = {f"example_{i}": f"[{kind}] {text}" for i, (kind, text) in enumerate(untraced[:5], start=1)}
             findings.append(finding(
-                CHECK, STATS, "notice", page.url,
+                CHECK, NUMERIC_TRACEABILITY, "notice", page.url,
                 f"正文里 {total} 处统计型数字,其中 {len(untraced)} 处所在段落没有来源链接或出处字样。"
                 f"这是规则判断,可能误报;确有出处的建议把出处写在数字旁边。{skipped}", **evidence))
     return findings

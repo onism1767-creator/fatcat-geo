@@ -11,7 +11,7 @@ from markupsafe import Markup
 
 from butter.contracts import ChangeItem, FactBase, FactRef, NotGenerated, ProductFacts
 from butter.generate.jsonld import organization, to_script
-from butter.registry_ids import FACT_PAGE, PRICE_SPECS_COMPARISON
+from butter.registry.ids import FACT_PAGE, PRICE_SPECS_COMPARISON
 from butter.util import host_matches, host_of, safe_http_url
 
 _ENV = Environment(autoescape=True, undefined=StrictUndefined, trim_blocks=True, lstrip_blocks=True)

@@ -1,0 +1,502 @@
+# Butter 证据注册表扩展(组件形态决策 决定 7;设计文档 §11;§17 第 10 问 2026-11-14 用户定补两条)。
+#
+# 格式与 Toast `config/evidence_registry.yaml` 完全相同(EvidenceEntry):不许多余字段;hypothesis / plain / verify /
+# sources / contraindications 中英必填;access_checks 只能取 Toast 的 10 个检查名;supported_intents 只能取 Toast 的五种题型。
+# Butter 运行时读 Toast 的 20 条 + 这里的 13 条,ID 撞车直接报错。Butter 不改 Toast 的文件:Toast 采纳时,
+# 把这里的条目原样并进 Toast 的 entries 即可;修改 Toast 现有条目的建议另写在提案文档里。
+#
+# 来源:建议类 8 条与禁止类 3 条出自 research/06 §7;数值可溯源、JSON-LD 与正文一致两条是 2026-11-14 补的。
+# 数字与出处见 research/architecture-inputs/B-研究02至05设计细节.md(子代理核对简报)与 research/02–05、research/verification/。
+# 等级口径同 Toast:A=官方文档/强共识 B=多研究支持 C=单一研究且有反证 D=描述性关联 E=无支持或禁止
+# (E 级永不作为建议输出,只存档,供检查器挂 ID)。geo_method 一律写成实验卡,不得称有效。
+# verify 写成与工具无关的说法,并进 Toast 后也能直接用。
+
+entries:
+  # ── RETRIEVAL ───────────────────────────────────────────────────────
+  - id: EVIDENCE_TITLE_QUERY_MATCH_V1
+    stage: RETRIEVAL
+    kind: geo_method
+    hypothesis:
+      zh: "标题、H1 与网址用提问者的说法复述目标问题,每个子问题各有一个 H2,可能提高页面被检索到、进而被引用的概率"
+      en: "Restating the target question in the title, H1 and URL slug in the asker's own words, with one H2 per sub-question, may raise the chance that the page is retrieved and then cited"
+    plain:
+      zh: "让页面标题和大标题直接用用户提问时的说法,每个小问题配一个小标题,AI 可能更容易找到这一页(还没被证明)"
+      en: "Make the page title and main heading use the words people ask with, and give each sub-question its own subheading; AI may find the page more easily (not proven)"
+    verify:
+      zh: "改完后隔几周,用同一批问题再测一次,按题和改前配对比较本品牌的提及率;同站没改的页面作对照。一次只改一件事,才知道是哪个起了作用"
+      en: "A few weeks after the change, re-test with the same questions and compare the brand's mention rate question by question against the baseline, with unchanged pages on the same site as control. Change one thing at a time so you know what worked"
+    evidence_level: B
+    sources:
+      zh:
+        - "What Gets Cited(SIGIR '26,arXiv 2605.25517):受控实验里查询词覆盖 OR 5.99–40.0(仿真)"
+        - "AirOps 横截面:标题与查询重叠 ≥50% 的页面被引率 20.1%,<10% 的 9.3%(厂商,ChatGPT)"
+        - "SAGEO Arena(arXiv 2602.12187):只改结构字段,检索 +22%、重排 −17%、生成 +2%(仿真,相对变化)"
+      en:
+        - "What Gets Cited (SIGIR '26, arXiv 2605.25517): query-term coverage OR 5.99–40.0 in controlled trials (simulation)"
+        - "AirOps cross-section: pages with ≥50% title–query overlap cited at 20.1% vs 9.3% below 10% (vendor, ChatGPT)"
+        - "SAGEO Arena (arXiv 2602.12187): editing structural fields only gave retrieval +22%, reranking −17%, generation +2% (simulation, relative change)"
+    supported_intents: [category_discovery, problem_solution, comparison_alternative, recommendation]
+    contraindications:
+      zh:
+        - "为每个查询变体单独建页(Google 明确警告)"
+        - "标题堆砌关键词"
+        - "把所有子问题都塞进一页(横截面里覆盖 26–50% 的页面被引更多,100% 反而更低)"
+      en:
+        - "Creating a separate page for every query variation (Google warns against it)"
+        - "Stuffing keywords into titles"
+        - "Cramming every sub-question into one page (in cross-sections, pages covering 26–50% are cited more; 100% is lower)"
+    engines_tested:
+      - "受控仿真(6 个模型)"
+      - "chatgpt(横截面)"
+    expected_effect: unknown_experiment_required
+    guardrail:
+      zh: "只复述页面真的回答了的问题;不为查询变体批量建页"
+      en: "Only restate questions the page actually answers; never mass-produce pages for query variations"
+    version: 1
+
+  - id: EVIDENCE_FRESHNESS_VISIBLE_DATE_V1
+    stage: RETRIEVAL
+    kind: geo_method
+    hypothesis:
+      zh: "页面显示真实的最后更新日期,并在内容真有变化时更新,可能提高被检索和引用的概率"
+      en: "Showing a genuine last-updated date and updating it when the content actually changes may raise the chance of being retrieved and cited"
+    plain:
+      zh: "在页面上写清真实的更新日期,内容有变化就更新;只改日期、不改内容是造假(还没被证明有效)"
+      en: "Show the real update date on the page and update it when the content changes; changing only the date is faking it (not proven to work)"
+    verify:
+      zh: "改完后隔几周,用同一批问题再测一次,按题和改前配对比较本品牌的提及率;同站没改的页面作对照"
+      en: "A few weeks after the change, re-test with the same questions and compare the brand's mention rate question by question against the baseline, with unchanged pages on the same site as control"
+    evidence_level: B
+    sources:
+      zh:
+        - "What Gets Cited(arXiv 2605.25517):近期时间戳对旧时间戳 OR 14.4 以上(仿真)"
+        - "Ahrefs:AI 助手引用的页面平均比自然搜索结果新 368 天,AI Overviews 例外(厂商横截面)"
+        - "Seer 2026:75% 的被引页一年内更新过(厂商)"
+        - "横截面:30–89 天内更新过的页面被引率 32.8%,30 天内的 25.3%(厂商,research/05 §1)"
+      en:
+        - "What Gets Cited (arXiv 2605.25517): recent vs old timestamps OR above 14.4 (simulation)"
+        - "Ahrefs: pages cited by AI assistants are on average 368 days fresher than organic results; AI Overviews are the exception (vendor cross-section)"
+        - "Seer 2026: 75% of cited pages were updated within a year (vendor)"
+        - "Cross-section: pages updated 30–89 days ago cited at 32.8% vs 25.3% for under 30 days (vendor, research/05 §1)"
+    supported_intents: [category_discovery, problem_solution, comparison_alternative, recommendation]
+    contraindications:
+      zh:
+        - "只改日期、不改内容(见 EVIDENCE_FAKE_TIMESTAMP_V1)"
+        - "内容本身没有变化"
+      en:
+        - "Changing only the date without changing the content (see EVIDENCE_FAKE_TIMESTAMP_V1)"
+        - "The content has not actually changed"
+    engines_tested:
+      - "受控仿真(6 个模型)"
+      - "chatgpt"
+      - "gemini"
+      - "perplexity"
+    expected_effect: unknown_experiment_required
+    guardrail:
+      zh: "日期必须对应内容的真实变化;禁止伪造时间戳"
+      en: "The date must reflect a real content change; fake timestamps are forbidden"
+    version: 1
+
+  - id: EVIDENCE_LOCAL_LANGUAGE_PAGE_V1
+    stage: RETRIEVAL
+    kind: geo_method
+    hypothesis:
+      zh: "为目标市场提供本地语言版本的页面,可能提高该语言提问时被检索和引用的概率(观测证据,因果未测)"
+      en: "Providing a local-language version of the page for the target market may raise the chance of being retrieved and cited when people ask in that language (observational evidence; causality untested)"
+    plain:
+      zh: "目标市场的人用什么语言提问,就准备那种语言的页面;用本地语言提问时,AI 引用本地来源多得多(还没做过干预实验)"
+      en: "Have pages in the language your target market asks in; when people ask in their own language, AI cites local sources far more often (no intervention experiment yet)"
+    verify:
+      zh: "用目标语言的同一批问题,改前改后各测一次,按题配对比较;只看这种语言的结果"
+      en: "Test the same questions in the target language before and after, and compare question by question; look only at results for that language"
+    evidence_level: B
+    sources:
+      zh:
+        - "Zha & Chang(arXiv 2609.06798):用本国语言而非英语提问,本地来源份额高 3.5–13.5 倍(日、新、马、韩,健康题,真实引擎观测)"
+        - "Żatuchin(arXiv 2606.23165):用品牌母语提问,本地品牌推荐份额 +0.80,全球品牌 +0.15(观测)"
+        - "同一问题换语言,引用来源重叠低至 15%(厂商横截面)"
+      en:
+        - "Zha & Chang (arXiv 2609.06798): asking in the local language instead of English raises the local-source share 3.5–13.5x (Japan, Singapore, Malaysia, Korea; health questions; observed on real engines)"
+        - "Żatuchin (arXiv 2606.23165): asking in the brand's home language raises local-brand recommendation share by +0.80 vs +0.15 for global brands (observational)"
+        - "The same question in different languages can share as little as 15% of cited sources (vendor cross-section)"
+    supported_intents: [category_discovery, problem_solution, comparison_alternative, recommendation, brand_fact]
+    contraindications:
+      zh:
+        - "没人校对的机器翻译页面"
+        - "目标市场并不用这种语言提问"
+      en:
+        - "Machine-translated pages nobody has reviewed"
+        - "The target market does not ask in that language"
+    engines_tested:
+      - "google_aio(观测)"
+      - "多语言大模型推荐(观测)"
+    expected_effect: unknown_experiment_required
+    guardrail:
+      zh: "本地语言版本要与原文事实一致;效果按语言分别测"
+      en: "The local-language version must state the same facts as the original; measure the effect per language"
+    version: 1
+
+  - id: EVIDENCE_FAKE_TIMESTAMP_V1
+    stage: RETRIEVAL
+    kind: geo_method   # E 级存档,永不作为建议输出(写法同 Toast 的 EVIDENCE_KEYWORD_STUFFING_V1)
+    hypothesis:
+      zh: "只改日期、不改内容(或把 sitemap 的 lastmod 一律设成当天),能让页面显得新,从而更容易被检索和引用"
+      en: "Changing only the date without changing the content (or setting every sitemap lastmod to today) makes pages look fresh and so more likely to be retrieved and cited"
+    plain:
+      zh: "只改日期不改内容,让页面看起来是新的(禁止项)"
+      en: "Changing only the date so a page looks new (forbidden)"
+    verify:
+      zh: "不适用(禁止项)"
+      en: "Not applicable (forbidden)"
+    evidence_level: E
+    sources:
+      zh:
+        - "sitemaps.org:lastmod 是页面最后修改的日期"
+        - "Google 垃圾内容政策:以操纵搜索或生成式 AI 回答为目的的做法属垃圾内容(伪造时间戳没有专门条款,按通用的操纵定义处理)"
+        - "仿真:往页面注入日期,可让排序前十的平均年份前移最高 4.78 年(research/02 Q2-6);日期影响排序,伪造日期就是操纵"
+      en:
+        - "sitemaps.org: lastmod is the date the page was last modified"
+        - "Google spam policies: practices meant to manipulate Search or generative AI responses are spam (there is no rule specific to fake timestamps; the general manipulation definition applies)"
+        - "Simulation: injecting dates shifted the average year of the top ten by up to 4.78 years (research/02 Q2-6); because dates move rankings, faking them is manipulation"
+    supported_intents: []
+    contraindications:
+      zh: []
+      en: []
+    engines_tested: []
+    expected_effect: 禁止项
+    guardrail:
+      zh: "禁止项,任何情况下不得建议;检查器据此拦下伪造或自相矛盾的日期"
+      en: "Forbidden; must never be recommended. The checker uses this entry to block fake or self-contradicting dates"
+    version: 1
+
+  - id: EVIDENCE_SCALED_AI_PAGES_V1
+    stage: RETRIEVAL
+    kind: geo_method   # E 级存档,永不作为建议输出
+    hypothesis:
+      zh: "用 AI 批量生成大量页面(比如每个查询变体一页),能扩大被检索和引用的范围"
+      en: "Mass-producing pages with AI (for example one page per query variation) widens the range of queries a site is retrieved and cited for"
+    plain:
+      zh: "用 AI 批量生成很多没有新内容的页面(禁止项)"
+      en: "Using AI to mass-produce pages that add nothing new (forbidden)"
+    verify:
+      zh: "不适用(禁止项)"
+      en: "Not applicable (forbidden)"
+    evidence_level: E
+    sources:
+      zh:
+        - "Google 垃圾内容政策:用生成式 AI 工具批量生成大量对用户没有增加价值的页面,属规模化内容滥用"
+        - "Bing 网站管理员指南(2026-02-27 重写):点名没有监督、质量控制或编辑审核的大规模生成内容"
+        - "Google:不要为查询变体或扇出查询批量建页(research/03 §4)"
+      en:
+        - "Google spam policies: using generative AI tools to generate many pages without adding value for users is scaled content abuse"
+        - "Bing Webmaster Guidelines (rewritten 2026-02-27): names large-scale content generated without oversight, quality control or editorial review"
+        - "Google: do not mass-create pages for query variations or fan-out queries (research/03 §4)"
+    supported_intents: []
+    contraindications:
+      zh: []
+      en: []
+    engines_tested: []
+    expected_effect: 禁止项
+    guardrail:
+      zh: "禁止项,任何情况下不得建议"
+      en: "Forbidden; must never be recommended"
+    version: 1
+
+  # ── CITATION ────────────────────────────────────────────────────────
+  - id: EVIDENCE_PRICE_SPECS_COMPARISON_V1
+    stage: CITATION
+    kind: geo_method
+    hypothesis:
+      zh: "商业类问题下,页面明写价格、规格,并给出与同类产品的对比表,可能提高被引用和进入答案的概率"
+      en: "For commercial questions, stating prices and specifications explicitly and giving a comparison table against similar products may raise the chance of being cited and included in answers"
+    plain:
+      zh: "把价格、规格写明白,必要时加一张和同类产品的对比表,AI 可能更愿意引用这一页(还没被证明)"
+      en: "Spell out prices and specifications, and add a comparison table with similar products where it helps; AI may be more willing to cite the page (not proven)"
+    verify:
+      zh: "改完后隔几周,用同一批问题再测一次,按题和改前配对比较本品牌的提及率;同站没改的页面作对照"
+      en: "A few weeks after the change, re-test with the same questions and compare the brand's mention rate question by question against the baseline, with unchanged pages on the same site as control"
+    evidence_level: B
+    sources:
+      zh:
+        - "What Gets Cited(arXiv 2605.25517):明写价格 OR 6.26 以上、规格 OR 8.63 以上、对比 OR 1.61–7.45(仿真)"
+        - "Pitenin(arXiv 2608.07069,巴厘岛商户普查):标了价格的商户进入 AI 答案 OR 1.54(真实引擎观测)"
+        - "对比页横截面:有 3 张表的页面被引 +25.7%(厂商,research/05 §5.1)"
+      en:
+        - "What Gets Cited (arXiv 2605.25517): explicit price OR above 6.26, specifications OR above 8.63, comparisons OR 1.61–7.45 (simulation)"
+        - "Pitenin (arXiv 2608.07069, census of Bali merchants): merchants with listed prices entered AI answers at OR 1.54 (observed on real engines)"
+        - "Comparison-page cross-section: pages with three tables cited +25.7% (vendor, research/05 §5.1)"
+    supported_intents: [category_discovery, comparison_alternative, recommendation]
+    contraindications:
+      zh:
+        - "价格变动频繁、页面跟不上更新"
+        - "没有真实数据支撑的对比"
+      en:
+        - "Prices change often and the page cannot keep up"
+        - "Comparisons without real data behind them"
+    engines_tested:
+      - "受控仿真(6 个模型)"
+      - "真实引擎观测(Pitenin)"
+    expected_effect: unknown_experiment_required
+    guardrail:
+      zh: "价格、规格只写有出处的值;对比只列能核实的属性,不写说服性措辞"
+      en: "State only prices and specs that have a source; compare only verifiable attributes, without persuasive wording"
+    version: 1
+
+  - id: EVIDENCE_ANSWER_FIRST_V1
+    stage: CITATION
+    kind: geo_method
+    hypothesis:
+      zh: "在页面开头用一段自包含的话直接回答核心问题,可能提高被引用的概率(直接证据只来自 ChatGPT)"
+      en: "Answering the core question directly in a self-contained passage at the top of the page may raise citation probability (direct evidence comes only from ChatGPT)"
+    plain:
+      zh: "在页面开头用一两句话直接给出答案,AI 可能更容易引用;目前只在 ChatGPT 上看到这种关系(还没被证明)"
+      en: "Give the answer in one or two sentences at the top of the page; AI may cite it more easily. So far this has only been seen on ChatGPT (not proven)"
+    verify:
+      zh: "改完后隔几周,用同一批问题再测一次,按题和改前配对比较本品牌的提及率;同站没改的页面作对照"
+      en: "A few weeks after the change, re-test with the same questions and compare the brand's mention rate question by question against the baseline, with unchanged pages on the same site as control"
+    evidence_level: C
+    sources:
+      zh:
+        - "Growth Memo:44.2% 的引用出自页面前 30%(付费原文,数字只见二手转述,仅 ChatGPT)"
+        - "横截面:前 100 词内点题的页面被引 22.1%,其余 8.7%(厂商)"
+        - "Google:不需要把内容切成小块,也没有理想的页面长度(官方,反向)"
+      en:
+        - "Growth Memo: 44.2% of citations come from the first 30% of the page (paywalled original; figures seen only second-hand; ChatGPT only)"
+        - "Cross-section: pages that state the point within the first 100 words cited at 22.1% vs 8.7% (vendor)"
+        - "Google: there is no requirement to break content into tiny pieces and no ideal page length (official; cuts the other way)"
+    supported_intents: [category_discovery, problem_solution, recommendation]
+    contraindications:
+      zh:
+        - "问题本身没有简短答案,硬写会失真"
+      en:
+        - "The question has no short answer; forcing one distorts it"
+    engines_tested:
+      - "chatgpt"
+    expected_effect: unknown_experiment_required
+    guardrail:
+      zh: "开头的答案必须是页面内容支持的事实,不写推销语"
+      en: "The opening answer must be a fact the page supports; no promotional language"
+    version: 1
+
+  - id: EVIDENCE_TONE_DECLARATIVE_V1
+    stage: CITATION
+    kind: geo_method
+    hypothesis:
+      zh: "用确定、第三人称、不带推销的措辞陈述事实,可能提高被引用的概率"
+      en: "Stating facts in confident, third-person, non-promotional language may raise citation probability"
+    plain:
+      zh: "用平实、肯定的陈述句写事实,少用「最好」「第一」这类推销话,AI 可能更愿意引用(还没被证明)"
+      en: "Write facts as plain, confident statements and avoid sales words such as 'best' or 'number one'; AI may be more willing to cite them (not proven)"
+    verify:
+      zh: "改完后隔几周,用同一批问题再测一次,按题和改前配对比较本品牌的提及率;同站没改的页面作对照"
+      en: "A few weeks after the change, re-test with the same questions and compare the brand's mention rate question by question against the baseline, with unchanged pages on the same site as control"
+    evidence_level: B
+    sources:
+      zh:
+        - "What Gets Cited(arXiv 2605.25517):确定对含糊 OR 2.67–754,中性对推销 OR 1.31–362(仿真,跨模型不稳)"
+        - "横截面:推销语气的页面被引 −26.19%(厂商)"
+        - "反向风险:SCI-Defense、GEO-Flag 把权威、说服语气当作攻击特征(research/02 §3)"
+      en:
+        - "What Gets Cited (arXiv 2605.25517): confident vs hedged OR 2.67–754, neutral vs promotional OR 1.31–362 (simulation; unstable across models)"
+        - "Cross-section: pages with a promotional tone cited −26.19% (vendor)"
+        - "Risk the other way: SCI-Defense and GEO-Flag treat authoritative or persuasive tone as an attack signal (research/02 §3)"
+    supported_intents: [category_discovery, problem_solution, comparison_alternative, recommendation, brand_fact]
+    contraindications:
+      zh:
+        - "没有依据的绝对化说法(「最好」「唯一」)"
+        - "把说服手法(稀缺、从众)包装成陈述"
+      en:
+        - "Absolute claims without evidence ('best', 'only')"
+        - "Persuasion techniques (scarcity, social proof) dressed up as statements"
+    engines_tested:
+      - "受控仿真(6 个模型)"
+    expected_effect: unknown_experiment_required
+    guardrail:
+      zh: "确定的语气只用于有出处的事实;不得把推销包装成陈述"
+      en: "Use a confident tone only for facts with a source; never dress up promotion as a statement"
+    version: 1
+
+  - id: EVIDENCE_NUMERIC_TRACEABILITY_V1
+    stage: CITATION
+    kind: technical_fix
+    # A 级指官方文本禁止伪造数据;「可溯源」是把这条落成可以检查的做法。真实引擎研究说明加数字本身没有稳定收益。
+    hypothesis:
+      zh: "页面上的数字(价格、规格、统计、日期)都要能追到出处:事实库、页面原文或公开来源。编造或查不到出处的数据被平台政策和监管点名为操纵;「加统计数字」带来的收益,在数值校验后归零"
+      en: "Every number on a page (prices, specifications, statistics, dates) must trace to a source: the fact base, the page's own text or a public reference. Fabricated or untraceable data is named as manipulation by platform policies and regulators, and the gains from 'adding statistics' vanish once numbers are verified"
+    plain:
+      zh: "页面上每个数字都要说得出是从哪来的;查不到出处的,补上出处或者删掉"
+      en: "Every number on the page should have a source you can point to; add the source or remove numbers you cannot trace"
+    verify:
+      zh: "改完后重新审计一次,看「找不到出处的数字」是否清零"
+      en: "Re-run the audit and check that no number is left without a source"
+    evidence_level: A
+    sources:
+      zh:
+        - "网信办「清朗·整治 AI 应用乱象」专项行动(2026-04-30):把「伪造权威数据」列为 AI 数据投毒的方式"
+        - "Google 垃圾内容政策:试图操纵生成式 AI 回答属垃圾内容"
+        - "LIVE-GEO(arXiv 2611.01126):数值校验在 400 条改写里标出 86 条,「加统计」的 80 条全部被标;校正后它的首位率在所有条件下都是 0(真实网页)"
+        - "Bajemon & Rochet(arXiv 2609.07559):在 10 个引擎设置上复测引语、统计、引来源三个杠杆,没有一个提高引用"
+      en:
+        - "Cyberspace Administration of China, 'Qinglang' campaign on AI application abuses (2026-04-30): lists 'fabricating authoritative data' as a way of poisoning AI data"
+        - "Google spam policies: attempting to manipulate generative AI responses is spam"
+        - "LIVE-GEO (arXiv 2611.01126): numeric verification flagged 86 of 400 rewrites, including all 80 'Statistics Addition' rewrites; after correction their top-1 rate was 0 in every condition (real web pages)"
+        - "Bajemon & Rochet (arXiv 2609.07559): re-testing the quotation, statistics and cite-sources levers across 10 engine settings, none raised citations"
+    supported_intents: [category_discovery, problem_solution, comparison_alternative, recommendation, brand_fact]
+    contraindications:
+      zh: []
+      en: []
+    engines_tested:
+      - "官方政策口径"
+      - "真实网页(LIVE-GEO)"
+      - "10 个引擎设置(Bajemon & Rochet)"
+    expected_effect: 可信度底线,不承诺引用
+    guardrail:
+      zh: "数字只取有出处的值;不为显得权威而加数字"
+      en: "Use only numbers that have a source; never add numbers just to look authoritative"
+    version: 1
+
+  - id: EVIDENCE_HIDDEN_TEXT_INJECTION_V1
+    stage: CITATION
+    kind: geo_method   # E 级存档,永不作为建议输出
+    hypothesis:
+      zh: "在页面里藏文字、写给 AI 的指令(提示注入),能让 AI 更多引用或推荐自己"
+      en: "Hiding text or instructions aimed at AI (prompt injection) in a page makes AI cite or recommend the site more"
+    plain:
+      zh: "在页面里藏只给 AI 看的文字或指令(禁止项)"
+      en: "Hiding text or instructions on a page that only AI is meant to read (forbidden)"
+    verify:
+      zh: "不适用(禁止项)"
+      en: "Not applicable (forbidden)"
+    evidence_level: E
+    sources:
+      zh:
+        - "Google 垃圾内容政策:隐藏文字与链接滥用;试图操纵生成式 AI 回答"
+        - "Bing 网站管理员指南(2026-02-27 重写):「Prompt Injection and AI Manipulation」一节"
+        - "SafeGEO(arXiv 2606.28356):操纵性改写可把劣质产品进前三的比例从 3.4% 推到 79.6%(Gemma 4 31B,仿真)"
+      en:
+        - "Google spam policies: hidden text and link abuse; attempting to manipulate generative AI responses"
+        - "Bing Webmaster Guidelines (rewritten 2026-02-27): the 'Prompt Injection and AI Manipulation' section"
+        - "SafeGEO (arXiv 2606.28356): manipulative rewrites pushed an inferior product's top-3 rate from 3.4% to 79.6% (Gemma 4 31B, simulation)"
+    supported_intents: []
+    contraindications:
+      zh: []
+      en: []
+    engines_tested: []
+    expected_effect: 禁止项
+    guardrail:
+      zh: "禁止项,任何情况下不得建议;检查器据此拦下隐藏文字与写给 AI 的指令"
+      en: "Forbidden; must never be recommended. The checker uses this entry to block hidden text and instructions aimed at AI"
+    version: 1
+
+  # ── REPRESENTATION ──────────────────────────────────────────────────
+  - id: EVIDENCE_JSONLD_BODY_CONSISTENCY_V1
+    stage: REPRESENTATION
+    kind: technical_fix
+    hypothesis:
+      zh: "结构化数据(JSON-LD)里的价格、库存、评分、名称要和页面上看得见的内容一致,也不能标页面上没有的内容。不一致违反 Google 的结构化数据政策;而且 ChatGPT-User、Claude-User、Gemini 直接抓页面时不读 JSON-LD,事实还得写在看得见的正文里"
+      en: "Price, availability, ratings and names in structured data (JSON-LD) must match what is visible on the page, and nothing may be marked up that the page does not show. Mismatches violate Google's structured data policies; and ChatGPT-User, Claude-User and Gemini do not read JSON-LD when they fetch a page directly, so the facts must also be in the visible text"
+    plain:
+      zh: "JSON-LD 里写的价格、库存等要和页面上显示的一样;页面上没有的,不要写进 JSON-LD"
+      en: "Make sure the price, stock and other values in your JSON-LD match what the page shows; do not put anything in JSON-LD that the page itself does not show"
+    verify:
+      zh: "改完后重新审计一次,看「JSON-LD 与正文不一致」是否清零;也可以用 Google 的富媒体搜索结果测试检查标记"
+      en: "Re-run the audit and check that no JSON-LD mismatch is left; Google's Rich Results Test can also check the markup"
+    evidence_level: A
+    sources:
+      zh:
+        - "Google 搜索中心结构化数据通用指南:不要标注读者看不到的内容;结构化数据必须真实反映页面内容;不得标注虚假评论"
+        - "Resoneo 实测:ChatGPT-User、Claude-User、Gemini 直接抓取时不解析 JSON-LD(代理公司)"
+        - "DiD 研究:给页面加 schema 没有提高 AI 引用(AI Overviews −4.6%,AI Mode、ChatGPT 不显著;research/02 Q1-16)"
+      en:
+        - "Google Search Central general structured data guidelines: don't mark up content that is not visible to readers; structured data must be a true representation of the page content; no fake reviews"
+        - "Resoneo tests: ChatGPT-User, Claude-User and Gemini do not parse JSON-LD when fetching directly (agency)"
+        - "DiD study: adding schema did not raise AI citations (AI Overviews −4.6%; AI Mode and ChatGPT not significant; research/02 Q1-16)"
+    supported_intents: [category_discovery, problem_solution, comparison_alternative, recommendation, brand_fact]
+    contraindications:
+      zh: []
+      en: []
+    engines_tested:
+      - "官方文档口径"
+    expected_effect: 一致性要求,不承诺引用
+    guardrail:
+      zh: "JSON-LD 不当作引用杠杆,只为与正文一致、帮助认出实体"
+      en: "JSON-LD is not a citation lever; it is there to stay consistent with the page and help identify the entity"
+    version: 1
+
+  # ── ACCESS ──────────────────────────────────────────────────────────
+  - id: EVIDENCE_ACCESS_META_SNIPPET_V1
+    stage: ACCESS
+    kind: technical_fix
+    access_checks: []  # Toast 现有的 10 个检查里没有 meta robots,只能留空;并进 Toast 时要配一个检查项(提案文档写)
+    hypothesis:
+      zh: "目标页不能带 noindex、nosnippet、NOARCHIVE;max-snippet、data-nosnippet、NOCACHE 会限制内容被 AI 回答直接使用,要慎用"
+      en: "Target pages must not carry noindex, nosnippet or NOARCHIVE; max-snippet, data-nosnippet and NOCACHE limit how content can be used directly in AI answers and should be used with care"
+    plain:
+      zh: "检查页面上的 robots 元标签:noindex、nosnippet、NOARCHIVE 会让 AI 回答用不了你的内容"
+      en: "Check the robots meta tags on your pages: noindex, nosnippet and NOARCHIVE keep AI answers from using your content"
+    verify:
+      zh: "改完后重新检测一次,确认这些标签已经去掉;Google Search Console 的网址检查能看到 Google 读到的结果"
+      en: "Re-run the check and confirm the tags are gone; URL Inspection in Google Search Console shows what Google reads"
+    evidence_level: A
+    sources:
+      zh:
+        - "Google 搜索中心(robots meta 标签):nosnippet 也会阻止内容被 AI Overviews 和 AI Mode 直接使用;max-snippet 同样限制可用的长度"
+        - "Bing:标了 NOARCHIVE 的内容不进 Bing Chat 回答(2023,经 SER 转述)"
+      en:
+        - "Google Search Central (robots meta tag): nosnippet also prevents the content from being used as a direct input for AI Overviews and AI Mode; max-snippet limits it likewise"
+        - "Bing: content tagged NOARCHIVE is not included in Bing Chat answers (2023, as reported by SER)"
+    supported_intents: [category_discovery, problem_solution, comparison_alternative, recommendation, brand_fact]
+    contraindications:
+      zh:
+        - "有意不让内容出现在 AI 回答里的页面"
+      en:
+        - "Pages whose owners deliberately keep them out of AI answers"
+    engines_tested:
+      - "官方文档口径"
+    expected_effect: 必要非充分条件
+    guardrail:
+      zh: "去掉限制只解决准入,不构成任何排名或引用承诺"
+      en: "Removing the restriction only solves admission; it promises no ranking or citations"
+    version: 1
+
+  - id: EVIDENCE_ACCESS_USER_FETCHER_SSR_V1
+    stage: ACCESS
+    kind: technical_fix
+    # 与 Toast 的 EVIDENCE_ACCESS_SSR_V1 有重叠:那条讲渲染,这条补用户触发抓取器的官方口径。并进 Toast 时合并还是并列,提案文档里写。
+    access_checks: [html_content]
+    hypothesis:
+      zh: "用户触发的 AI 抓取器(如 ChatGPT-User、Perplexity-User)不一定遵守 robots.txt,多数也不执行 JavaScript,所以主内容要在第一次返回的 HTML 里"
+      en: "User-triggered AI fetchers (such as ChatGPT-User and Perplexity-User) may not follow robots.txt, and most do not execute JavaScript, so the main content must be in the first HTML response"
+    plain:
+      zh: "AI 替用户临时打开你的页面时,通常不跑 JavaScript;主要内容要在网页源代码里直接能看到"
+      en: "When an AI opens your page on a user's behalf it usually does not run JavaScript; the main content must be visible in the page source itself"
+    verify:
+      zh: "关掉 JavaScript 打开页面,或者看网页源代码,确认主要内容、价格和规格都在里面"
+      en: "Open the page with JavaScript turned off, or view the page source, and confirm the main content, prices and specs are there"
+    evidence_level: A
+    sources:
+      zh:
+        - "OpenAI、Perplexity、Meta、Amazon、Kimi 的官方爬虫文档:用户触发的抓取器可能不遵守 robots.txt"
+        - "Resoneo 实测:ChatGPT-User、Claude-User、Gemini、Perplexity-User 不执行 JavaScript(代理公司)"
+        - "横截面:92.5% 的被引页主内容不依赖 JavaScript(厂商)"
+      en:
+        - "Official crawler documentation from OpenAI, Perplexity, Meta, Amazon and Kimi: user-triggered fetchers may not follow robots.txt"
+        - "Resoneo tests: ChatGPT-User, Claude-User, Gemini and Perplexity-User do not execute JavaScript (agency)"
+        - "Cross-section: 92.5% of cited pages do not need JavaScript for their main content (vendor)"
+    supported_intents: [category_discovery, problem_solution, comparison_alternative, recommendation, brand_fact]
+    contraindications:
+      zh:
+        - "页面本来就是服务端渲染或静态的(不用改)"
+      en:
+        - "Pages that are already server-rendered or static (nothing to change)"
+    engines_tested:
+      - "官方文档口径"
+      - "chatgpt-user"
+      - "claude-user"
+      - "gemini"
+      - "perplexity-user"
+    expected_effect: 必要非充分条件
+    guardrail:
+      zh: "只解决能不能读到,不构成任何排名或引用承诺"
+      en: "This only makes the content readable; it promises no ranking or citations"
+    version: 1

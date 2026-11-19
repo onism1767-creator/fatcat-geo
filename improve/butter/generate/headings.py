@@ -16,7 +16,8 @@ import json
 import re
 
 from butter.contracts import ChangeItem, FactBase, FactRef, NotGenerated, PageFacts, Question, QuestionBoard
-from butter.registry_ids import STRUCT, TITLE_QUERY_MATCH
+from butter.check.lexicon import puffery_hits
+from butter.registry.ids import STRUCT, TITLE_QUERY_MATCH
 from butter.util import md_cell, norm_text
 
 MD_FILE = "suggestions/titles.md"
@@ -115,9 +116,32 @@ def mechanical_issues(pages: list[PageFacts], brand: str | None) -> dict[str, li
     return issues
 
 
+def assign_questions(pages: list[PageFacts], board: QuestionBoard | None) -> dict[str, list[Question]]:
+    """每页对上了哪些题(和下面出建议用的是同一条规则:标题或 H1 里有连续词组相同)。按重合多少排,最贴的在前。"""
+    if board is None:
+        return {}
+    page_tok = {p.url: _page_tokens(p) for p in pages}
+    page_phr = {p.url: _page_phrases(p) for p in pages}
+    scored: dict[str, list[tuple[float, int, Question]]] = {}
+    for order, q in enumerate(board.questions):
+        q_tok, q_phr = tokens(q.text), phrases(q.text)
+        best_url, best_phr, best_hit = None, 0, 0
+        for p in pages:
+            phr, hit = len(q_phr & page_phr[p.url]), len(q_tok & page_tok[p.url])
+            if (phr, hit) > (best_phr, best_hit):
+                best_url, best_phr, best_hit = p.url, phr, hit
+        if best_url and best_phr:
+            scored.setdefault(best_url, []).append((-(best_hit / len(q_tok) if q_tok else 0.0), order, q))
+    return {url: [q for _, _, q in sorted(group, key=lambda t: (t[0], t[1]))] for url, group in scored.items()}
+
+
 def build_headings(
-    fb: FactBase, board: QuestionBoard | None,
+    fb: FactBase, board: QuestionBoard | None, *, model_alts: dict[str, dict[str, str]] | None = None,
+    model_meta: frozenset[str] = frozenset(),
 ) -> tuple[dict[str, str], list[ChangeItem], list[NotGenerated]]:
+    """model_alts:模型给的标题 / H1 备选写法(已过检查),写进同一条建议;model_meta:meta 描述已由模型起草的页面,
+    这里就不再给规则的 meta 建议(同一页同一字段只出一条,设计 §7.1)。"""
+    model_alts = model_alts or {}
     pages = fb.pages
     brand = fb.entity.name.values[0].value if fb.entity.name.values else None
     description = fb.entity.description.values[0] if fb.entity.description.values else None
@@ -214,7 +238,23 @@ def build_headings(
 
         md += ["## 建议", ""]
         for p in pages:
-            group = sorted(assigned.get(p.url, []), key=lambda t: -t[0])
+            everything = sorted(assigned.get(p.url, []), key=lambda t: -t[0])
+            if not everything:
+                continue
+            # 带夸大词的题不照抄成标题 / H1 / H2(设计 §9.2):只提示对上了哪些词,标题怎么改由站长定
+            blocked = [(q, sorted({w for w, _, _ in puffery_hits(q.text, for_title=True)}))
+                       for _, q, _, _, _ in everything if puffery_hits(q.text, for_title=True)]
+            group = [g for g in everything if not puffery_hits(g[1].text, for_title=True)]
+            if blocked:
+                hint_phrases = sorted({ph for _, q, _, _, m in everything for ph in m
+                                       if any(q.id == b.id for b, _ in blocked)})
+                report.setdefault("not_copied", []).append({
+                    "page_url": p.url, "matched_phrases": hint_phrases,
+                    "questions": [{"id": q.id, "text": q.text, "words": words} for q, words in blocked]})
+                md += [f"### {p.url}(有题没照抄)", "",
+                       f"这页对上了 {len(blocked)} 道带「最好、推荐」这类词的题,没有把题目照抄成标题:"]
+                md += [f"- 题 {q.id}「{q.text}」(带:{'、'.join(words)})" for q, words in blocked]
+                md += [f"- 这页标题 / H1 里已经有对上的词组:{'、'.join(hint_phrases) or '(无)'}。标题怎么改由你定。", ""]
             if not group:
                 continue
             _, primary, hit, total, matched = group[0]
@@ -225,7 +265,8 @@ def build_headings(
                 "page_url": p.url, "based_on_question": primary.id, "matched_phrases": matched,
                 "current": {"title": p.title, "h1": p.h1, "meta_description": p.meta_description},
                 "proposed": {"title": title, "h1": core, "h2": h2,
-                             "meta_description": description.value if description else None},
+                             "meta_description": None if p.url in model_meta else (description.value if description else None)},
+                "model_alternatives": model_alts.get(p.url, {}),
             }
             report["suggestions"].append(suggestion)
             md += [f"### {p.url}", "",
@@ -236,8 +277,14 @@ def build_headings(
             if h2:
                 md.append("- 建议的 H2(同样和本页对得上的其他题,各用一个小标题):")
                 md += [f"  - {text}" for text in h2]
-            md.append(f"- 建议 meta description:{description.value}(来自事实库的描述,原样)" if description
-                      else "- meta description:事实库里没有描述,没有给建议(不编)。")
+            for alt_field, alt_label in (("title", "标题"), ("h1", "H1")):
+                if alt_field in model_alts.get(p.url, {}):
+                    md.append(f"- {alt_label}的备选写法(模型起草,已过检查):{model_alts[p.url][alt_field]}")
+            if p.url in model_meta:
+                md.append("- meta description:见 `drafts/drafts.md`(模型起草,已过检查)。")
+            else:
+                md.append(f"- 建议 meta description:{description.value}(来自事实库的描述,原样)" if description
+                          else "- meta description:事实库里没有描述,没有给建议(不编)。")
             md.append("")
             refs = [FactRef(field="entity.description", value=description.value, source_url=description.source_url)] if description else []
             if brand:

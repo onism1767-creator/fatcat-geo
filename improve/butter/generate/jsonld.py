@@ -12,7 +12,7 @@ from typing import Any
 
 from butter.contracts import ChangeItem, FactBase, FactField, FactRef, NotGenerated, PageExtract, ProductFacts, StructuredNode
 from butter.extract.jsonld import ORG_TYPES, PRODUCT_TYPES, as_list, has_type, is_top_level, text_of, texts_of
-from butter.registry_ids import STRUCT
+from butter.registry.ids import STRUCT
 from butter.util import norm_text, page_key, safe_http_url
 
 _AVAILABILITY = frozenset({

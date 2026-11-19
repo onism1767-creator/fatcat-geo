@@ -15,7 +15,7 @@ from butter.audit.base import finding
 from butter.contracts import AuditFinding, PageExtract, RawDate, SiteSnapshot
 from butter.extract.dates import to_iso_date
 from butter.extract.sitemap import lastmod_suspicion
-from butter.registry_ids import FAKE_TIMESTAMP, FRESHNESS_VISIBLE_DATE
+from butter.registry.ids import FAKE_TIMESTAMP, FRESHNESS_VISIBLE_DATE
 
 CHECK = "visible_date"
 _VISIBLE = ("visible", "time_element")

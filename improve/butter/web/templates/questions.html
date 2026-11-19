@@ -1,0 +1,77 @@
+{% extends "base.html" %}
+{% block main %}
+<p><a href="/runs/{{ v.run_id }}">← 回 {{ v.host }} 的这次运行</a></p>
+<h1>出题和勾选</h1>
+<p>想知道改动有没有用，要拿一批问题去问 AI,改之前问一次，改之后再问一次。你手里没有现成的问题时，可以让 Butter 按固定句式出一批，你勾选要用的，也可以改字。出题不花钱。</p>
+
+{% if v.saved %}
+<div class="notice" role="status">存好了，共 {{ v.panels[0].count if v.panels else "" }} 道题。之后测量时用的就是这一份。</div>
+{% endif %}
+
+<form action="/runs/{{ v.run_id }}/questions" method="get" aria-labelledby="h-step1">
+  <h2 id="h-step1">第一步：你卖的是什么</h2>
+  <div class="field">
+    <label for="categories">品类（每行一个，最多 5 个）</label>
+    <textarea id="categories" name="categories" required aria-describedby="categories-hint">{{ v.categories_text }}</textarea>
+    <span id="categories-hint" class="hint">
+      写买家会说的叫法，比如"扫地机器人""可视门铃"。英文请写复数，比如 robot vacuums。
+      {% if v.from_facts %}上面先填了你网站上写着的品类，可以改。{% else %}你的网站上没有写品类，所以要你自己填。{% endif %}
+    </span>
+  </div>
+  <div class="field">
+    <label for="brand">你的品牌名</label>
+    <input type="text" id="brand" name="brand" value="{{ v.brand }}" autocomplete="off" aria-describedby="brand-hint">
+    <span id="brand-hint" class="hint">只用在最后 4 道"问你的品牌"的题里。不填就不出这 4 道。</span>
+  </div>
+  <fieldset>
+    <legend>问题用什么语言</legend>
+    <div class="choice"><input type="radio" id="lang-zh" name="lang" value="zh"{% if v.lang == "zh" %} checked{% endif %}><label for="lang-zh">中文</label></div>
+    <div class="choice"><input type="radio" id="lang-en" name="lang" value="en"{% if v.lang == "en" %} checked{% endif %}><label for="lang-en">英文</label></div>
+  </fieldset>
+  <button type="submit" class="secondary">出题</button>
+</form>
+
+{% if v.groups %}
+<form action="/runs/{{ v.run_id }}/questions" method="post" aria-labelledby="h-step2">
+  <h2 id="h-step2">第二步：勾选要用的题</h2>
+  <p>一共 {{ v.total }} 道，默认全选。其中 {{ v.matched }} 道能对上你网站上的页面（页面标题里有这个品类）。不想用的去掉勾，想改的直接改字。</p>
+  <input type="hidden" name="token" value="{{ token }}">
+  <input type="hidden" name="lang" value="{{ v.lang }}">
+  <input type="hidden" name="brand" value="{{ v.brand }}">
+  <input type="hidden" name="categories" value="{{ v.categories | join('\n') }}">
+  {% for g in v.groups %}
+  <fieldset>
+    <legend>{{ g.category }} · {{ g.intent_text }}</legend>
+    {% if g.needs_edit %}<p class="hint">这 6 道比较泛，可以改得更贴你的行业。</p>{% endif %}
+    {% if g.names_brand %}<p class="hint">这 4 道直接问你的品牌，只用来看 AI 怎么说你，不拿来比改动前后。</p>{% endif %}
+    {% for q in g.questions %}
+    <div class="qrow">
+      <input type="checkbox" id="pick-{{ q.id }}" name="pick-{{ q.id }}" checked>
+      <div>
+        <label for="pick-{{ q.id }}" class="visually-hidden">用这道题</label>
+        <label for="text-{{ q.id }}" class="visually-hidden">第 {{ loop.index }} 道题的文字</label>
+        <input type="text" id="text-{{ q.id }}" name="text-{{ q.id }}" value="{{ q.text }}" maxlength="300" autocomplete="off">
+      </div>
+      <div class="meta">{% if g.names_brand %}问品牌的题，不对页面{% elif q.matched_pages %}对上了 {{ q.matched_pages }} 个页面{% else %}没有页面对得上{% endif %}</div>
+    </div>
+    {% endfor %}
+  </fieldset>
+  {% endfor %}
+  <button type="submit">保存勾选的题</button>
+</form>
+{% endif %}
+
+{% if v.panels %}
+<h2 id="h-saved">已经存过的</h2>
+<div class="table-wrap" tabindex="0" role="region" aria-labelledby="h-saved">
+  <table>
+    <thead><tr><th>什么时候存的</th><th>语言</th><th>品类</th><th class="num">题数</th></tr></thead>
+    <tbody>
+    {% for p in v.panels %}
+      <tr><td>{{ p.saved_at[:16] | replace("T", " ") }}</td><td>{{ "中文" if p.lang == "zh" else "英文" }}</td><td>{{ p.categories | join("、") }}</td><td class="num">{{ p.count }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% endblock %}

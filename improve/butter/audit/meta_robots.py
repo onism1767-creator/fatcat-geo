@@ -11,7 +11,7 @@ import re
 
 from butter.audit.base import finding
 from butter.contracts import AuditFinding, PageExtract
-from butter.registry_ids import ACCESS_META_SNIPPET
+from butter.registry.ids import ACCESS_META_SNIPPET
 
 CHECK = "meta_robots"
 _META_NAMES = frozenset({"robots", "googlebot", "bingbot"})

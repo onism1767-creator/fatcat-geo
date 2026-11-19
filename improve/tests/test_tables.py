@@ -8,7 +8,7 @@ from pathlib import Path
 import pytest
 import yaml
 
-from butter import registry_ids as ids
+from butter.registry import ids
 from butter import sources
 
 UA = sources.load_ua_table()
@@ -56,7 +56,7 @@ def test_excluded_vendors_table():
 
 
 def test_registry_ids_are_well_formed():
-    assert len(ids.BUTTER_EXTENSION) == 11 and not ids.BUTTER_EXTENSION & ids.TOAST_EXISTING
+    assert len(ids.BUTTER_EXTENSION) == 13 and not ids.BUTTER_EXTENSION & ids.TOAST_EXISTING
     assert all(i.startswith("EVIDENCE_") and i.endswith("_V1") for i in ids.ALL_IDS)
 
 

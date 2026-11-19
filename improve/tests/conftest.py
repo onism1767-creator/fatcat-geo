@@ -31,6 +31,16 @@ ACME_ROUTES = {
 }
 
 
+@pytest.fixture(autouse=True)
+def _no_model_keys(monkeypatch):
+    """测试永远不许真调模型:把这台机器上配的 key 从环境里拿掉。要调模型的测试自己传假的。"""
+    from butter.llm.keys import ENV_NAMES
+
+    for names in ENV_NAMES.values():
+        for name in names:
+            monkeypatch.delenv(name, raising=False)
+
+
 class Recorder:
     """记下每个请求,供测试断言「只抓了该抓的」。"""
 

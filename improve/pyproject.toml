@@ -10,6 +10,9 @@ dependencies = [
     "pydantic==2.13.5",
     "PyYAML==6.0.3",
     "Jinja2==3.1.6",
+    "fastapi==0.165.0",
+    "uvicorn==0.54.0",
+    "python-multipart==0.0.34",
 ]
 
 [project.optional-dependencies]
@@ -22,7 +25,8 @@ butter = "butter.cli:main"
 include = ["butter*"]
 
 [tool.setuptools.package-data]
-butter = ["data/*.yaml", "templates/*.j2"]
+butter = ["data/*.yaml", "templates/*.j2", "registry/*.yaml", "registry/toast_snapshot/*.yaml",
+          "config/*.yaml", "web/templates/*.html"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

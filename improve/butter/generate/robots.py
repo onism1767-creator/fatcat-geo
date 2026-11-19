@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from butter.contracts import ChangeItem, NotGenerated, RobotsFetch, UaEntry
 from butter.extract.robots import RobotsParsed, RobotsRule, blocks_everything, parse_robots
-from butter.registry_ids import ACCESS_ROBOTS
+from butter.registry.ids import ACCESS_ROBOTS
 
 MARK = "[Butter]"
 FILE = "robots/robots.txt"

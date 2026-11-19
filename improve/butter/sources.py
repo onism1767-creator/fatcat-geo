@@ -14,7 +14,8 @@ from typing import Any
 import yaml
 
 from butter.contracts import (
-    ExcludedVendor, Platform, PotatoBrand, PotatoBrands, Question, QuestionBoard, ToastBrandDomains, UaEntry,
+    ExcludedVendor, Platform, PotatoBrand, PotatoBrands, Question, QuestionBoard, TemplateSet, ToastBrandDomains,
+    UaEntry,
 )
 
 
@@ -105,3 +106,10 @@ def load_excluded_vendors() -> tuple[ExcludedVendor, ...]:
 @cache
 def load_platforms() -> tuple[Platform, ...]:
     return tuple(Platform.model_validate(item) for item in _data("platforms.yaml")["platforms"])
+
+
+@cache
+def load_question_templates() -> TemplateSet:
+    """Butter 出题用的固定句式(data/question_templates.yaml)。"""
+    raw = resources.files("butter.data").joinpath("question_templates.yaml").read_text(encoding="utf-8")
+    return TemplateSet.model_validate(yaml.safe_load(raw))

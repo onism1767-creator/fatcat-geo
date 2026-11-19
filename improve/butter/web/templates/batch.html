@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block main %}
+<p><a href="/batches">← 回改动批次</a></p>
+<h1>{{ v.site_host }} 的一批改动</h1>
+<div class="card">
+  <p class="row">
+    <span>现在到哪一步：<strong>{{ v.phase_text }}</strong></span>
+    {% if v.baseline_on %}<span>改之前测的日子：{{ v.baseline_on }}</span>{% endif %}
+    {% if v.deployed_on %}<span>放上网站的日子：{{ v.deployed_on }}</span>{% endif %}
+  </p>
+  <p>{{ v.remeasure_hint }}</p>
+  {% if v.abandoned_reason %}<p class="muted">这一批已放弃：{{ v.abandoned_reason }}</p>{% endif %}
+  <p><a href="/runs/{{ v.run_id }}">看这批改动出自哪次运行</a></p>
+</div>
+
+{% if v.readings %}
+<h2>测到的结果</h2>
+{% for r in v.readings %}
+<div class="card">
+  <h3>{{ r.day }}</h3>
+  <ul>{% for line in r.lines %}<li>{{ line }}</li>{% endfor %}</ul>
+</div>
+{% endfor %}
+{% endif %}
+
+<h2 id="h-cards">这一批里的改动（{{ v.cards | length }} 条）</h2>
+<div class="table-wrap" tabindex="0" role="region" aria-labelledby="h-cards">
+  <table>
+    <thead><tr><th>改的是什么</th><th>放在哪</th><th>放上网站了吗</th><th>现在的结论</th></tr></thead>
+    <tbody>
+    {% for c in v.cards %}
+      <tr>
+        <th scope="row">{{ c.kind_text }}</th>
+        <td class="wrap">{{ c.target }}</td>
+        <td>{{ "放了" if c.deployed else "还没放" }}</td>
+        <td>{{ c.state_text }}{% if c.note %}<br><span class="muted">{{ c.note }}</span>{% endif %}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endblock %}
