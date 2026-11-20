@@ -51,9 +51,14 @@
 费用:平台自报(usage.cost_in_usd_ticks,1 美元 = 10^10 个 tick),照搬;没报时按牌价折算(预算闸门不能失明)。
 牌价与自报费用拿三发真实回包验算过,一个 tick 不差:
 没命中缓存的输入 + 命中缓存的输入 + 输出(含推理)+ 网页搜索每次 $0.005。
-单次提示达到 20 万 token 时平台整单按双倍价计(官方价目页),牌价表只写 20 万以内的价;
-真到了那一档,实际费用仍以平台自报为准。这一档真实撞到过:2026-11-18 grok-4.7 一次搜了 12 回、输入 23.6 万 token,
-自报 $0.573,按双倍价验算一个 tick 不差(搜索来的内容都算输入,搜得多就过线)。
+单次提示达到 20 万 token 时,这一次的全部 token(输入、命中缓存的输入、输出)按高一档的价计,正好是两倍;
+搜索费不变(官方价目页每个型号列两行:< 200k / ≥ 200k prompt tokens,2026-11-19 复核)。
+这一档是另一组计费项(键带 `_long`),牌价表里各有各的价:用量 × 牌价在两档都等于平台自报的数,
+确认页按「平均用量 × 牌价」估出来的才不会偏低(2026-11-19 试价发现:原来牌价表只写 20 万以内的价,
+grok-4.7 十次里两次过线,估出来 $0.24、实际均价 $0.30,错误日志同日)。
+真实撞到过四次,都是 grok-4.7,按上面的算法验算一个 tick 不差:11-18 两次($0.54 / $0.57),
+11-19 两次(输入 200,266 与 314,150 token,$0.70 / $0.69);同一批里输入 197,937 的那次没过线,按平常价。
+搜索来的内容都算输入,搜得多就过线。
 """
 
 from __future__ import annotations
@@ -94,7 +99,8 @@ _SUCCESS_STATUSES = ("completed", "incomplete")  # incomplete = 截断,回答仍
 _TICKS_PER_USD = 1e10  # usage.cost_in_usd_ticks 的单位(三发真实回包与牌价验算一致)
 
 # 官方价目(2026-11-17 核对 docs.x.ai 价目页,并与接口 /v1/language-models 自报的价目逐项对上):
-# 型号 → (输入, 命中缓存的输入, 输出) USD / MTok,20 万 token 以内的档。
+# 型号 → (输入, 命中缓存的输入, 输出) USD / MTok,20 万 token 以内的档;
+# 到了 20 万的那一档三项都是两倍(见模块说明「费用」)。
 # 被测清单(用户 2026-11-17 定「4.5 + 4.7」,工程原则 9):
 #   grok-4.5:Grok 应用里用的那款——官方 2026-07-22 公告「Grok 4.5 now powers Grok wherever you use it」
 #             (grok.com / X / iOS / Android);之后 4.6、4.7 的公告只说进了 Cursor、Grok Build 与接口,没提进应用;
@@ -110,13 +116,18 @@ HELPER_MODEL = "grok-4.3"
 _HELPER_PRICES_PER_MTOK = (1.25, 0.20, 2.50)
 _SEARCH_USD_PER_CALL = 5.0 / 1000.0  # 网页搜索 $5 / 千次(官方价目页「Tools pricing」)
 # 联网问一次的实测均值(确认页在库里攒够实测前用它估价;来历见 meta() 里的口径说明)
-_MEASURED_USD_PER_CALL = {"grok-4.5": 0.18, "grok-4.7": 0.32}
+_MEASURED_USD_PER_CALL = {"grok-4.5": 0.16, "grok-4.7": 0.31}
+_LONG_PROMPT_TOKENS = 200_000  # 单次提示(平台报的 input_tokens,含命中缓存的)到这个数,全部 token 按高一档计
+_LONG_PRICE_FACTOR = 2.0  # 官方价目页「≥ 200k prompt tokens」一行的三项价都是「< 200k」一行的两倍
 
 
 def _prices(price_in: float, price_cached: float, price_out: float) -> dict[str, float]:
-    """牌价(用量 × 牌价 = 费用;计费项与 _usage 读出的键一致):token 按每个 token 折,搜索按每次。"""
-    return {"input_tokens": price_in / 1e6, "cached_input_tokens": price_cached / 1e6,
-            "output_tokens": price_out / 1e6, "searches": _SEARCH_USD_PER_CALL}
+    """牌价(用量 × 牌价 = 费用;计费项与 _usage 读出的键一致):token 按每个 token 折,搜索按每次。
+    提示到了 20 万 token 的那一档是另一组计费项(`_long`),价是两倍;搜索费两档一样。"""
+    usual = {"input_tokens": price_in / 1e6, "cached_input_tokens": price_cached / 1e6,
+             "output_tokens": price_out / 1e6}
+    return {**usual, **{f"{key}_long": price * _LONG_PRICE_FACTOR for key, price in usual.items()},
+            "searches": _SEARCH_USD_PER_CALL}
 
 
 _PRICE_TABLE: dict[str, dict[str, float]] = {
@@ -143,7 +154,7 @@ _MODELS_CHECKED = ("2026-11-17 接口列型号(免费):grok-4.7 / 4.6 / 4.5 / 4.
 _NO_X_NOTE = MethodNote(zh="本次 Grok 的结果不包含 X 内容。",
                         en="Grok's results in this run do not include content from X.")
 # 只在这一单测了 grok-4.7 时写(用户 2026-11-18:「加一行提示解释一下这个单独型号的状态」;句子是 Claude 拟的):
-# 它 7 份真实回答都只附搜到的清单、不在正文里标出处,那样的回答引用记「看不到」(见模块说明「引用」一条)
+# 它 17 份真实回答(11-19 试价后)都只附搜到的清单、不在正文里标出处,那样的回答引用记「看不到」(见模块说明「引用」一条)
 _NO_MARKS_NOTE = MethodNote(
     models=["grok-4.7"],
     zh="Grok 4.7 的回答通常不标出处,它引用了哪些网页看不到(不是 0);它搜到了哪些网页照常统计。",
@@ -160,16 +171,22 @@ _CAPABILITIES = CapabilityRegistry(
 
 def _usage(data: dict[str, Any]) -> dict[str, float]:
     """这次调用的计费用量,键与 _PRICE_TABLE 一致:输入分两档(没命中缓存的 / 命中缓存的,之和 = 平台报的 input_tokens,
-    检索回来的内容已计入)、输出 token(平台已把推理 token 计入)、计费的网页搜索次数(平台自报)。"""
+    检索回来的内容已计入)、输出 token(平台已把推理 token 计入)、计费的网页搜索次数(平台自报)。
+    提示到了 20 万 token 的那一次,三项 token 都记在 `_long` 的计费项下(那一档另有价),平常的三项记 0。"""
     usage = data.get("usage") or {}
     details = usage.get("input_tokens_details") or {}
     tools = usage.get("server_side_tool_usage_details") or {}
     total_input = float(usage.get("input_tokens") or 0)
     cached = float(details.get("cached_tokens") or 0)
-    return {
+    tokens = {
         "input_tokens": max(0.0, total_input - cached),
         "cached_input_tokens": cached,
         "output_tokens": float(usage.get("output_tokens") or 0),
+    }
+    long_prompt = total_input >= _LONG_PROMPT_TOKENS
+    return {
+        **{key: 0.0 if long_prompt else quantity for key, quantity in tokens.items()},
+        **{f"{key}_long": quantity if long_prompt else 0.0 for key, quantity in tokens.items()},
         "searches": float(tools.get("web_search_calls") or 0),
     }
 
@@ -323,11 +340,11 @@ class GrokWebSearchAdapter(HttpAdapter):
             capabilities=_CAPABILITIES,
             price_table=_PRICE_TABLE,
             method_notes=[_NO_X_NOTE, _NO_MARKS_NOTE],
-            # 口径:实测均值(样本少,2026-11-17 / 18 只搜网页的真实回答):grok-4.5 六次 $0.12–0.23,均 $0.18;
-            # grok-4.7 五次 $0.12 / $0.15 / $0.22 / $0.54 / $0.57,均 $0.32。最贵两次各搜了 4 轮(11、12 回)、
-            # 输入过了 20 万 token 那条线,整单双倍价。搜索次数封不了顶(见模块说明),所以写不出靠得住的上界
-            # (原来写的「推导上界 $0.225」被打破,错误日志 11-18)。库里攒够实测后确认页改读库里的均值;
-            # 真实花费由预算闸门把守。
+            # 口径:实测均值(只搜网页的真实回答,11-17 / 18 冒烟与试验 + 11-19 试价 10 道真单题):
+            # grok-4.5 十六次均 $0.16(试价十次 $0.01–0.24,均 $0.144);
+            # grok-4.7 十五次均 $0.31(试价十次 $0.13–0.70,均 $0.304),十五次里四次过了 20 万 token 那条线、按高一档计。
+            # 搜索次数封不了顶(见模块说明),所以写不出靠得住的上界(原来写的「推导上界 $0.225」被打破,错误日志 11-18)。
+            # 中文单库里已有十次实测,确认页读库里的「平均用量 × 牌价」;这个数只在没有实测时用。真实花费由预算闸门把守。
             est_cost_per_call_usd=dict(_MEASURED_USD_PER_CALL),
             # 闭卷腿口径:同源推导上界,无检索项:(500×$2 + 4096×$6)/1e6 ≈ $0.026
             est_cost_per_call_search_disabled_usd={

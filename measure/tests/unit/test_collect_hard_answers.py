@@ -114,3 +114,21 @@ def test_an_account_problem_stops_only_that_surface(storage):
     assert len(broke.asked) == 1  # 第一题就停,第二种语言不再问
     assert [p.surface for p in problems] == ["broke_surface"]
     assert {r.surface for r in results} == {"fine_surface"} and len(fine.asked) == 2
+
+
+def test_price_probe_questions_are_real_job_questions_with_their_own_ids():
+    """试价题(任务列表第十七节 4):真单那样的题和配比,不是校准题;题号由题面定,和校准题、真单的题都不撞。"""
+    from engine.hard_cases import load_real_brands, prompts_of
+    from scripts.collect_hard_answers import price_probe_prompts
+
+    probe = price_probe_prompts()
+
+    by_intent = {intent: sum(p.intent is intent for p in probe) for intent in PromptIntent}
+    assert by_intent == {
+        PromptIntent.CATEGORY_DISCOVERY: 3, PromptIntent.PROBLEM_SOLUTION: 2, PromptIntent.RECOMMENDATION: 2,
+        PromptIntent.COMPARISON_ALTERNATIVE: 2, PromptIntent.BRAND_FACT: 1,
+    }
+    assert {p.locale for p in probe} == {"zh-CN"}
+    assert [p.prompt_id for p in probe] == [p.prompt_id for p in price_probe_prompts()]  # 再跑一遍还是这几道
+    calibration = {p.prompt_id for brand in load_real_brands() for p in prompts_of(brand)}
+    assert len({p.prompt_id for p in probe}) == len(probe) and not calibration & {p.prompt_id for p in probe}

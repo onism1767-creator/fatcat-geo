@@ -151,8 +151,30 @@ def test_usage_splits_cached_input_and_cost_falls_back_to_list_price_when_not_re
     run = adapter.ask(make_request())
     assert adapter.usage_of(run.raw_payload) == {
         "input_tokens": 35602.0, "cached_input_tokens": 27136.0, "output_tokens": 2620.0, "searches": 5.0,
-    }  # 62,738 输入里 27,136 命中缓存;输出含推理
+        "input_tokens_long": 0.0, "cached_input_tokens_long": 0.0, "output_tokens_long": 0.0,
+    }  # 62,738 输入里 27,136 命中缓存;输出含推理;没到 20 万,高一档的计费项都是 0
     assert run.cost_usd == pytest.approx((35602 * 2.0 + 27136 * 0.30 + 2620 * 6.0) / 1e6 + 5 * 0.005)
+
+
+@pytest.mark.parametrize("total_input, cached, output, searches, ticks, long_prompt", [
+    (197_937, 129_024, 3_757, 10, 2_748_800_000, False),  # 差一点到 20 万:平常价
+    (200_266, 65_664, 4_187, 10, 7_043_160_000, True),  # 刚过线:三项 token 都按高一档
+    (314_150, 228_224, 4_663, 12, 6_878_840_000, True),
+])
+def test_a_prompt_of_200k_tokens_is_billed_at_the_long_rate(total_input, cached, output, searches, ticks, long_prompt):
+    """提示到了 20 万 token,这一次的全部 token 按高一档(两倍)计,搜索费不变。三组数是 2026-11-19 试价时
+    grok-4.7 的真实用量与平台自报费用:用量 × 牌价一个 tick 不差——确认页按「平均用量 × 牌价」估,
+    牌价表不写这一档就会估低(当时估 $0.24,实际均价 $0.30)。"""
+    adapter = GrokWebSearchAdapter(api_key="test-key")
+    usage = adapter.usage_of({"usage": {
+        "input_tokens": total_input, "output_tokens": output, "input_tokens_details": {"cached_tokens": cached},
+        "server_side_tool_usage_details": {"web_search_calls": searches}, "cost_in_usd_ticks": ticks,
+    }})
+    assert priced(adapter.meta().price_table["grok-4.7"], usage) == pytest.approx(ticks / 1e10, abs=1e-12)
+    suffix, unused = ("_long", "") if long_prompt else ("", "_long")
+    assert usage[f"input_tokens{suffix}"] == total_input - cached and usage[f"output_tokens{suffix}"] == output
+    assert usage[f"cached_input_tokens{suffix}"] == cached and usage["searches"] == searches
+    assert all(usage[f"{key}{unused}"] == 0 for key in ("input_tokens", "cached_input_tokens", "output_tokens"))
 
 
 # ── 搜到 ≠ 引用 ───────────────────────────────────────────────────────
@@ -373,11 +395,12 @@ def test_model_list_flags_and_the_helper_that_only_answers_closed_book():
     assert set(meta.price_table) == {"grok-4.5", "grok-4.7", "grok-4.3"}
     assert meta.price_table["grok-4.5"]["cached_input_tokens"] == pytest.approx(0.30e-6)
     assert meta.price_table["grok-4.7"]["cached_input_tokens"] == pytest.approx(0.50e-6)
-    assert meta.price_table["grok-4.3"] == pytest.approx(
-        {"input_tokens": 1.25e-6, "cached_input_tokens": 0.20e-6, "output_tokens": 2.50e-6, "searches": 0.005})
+    assert meta.price_table["grok-4.3"] == pytest.approx({  # 到了 20 万 token 的那一档三项都是两倍,搜索费不变
+        "input_tokens": 1.25e-6, "cached_input_tokens": 0.20e-6, "output_tokens": 2.50e-6, "searches": 0.005,
+        "input_tokens_long": 2.50e-6, "cached_input_tokens_long": 0.40e-6, "output_tokens_long": 5.00e-6})
     assert set(meta.est_cost_per_call_usd) == set(meta.est_cost_per_call_search_disabled_usd) == set(meta.models)
-    # 联网问一次的估价 = 实测均值(样本少);4.7 有一次过了 20 万 token 整单双倍价,所以不写「上界」
-    assert meta.est_cost_per_call_usd == {"grok-4.5": 0.18, "grok-4.7": 0.32}
+    # 联网问一次的估价 = 实测均值(11-19 试价后 4.5 十六次、4.7 十五次);搜索次数封不了顶,所以不写「上界」
+    assert meta.est_cost_per_call_usd == {"grok-4.5": 0.16, "grok-4.7": 0.31}
     # 报告「这次是怎么测的」里的一句(用户 2026-11-18 定的原话):接口这边没开 X 帖子搜索
     whole, only_47 = meta.method_notes
     assert (whole.zh, whole.en, whole.models) == (

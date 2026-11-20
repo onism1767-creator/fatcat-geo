@@ -1,0 +1,21 @@
+# 试价题(任务列表第十七节 4,用户 2026-11-19 定「两款各 10 道」):给还没跑过真单的型号攒实测用量,
+# 确认页满 10 次就按实测估价。`scripts/collect_hard_answers.py --price-probe --models …` 读。
+#
+# 为什么不用校准题(config/calibration_real.yaml):校准题里有专门挑的反例题,AI 基本不搜,和真单的题不是一类——
+# 在四个型号上对照过,校准题的均价和真单均价差 −37% 到 +44%(错误日志 2026-11-19)。
+#
+# 这 10 道是真单的题:取自 2026-11-03 小米那一单(智能手机,AI 出的题,24 道),按产品文档 15.2 的配比
+# (品类发现两份、其余各一份)轮着取到 10 道 = 品类 3、问题 2、推荐 2、对比 2、品牌事实 1,各题型取单里排在前面的。
+# 这 10 道在那一单四个型号上的均价比全部 24 道高 4%。题面一个字不改;改了题面就是新题(题号由题面算)。
+locale: zh-CN
+questions:
+  - {intent: category_discovery, text: "第一次买智能手机，哪些机型适合日常使用、上手简单？"}
+  - {intent: category_discovery, text: "对手机比较熟悉，哪些机型在性能、系统体验和使用寿命上综合表现好？"}
+  - {intent: category_discovery, text: "预算有限，哪些智能手机最值得买，日常使用也不会明显卡顿？"}
+  - {intent: problem_solution, text: "我现在的手机电池越来越不耐用，想换一部续航更持久的智能手机，该怎么选？"}
+  - {intent: problem_solution, text: "我经常在手机上玩大型游戏，怎样挑一部不容易发热、运行流畅的智能手机？"}
+  - {intent: recommendation, text: "我想买一部日常使用流畅、续航可靠的智能手机，你会推荐什么？"}
+  - {intent: recommendation, text: "请根据拍照清晰、录像稳定这两个需求，帮我推荐一部智能手机。"}
+  - {intent: comparison_alternative, text: "苹果手机有哪些值得考虑的替代品？"}
+  - {intent: comparison_alternative, text: "三星和华为的手机怎么选？"}
+  - {intent: brand_fact, text: "小米主要做什么，它的智能手机有哪些主打特点和不足？"}

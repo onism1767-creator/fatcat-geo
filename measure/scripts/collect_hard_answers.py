@@ -10,6 +10,11 @@
 `--locale zh-CN` 只问这种语言的题。回答照样带计费用量进 call_usage。
 
     .venv\\Scripts\\python -X utf8 scripts/collect_hard_answers.py --locale zh-CN --models gpt-6-astra claude-fable-5-1
+
+试价(2026-11-19,任务列表第十七节 4):`--price-probe` 把题换成 config/price_probe.yaml 里那几道真单的题——校准题里的反例题
+基本不搜,拿它攒出来的「实测」和真单差得远(错误日志 2026-11-19)。别的都一样:每题 1 次、上限、只补没问到的。
+
+    .venv\\Scripts\\python -X utf8 scripts/collect_hard_answers.py --price-probe --models grok-4.5 grok-4.7
 """
 
 from __future__ import annotations
@@ -20,6 +25,9 @@ import sys
 from collections.abc import Mapping
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+from uuid import NAMESPACE_URL, uuid5
+
+import yaml
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -27,13 +35,24 @@ from adapters.base import SurfaceAdapter
 from engine.envfile import load_env_file
 from engine.hard_cases import load_real_brands, prompts_of
 from engine.loader import build_adapters, load_surface_registry
-from engine.models import Prompt, StopReason
+from engine.models import Prompt, PromptIntent, PromptOrigin, StopReason
 from engine.scheduler import AccountProblem, RepeatSampler, SamplingPolicy, SamplingResult
 from engine.storage import Storage, default_dsn
 
 CAP_MARGIN = 1.1  # 声明价一般比实测高,这点余量只防个别题特别贵
 RUNS_PER_PROMPT = 1
 SECONDS_PER_CALL = 20.0  # 和 report/estimate.py 的兜底值同一个粗估
+PRICE_PROBE_PATH = Path(__file__).resolve().parents[1] / "config" / "price_probe.yaml"
+_PRICE_PROBE_PROMPTS = uuid5(NAMESPACE_URL, "geo-toast/price-probe")
+
+
+def price_probe_prompts(path: Path = PRICE_PROBE_PATH) -> list[Prompt]:
+    """试价题。题号由题面算出来:再跑一遍还是这几道题,已问过的不重问;和真单里同样题面的题不是同一道
+    (不进任何一单,也不算进哪个品牌的上一单)。"""
+    data = yaml.safe_load(Path(path).read_text(encoding="utf-8"))
+    return [Prompt(prompt_id=str(uuid5(_PRICE_PROBE_PROMPTS, question["text"])), text=question["text"],
+                   intent=PromptIntent(question["intent"]), origin=PromptOrigin.ASSISTED, locale=data["locale"])
+            for question in data["questions"]]
 
 
 def models_to_ask(adapter: SurfaceAdapter, only: list[str] | None) -> list[str]:
@@ -88,16 +107,28 @@ def collect(
     return [r for results, _ in outcomes for r in results], [p for _, problems in outcomes for p in problems]
 
 
-def print_plan(adapters: Mapping[str, SurfaceAdapter], prompts: list[Prompt], only: list[str] | None) -> None:
+def print_calibration_questions(prompts: list[Prompt]) -> None:
     brands = [brand for brand in load_real_brands() if any(p.locale == brand.locale for p in prompts)]
     for brand in brands:
         print(f"\n{brand.name}({brand.locale},别名:{'、'.join(brand.aliases) or '无'})")
         for label, questions in (("点名", brand.naming), ("反例", brand.counter), ("不点名", brand.open)):
             for question in questions:
                 print(f"  [{label}] {question}")
+    print(f"\n{len(brands)} 个品牌")
+
+
+def print_plan(
+    adapters: Mapping[str, SurfaceAdapter], prompts: list[Prompt], only: list[str] | None, *, price_probe: bool = False,
+) -> None:
+    if price_probe:
+        print("\n试价题(config/price_probe.yaml)")
+        for prompt in prompts:
+            print(f"  [{prompt.intent.value}] {prompt.text}")
+    else:
+        print_calibration_questions(prompts)
     plan = [(name, model) for name, adapter in adapters.items() for model in models_to_ask(adapter, only)]
     answers = len(prompts) * RUNS_PER_PROMPT * len(plan)
-    print(f"\n{len(brands)} 个品牌 {len(prompts)} 道题,{len(plan)} 个型号各问 {RUNS_PER_PROMPT} 次,共 {answers} 条回答")
+    print(f"{len(prompts)} 道题,{len(plan)} 个型号各问 {RUNS_PER_PROMPT} 次,共 {answers} 条回答")
     declared = 0.0
     for name, model in plan:
         cost = declared_cost(adapters[name], model, len(prompts))
@@ -125,12 +156,15 @@ def main() -> int:
     parser.add_argument("--go", action="store_true", help="真问(花钱);不写只列题目和预估")
     parser.add_argument("--models", nargs="*", default=None, help="只问这些型号(默认每家问消费端默认型号)")
     parser.add_argument("--locale", default=None, help="只问这种语言的题,如 zh-CN(默认全部)")
+    parser.add_argument("--price-probe", action="store_true",
+                        help="试价:题换成 config/price_probe.yaml 里的真单题(给新型号攒实测用量)")
     args = parser.parse_args()
 
     load_env_file()
     adapters = build_adapters(os.environ)
-    prompts = [prompt for brand in load_real_brands() for prompt in prompts_of(brand)
-               if args.locale is None or brand.locale == args.locale]
+    prompts = price_probe_prompts() if args.price_probe else [
+        prompt for brand in load_real_brands() for prompt in prompts_of(brand)]
+    prompts = [prompt for prompt in prompts if args.locale is None or prompt.locale == args.locale]
     if args.models is not None:
         known = {model for adapter in adapters.values() for model in adapter.meta().models}
         unknown = sorted(set(args.models) - known)
@@ -139,7 +173,7 @@ def main() -> int:
             return 1
         adapters = {name: adapter for name, adapter in adapters.items() if models_to_ask(adapter, args.models)}
     try:
-        print_plan(adapters, prompts, args.models)
+        print_plan(adapters, prompts, args.models, price_probe=args.price_probe)
         if not args.go:
             return 0
         missing = {entry.name for entry in load_surface_registry() if entry.enabled} - set(adapters)
