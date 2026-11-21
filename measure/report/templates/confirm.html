@@ -58,6 +58,10 @@
       <label style="font-weight:400;margin-right:14px"><input type="checkbox" class="ai-pick" value="{{ surface }}"> {{ ai_name }}</label>
       {% endfor %}
     </div>
+    <p class="kv muted" id="est-pick-first">{{ t["est_pick_first"] }}</p>
+    {#- 勾了至少一家 AI,下面这一块(档位、自定义、费用上限、预估)才展开(用户 2026-11-20 定:「选择了AI之后,再展开低中高」)。
+        收起由页面脚本做,不写死在标签上:脚本没跑起来时整块照常显示,不至于选不了档位 -#}
+    <div id="after-ai">
     {#- 档位三张卡片(S9.1,架构书附录 v0.4.27;默认选「中」,用户定):每张用人话写每家测哪些型号、每题问几次、「提到你」怎么认、本单预估 -#}
     <p class="muted" style="margin:0 0 8px">{{ t["tier_intro"] }}</p>
     <div class="tiers">
@@ -67,7 +71,8 @@
         <b>{{ t["tier_name_" + spec.name] }}</b>{% if spec.name == default_tier %} <span class="muted">({{ t["tier_default_word"] }})</span>{% endif %}
         <div class="muted" style="margin:2px 0 4px">{{ t["tier_blurb_" + spec.name] }}</div>
         <ul class="ev">
-          <li>{{ t["tier_models_line"] }}:{% for x in targets %}{{ target_name(x.surface, x.model) }}{% if not loop.last %};{% endif %}{% endfor %}</li>
+          {#- 只显示勾上的那几家的型号(脚本按上面的开关收起别家的;分号由样式补在显示出来的型号之间) -#}
+          <li>{{ t["tier_models_line"] }}:{% for x in targets %}<span class="tier-model" data-surface="{{ x.surface }}">{{ target_name(x.surface, x.model) }}</span>{% endfor %}</li>
           <li>{{ t["tier_runs_line"].format(n=spec.runs_per_prompt) }}</li>
           <li>{{ t["tier_method_line"] }}{{ t["method_" + spec.mention_method.value] }}</li>
           <li>{{ t["tier_est_line"] }}<b><span class="tier-est" data-tier="{{ spec.name }}">–</span></b></li>
@@ -110,7 +115,6 @@
     </div>
     <label style="font-weight:400"><input type="checkbox" name="dependency" value="on"> {{ t["dep_label"] }}</label>
     <p class="muted" style="margin:2px 0 8px">{{ t["dep_hint"] }}</p>
-    <p class="kv muted" id="est-pick-first">{{ t["est_pick_first"] }}</p>
     <p class="kv">{{ t["est_label"] }}<b><span id="est-calls">–</span></b> {{ t["est_calls_word"] }} ·
       ≈ <b>$<span id="est-cost">–</span></b> ·
       ≈ <b><span id="est-min">–</span> {{ t["est_min_word"] }}</b>({{ t["est_note"] }})
@@ -121,6 +125,7 @@
     <p class="kv muted">{{ t["est_breakdown"] }}<span id="est-breakdown">–</span></p>
     <p class="kv muted">{{ est_basis }}</p>
     <p class="kv" style="color:#a15c00">{{ t["est_balance_hint"] }}</p>
+    </div>
   </div>
   <button type="submit">{{ t["confirm_submit"] }}</button>
 </form>
@@ -158,7 +163,12 @@ function blankEstimate() {  // 一家都没勾(或填的次数不对):不留着�
   ['est-custom', 'est-judge'].forEach(id => { document.getElementById(id).style.display = 'none'; });
   document.getElementById('est-high').textContent = '';
   form.querySelectorAll('.tier-est').forEach(el => { el.textContent = '–'; });
-  document.getElementById('est-pick-first').style.display = modelBoxes.some(cb => cb.checked) ? 'none' : '';
+}
+function showAfterAi() {  // 勾了至少一家才展开档位和预估;档位卡片上只列勾上的那几家的型号
+  const picked = aiBoxes.filter(ai => ai.checked).map(ai => ai.value);
+  document.getElementById('after-ai').hidden = picked.length === 0;
+  document.getElementById('est-pick-first').hidden = picked.length > 0;
+  form.querySelectorAll('.tier-model').forEach(el => { el.hidden = !picked.includes(el.dataset.surface); });
 }
 function judgeNote(e) { return (e.judge_upto ? WORDS.judgeUpto : WORDS.judge).replace('{n}', e.judge_calls).replace('{cost}', e.judge_cost_usd.toFixed(2)); }
 function fmt(e) {
@@ -174,7 +184,6 @@ async function recalc() {
   if (!resp.ok) { blankEstimate(); return; }
   const e = await resp.json();
   if (mine !== seq) return;  // 连续勾选时只显示最后一次的结果
-  document.getElementById('est-pick-first').style.display = 'none';
   document.getElementById('est-calls').textContent = e.calls;
   document.getElementById('est-cost').textContent = e.cost_usd.toFixed(2);
   document.getElementById('est-min').textContent = e.minutes.toFixed(1);
@@ -190,9 +199,10 @@ async function recalc() {
     if (el) el.textContent = fmt(est);
   }
 }
-document.addEventListener('change', recalc);
+document.addEventListener('change', () => { showAfterAi(); recalc(); });
 form.querySelector('textarea[name=custom]').addEventListener('input', recalc);
 form.querySelector('input[name=runs]').addEventListener('input', recalc);
+showAfterAi();
 recalc();
 </script>
 {% endblock %}

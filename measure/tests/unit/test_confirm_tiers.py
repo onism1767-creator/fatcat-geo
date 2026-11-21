@@ -61,15 +61,24 @@ def test_confirm_page_shows_three_tier_cards_with_medium_selected():
     assert 'name="tier" value="low"' in html and 'name="tier" value="high"' in html
     assert 'name="tier" value="medium" checked' in html  # 默认「中」(用户定)
     assert "低档" in html and "中档" in html and "高档" in html
-    # 卡片写每家按这一档测哪些型号:低档每家一个消费端默认型号;中档 s2 两个(主力 + 默认)、s1 一个;高档全部
-    assert "每家 AI 测这些型号(只测你勾上的那几家):S1 · m1;S2 API · m_cheap" in html
-    assert "每家 AI 测这些型号(只测你勾上的那几家):S1 · m1;S2 API · m_top;S2 API · m_cheap" in html
+    # 卡片写每家按这一档测哪些型号(页面脚本只留勾上的那几家):低档每家一个消费端默认型号;
+    # 中档 s2 两个(主力 + 默认)、s1 一个;高档全部
+    def model(surface: str, name: str) -> str:
+        return f'<span class="tier-model" data-surface="{surface}">{name}</span>'
+    assert "测这些 AI 型号:" + model("s1", "S1 · m1") + model("s2", "S2 API · m_cheap") + "</li>" in html
+    assert ("测这些 AI 型号:" + model("s1", "S1 · m1") + model("s2", "S2 API · m_top")
+            + model("s2", "S2 API · m_cheap") + "</li>") in html
     assert "每道题原样问 5 次" in html and "每道题原样问 7 次" in html
     assert "按你的名字和别名精确匹配" in html  # 「提到你」怎么认,从配置来
     assert "自动校准还没做" in html  # 准确率对比只写实测,没有就说没有
     # 测哪几家 AI 由用户自己勾(用户 2026-11-20 定):每家一个开关,一开始一家都不勾,自定义区的型号也一个都不勾
     assert 'class="ai-pick" value="s1"> S1' in html and 'class="ai-pick" value="s2"> S2' in html
-    assert "测哪几家 AI(至少勾一家;只列出你填了 key 的)" in html and "勾上要测的 AI 之后,这里显示预估。" in html
+    assert "测哪几家 AI(至少勾一家;只列出你填了 key 的)" in html
+    # 勾了至少一家,档位和预估那一块才展开(用户 2026-11-20 定);那一块在开关行和提示的后面,收起由页面脚本做
+    assert "先勾上要测的 AI,下面才会展开档位和预估。" in html
+    assert html.index('class="ai-pick"') < html.index('id="est-pick-first"') < html.index('<div id="after-ai">')
+    assert html.index('<div id="after-ai">') < html.index('name="tier"') < html.index('id="est-calls"')
+    assert "getElementById('after-ai').hidden = picked.length === 0" in html
     assert 'name="targets_selected" value="s2::m_top" data-surface="s2">' in html
     assert html.count('name="targets_selected"') == 3 and "ai-pick\" value=\"s1\" checked" not in html
     assert not [line for line in html.splitlines() if 'name="targets_selected"' in line and "checked" in line]
@@ -79,7 +88,7 @@ def test_confirm_page_shows_three_tier_cards_with_medium_selected():
     text = visible_text(html)
     assert not any(token in text for token in UI_FORBIDDEN), text[:300]
     en = client.get(_confirm_url(client).replace("lang=zh", "lang=en")).text
-    assert "Medium" in en and "asked 5 times" in en and "Models checked for each AI (only the AIs you tick):" in en
+    assert "Medium" in en and "asked 5 times" in en and "AI models checked:" in en
     assert "Which AIs to test (tick at least one" in en
 
 
