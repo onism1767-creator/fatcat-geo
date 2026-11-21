@@ -3,7 +3,7 @@
 
 from fastapi.testclient import TestClient
 
-from adapters.base import CapabilityRegistry, SurfaceAdapter, SurfaceMeta
+from adapters.base import CapabilityRegistry, MethodNote, SurfaceAdapter, SurfaceMeta
 from engine.judge import JudgeConfig, JudgeModel
 from engine.models import Target
 from engine.tiers import MentionMethod
@@ -294,3 +294,53 @@ def test_tier_config_comments_name_the_detector_versions_actually_in_use():
         brand_mention_fuzzy.DETECTOR_NAME: brand_mention_fuzzy.DETECTOR_VERSION,
         brand_mention_judge.DETECTOR_NAME: brand_mention_judge.DETECTOR_VERSION,
     }
+
+
+class TickableVersionAdapter(TwoModelAdapter):
+    """s2 多开一个开关的版本:是另一台仪器(自己的名字和估价),声明自己收在 s2 下面当一个可勾的选项。"""
+
+    def meta(self) -> SurfaceMeta:
+        return super().meta().model_copy(update={
+            "surface": "s2_plus", "display_name": "S2 + 帖子", "api_name": "S2 API + 帖子",
+            "est_cost_per_call_usd": {"m_cheap": 0.02, "m_top": 0.20},
+            "variant_of": "s2", "variant_label": MethodNote(zh="也搜帖子(更贵)", en="Also search posts (costs more)"),
+        })
+
+
+def _client_with_option() -> TestClient:
+    app = create_app(call_stats=lambda brand=None: [],
+                     adapters={"s1": DummyAdapter(), "s2": TwoModelAdapter(), "s2_plus": TickableVersionAdapter()},
+                     dsn="postgresql://unused", evidence=REGISTRY, job_runner=lambda **kw: None, judges=JUDGES,
+                     calibration=None)
+    return TestClient(app)
+
+
+def test_a_tickable_version_sits_under_its_ai_as_an_option_not_as_another_ai():
+    """用户 2026-11-20 定「多一个选项里可以打钩的选项」:声明了 variant_of 的仪器不在「测哪几家 AI」里单列,
+    收在那一家下面当一个勾选框(默认不勾);它的型号照常列在自定义区,档位卡片里也有它(脚本只显示现在测的那台)。"""
+    client = _client_with_option()
+    url = _confirm_url(client)
+    html = client.get(url).text
+    assert html.count('class="ai-pick"') == 2 and 'class="ai-pick" value="s2_plus"' not in html
+    assert '<input type="checkbox" class="ai-variant" data-base="s2" value="s2_plus"> 也搜帖子(更贵)</label>' in html
+    assert 'class="ai-option" data-base="s2"' in html
+    assert not [line for line in html.splitlines() if 'class="ai-variant"' in line and "checked" in line]
+    assert 'name="targets_selected" value="s2_plus::m_top" data-surface="s2_plus">' in html
+    assert '<span class="tier-model" data-surface="s2_plus">S2 API + 帖子 · m_top</span>' in html
+    assert "Also search posts (costs more)" in client.get(url.replace("lang=zh", "lang=en")).text
+    text = visible_text(html)
+    assert not any(token in text for token in UI_FORBIDDEN), text[:300]
+
+
+def test_picking_the_tickable_version_instead_of_the_plain_one_is_still_a_tier_not_custom():
+    """勾上那个选项 = 测那一台、不测原来那台:型号仍是这一档给它挑的,不算自定义;预估按它自己的单价。"""
+    client = _client_with_option()
+    path = _confirm_url(client).split("?")[0].rsplit("/", 1)[0]
+    base = {"prompts_selected": ["0", "1"], "custom": "", "tier": "medium", "runs": "5"}
+    plain = client.post(f"{path}/estimate", data={**base, "targets_selected": ["s2::m_top", "s2::m_cheap"]}).json()
+    plus = client.post(f"{path}/estimate",
+                       data={**base, "targets_selected": ["s2_plus::m_top", "s2_plus::m_cheap"]}).json()
+    assert plain["custom"] is False and plus["custom"] is False
+    assert plain["cost_usd"] == round(10 * (0.10 + 0.01), 4) and plus["cost_usd"] == round(10 * (0.20 + 0.02), 4)
+    assert [row["display"] for row in plus["breakdown"]] == ["S2 API + 帖子 · m_top", "S2 API + 帖子 · m_cheap"]
+    assert plus["tiers"]["low"]["calls"] == 2 * 3 * 1 and plus["tiers"]["high"]["calls"] == 2 * 7 * 2

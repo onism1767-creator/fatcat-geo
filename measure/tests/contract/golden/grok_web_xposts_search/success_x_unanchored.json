@@ -1,0 +1,559 @@
+{
+  "created_at": 1795044145,
+  "completed_at": 1795044206,
+  "id": "bf76c9ad-b271-912b-b518-6e78716dcd59",
+  "max_output_tokens": 4096,
+  "model": "grok-4.7",
+  "object": "response",
+  "output": [
+    {
+      "id": "rs_bf76c9ad-b271-912b-b518-6e78716dcd59",
+      "summary": [
+        {
+          "text": "正在分析用户关于始祖鸟近期公众评价的问题。",
+          "type": "summary_text"
+        }
+      ],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "ws_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-0",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "始祖鸟 评价 最近",
+        "sources": [
+          {
+            "type": "url",
+            "url": "https://www.sohu.com/a/1101609702_121284943"
+          },
+          {
+            "type": "url",
+            "url": "https://www.sohu.com/a/1100195619_121321723"
+          },
+          {
+            "type": "url",
+            "url": "https://www.163.com/dy/article/LBRV66E6051492T3.html"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-1",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "Arc'teryx reviews recent public opinion 2024 2025",
+        "sources": [
+          {
+            "type": "url",
+            "url": "https://reviewbolt.com/r/arcteryx.com"
+          },
+          {
+            "type": "url",
+            "url": "https://www.trustpilot.com/review/arcteryx.com"
+          },
+          {
+            "type": "url",
+            "url": "https://thesmartselection.com/arcteryx-review/"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-2",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "始祖鸟 争议 OR 口碑 OR 评价 2024 OR 2025",
+        "sources": [
+          {
+            "type": "url",
+            "url": "https://www.thepaper.cn/newsDetail_forward_31686152"
+          },
+          {
+            "type": "url",
+            "url": "https://finance.sina.com.cn/jjxw/2026-11-16/doc-iniyxcif2446409.shtml"
+          },
+          {
+            "type": "url",
+            "url": "https://www.huxiu.com/article/4783022.html"
+          }
+        ]
+      }
+    },
+    {
+      "call_id": "xs_call-1a893a74-28a7-47a7-a572-6c775c20d82d-3",
+      "input": "{\"query\":\"始祖鸟\",\"limit\":\"5\",\"mode\":\"Latest\"}",
+      "name": "x_keyword_search",
+      "type": "custom_tool_call",
+      "id": "ctc_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-3",
+      "status": "completed"
+    },
+    {
+      "id": "tco_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-0",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "tco_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-1",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "tco_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-2",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "tco_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-3",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "rs_bf76c9ad-b271-912b-b518-6e78716dcd59",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "ws_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-4",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "始祖鸟 烟花 事件 后续 口碑",
+        "sources": [
+          {
+            "type": "url",
+            "url": "https://www.zaobao.com.sg/news/china/story20250921-7547903"
+          },
+          {
+            "type": "url",
+            "url": "https://www.ctdsb.net/c1476_202611/2904989.html"
+          },
+          {
+            "type": "url",
+            "url": "https://36kr.com/p/3477946940922246"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-5",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "始祖鸟 质量 下降 OR 智商税 OR 值得买 2025 OR 2026",
+        "sources": [
+          {
+            "type": "url",
+            "url": "https://post.smzdm.com/p/a8wq6o7l"
+          },
+          {
+            "type": "url",
+            "url": "https://www.thepaper.cn/newsDetail_forward_34453410"
+          },
+          {
+            "type": "url",
+            "url": "https://portal.sina.com.hk/news-china/sina/2026/11/18/1990538/%e8%90%ac%e5%84%84%e6%88%b6%e5%a4%96%e5%b8%82%e5%a0%b4%e6%8f%90%e5%87%ba%e7%9a%84%e6%96%b0%e5%95%8f%e9%a1%8c%ef%bc%8c%e5%a7%8b%e7%a5%96%e9%b3%a5%e6%8a%8a%e7%ad%94%e6%a1%88%e5%af%ab%e5%9c%a8%e8%a3%9d/"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-6",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "Arc'teryx Himalayas fireworks controversy impact",
+        "sources": [
+          {
+            "type": "url",
+            "url": "https://www.bbc.co.uk/news/articles/c1eddw19042o"
+          },
+          {
+            "type": "url",
+            "url": "https://www.bbc.co.uk/news/articles/c1lq4305336o"
+          },
+          {
+            "type": "url",
+            "url": "https://www.washingtonpost.com/world/2025/09/22/arcteryx-apology-fireworks-mountain-tibet/"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tco_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-4",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "tco_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-5",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "tco_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-6",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "rs_bf76c9ad-b271-912b-b518-6e78716dcd59",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "ws_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-7",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "始祖鸟 黑猫投诉 数量 OR 质量问题",
+        "sources": [
+          {
+            "type": "url",
+            "url": "https://m.dzplus.dzng.com/share/general/0/NEWS2761035HSWRBBLGHEKDP"
+          },
+          {
+            "type": "url",
+            "url": "https://www.xfrb.com.cn/content/202510/23/c595026.html"
+          },
+          {
+            "type": "url",
+            "url": "https://www.thepaper.cn/newsDetail_forward_31646565"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-8",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "亚玛芬 2026 财报 始祖鸟 中国 增长",
+        "sources": [
+          {
+            "type": "url",
+            "url": "https://www.thepaper.cn/newsDetail_forward_34496359"
+          },
+          {
+            "type": "url",
+            "url": "https://www.21jingji.com/article/20261118/herald/33ac1d1b77e309c4d7d2ad27d8120f6b.html"
+          },
+          {
+            "type": "url",
+            "url": "https://www.caiwennews.com/article/1707381.shtml"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tco_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-7",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "tco_bf76c9ad-b271-912b-b518-6e78716dcd59_call-1a893a74-28a7-47a7-a572-6c775c20d82d-8",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "rs_bf76c9ad-b271-912b-b518-6e78716dcd59",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "content": [
+        {
+          "type": "output_text",
+          "text": "大家最近对始祖鸟的评价比较两极分化，商业热度还在，但口碑裂缝明显。\n\n### 价值观争议仍是最大阴影\n2025年9月，始祖鸟与蔡国强在西藏喜马拉雅高海拔地区办《升龙》烟花秀，迅速引爆舆论。核心户外圈普遍认为这和品牌长期强调的“敬畏自然”“无痕山林”严重背离，不少老用户觉得被“背刺”，明确表示以后不买。品牌道歉后，中英文版本差异又被批“甩锅”。官方后续调查确认有草地破坏、残留物和对野生动物的短期干扰，相关官员被追责，品牌需承担生态修复责任。这件事到现在还经常被拿出来提，是“人设崩了”的典型案例。\n\n### 价格与“智商税”讨论没停过\n贵一直是老话题。国内价常被拿来和海外对比，溢价感强，很多普通用户觉得它更像中产身份符号，而不是纯功能装备。什么值得买等平台上，相当一部分观点认为对非高强度户外需求的人来说性价比一般，凯乐石、Montbell等平替更划算。\n\n但需求并没有塌。最近山姆全球购把Alpha SV等硬壳降价（比天猫官旗便宜一千多），很快被抢空，说明价格下来中产还是愿意冲。\n\n### 质量与售后投诉不少\n黑猫投诉上相关记录累计超过3000条，集中在鞋类开胶、鼓包（鞋履线问题更突出），以及服装开线、起球、拉链、LOGO脱落等。部分用户还反映国内售后质保期较短、体验一般，和海外有差异。专业硬壳的剪裁和极限防护性能，仍被不少户外玩家认可为顶尖水平，但“高价不等于高质”的声音在增加。\n\n### 商业表现依然强\n母公司亚玛芬2026年三季度财报显示，以始祖鸟为主的技术服装板块营收同比增长约26%，大中华区整体增长约30%，公司还上调了全年指引。中国门店继续扩张。说明舆论波动没有直接打断销",
+          "logprobs": [],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "url": "https://www.xfrb.com.cn/content/202510/23/c595026.html",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.xfrb.com.cn/content/202510/23/c595026.html"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://finance.sina.com.cn/jjxw/2026-11-16/doc-iniyxcif2446409.shtml",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://finance.sina.com.cn/jjxw/2026-11-16/doc-iniyxcif2446409.shtml"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://x.com/i/status/2123140428623163629",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://x.com/i/status/2123140428623163629"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://post.smzdm.com/p/a8wq6o7l",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://post.smzdm.com/p/a8wq6o7l"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://reviewbolt.com/r/arcteryx.com",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://reviewbolt.com/r/arcteryx.com"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.zaobao.com.sg/news/china/story20250921-7547903",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.zaobao.com.sg/news/china/story20250921-7547903"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.trustpilot.com/review/arcteryx.com",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.trustpilot.com/review/arcteryx.com"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://m.dzplus.dzng.com/share/general/0/NEWS2761035HSWRBBLGHEKDP",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://m.dzplus.dzng.com/share/general/0/NEWS2761035HSWRBBLGHEKDP"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://thesmartselection.com/arcteryx-review/",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://thesmartselection.com/arcteryx-review/"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://x.com/i/status/2123012907856539887",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://x.com/i/status/2123012907856539887"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.huxiu.com/article/4783022.html",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.huxiu.com/article/4783022.html"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.bbc.co.uk/news/articles/c1lq4305336o",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.bbc.co.uk/news/articles/c1lq4305336o"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://x.com/i/status/2122994132344057964",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://x.com/i/status/2122994132344057964"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.163.com/dy/article/LBRV66E6051492T3.html",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.163.com/dy/article/LBRV66E6051492T3.html"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.sohu.com/a/1101609702_121284943",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.sohu.com/a/1101609702_121284943"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.thepaper.cn/newsDetail_forward_34496359",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.thepaper.cn/newsDetail_forward_34496359"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.sohu.com/a/1100195619_121321723",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.sohu.com/a/1100195619_121321723"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.caiwennews.com/article/1707381.shtml",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.caiwennews.com/article/1707381.shtml"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://portal.sina.com.hk/news-china/sina/2026/11/18/1990538/%e8%90%ac%e5%84%84%e6%88%b6%e5%a4%96%e5%b8%82%e5%a0%b4%e6%8f%90%e5%87%ba%e7%9a%84%e6%96%b0%e5%95%8f%e9%a1%8c%ef%bc%8c%e5%a7%8b%e7%a5%96%e9%b3%a5%e6%8a%8a%e7%ad%94%e6%a1%88%e5%af%ab%e5%9c%a8%e8%a3%9d/",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://portal.sina.com.hk/news-china/sina/2026/11/18/1990538/%e8%90%ac%e5%84%84%e6%88%b6%e5%a4%96%e5%b8%82%e5%a0%b4%e6%8f%90%e5%87%ba%e7%9a%84%e6%96%b0%e5%95%8f%e9%a1%8c%ef%bc%8c%e5%a7%8b%e7%a5%96%e9%b3%a5%e6%8a%8a%e7%ad%94%e6%a1%88%e5%af%ab%e5%9c%a8%e8%a3%9d/"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.ctdsb.net/c1476_202611/2904989.html",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.ctdsb.net/c1476_202611/2904989.html"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.thepaper.cn/newsDetail_forward_31646565",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.thepaper.cn/newsDetail_forward_31646565"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.thepaper.cn/newsDetail_forward_34453410",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.thepaper.cn/newsDetail_forward_34453410"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.thepaper.cn/newsDetail_forward_31686152",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.thepaper.cn/newsDetail_forward_31686152"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.washingtonpost.com/world/2025/09/22/arcteryx-apology-fireworks-mountain-tibet/",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.washingtonpost.com/world/2025/09/22/arcteryx-apology-fireworks-mountain-tibet/"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.bbc.co.uk/news/articles/c1eddw19042o",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.bbc.co.uk/news/articles/c1eddw19042o"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://www.21jingji.com/article/20261118/herald/33ac1d1b77e309c4d7d2ad27d8120f6b.html",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://www.21jingji.com/article/20261118/herald/33ac1d1b77e309c4d7d2ad27d8120f6b.html"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://36kr.com/p/3477946940922246",
+              "start_index": 0,
+              "end_index": 0,
+              "title": "https://36kr.com/p/3477946940922246"
+            }
+          ]
+        }
+      ],
+      "id": "msg_bf76c9ad-b271-912b-b518-6e78716dcd59",
+      "role": "assistant",
+      "type": "message",
+      "status": "completed"
+    }
+  ],
+  "parallel_tool_calls": true,
+  "previous_response_id": null,
+  "reasoning": {
+    "effort": "high",
+    "summary": "detailed"
+  },
+  "temperature": 0.7,
+  "text": {
+    "format": {
+      "type": "text"
+    }
+  },
+  "tool_choice": "auto",
+  "tools": [
+    {
+      "type": "web_search",
+      "search_context_size": "medium"
+    },
+    {
+      "type": "x_search"
+    }
+  ],
+  "top_p": 0.95,
+  "usage": {
+    "input_tokens": 130339,
+    "input_tokens_details": {
+      "cached_tokens": 76288
+    },
+    "output_tokens": 3287,
+    "output_tokens_details": {
+      "reasoning_tokens": 2425
+    },
+    "total_tokens": 133626,
+    "num_sources_used": 0,
+    "num_server_side_tools_used": 9,
+    "cost_in_usd_ticks": 2309680000,
+    "server_side_tool_usage_details": {
+      "web_search_calls": 8,
+      "x_search_calls": 1,
+      "x_posts_fetched": 5,
+      "x_users_fetched": 0,
+      "code_interpreter_calls": 0,
+      "file_search_calls": 0,
+      "mcp_calls": 0,
+      "document_search_calls": 0,
+      "image_generation_calls": 0
+    },
+    "context_details": {
+      "input_tokens": 57014,
+      "output_tokens": 1360
+    }
+  },
+  "user": null,
+  "incomplete_details": null,
+  "status": "completed",
+  "store": false,
+  "metadata": {
+    "system_fingerprint": "fp_c60958d81f66f847"
+  },
+  "background": false,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "top_logprobs": 0,
+  "presence_penalty": 0.0,
+  "frequency_penalty": 0.0,
+  "prompt_cache_key": null,
+  "max_tool_calls": null,
+  "safety_identifier": null,
+  "error": null,
+  "instructions": null
+}

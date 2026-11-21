@@ -222,18 +222,30 @@ def confirm_page(request: Request, job: DiagnosisJob = Depends(existing_job), er
         (name, ctx.display_names[name], [Target(surface=name, model=m) for m in ctx.adapters[name].meta().models])
         for name in sorted(ctx.adapters)
     ]
+    # 「测哪几家 AI」那一行:一家一个开关。声明了 variant_of 的仪器(同一家 AI 多开一个开关的版本,用户 2026-11-20 定
+    # 「多一个选项里可以打钩的选项」)不单列,收在它那一家下面当一个勾选框:勾上 = 测这一台、不测原来那台
+    lang = lang_of(request)
+    variants: dict[str, list[tuple[str, str]]] = {}
+    for name in sorted(ctx.adapters):
+        meta = ctx.adapters[name].meta()
+        if meta.variant_of in ctx.adapters and meta.variant_label is not None:
+            label = meta.variant_label.zh if lang == "zh" else meta.variant_label.en
+            variants.setdefault(meta.variant_of, []).append((name, label))
+    listed_as_option = {name for options in variants.values() for name, _ in options}
+    ai_rows = [(name, ctx.display_names[name], variants.get(name, []))
+               for name in sorted(ctx.adapters) if name not in listed_as_option]
     tiers = ctx.tiers
     tier_cards = [(spec, tier_targets(spec, ctx.adapters)) for spec in tiers.tiers]
     tier_defaults = {spec.name: {"runs": spec.runs_per_prompt, "keys": [x.key for x in targets]}
                      for spec, targets in tier_cards}
-    t = MESSAGES[lang_of(request)]
+    t = MESSAGES[lang]
     basis = [  # 每个型号的单价是怎么来的,按依据分组各说一句(成本调研②:没实测过的说清是借同家默认型号的用量算的)
         t[f"est_basis_{kind.value}"].format(names=t["list_sep"].join(ctx.target_name(x.surface, x.model)
                                                                      for x in targets))
         for kind, targets in prices.by_basis().items()
     ]
     basis.append(t["est_basis_tail"])
-    return ctx.render(request, "confirm.html", job=job, target_groups=target_groups,
+    return ctx.render(request, "confirm.html", job=job, target_groups=target_groups, ai_rows=ai_rows,
                       tier_cards=tier_cards, tier_defaults=tier_defaults, default_tier=tiers.default,
                       default_runs=tiers.default_tier.runs_per_prompt, custom_runs=tiers.custom_runs,
                       est_basis=" ".join(basis), verify_minutes=round(VERIFY_MAX_MINUTES),

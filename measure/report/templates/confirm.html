@@ -54,8 +54,12 @@
         这一行只是页面上的开关,不随表单提交:真正提交的是自定义区里的型号勾选,脚本让它跟着这里和档位变 -#}
     <label>{{ t["ais_label"] }}</label>
     <div style="margin:0 0 12px">
-      {% for surface, ai_name, group in target_groups %}
+      {% for surface, ai_name, options in ai_rows %}
       <label style="font-weight:400;margin-right:14px"><input type="checkbox" class="ai-pick" value="{{ surface }}"> {{ ai_name }}</label>
+      {#- 这一家多开一个开关的版本(另一台仪器):勾了这一家才露出来;勾上 = 测那一台、不测原来这台 -#}
+      {% for option_surface, option_label in options %}
+      <label class="ai-option" data-base="{{ surface }}" style="font-weight:400;margin-left:22px"><input type="checkbox" class="ai-variant" data-base="{{ surface }}" value="{{ option_surface }}"> {{ option_label }}</label>
+      {% endfor %}
       {% endfor %}
     </div>
     <p class="kv muted" id="est-pick-first">{{ t["est_pick_first"] }}</p>
@@ -139,24 +143,45 @@ const WORDS = {calls: {{ t["est_calls_word"]|tojson }}, min: {{ t["est_min_word"
 const form = document.getElementById('confirm-form');
 const modelBoxes = [...form.querySelectorAll('input[name=targets_selected]')];
 const aiBoxes = [...form.querySelectorAll('.ai-pick')];
+const variantBoxes = [...form.querySelectorAll('.ai-variant')];  // 某一家「多开一个开关」的版本(另一台仪器)
 function tierNow() { const r = form.querySelector('input[name=tier]:checked'); return r ? TIERS[r.value] : null; }
-function fillAi(surface, on) {  // 一家 AI 的型号:勾上 = 这一档给它挑的那几个;不勾 = 一个都不测
+function optionsOf(ai) { return variantBoxes.filter(v => v.dataset.base === ai.value); }
+function surfaceOf(ai) {  // 这一家现在测的是哪台仪器:勾了某个选项就是那一台,否则是原来这台
+  const on = optionsOf(ai).find(v => v.checked);
+  return on ? on.value : ai.value;
+}
+function fillAi(ai) {  // 一家 AI 的型号:勾上 = 这一档给它(现在测的那台)挑的那几个;不勾 = 一个都不测
   const spec = tierNow();
-  modelBoxes.filter(cb => cb.dataset.surface === surface)
-    .forEach(cb => { cb.checked = on && !!spec && spec.keys.includes(cb.value); });
+  const now = surfaceOf(ai);
+  [ai.value, ...optionsOf(ai).map(v => v.value)].forEach(surface => {
+    modelBoxes.filter(cb => cb.dataset.surface === surface)
+      .forEach(cb => { cb.checked = ai.checked && surface === now && !!spec && spec.keys.includes(cb.value); });
+  });
 }
 function applyTier() {  // 换档位:勾着的每一家都按新档位重挑型号,次数跟着档位
   const spec = tierNow();
   if (!spec) return;
-  aiBoxes.forEach(ai => fillAi(ai.value, ai.checked));
+  aiBoxes.forEach(fillAi);
   form.querySelector('input[name=runs]').value = spec.runs;
 }
 form.querySelectorAll('input[name=tier]').forEach(r => r.addEventListener('change', applyTier));
-aiBoxes.forEach(ai => ai.addEventListener('change', () => fillAi(ai.value, ai.checked)));
-// 在自定义区手动改了型号:上面那一行跟着显示这家还测不测
+aiBoxes.forEach(ai => ai.addEventListener('change', () => {
+  if (!ai.checked) optionsOf(ai).forEach(v => { v.checked = false; });  // 不测这一家了,它下面的选项一并收回
+  fillAi(ai);
+}));
+variantBoxes.forEach(v => v.addEventListener('change', () => {
+  const ai = aiBoxes.find(box => box.value === v.dataset.base);
+  optionsOf(ai).forEach(other => { if (other !== v) other.checked = false; });  // 一家同时只测一台
+  fillAi(ai);
+}));
+// 在自定义区手动改了型号:上面那一行跟着显示这家还测不测、选项开没开
 modelBoxes.forEach(cb => cb.addEventListener('change', () => {
-  const ai = aiBoxes.find(box => box.value === cb.dataset.surface);
-  if (ai) ai.checked = modelBoxes.some(box => box.dataset.surface === cb.dataset.surface && box.checked);
+  const any = surface => modelBoxes.some(box => box.dataset.surface === surface && box.checked);
+  const option = variantBoxes.find(v => v.value === cb.dataset.surface);
+  const ai = aiBoxes.find(box => box.value === (option ? option.dataset.base : cb.dataset.surface));
+  if (!ai) return;
+  optionsOf(ai).forEach(v => { v.checked = any(v.value); });
+  ai.checked = any(ai.value) || optionsOf(ai).some(v => v.checked);
 }));
 function blankEstimate() {  // 一家都没勾(或填的次数不对):不留着上一次的数
   ['est-calls', 'est-cost', 'est-min', 'est-breakdown'].forEach(id => { document.getElementById(id).textContent = '–'; });
@@ -165,9 +190,12 @@ function blankEstimate() {  // 一家都没勾(或填的次数不对):不留着�
   form.querySelectorAll('.tier-est').forEach(el => { el.textContent = '–'; });
 }
 function showAfterAi() {  // 勾了至少一家才展开档位和预估;档位卡片上只列勾上的那几家的型号
-  const picked = aiBoxes.filter(ai => ai.checked).map(ai => ai.value);
+  const picked = aiBoxes.filter(ai => ai.checked).map(surfaceOf);
   document.getElementById('after-ai').hidden = picked.length === 0;
   document.getElementById('est-pick-first').hidden = picked.length > 0;
+  form.querySelectorAll('.ai-option').forEach(el => {  // 一家的选项只在勾了这一家之后露出来
+    el.hidden = !aiBoxes.some(ai => ai.checked && ai.value === el.dataset.base);
+  });
   form.querySelectorAll('.tier-model').forEach(el => { el.hidden = !picked.includes(el.dataset.surface); });
 }
 function judgeNote(e) { return (e.judge_upto ? WORDS.judgeUpto : WORDS.judge).replace('{n}', e.judge_calls).replace('{cost}', e.judge_cost_usd.toFixed(2)); }

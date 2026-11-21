@@ -196,6 +196,11 @@ class SurfaceMeta(FrozenModel):
     est_cost_per_call_search_disabled_usd: dict[str, float] | None = None
     billing_notes: list[BillingNote] = []  # 记账规则改过的说明(Q8);没改过就空
     method_notes: list[MethodNote] = []  # 测法上要告诉读者的差别(见 MethodNote);没有就空
+    # 这台仪器是另一台的「多开一个开关」的版本(用户 2026-11-20 定:某一路来源让用户自己勾):variant_of = 那一台的仪器名,
+    # variant_label = 确认页上那个勾选框旁边的话(zh / en;models 不用)。两台各是各的仪器:回答分开存、分开报、分开估价,
+    # 引擎与诊断层不知道它们有关系;只有确认页把它收在那一台下面当一个可勾的选项,勾上 = 测这一台、不测那一台。
+    variant_of: str | None = None
+    variant_label: MethodNote | None = None
 
 
 def known_model(requested: str | None, default: str, allowed: Iterable[str]) -> str:

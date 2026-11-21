@@ -106,9 +106,14 @@ def test_every_real_candidate_can_really_judge():
         assert [judge.spec for judge in usable_judges(config, real)] == config.candidates
         assert len({real[c.surface].meta().provider for c in config.candidates}) == len(config.candidates)
         # 用户 2026-11-17 定「只有一家的 key 也照样判」:每一家单独拿出来都得有裁判可请,不然那家的用户只能看「说不准」
-        for surface, adapter in real.items():
-            alone = usable_judges(config, {surface: adapter})
-            assert [judge.spec.surface for judge in alone] == [surface], surface
+        # 「只有一家」按 key 算:一把 key 带起来的仪器都在(同一家可以不止一台,例:多开一个开关的版本和原来那台同一把 key)
+        for entry in load_surface_registry():
+            if not entry.enabled:
+                continue
+            alone = {name: adapter for name, adapter in real.items()
+                     if next(e for e in load_surface_registry() if e.name == name).api_key_env == entry.api_key_env}
+            judges = usable_judges(config, alone)
+            assert len(judges) == 1 and real[judges[0].spec.surface].meta().provider == entry.provider, entry.name
     finally:
         for adapter in real.values():
             adapter.close()

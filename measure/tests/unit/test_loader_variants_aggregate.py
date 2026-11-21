@@ -28,9 +28,10 @@ from engine.observe import RunObservations
 
 def test_registry_loads_bundled_config():
     entries = load_surface_registry(DEFAULT_SURFACES_PATH)
-    assert len(entries) == 5
+    assert len(entries) == 6
     enabled = [e for e in entries if e.enabled]
-    assert len(enabled) == 5  # 五个生成+引用 surface(搜索接口 v0.4.26 S1 下线;第五家 2026-11-18 接入)
+    # 五家服务商、六台仪器(搜索接口 v0.4.26 S1 下线;第五家 2026-11-18 接入;2026-11-20 第五家多一台开着 X 帖子搜索的)
+    assert len(enabled) == 6 and len({e.provider for e in enabled}) == 5
 
 
 def test_build_adapters_with_key_and_capability_consistency():
@@ -43,7 +44,7 @@ def test_build_adapters_with_key_and_capability_consistency():
     })
     assert set(adapters) == {
         "perplexity_agent", "claude_web_search",
-        "openai_web_search", "gemini_grounding", "grok_web_search",
+        "openai_web_search", "gemini_grounding", "grok_web_search", "grok_web_xposts_search",
     }
     for name, adapter in adapters.items():
         meta = adapter.meta()

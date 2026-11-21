@@ -26,7 +26,7 @@ from adapters.base import (
     priced,
 )
 from adapters.grok_web_search import HELPER_MODEL, GrokWebSearchAdapter
-from engine.models import NOT_OBSERVABLE, AskRequest, Outcome, RunErrorType, SearchMode
+from engine.models import AskRequest, Outcome, RunErrorType, SearchMode
 
 GOLDEN = Path(__file__).parent / "golden" / "grok_web_search"
 RESP_URL = "https://api.x.ai/v1/responses"
@@ -118,7 +118,7 @@ def test_success_with_citations_translates_field_by_field():
     assert [s.url for s in sources] == expected_urls and len(sources) == 18
     assert [s.rank for s in sources] == list(range(1, 19))
     assert sources[0].domain == "monday.com" and sources[0].title is None
-    assert run.search_trace.opened_sources == NOT_OBSERVABLE
+    assert run.search_trace.opened_sources == []  # 这份回包里没有打开网页的动作
 
     assert run.raw_payload == body
     assert run.cost_usd == pytest.approx(0.1200648)  # 平台自报 1,200,648,000 tick
@@ -298,7 +298,7 @@ def test_an_action_type_never_seen_is_left_in_the_archive_not_guessed():
     respx.post(RESP_URL).mock(return_value=httpx.Response(200, json=body))
     run = GrokWebSearchAdapter(api_key="test-key").ask(make_request())
     assert len(run.search_trace.generated_queries) == 4  # 少了被改掉的那一次,其余照记
-    assert run.search_trace.opened_sources == NOT_OBSERVABLE and run.raw_payload == body
+    assert run.search_trace.opened_sources == [] and run.raw_payload == body
 
 
 # ── 错误翻译与能力边界 ────────────────────────────────────────────────

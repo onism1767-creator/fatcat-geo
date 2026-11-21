@@ -9,8 +9,17 @@
   问了一次(grok-4.5,推荐类的题):搜了 6 次网页、X 帖子 0 次(平台自报 x_search_calls=0、x_posts_fetched=0)→ 砍掉。
   11-18 用户定补一轮(含口碑题),两个工具都开着,4.5 / 4.7 各 3 道:**口碑题 4 / 4 次都去搜了 X**(每次 1–5 回、
   拿回 5–32 条帖子;4.5 有一次把 4 条帖子挂在正文上当出处),**推荐题 2 / 2 次没搜**(加上 11-17 那次是 3 / 3)。
-  也就是它搜不搜 X 看题型,不是一律不搜。现在仍然不开(和另外四家同口径,都只搜网页);
-  报告「这次是怎么测的」里写一句(_NO_X_NOTE)。开不开等用户看了补测结果再定。
+  也就是它搜不搜 X 看题型,不是一律不搜。这台仪器仍然不开(和另外四家同口径,都只搜网页);
+  报告「这次是怎么测的」里写一句(_NO_X_NOTE)。
+  **2026-11-20 用户定「让用户可以自选」**:开着 X 搜索的是另一台仪器 grok_web_xposts_search
+  (`adapters/grok_web_xposts_search.py`,本模块的请求与翻译它都复用,只多一个开关),
+  确认页把它收在 Grok 下面当一个可勾的选项。开着 X 时回包多出来的东西
+  (都来自 11-18 那 6 份真实回包):
+  · X 搜索是 custom_tool_call 项,name = x_keyword_search / x_semantic_search,input 是一段 JSON 字符串、里面有 query;
+    这一项只有搜索词,**不列搜到了哪些帖子**(网页搜索的 action.sources 那样的清单它没有);
+  · 回答里标了出处的帖子照常是落在正文上的 url_citation 锚注(网址 x.com/…/status/…),进引用池;
+  · 计费:每抓回一条帖子 $0.005(usage.server_side_tool_usage_details.x_posts_fetched;x_search_calls 本身不另收)——
+    四份搜了 X 的回包按这个算与平台自报费用一个 tick 不差(5 / 10 / 29 / 32 条帖子)。
 - store=false:测量调用不在平台侧留存;不设推理力度与温度:测平台默认状态
   (回包写明默认推理力度:grok-4.5 / grok-4.7 是 high,grok-4.3 是 low)。
 - max_output_tokens = MAX_OUTPUT_TOKENS:回答长度保险丝(成本上界的一部分),不放宽;推理 token 也占它。
@@ -18,8 +27,11 @@
 本 surface 的可观测面:
 - 检索词:web_search_call.action(type=search)的 query,一次动作一个词;
 - 候选来源:同一个 action 的 sources(只有网址,没有标题和排名,位次即顺序;不用另外开开关,默认就给);
-- 打开的网页:官方说这个工具「搜索并浏览网页」,但真实回包里只见过 search 动作,浏览了哪些页没有暴露
-  → opened_sources 记 NOT_OBSERVABLE(不拿「没看见」当「没打开」);
+- 打开的网页:web_search_call.action(type=open_page)的 url,一次动作一个网址,照记进 opened_sources。
+  2026-11-20 才接上:11-17 / 18 手头的 70 个检索动作全是 search,当时写成了「没暴露、记 NOT_OBSERVABLE」;
+  11-19 试价的 20 份回答里有 10 个 open_page(grok-4.5 八个、grok-4.7 两个),11-18 两个工具都开着的一份里也有两个——
+  是我拿「没看见」当了「没有」(错误日志 2026-11-20)。那 20 份已入库的回答 opened_sources 仍是当时记的「看不到」
+  (原始层不改),原始回包里有,要用可以重新解析;
 - 引用:message 正文段落的 url_citation 锚注(平台默认在正文里插 [[n]](网址) 并给锚注),按首次出现去重成引用池;
   锚注的 title 是引用编号(「1」「2」),不是网页标题 → Citation.title 记 None,不拿编号冒充标题;
   **只认落在正文一段字上的锚注**(end_index > start_index)。2026-11-17 冒烟:grok-4.7 一次回答正文里没有任何
@@ -63,6 +75,7 @@ grok-4.7 十次里两次过线,估出来 $0.24、实际均价 $0.30,错误日志
 
 from __future__ import annotations
 
+import json
 from datetime import datetime
 from typing import Any
 
@@ -79,7 +92,6 @@ from adapters.base import (
 )
 from adapters.http_support import STRUCTURE_ERRORS, HttpAdapter, domain_of, full_body, malformed, require_list, spent_on
 from engine.models import (
-    NOT_OBSERVABLE,
     Answer,
     AskRequest,
     Citation,
@@ -93,7 +105,11 @@ from engine.models import (
 
 BASE_URL = "https://api.x.ai"
 RESPONSES_URL = f"{BASE_URL}/v1/responses"
+SURFACE = "grok_web_search"
 TOOL_TYPE = "web_search"  # 改动前必须重做真实对照并更新 golden
+X_TOOL_TYPE = "x_search"  # 只有开着 X 帖子搜索的那台仪器(grok_web_xposts_search)带这个工具
+X_CALL_PREFIX = "x_"  # X 搜索动作的名字:x_keyword_search / x_semantic_search(真实回包)
+X_POSTS_KEY = "x_posts"  # 计费项:抓回的 X 帖子条数(牌价表里有这一项的就是开着 X 搜索的仪器)
 MAX_OUTPUT_TOKENS = 4096  # 回答长度保险丝(成本上界的一部分)
 _SUCCESS_STATUSES = ("completed", "incomplete")  # incomplete = 截断,回答仍有效
 _TICKS_PER_USD = 1e10  # usage.cost_in_usd_ticks 的单位(三发真实回包与牌价验算一致)
@@ -169,10 +185,11 @@ _CAPABILITIES = CapabilityRegistry(
 )
 
 
-def _usage(data: dict[str, Any]) -> dict[str, float]:
-    """这次调用的计费用量,键与 _PRICE_TABLE 一致:输入分两档(没命中缓存的 / 命中缓存的,之和 = 平台报的 input_tokens,
+def _usage(data: dict[str, Any], *, x_search: bool = False) -> dict[str, float]:
+    """这次调用的计费用量,键与牌价表一致:输入分两档(没命中缓存的 / 命中缓存的,之和 = 平台报的 input_tokens,
     检索回来的内容已计入)、输出 token(平台已把推理 token 计入)、计费的网页搜索次数(平台自报)。
-    提示到了 20 万 token 的那一次,三项 token 都记在 `_long` 的计费项下(那一档另有价),平常的三项记 0。"""
+    提示到了 20 万 token 的那一次,三项 token 都记在 `_long` 的计费项下(那一档另有价),平常的三项记 0。
+    开着 X 搜索的那台仪器多一项:抓回的帖子条数(按条计费)。"""
     usage = data.get("usage") or {}
     details = usage.get("input_tokens_details") or {}
     tools = usage.get("server_side_tool_usage_details") or {}
@@ -184,19 +201,23 @@ def _usage(data: dict[str, Any]) -> dict[str, float]:
         "output_tokens": float(usage.get("output_tokens") or 0),
     }
     long_prompt = total_input >= _LONG_PROMPT_TOKENS
-    return {
+    found = {
         **{key: 0.0 if long_prompt else quantity for key, quantity in tokens.items()},
         **{f"{key}_long": quantity if long_prompt else 0.0 for key, quantity in tokens.items()},
         "searches": float(tools.get("web_search_calls") or 0),
     }
+    if x_search:
+        found[X_POSTS_KEY] = float(tools.get("x_posts_fetched") or 0)
+    return found
 
 
-def _cost_usd(data: dict[str, Any], model: str) -> float:
-    """平台自报的费用照搬;没报就按牌价折算(确定性折算,不是臆造——预算闸门不能因为少一个字段就失明)。"""
+def _cost_usd(data: dict[str, Any], prices: dict[str, float]) -> float:
+    """平台自报的费用照搬;没报就按牌价折算(确定性折算,不是臆造——预算闸门不能因为少一个字段就失明)。
+    prices = 这台仪器这个型号的牌价(带不带 X 帖子那一项,跟仪器走)。"""
     ticks = (data.get("usage") or {}).get("cost_in_usd_ticks")
     if isinstance(ticks, (int, float)) and not isinstance(ticks, bool):
         return ticks / _TICKS_PER_USD
-    return priced(_PRICE_TABLE[model], _usage(data))
+    return priced(prices, _usage(data, x_search=X_POSTS_KEY in prices))
 
 
 def _anchored(note: dict[str, Any]) -> bool:
@@ -205,8 +226,8 @@ def _anchored(note: dict[str, Any]) -> bool:
     return int(note.get("end_index") or 0) > int(note.get("start_index") or 0)
 
 
-def _payload(request: AskRequest, model: str, search_disabled: bool) -> dict[str, Any]:
-    """AskRequest → 平台请求体(口径钉死)。"""
+def _payload(request: AskRequest, model: str, search_disabled: bool, *, x_search: bool = False) -> dict[str, Any]:
+    """AskRequest → 平台请求体(口径钉死)。x_search = 这台仪器开着 X 帖子搜索(多带一个工具,别的都一样)。"""
     payload: dict[str, Any] = {
         "model": model,
         "input": request.prompt_text,
@@ -214,8 +235,17 @@ def _payload(request: AskRequest, model: str, search_disabled: bool) -> dict[str
         "store": False,
     }
     if not search_disabled:
-        payload["tools"] = [{"type": TOOL_TYPE}]
+        payload["tools"] = [{"type": TOOL_TYPE}] + ([{"type": X_TOOL_TYPE}] if x_search else [])
     return payload
+
+
+def _x_query(item: dict[str, Any]) -> str | None:
+    """X 搜索动作的搜索词:custom_tool_call 的 input 是一段 JSON 字符串,里面的 query。读不出来就没有,不猜。"""
+    try:
+        query = json.loads(item.get("input") or "{}").get("query")
+    except (ValueError, AttributeError):
+        return None
+    return query if isinstance(query, str) and query else None
 
 
 def _translate(
@@ -225,17 +255,23 @@ def _translate(
     data: Any,
     latency_ms: int,
     started_at: datetime,
+    *,
+    surface: str = SURFACE,
+    prices: dict[str, float] | None = None,
 ) -> SurfaceRun:
-    """平台返回 → SurfaceRun。只翻译,不判定;结构不对按 Permanent 上抛(平台改格式须显式暴露)。"""
+    """平台返回 → SurfaceRun。只翻译,不判定;结构不对按 Permanent 上抛(平台改格式须显式暴露)。
+    surface / prices 跟仪器走(开着 X 搜索的那台用它自己的名字和牌价);不给 = 只搜网页的这台。"""
+    prices = prices if prices is not None else _PRICE_TABLE[model]
     output = require_list(data, "output")
     status = data.get("status")
     if status not in _SUCCESS_STATUSES:  # 平台回了话、钱照计,却报失败:花费随失败行落
         raise AdapterTransientError(f"响应 status={status!r}: {data.get('error')}", response_body=full_body(data),
-                                    cost_usd=spent_on(lambda: _cost_usd(data, model)))
+                                    cost_usd=spent_on(lambda: _cost_usd(data, prices)))
 
     messages: list[str] = []
     queries: list[str] = []
     sources: list[RetrievedSource] = []
+    opened: list[str] = []
     citations: list[Citation] = []
     cited_urls: set[str] = set()
     search_observed = False
@@ -248,8 +284,12 @@ def _translate(
                 if item.get("status") == "failed":  # 检索动作本身失败:本次采样被检索基础设施污染,交调度器重采
                     raise AdapterTransientError(f"web_search_call 检索动作失败(status=failed,id={item.get('id')!r})",
                                                 response_body=full_body(data),
-                                                cost_usd=spent_on(lambda: _cost_usd(data, model)))
+                                                cost_usd=spent_on(lambda: _cost_usd(data, prices)))
                 action = item.get("action") or {}
+                if action.get("type") == "open_page":
+                    if action.get("url"):
+                        opened.append(action["url"])  # 打开了这一页(平台自己报的浏览动作)
+                    continue
                 if action.get("type") != "search":
                     continue  # 没见过的动作类型不猜,原样留在 raw_payload
                 if action.get("query"):
@@ -261,6 +301,16 @@ def _translate(
                         title=None,  # 平台只给网址,不臆造
                         rank=len(sources) + 1,  # 有序列表位次
                     ))
+            elif item_type == "custom_tool_call" and str(item.get("name") or "").startswith(X_CALL_PREFIX):
+                # X 帖子搜索(只在开着它的那台仪器的回包里出现):搜索词可见;搜到了哪些帖子这一项不列
+                search_observed = True
+                if item.get("status") == "failed":  # 和网页搜索同口径:检索动作失败 = 本次采样被污染,交调度器重采
+                    raise AdapterTransientError(f"{item.get('name')} 检索动作失败(status=failed,id={item.get('id')!r})",
+                                                response_body=full_body(data),
+                                                cost_usd=spent_on(lambda: _cost_usd(data, prices)))
+                query = _x_query(item)
+                if query:
+                    queries.append(query)
             elif item_type == "message":
                 parts: list[str] = []
                 for part in item.get("content") or []:
@@ -285,7 +335,7 @@ def _translate(
                 if parts:
                     messages.append("".join(parts))
     except STRUCTURE_ERRORS as exc:  # 列表项不是 dict、字段类型怪:也算结构不符
-        raise malformed(exc, data, lambda: _cost_usd(data, model)) from exc
+        raise malformed(exc, data, lambda: _cost_usd(data, prices)) from exc
 
     answer_text = "\n\n".join(messages)  # 不止一个 message 项时(搜索前先说一句)项与项之间空一行
     # 平台只给了没落在正文上的清单、一条落在正文上的都没有:哪些被引用了看不到(不是「引用 0 条」)
@@ -295,18 +345,18 @@ def _translate(
         prompt_id=request.prompt_id,
         run_index=request.run_index,
         provider="xai",
-        surface="grok_web_search",
+        surface=surface,
         model=model,
         search_mode=request.search_mode,
         locale=request.locale,
         region=request.region,
         outcome=Outcome.SUCCESS,
         search_trace=SearchTrace(
-            # 检索是显式工具调用:触发 / 检索词 / 候选真实可观测;浏览了哪些页平台没暴露
+            # 检索是显式工具调用:触发 / 检索词 / 候选 / 打开的网页都真实可观测
             search_triggered=False if search_disabled else search_observed,
             generated_queries=queries,
             retrieved_sources=sources,
-            opened_sources=NOT_OBSERVABLE,
+            opened_sources=opened,
         ),
         answer=(
             Answer(answer_text=answer_text, citations_available=not (search_disabled or citations_hidden),
@@ -317,18 +367,23 @@ def _translate(
         raw_payload=data,
         timestamp=started_at,
         latency_ms=latency_ms,
-        cost_usd=_cost_usd(data, model),
+        cost_usd=_cost_usd(data, prices),
     )
 
 
 class GrokWebSearchAdapter(HttpAdapter):
+    # 开着 X 帖子搜索的那台仪器(adapters/grok_web_xposts_search.py)是本类的子类,只换下面三处和 meta();请求与翻译共用
+    surface = SURFACE
+    x_search = False  # 请求里带不带 X 帖子搜索这个工具
+    price_table = _PRICE_TABLE  # 型号 → 牌价(开着 X 的那台多一项「抓回的帖子」)
+
     def __init__(self, api_key: str, client: httpx.Client | None = None) -> None:
         super().__init__(headers={"Authorization": f"Bearer {api_key}"}, client=client)
 
     def meta(self) -> SurfaceMeta:
         return SurfaceMeta(
             provider="xai",
-            surface="grok_web_search",
+            surface=SURFACE,
             display_name="Grok",
             api_name="Grok API",
             models=list(_TOKEN_PRICES_PER_MTOK),
@@ -354,19 +409,21 @@ class GrokWebSearchAdapter(HttpAdapter):
         )
 
     def usage_of(self, raw_payload: JsonValue) -> dict[str, float]:
-        return _usage(raw_payload) if isinstance(raw_payload, dict) else {}
+        return _usage(raw_payload, x_search=self.x_search) if isinstance(raw_payload, dict) else {}
 
     def ask(self, request: AskRequest) -> SurfaceRun:
         """适配器只做两件事(CLAUDE.md 硬边界 3):AskRequest → 平台调用(_payload),平台返回 → SurfaceRun(_translate)。"""
         _CAPABILITIES.require_request(request)
         search_disabled = request.search_mode is SearchMode.SEARCH_DISABLED
-        model = known_model(request.model, _DEFAULT_MODEL, _PRICE_TABLE)
+        model = known_model(request.model, _DEFAULT_MODEL, self.price_table)
         if model == HELPER_MODEL and not search_disabled:
             raise CapabilityNotSupportedError(f"{HELPER_MODEL} 只做不联网的小调用(search_disabled),不被测")
         data, latency_ms, started_at = self._post(
-            RESPONSES_URL, payload=_payload(request, model, search_disabled), timeout_s=request.timeout_s,
+            RESPONSES_URL, payload=_payload(request, model, search_disabled, x_search=self.x_search),
+            timeout_s=request.timeout_s,
         )
-        return _translate(request, model, search_disabled, data, latency_ms, started_at)
+        return _translate(request, model, search_disabled, data, latency_ms, started_at,
+                          surface=self.surface, prices=self.price_table[model])
 
     def healthcheck(self) -> bool:
         return self._probe(RESPONSES_URL, payload={

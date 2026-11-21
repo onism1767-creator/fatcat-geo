@@ -70,7 +70,7 @@ surfaces:
       supports_search_disabled: true  # 不带工具调用,测参数化知识
 
   # 2026-11-17 接入(用户定:测 4.5 + 4.7、只搜网页——X 帖子搜索试了一轮没搜,砍掉)。形状来自真实回包,官方文档没给原始返回。
-  # 浏览了哪些网页平台没暴露,opened_sources 记 NOT_OBSERVABLE;地区、强制检索官方文档没写参数,不声明。
+  # 打开了哪些网页回包里有(open_page 动作,2026-11-20 才接上,原来漏了);地区、强制检索官方文档没写参数,不声明。
   # grok-4.7 不在正文里标出处、只把搜到的清单再挂一遍(三次真实回答都这样):那几次的引用记「看不到」,不记 0 条。
   - name: grok_web_search
     provider: xai
@@ -84,3 +84,18 @@ surfaces:
       supports_region: false          # 官方文档没写地区参数
       supports_forced_search: false   # 官方文档没写强制检索开关
       supports_search_disabled: true  # 不带工具调用,测参数化知识
+
+  # 2026-11-20 用户定「让用户可以自选」:开着 X 帖子搜索的 Grok,是另一台仪器(回答分开存、分开报、分开估价)。
+  # 请求与翻译复用上面那台,只多带一个 X 搜索工具;确认页把它收在 Grok 下面当一个可勾的选项(适配器 meta 的 variant_of)。
+  # 搜到了哪些帖子平台不逐条列,候选来源里只有网页;回答里标了出处的帖子进引用。key 与上面那台同一把。
+  - name: grok_web_xposts_search
+    provider: xai
+    adapter: adapters.grok_web_xposts_search.GrokWebXPostsSearchAdapter
+    api_key_env: XAI_API_KEY
+    enabled: true
+    capabilities:
+      supports_query_trace: true      # 网页搜索词 + X 搜索词
+      supports_citations: true
+      supports_region: false
+      supports_forced_search: false
+      supports_search_disabled: true  # 不带任何工具
