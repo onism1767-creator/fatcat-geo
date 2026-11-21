@@ -3,7 +3,8 @@
 
 确认页每次勾选变化都向服务端要一次结果(POST /jobs/{id}/estimate),页面脚本只负责显示,不再自带公式。
 每个型号的单价依次取:同品牌上一单(续跑时就是本单已问的)实测 → 本语言实测 → 不分语言实测 →
-同家默认型号的用量 × 这个型号自己的牌价 → 适配器声明的上界。实测的按「平均用量 × 现牌价」算(牌价变了不用重测);
+它自己不够数的几次实测的均价(2026-11-20 加)→ 同家默认型号的用量 × 这个型号自己的牌价 →
+适配器声明的上界。实测的按「平均用量 × 现牌价」算(牌价变了不用重测);
 没牌价的仪器按实测均价。要如实说:它堵不住「这套题让某家多搜一次」那种差额,开跑前没法知道会搜几次。
 """
 
@@ -22,7 +23,11 @@ from report.jobs import PLAN_CONCURRENCY, LegProgress
 # 兜底值(v0.4.17):库里没有足量历史时用;有历史即按实测均值(香奈儿首单加权均值 20.2 s)
 AVG_SECONDS_PER_CALL = 20.0
 JUDGE_SECONDS_PER_CALL = 4.0  # 裁判不联网、输出短,一条约几秒(S9.3;有实测后改读实测)
-MIN_STAT_SAMPLES = 10  # 少于这么多次历史调用不算数,仍用声明单价(v0.4.17)
+MIN_STAT_SAMPLES = 10  # 少于这么多次历史调用不算「够数的实测」(v0.4.17)
+# 不够数、但这个型号自己至少有这么多次实测:先按这几次的均价,不去借别的型号的用量
+# (2026-11-20:Gemini 4 Hydrogen 试价只问到 3 次、均 $0.25,借同家默认型号的用量算出来是 $0.018,差 14 倍——
+# 同一家的两个型号搜的次数可以差一个量级)。3 这个数是 Claude 定的
+MIN_FEW_SAMPLES = 3
 # 提问之前的准备(第二轮审核 B14:原来没算):官网审计(十来次爬虫探测、要时用真浏览器打开一次首页)、找官网名单
 # (最多打开 20 个首页)、开跑前预检。粗估,有实测后改读实测
 PREP_SECONDS = 120.0
@@ -35,6 +40,7 @@ class PriceBasis(StrEnum):
 
     BRAND = "brand"  # 同品牌上一单(续跑时就是本单已问的)的实测
     MEASURED = "measured"  # 库里实测:本语言够数用本语言,不够就不分语言
+    FEW = "few"  # 这个型号自己只有几次实测(不到 MIN_STAT_SAMPLES):按这几次记的均价,不太稳,但比借别的型号的用量贴近
     BORROWED = "borrowed"  # 没实测过:同家默认型号的用量 × 这个型号自己的牌价
     DECLARED = "declared"  # 适配器声明的推导上界
 
@@ -123,6 +129,16 @@ def _bucket(
     return None
 
 
+def _few(stats: Sequence[CallStat], target: Target, mode: SearchMode, locale: str) -> _Bucket | None:
+    """这个型号自己不够数的那几次实测(先本语言,没有再各语言合起来);少于 MIN_FEW_SAMPLES 次不用。"""
+    same = [st for st in stats if (st.surface, st.model, st.search_mode) == (target.surface, target.model, mode.value)]
+    for group in ([st for st in same if st.locale == locale], same):
+        bucket = _merge(group)
+        if bucket is not None and bucket.n >= MIN_FEW_SAMPLES:
+            return bucket
+    return None
+
+
 def _shape_price(bucket: _Bucket, prices: dict[str, float] | None) -> float:
     """桶的单价:有牌价且用量够数按「平均用量 × 牌价」;没牌价(测试替身)或用量没补齐按实测均价。"""
     if prices is not None and bucket.n_usage >= MIN_STAT_SAMPLES:
@@ -165,6 +181,9 @@ def unit_prices(
             usual = _shape_price(measured, table)
             return UnitPrice(cost_usd=usual, basis=PriceBasis.MEASURED,
                              high_cost_usd=_high_price(measured, table, usual))
+        few = _few(stats, target, mode, locale)
+        if few is not None:  # 自己有几次:按记的均价(次数少,不分「贵的时候」)
+            return UnitPrice(cost_usd=few.avg_cost_usd, basis=PriceBasis.FEW, high_cost_usd=few.avg_cost_usd)
         if table is not None and target.model != meta.default_model:
             lender = _bucket(stats, Target(surface=target.surface, model=meta.default_model), mode, locale)
             if lender is not None and lender.n_usage >= MIN_STAT_SAMPLES:

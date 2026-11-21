@@ -190,15 +190,17 @@ def _citation_status(job: DiagnosisJob) -> dict[str, StageStatus]:
     }
 
 
-def _new_job(text: str, tag: str | None = None) -> tuple[DiagnosisJob, Prompt]:
-    """每个测试各自的题(带随机尾巴):回答缓存(S11.2)会复用同品牌同题的回答,测试之间不能串;要同题就传同一个 tag。"""
+def _new_job(text: str, tag: str | None = None, surface: str = "two_model") -> tuple[DiagnosisJob, Prompt]:
+    """每个测试各自的题(带随机尾巴):回答缓存(S11.2)会复用同品牌同题的回答,测试之间不能串;要同题就传同一个 tag。
+    surface:靠声明价算预估或分上限的测试传它自己的仪器名——一个型号在库里攒到 3 次实测,预估就改按实测(2026-11-20),
+    共用 two_model 会被别的测试问过的次数带偏。"""
     tag = tag or uuid4().hex[:6]
     prompt = Prompt(text=f"{text}({tag})", intent=PromptIntent.CATEGORY_DISCOVERY, origin=PromptOrigin.USER,
                     locale="zh-CN")
     job = DiagnosisJob(brand=BRAND, website="https://aurora-crm.com", category="CRM",
                        locale="zh-CN", candidates=[], competitors_suggested=[])
     job.freeze(prompts=[prompt], competitors=[],
-               targets=[Target(surface="two_model", model=CITES), Target(surface="two_model", model=SILENT)],
+               targets=[Target(surface=surface, model=CITES), Target(surface=surface, model=SILENT)],
                budget_usd=None, tier=LOW)
     return job, prompt
 
@@ -440,22 +442,29 @@ def test_the_cap_is_split_in_proportion_to_each_models_estimate(storage, offline
 
 
 class PricierThanDeclared(TwoModelAdapter):
-    """声明价两个型号都是 $0.01,实际一个 $0.02、一个 $0.001:预估和实际不一样时,上限怎么分才见分晓。"""
+    """声明价两个型号都是 $0.01,实际一个 $0.02、一个 $0.001:预估和实际不一样时,上限怎么分才见分晓。
+    每个测试给它一个自己的仪器名:开跑时库里没有它的实测,预估才是声明价。"""
+
+    def __init__(self, surface: str) -> None:
+        super().__init__()
+        self._name = surface
 
     def meta(self) -> SurfaceMeta:
-        return super().meta().model_copy(update={"est_cost_per_call_usd": {CITES: 0.01, SILENT: 0.01}})
+        return super().meta().model_copy(update={"surface": self._name,
+                                                 "est_cost_per_call_usd": {CITES: 0.01, SILENT: 0.01}})
 
     def ask(self, request: AskRequest) -> SurfaceRun:
-        return super().ask(request).model_copy(update={"cost_usd": 0.02 if request.model == CITES else 0.001})
+        return super().ask(request).model_copy(update={
+            "surface": self._name, "cost_usd": 0.02 if request.model == CITES else 0.001})
 
 
 def test_resume_gives_the_raised_cap_to_the_legs_that_still_need_it(storage, offline):
     """续跑时问完的腿不再占额度(小米真跑后 Claude 定的续跑算法,随用户定的「按预估比例分」):$0.04 两个型号各分 $0.02,
     贵的问了 1 次就停、便宜的问完;把上限提到弹窗建议的 $0.045(已花 + 没问的 2 次 × 声明价 × 1.1),
     剩下的额度全给贵的,补齐。照旧按全部预估分的话贵的只分到 $0.0225,多问 1 次又停。"""
-    job, _ = _new_job("中小团队用什么 CRM 好?")
+    job, _ = _new_job("中小团队用什么 CRM 好?", surface="pricier_resume")
     job.budget_usd = 0.04
-    adapters = {"two_model": PricierThanDeclared()}
+    adapters = {"pricier_resume": PricierThanDeclared("pricier_resume")}
     runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry())
     assert job.state is JobState.PARTIAL, job.error
     assert [(d.model, d.n_attempts) for d in job.stop_details if d.truncated] == [(CITES, 1)]
@@ -477,9 +486,9 @@ def test_replaying_a_partial_job_keeps_it_partial_and_keeps_why_it_stopped(stora
     """部分完成的单只重算(重新生成报告 / 确认官网名单)后仍是部分完成,「怎么停的」沿用上一版(第三轮审核 A3:
     原来重算把它改成「完成」,提前停的提示、弹窗、型号旁标签全没了);重算一分钱不花。
     上一版读不动(报告快照旧格式,stop_details 为空)时,重算里还有空槽位的腿照样算没问完。"""
-    job, _ = _new_job("中小团队用什么 CRM 好?")
+    job, _ = _new_job("中小团队用什么 CRM 好?", surface="pricier_replay")
     job.budget_usd = 0.04
-    adapters = {"two_model": PricierThanDeclared()}
+    adapters = {"pricier_replay": PricierThanDeclared("pricier_replay")}
     runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry())
     assert job.state is JobState.PARTIAL, job.error
     before = list(job.stop_details)

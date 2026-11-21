@@ -614,9 +614,13 @@ def test_confirm_estimate_prefers_measured_history():
     assert est["cost_usd"] == pytest.approx(3 * 0.02)
     assert est["minutes"] == pytest.approx((PREP + 3 * 15) / 60)  # 1 条腿:串行
     assert est["breakdown"] == [{"display": "S1 · m1", "cost_usd": pytest.approx(3 * 0.02)}]
-    page, est = run([stat(3)])  # 历史不足:声明单价 + 兜底时长
+    page, est = run([stat(2)])  # 只有一两次:不算数,声明单价 + 兜底时长
     assert "S1 · m1 还没有足够的历史记录" in page  # 确认页也用「接口 · 型号」
     assert est["cost_usd"] == pytest.approx(3 * 0.005) and est["minutes"] == pytest.approx((PREP + 3 * 20) / 60)
+    # 自己有几次(3–9 次):按这几次的均价,页面写明次数少、可能不太准(2026-11-20);时长仍用兜底(不够 10 次)
+    page, est = run([stat(3)])
+    assert "S1 · m1 只实测过几次(不到 10 次),先按这几次的平均费用算,可能不太准。" in page
+    assert est["cost_usd"] == pytest.approx(3 * 0.02) and est["minutes"] == pytest.approx((PREP + 3 * 20) / 60)
 
 
 def test_estimate_job_arithmetic():

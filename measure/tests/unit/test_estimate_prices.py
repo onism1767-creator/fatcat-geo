@@ -93,6 +93,24 @@ def test_an_untested_model_borrows_the_default_models_usage_at_its_own_price():
     assert prices.by_basis() == {PriceBasis.MEASURED: [cheap], PriceBasis.BORROWED: [pricey]}
 
 
+def test_a_few_own_runs_beat_borrowing_another_models_usage():
+    """2026-11-20:一个型号自己只有几次实测(不到 10 次)时,按这几次记的均价估,不去借同家默认型号的用量——
+    同一家的两个型号搜的次数可以差一个量级(真实的例子:借出来 $0.018,它自己三次均 $0.25)。
+    只有一两次的不算,仍然借;够 10 次的照旧按「平均用量 × 牌价」。"""
+    lender = stat(CHEAP, "zh-CN", 12, usage=SHAPE)
+    prices = unit_prices(ADAPTERS, [lender, stat(PRICEY, "zh-CN", 3, usage={}, cost=0.9, n_usage=0)], locale="zh-CN")
+    unit = prices.default[pricey.key]
+    assert unit.basis is PriceBasis.FEW and unit.cost_usd == 0.9 == unit.high_cost_usd and unit.shape_of is None
+    assert prices.by_basis() == {PriceBasis.MEASURED: [cheap], PriceBasis.FEW: [pricey]}
+    # 别的语言的几次也算它自己的(本语言一次都没有时)
+    abroad = unit_prices(ADAPTERS, [lender, stat(PRICEY, "en-US", 4, usage={}, cost=0.7, n_usage=0)], locale="zh-CN")
+    assert abroad.default[pricey.key].basis is PriceBasis.FEW and abroad.default[pricey.key].cost_usd == 0.7
+    two = unit_prices(ADAPTERS, [lender, stat(PRICEY, "zh-CN", 2, usage={}, cost=0.9, n_usage=0)], locale="zh-CN")
+    assert two.default[pricey.key].basis is PriceBasis.BORROWED
+    alone = unit_prices(ADAPTERS, [stat(PRICEY, "zh-CN", 3, usage={}, cost=0.9, n_usage=0)], locale="zh-CN")
+    assert alone.default[pricey.key].basis is PriceBasis.FEW  # 没得借的时候也比声明价贴近
+
+
 def test_without_any_history_the_declared_upper_bound_is_used():
     prices = unit_prices(ADAPTERS, [], locale="zh-CN")
     assert prices.default[pricey.key].basis is PriceBasis.DECLARED and prices.default[pricey.key].cost_usd == 0.5

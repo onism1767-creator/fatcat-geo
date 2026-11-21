@@ -85,6 +85,7 @@ _HELPER_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "gemini-3.1-flash-lite": (0.25, 1.50),
 }
 _ALL_PRICES_PER_MTOK = {**_TOKEN_PRICES_PER_MTOK, **_HELPER_PRICES_PER_MTOK}
+_MEASURED_USD_PER_CALL = {"gemini-4-hydrogen": 0.25}  # 联网问一次的实测均值(来历见 meta() 里的口径说明)
 _SEARCH_USD_PER_QUERY = 14.0 / 1000.0  # 接地检索 $14 / 千次查询(每月 5,000 次免费额度不计入预估)
 # 牌价(用量 × 牌价 = 费用;计费项与 _usage 读出的键一致):思考 token 按输出价;裁判型号也列,裁判费用同一公式
 _PRICE_TABLE: dict[str, dict[str, float]] = {
@@ -271,9 +272,13 @@ class GeminiGroundingAdapter(HttpAdapter):
             price_table=_PRICE_TABLE,
             # 口径:推导上界,按型号各算(3 条检索词 + 探针实测 token 量),有足量实测后
             # 确认页改读实测均值:默认型号(3.5 Flash-Lite)3×$0.014 + (200×$0.30 + 3000×$2.50)/1e6 ≈ $0.050
+            # 4 Hydrogen 不按这个公式:2026-11-20 试价它一次搜 10–17 个词(公式假设 3 个),三次 $0.19 / $0.31 / $0.26,
+            # 是公式算出来 $0.065 的四倍,撞了试价的上限只问到 3 道。它的声明价改用这三次的均值;
+            # 样本很少,库里够数后确认页读库里的
             est_cost_per_call_usd={
-                model: round(3 * _SEARCH_USD_PER_QUERY + (200 * price_in + 3000 * price_out) / 1e6, 3)
-                for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
+                **{model: round(3 * _SEARCH_USD_PER_QUERY + (200 * price_in + 3000 * price_out) / 1e6, 3)
+                   for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()},
+                **_MEASURED_USD_PER_CALL,
             },
             # 闭卷腿口径:同源推导,无检索项:默认型号 (2300+950)×$2.50/1e6 ≈ $0.008
             est_cost_per_call_search_disabled_usd={

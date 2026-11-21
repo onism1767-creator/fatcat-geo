@@ -184,6 +184,7 @@ MESSAGES: dict[str, dict[str, str]] = {
         "est_verify": "含提问前的准备;提问完之后还要核对 AI 引用的网页,最多再 {minutes} 分钟,不在这个数里。",
         "est_basis_brand": "{names} 按这个品牌上次实测的平均费用算。",
         "est_basis_measured": "预估按过去实测的平均费用和耗时算:{names}。",
+        "est_basis_few": "{names} 只实测过几次(不到 10 次),先按这几次的平均费用算,可能不太准。",
         "est_basis_borrowed": "{names} 还没实测过,按同一家默认型号的用量乘它自己的单价算。",
         "est_basis_declared": "{names} 还没有足够的历史记录,先按声明的单价算。",
         "est_basis_tail": "实际费用主要随 AI 搜几次、回答多长浮动。",
@@ -611,6 +612,8 @@ MESSAGES: dict[str, dict[str, str]] = {
         "est_verify": "Includes the setup before questioning; checking the pages the AI cited comes after and can take up to {minutes} more minutes, not included here.",
         "est_basis_brand": "{names} use the measured average cost from this brand's previous check.",
         "est_basis_measured": "Estimate uses the measured average cost and time from past runs: {names}.",
+        "est_basis_few": "{names} have only a few measured runs (fewer than 10), so the estimate uses the average "
+                         "of those and may be off.",
         "est_basis_borrowed": "{names} have not been measured yet, so the estimate uses the same vendor's default model's "
                               "usage at their own list price.",
         "est_basis_declared": "{names} have too little history yet, so their declared unit price is used.",
