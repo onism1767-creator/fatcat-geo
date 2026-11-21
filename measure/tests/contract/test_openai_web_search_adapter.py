@@ -310,30 +310,29 @@ def test_unknown_model_raises_explicitly():
 
 
 @respx.mock
-def test_model_list_is_the_current_generation_plus_the_free_default_with_per_model_cache_prices():
-    """用户 2026-11-17 定「按清单改」(工程原则 9):清单 = 现役一代 + 免费版默认;6.2 两款冒烟通过后入,上一代三款删掉。
-    缓存命中的价钱逐型号照官方价目页写——6.1 / 6.2 代是输入价的 0.05 倍,其余 0.1 倍(原来一律按 0.1 倍,6.1 两款记高)。"""
+def test_model_list_is_the_free_default_plus_its_latest_generation_counterpart_with_cache_prices():
+    """用户 2026-11-20 定「每家只留两个」:清单 = 消费端默认 + 主力(它在最新一代里的同款);旗舰三款删掉。
+    缓存命中的价钱逐型号照官方价目页写(留下的两款都是输入价的 0.1 倍)。"""
     adapter = OpenAIWebSearchAdapter(api_key="test-key")
     meta = adapter.meta()
-    assert meta.models == ["gpt-5.6-luna", "gpt-6-luna", "gpt-6.1-terra", "gpt-6.2-sol", "gpt-6.2-astra"]
+    assert meta.models == ["gpt-5.6-luna", "gpt-6-luna"]
     assert meta.consumer_default_model == "gpt-5.6-luna" and meta.main_model == "gpt-6-luna"
     ratios = {m: round(p["cached_input_tokens"] / p["input_tokens"], 3) for m, p in meta.price_table.items()}
-    assert ratios == {"gpt-5.6-luna": 0.1, "gpt-6-luna": 0.1, "gpt-6.1-terra": 0.05, "gpt-6.2-sol": 0.05,
-                      "gpt-6.2-astra": 0.05}
+    assert ratios == {"gpt-5.6-luna": 0.1, "gpt-6-luna": 0.1}
     assert all(p["cache_write_tokens"] == pytest.approx(1.25 * p["input_tokens"]) for p in meta.price_table.values())
-    assert meta.price_table["gpt-6.2-astra"]["input_tokens"] == pytest.approx(8e-6)
-    assert meta.price_table["gpt-6.2-astra"]["output_tokens"] == pytest.approx(40e-6)
+    assert meta.price_table["gpt-6-luna"]["input_tokens"] == pytest.approx(0.1e-6)
+    assert meta.price_table["gpt-6-luna"]["output_tokens"] == pytest.approx(0.5e-6)
 
     body = golden("success_with_citations.json")
     body["usage"] = {"input_tokens": 10000, "input_tokens_details": {"cached_tokens": 4000, "cache_write_tokens": 500},
                      "output_tokens": 400, "output_tokens_details": {"reasoning_tokens": 0}, "total_tokens": 10400}
     respx.post(RESP_URL).mock(return_value=httpx.Response(200, json=body))
-    run = adapter.ask(make_request(model="gpt-6.2-sol"))  # $2 / $10 每百万,缓存命中 $0.10;golden 里 1 次检索
-    assert run.model == "gpt-6.2-sol"
-    assert run.cost_usd == pytest.approx((5500 * 2.0 + 4000 * 0.10 + 500 * 2.5 + 400 * 10.0) / 1e6 + 0.01)
+    run = adapter.ask(make_request(model="gpt-6-luna"))  # $0.10 / $0.50 每百万,缓存命中 $0.01;golden 里 1 次检索
+    assert run.model == "gpt-6-luna"
+    assert run.cost_usd == pytest.approx((5500 * 0.10 + 4000 * 0.01 + 500 * 0.125 + 400 * 0.50) / 1e6 + 0.01)
 
     # 删掉的型号请求发不出去;再测碰到旧单由档位逻辑换成现型号
-    for retired in ("gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol"):
+    for retired in ("gpt-6-astra", "gpt-6.1-sol", "gpt-6-sol", "gpt-6.1-terra", "gpt-6.2-sol", "gpt-6.2-astra"):
         with pytest.raises(AdapterPermanentError, match="未知模型"):
             adapter.ask(make_request(model=retired))
 

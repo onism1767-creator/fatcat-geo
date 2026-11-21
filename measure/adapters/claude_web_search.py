@@ -74,20 +74,23 @@ _MAX_CONTINUATIONS = 3  # pause_turn 续传上限:有界完成单次采样,超�
 # 新型号入清单前须经 scripts/smoke_models.py 真实冒烟(本批 S9.0 换代后待冒烟)。
 # 2026-11-12 核对 platform.claude.com/docs/en/about-claude/pricing:Fable 5.2 $8 / $40(缓存命中 $0.20),其余四个不变;
 # web search 仍 $10 / 千次,「搜索出错的那次不计费」。列型号接口同日确认 claude-fable-5-2 已可调用。
+# 2026-11-20 用户定「每家只留两个」(原话「型号是不是有点多了,过时的都删掉吧」,在三种删法里选了这一种):
+# 被测清单 = 消费端默认 + 主力。这家两个标记都是 Sonnet 5.5,所以再留紧挨着的 Opus 5.5(中档本来就测这两个)。
+# Haiku 5.5 不再被测、只当裁判(见下面的辅助型号);Fable 5.1 删掉(旗舰不再测;Fable 5.2 11-12 冒烟两次零正文,一直没入)。
 _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
-    "claude-haiku-5-5": (0.10, 0.50),  # 10 万输入 token 以内的档;本 surface 单次远低于此
     "claude-sonnet-5-5": (2.0, 10.0),
     "claude-opus-5-5": (4.0, 20.0),
-    "claude-fable-5-1": (10.0, 50.0),
-    # claude-fable-5-2($8 / $40,2026-11-09 正式可用)2026-11-12 冒烟两次都没过:平台默认态下搜 2 次、拿到 18–19 个候选后,
-    # 4,096 的输出额度被思考与检索过程吃光,stop_reason=max_tokens、正文 0 字、每次 $0.36;
-    # 5.1 在 ① 的 16 次里最多用到 2,388。保险丝是口径、用户定不放宽,所以不入清单、5.1 留着;以后再试要先冒烟。
 }
+# 只当裁判的便宜型号(BR6):不进上面的被测清单,否则高档「全部型号」会多测一个。10 万输入 token 以内的档
+_HELPER_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
+    "claude-haiku-5-5": (0.10, 0.50),
+}
+_ALL_PRICES_PER_MTOK = {**_TOKEN_PRICES_PER_MTOK, **_HELPER_PRICES_PER_MTOK}
 _SEARCH_USD_PER_USE = 10.0 / 1000.0  # web search $10 / 千次
-# 牌价(用量 × 牌价 = 费用;计费项与 _usage 读出的键一致):token 按每个 token 折,检索按每次
+# 牌价(用量 × 牌价 = 费用;计费项与 _usage 读出的键一致):token 按每个 token 折,检索按每次;裁判型号也列,裁判费用同一公式
 _PRICE_TABLE: dict[str, dict[str, float]] = {
     model: {"input_tokens": price_in / 1e6, "output_tokens": price_out / 1e6, "searches": _SEARCH_USD_PER_USE}
-    for model, (price_in, price_out) in _TOKEN_PRICES_PER_MTOK.items()
+    for model, (price_in, price_out) in _ALL_PRICES_PER_MTOK.items()
 }
 _DEFAULT_MODEL = "claude-sonnet-5-5"
 # 型号标记(配置资产,用户定 2026-10-14;2026-11-15 定「主力 = 消费端默认在最新一代里的同款」):
@@ -104,6 +107,8 @@ _MODELS_CHECKED = ("2026-10-14 官方型号页 + 价目页;消费端默认按应
                    "Fable 5.2 同日冒烟两次都撞 4,096 零正文,不入清单、5.1 留着;"
                    "2026-11-15 用户定主力 = 消费端默认在最新一代里的同款,Sonnet 5.5 已是最新一代,主力就是它;"
                    "2026-11-15 按工程原则 10 复核:列型号接口没有新一代(Fable 5.2 仍在、冒烟没过);"
+                   "2026-11-20 用户定「每家只留两个」:消费端默认 + 主力(这家两个标记同一款,再留紧挨着的 Opus 5.5),"
+                   "Fable 5.1 删掉、Haiku 5.5 只当裁判;"
                    "帮助中心与发布说明 10-07 Haiku 5.5 之后没有新型号,仍没写免费版默认,标记不变")
 
 _CAPABILITIES = CapabilityRegistry(
@@ -278,6 +283,7 @@ class ClaudeWebSearchAdapter(HttpAdapter):
             display_name="Claude",
             api_name="Anthropic Messages API",
             models=list(_TOKEN_PRICES_PER_MTOK),  # 以官方模型页为准,与价目表同步核对
+            helper_models=list(_HELPER_PRICES_PER_MTOK),
             default_model=_DEFAULT_MODEL,
             consumer_default_model=_CONSUMER_DEFAULT_MODEL,
             main_model=_MAIN_MODEL,
@@ -308,7 +314,7 @@ class ClaudeWebSearchAdapter(HttpAdapter):
         平台返回 → SurfaceRun(_translate)。"""
         _CAPABILITIES.require_request(request)
         search_disabled = request.search_mode is SearchMode.SEARCH_DISABLED
-        model = known_model(request.model, _DEFAULT_MODEL, _TOKEN_PRICES_PER_MTOK)
+        model = known_model(request.model, _DEFAULT_MODEL, _ALL_PRICES_PER_MTOK)
         responses, latency_ms, started_at = self._converse(request, _payload(request, model, search_disabled))
         return _translate(request, model, search_disabled, responses, latency_ms, started_at)
 

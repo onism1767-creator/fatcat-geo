@@ -83,9 +83,9 @@ INCLUDE = ["web_search_call.action.sources"]  # 候选来源观测窗常开
 _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float, float]] = {
     "gpt-5.6-luna": (0.20, 1.20, 0.02),
     "gpt-6-luna": (0.10, 0.50, 0.01),
-    "gpt-6.1-terra": (1.00, 5.00, 0.05),
-    "gpt-6.2-sol": (2.00, 10.00, 0.10),
-    "gpt-6.2-astra": (8.00, 40.00, 0.40),
+    # 2026-11-20 用户定「每家只留两个」(消费端默认 + 主力):gpt-6.1-terra($1 / $5 / $0.05)、
+    # gpt-6.2-sol($2 / $10 / $0.10)、gpt-6.2-astra($8 / $40 / $0.40)删掉,旗舰不再测。
+    # 它们的缓存命中价是输入价的 0.05 倍(留下的两款是 0.1 倍),以后再加要照价目页写
 }
 _SEARCH_USD_PER_CALL = 10.0 / 1000.0  # web search $10 / 千次(仅 search 动作计费;2026-11-17 价目页没变)
 # 写入缓存的输入按输入价的 1.25 倍(30 分钟档,各型号一样;回包 cache_write_tokens_details.ttl_30m_tokens 对得上;

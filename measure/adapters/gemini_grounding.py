@@ -77,9 +77,8 @@ _SUCCESS_STATUSES = ("completed", "incomplete")  # incomplete=截断,回答仍�
 _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "gemini-3.5-flash-lite": (0.30, 2.50),
     "gemini-4-hydrogen": (1.5, 7.5),
-    "gemini-4-neon": (3.0, 15.0),
-    "gemini-4-argon": (2.0, 10.0),
-    "gemini-4-carbon": (2.0, 10.0),  # 用户 11-12 定:接口里有就冒烟入高档;冒烟通(这题没搜,$0.014)
+    # 2026-11-20 用户定「每家只留两个」(消费端默认 + 主力):4 Neon($3 / $15,当天上午刚入)、4 Argon、4 Carbon($2 / $10,
+    # 12-01 起 $4 / $20)删掉,旗舰不再测
 }
 # 只当裁判的便宜型号(BR6;价目 2026-10-30 核对官方价目页与型号页):不进上面的被测清单,否则高档「全部型号」会多测一个
 _HELPER_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
@@ -115,7 +114,8 @@ _MODELS_CHECKED = ("2026-10-14 官方型号页 + 价目页 + 应用更新日志;
                    "2026-11-19 按工程原则 10 核对:列型号接口新出现 gemini-4-neon(官方 11-18 发布);"
                    "2026-11-20 官方型号页 + 价目页($3 / $15)核对、冒烟通过,用户定入清单(只有高档测到);"
                    "应用里它给 Pro / Ultra 订阅用户选(官方发布文与 9to5Google 的摘要,没逐字读原文),"
-                   "免费版默认与主力不受影响,标记不变")
+                   "免费版默认与主力不受影响,标记不变;"
+                   "2026-11-20 用户定「每家只留两个」:消费端默认 + 主力,4 Neon / 4 Argon / 4 Carbon 删掉")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
