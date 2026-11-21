@@ -70,9 +70,14 @@ _SUCCESS_STATUSES = ("completed", "incomplete")  # incomplete=截断,回答仍�
 # 接口里现行的 Flash-Lite 是 3.5,9to5Google 2026-10-09 也写免费版是 3.5 Flash-Lite——版本号是这样定下来的,不是官方原话)。
 # 2026-11-13 按工程原则 9(用户定「最高档跟着各家最新一代走,旧的删掉」):第 3 代的 3.8 Flash、3.1 Pro preview 移出,
 # 第 4 代的 Hydrogen 入清单(11-12 冒烟通:搜 4 次、引用 17 条、$0.089、32 秒);3.5 Flash-Lite 是消费端默认,低档要测,留着。
+# 2026-11-20 4 Neon 入清单(用户定「加进清单」;11-19 按工程原则 10 核对时列型号接口里新出现,官方 11-18 发布):
+# 型号页写「Frontier-level intelligence with fast end-to-end task completion」,排在 4 Carbon 与 4 Hydrogen 之间;
+# 价目页 $3 / $15,没有分档、没有优惠期、没有免费档。11-20 冒烟通:搜 2 次、引用 13 条、正文 2,048 字、$0.0854、45 秒,
+# 没截断,平台自报型号就是它;那一次输出加思考 3,782 个 token,比下面声明价假设的 3,000 多。闭卷腿没单独试。
 _TOKEN_PRICES_PER_MTOK: dict[str, tuple[float, float]] = {
     "gemini-3.5-flash-lite": (0.30, 2.50),
     "gemini-4-hydrogen": (1.5, 7.5),
+    "gemini-4-neon": (3.0, 15.0),
     "gemini-4-argon": (2.0, 10.0),
     "gemini-4-carbon": (2.0, 10.0),  # 用户 11-12 定:接口里有就冒烟入高档;冒烟通(这题没搜,$0.014)
 }
@@ -106,7 +111,11 @@ _MODELS_CHECKED = ("2026-10-14 官方型号页 + 价目页 + 应用更新日志;
                    "2026-11-13 按工程原则 9 移出第 3 代的 3.8 Flash、3.1 Pro,4 Hydrogen 入清单;"
                    "2026-11-15 用户定主力 = 消费端默认在最新一代里的同款,填 4 Hydrogen(原主力 4 Argon);"
                    "2026-11-15 按工程原则 10 复核:列型号接口没有新的第 4 代型号;"
-                   "帮助中心里 Flash 换成了 4 Hydrogen(主力已在应用里),标记不变")
+                   "帮助中心里 Flash 换成了 4 Hydrogen(主力已在应用里),标记不变;"
+                   "2026-11-19 按工程原则 10 核对:列型号接口新出现 gemini-4-neon(官方 11-18 发布);"
+                   "2026-11-20 官方型号页 + 价目页($3 / $15)核对、冒烟通过,用户定入清单(只有高档测到);"
+                   "应用里它给 Pro / Ultra 订阅用户选(官方发布文与 9to5Google 的摘要,没逐字读原文),"
+                   "免费版默认与主力不受影响,标记不变")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,
