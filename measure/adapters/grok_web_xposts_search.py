@@ -39,6 +39,8 @@ _X_POST_USD = 5.0 / 1000.0
 _X_PRICE_TABLE: dict[str, dict[str, float]] = {
     model: {**_PRICE_TABLE[model], X_POSTS_KEY: _X_POST_USD} for model in _TOKEN_PRICES_PER_MTOK
 }
+# 2026-11-20 经本适配器真问过一次(用户同意;grok-4.5,口碑题):正常完成,网页搜 7 次、X 搜 3 次、抓回 15 条帖子,
+# $0.2372,用量 × 牌价与平台自报一分不差;X 的 3 个搜索词都翻出来了,打开的 1 页记上了;那次回答没有把帖子标成出处。
 # 联网问一次的实测均值(样本很少:2026-11-18 两个工具都开着各 3 次,含两道口碑题一道推荐题):
 # grok-4.5 $0.21 / $0.27 / $0.23,均 $0.23;grok-4.7 $0.23 / $0.34 / $0.57(最后一次过了 20 万 token),均 $0.38
 _X_MEASURED_USD_PER_CALL = {"grok-4.5": 0.23, "grok-4.7": 0.38}
