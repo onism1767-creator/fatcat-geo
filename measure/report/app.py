@@ -19,6 +19,7 @@ from adapters.base import SurfaceAdapter
 from diagnosis.recommender import EvidenceEntry, load_evidence_registry
 from engine.calibration import CalibrationReport, load_calibration
 from engine.envfile import load_env_file
+from engine.hard_cases import calibration_prompt_ids
 from engine.judge import JudgeConfig, load_judges
 from engine.loader import build_adapters
 from engine.storage import STORAGE_DOWN_ERRORS, CallStat, Storage, default_dsn
@@ -74,7 +75,8 @@ def create_app(
 
     def measured_call_stats(brand: str | None) -> list[CallStat]:
         with Storage(resolved_dsn) as store:
-            return store.call_stats(store.brand_prompt_ids(brand) if brand is not None else None)
+            return store.call_stats(store.brand_prompt_ids(brand) if brand is not None else None,
+                                    exclude_prompt_ids=calibration_prompt_ids())  # 校准题不当实测(用户 2026-11-20 定)
 
     app = FastAPI(title="GEO 诊断")
 

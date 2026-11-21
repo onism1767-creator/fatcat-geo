@@ -129,6 +129,10 @@ def test_call_stats_keep_languages_apart_and_average_the_usage(storage):
     assert stats["en-US"].usage == {"input_tokens": 50.0, "searches": 0.0}
     assert storage.call_stats(prompt_ids=["no-such-prompt"]) == []
     assert {s.locale for s in storage.call_stats(prompt_ids=["prompt-u"])} == {"zh-CN", "en-US"}
+    # 排除的题不算(用户 2026-11-20 定:校准题不当实测);别的题照常
+    assert not [s for s in storage.call_stats(exclude_prompt_ids=["prompt-u"]) if s.surface == "surface-u"]
+    kept = [s for s in storage.call_stats(exclude_prompt_ids=["some-other-prompt"]) if s.surface == "surface-u"]
+    assert {s.locale: s.n for s in kept} == {"zh-CN": 2, "en-US": 1}
     storage.insert_surface_run(make_run("run-u-copy").model_copy(update={
         "prompt_id": "prompt-u", "surface": "surface-u", "locale": "en-US", "cost_usd": 0.0}))
     storage.insert_cache_reuse(job_id="job-u", run_id="run-u-copy", source_run_id="run-u-en1", cache_age_s=60)
@@ -453,3 +457,12 @@ def test_version_first_seen_is_audited_once_and_a_missed_audit_is_filled_in(stor
         "SELECT version_from, version_to FROM recompute_event WHERE detector_name = %s AND version_to = 2", (name,)
     ).fetchone()
     assert event == (None, 2)  # 版本 1 只在审计里,库里没有版本 1 的判定行
+
+
+def test_calibration_questions_are_known_by_id_so_estimates_can_leave_them_out():
+    """估价不拿校准题的回答当实测(用户 2026-11-20 定「拿掉」):题号由品牌和题面算,和采集脚本存进库的是同一批。"""
+    from engine.hard_cases import calibration_prompt_ids, load_real_brands, prompts_of
+
+    ids = calibration_prompt_ids()
+    assert ids == [p.prompt_id for brand in load_real_brands() for p in prompts_of(brand)]
+    assert len(ids) == len(set(ids)) > 0

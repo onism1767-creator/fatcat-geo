@@ -41,6 +41,7 @@ from engine.cache import CACHE_HOURS, fill_from_cache
 from engine.detectors.brand_mention_judge import DETECTOR_NAME as JUDGE_DETECTOR
 from engine.detectors.brand_mention_judge import SENTIMENT_DETECTOR_NAME as JUDGE_SENTIMENT
 from engine.detectors.matching import registrable
+from engine.hard_cases import calibration_prompt_ids
 from engine.judge import (
     JudgeConfig,
     JudgeVerdict,
@@ -232,7 +233,9 @@ def _execute(
         if not replay and not job.fresh:
             _fill_from_cache(job, storage, adapter_of)  # 回答缓存(S11.2):别的单 12 小时内同题同型号的回答先填进空槽位
         # 单价和确认页同一份:同品牌各单(含本单已问的)的实测优先,再按这单语言的库里实测(成本调研②)
-        prices = unit_prices({t.surface: a for t, a in adapter_of.items()}, storage.call_stats(), locale=job.locale,
+        prices = unit_prices({t.surface: a for t, a in adapter_of.items()},
+                             storage.call_stats(exclude_prompt_ids=calibration_prompt_ids()),  # 校准题不当实测
+                             locale=job.locale,
                              brand_stats=storage.call_stats(storage.brand_prompt_ids(job.brand.name)))
         results = _sample(job, dsn, adapter_of, prices=prices, replay=replay)
         fresh_stops = [StopDetail.from_result(r) for r in results.values()]  # 熔断要说清原因(S10.2)

@@ -380,15 +380,23 @@ class Storage:
 
     # ── 调用统计(v0.4.17 预估口径)──────────────────────────────────────
 
-    def call_stats(self, prompt_ids: Iterable[str] | None = None) -> list[CallStat]:
+    def call_stats(
+        self, prompt_ids: Iterable[str] | None = None, *, exclude_prompt_ids: Iterable[str] = (),
+    ) -> list[CallStat]:
         """按 surface × 型号 × 模式 × 语言的历史实测均价、均时与平均用量,供确认页预估。只看成功的调用(v0.4.21):
         预估的是「拿到一次有效回答要花多少」,失败行记的 $0 与含退避的耗时不代表这个价。从别的单复制来的回答
-        (cache_reuse)花费记 0,不算(成本调研 D13)。prompt_ids 给了只统计这些题下的运行(同品牌上一单优先,D5)。"""
+        (cache_reuse)花费记 0,不算(成本调研 D13)。prompt_ids 给了只统计这些题下的运行(同品牌上一单优先,D5)。
+        exclude_prompt_ids 里的题不算:调用方拿它把校准题排除在外(用户 2026-11-20 定「拿掉」——校准题里的反例题基本不搜,
+        和真单的题不是一类,混进来估价会偏,错误日志 2026-11-19)。"""
         where = "r.outcome = %s AND NOT EXISTS (SELECT 1 FROM cache_reuse c WHERE c.run_id = r.run_id)"
         params: list[Any] = [Outcome.SUCCESS.value]
         if prompt_ids is not None:
             where += " AND r.prompt_id = ANY(%s)"
             params.append(list(prompt_ids))
+        excluded = list(exclude_prompt_ids)
+        if excluded:
+            where += " AND NOT (r.prompt_id = ANY(%s))"
+            params.append(excluded)
         rows = self._conn.execute(
             "SELECT r.surface, r.model, r.search_mode, r.locale, count(*), avg(r.cost_usd), avg(r.latency_ms) "
             f"FROM surface_run r WHERE {where} GROUP BY 1, 2, 3, 4",

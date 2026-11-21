@@ -87,6 +87,12 @@ def prompts_of(brand: RealBrand) -> list[Prompt]:
             + [prompt(text, PromptIntent.CATEGORY_DISCOVERY) for text in brand.open])
 
 
+def calibration_prompt_ids(path: Path = DEFAULT_REAL_PATH) -> list[str]:
+    """全部校准题的题号。估价不拿它们的回答当实测(用户 2026-11-20 定):这些题是为量「认得准不准」挑的,
+    反例题问的是这个词的普通意思、AI 基本不搜,花费和真单的题差得远。"""
+    return [prompt.prompt_id for brand in load_real_brands(path) for prompt in prompts_of(brand)]
+
+
 def strip_marks(name: str) -> str:
     """去掉全部附加符号(Citroën → Citroen、Phở Hòa → Pho Hoa)。"""
     return "".join(c for c in unicodedata.normalize("NFKD", name) if not unicodedata.combining(c))
