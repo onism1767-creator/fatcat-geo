@@ -216,15 +216,16 @@ def confirm_page(request: Request, job: DiagnosisJob = Depends(existing_job), er
     if job.drafting:  # AI 正在出题:显示等待页(自动刷新),不显示空的候选题(第二轮)
         return ctx.render(request, "drafting.html", job=job)
     prices = _prices(ctx, job)
-    target_groups = [  # 自定义区按 AI 分组列出全部型号;默认勾选跟默认档位(S9.1)
-        (ctx.display_names[name], [Target(surface=name, model=m) for m in ctx.adapters[name].meta().models])
+    # 先勾要测哪几家 AI(用户 2026-11-20 定:默认一家都不勾,有哪家的 key 自己选),档位再决定勾上的每家测哪几个型号;
+    # 自定义区按 AI 分组列出全部型号,一开始也都不勾,跟着上面勾的 AI 和选的档位变(页面脚本)
+    target_groups = [
+        (name, ctx.display_names[name], [Target(surface=name, model=m) for m in ctx.adapters[name].meta().models])
         for name in sorted(ctx.adapters)
     ]
     tiers = ctx.tiers
     tier_cards = [(spec, tier_targets(spec, ctx.adapters)) for spec in tiers.tiers]
     tier_defaults = {spec.name: {"runs": spec.runs_per_prompt, "keys": [x.key for x in targets]}
                      for spec, targets in tier_cards}
-    default_keys = {x.key for spec, targets in tier_cards if spec.name == tiers.default for x in targets}
     t = MESSAGES[lang_of(request)]
     basis = [  # 每个型号的单价是怎么来的,按依据分组各说一句(成本调研②:没实测过的说清是借同家默认型号的用量算的)
         t[f"est_basis_{kind.value}"].format(names=t["list_sep"].join(ctx.target_name(x.surface, x.model)
@@ -234,7 +235,6 @@ def confirm_page(request: Request, job: DiagnosisJob = Depends(existing_job), er
     basis.append(t["est_basis_tail"])
     return ctx.render(request, "confirm.html", job=job, target_groups=target_groups,
                       tier_cards=tier_cards, tier_defaults=tier_defaults, default_tier=tiers.default,
-                      default_keys=default_keys,
                       default_runs=tiers.default_tier.runs_per_prompt, custom_runs=tiers.custom_runs,
                       est_basis=" ".join(basis), verify_minutes=round(VERIFY_MAX_MINUTES),
                       calibration_text=(calibration_text(ctx.calibration, lang_of(request))
@@ -286,10 +286,11 @@ def confirm_estimate(
 
     estimate = estimate_job(n_prompts=n_prompts, runs_per_prompt=choice.runs_per_prompt, targets=targets,
                             dependency=bool(dependency), prices=prices, **judging(choice.mention_method, targets))
+    picked = {name: ctx.adapters[name] for name in {t.surface for t in targets}}  # 三张卡片的预估只算勾上的这几家
     per_tier = {
         spec.name: estimate_job(n_prompts=n_prompts, runs_per_prompt=spec.runs_per_prompt,
-                                targets=tier_targets(spec, ctx.adapters), dependency=bool(dependency), prices=prices,
-                                **judging(spec.mention_method, tier_targets(spec, ctx.adapters)))
+                                targets=tier_targets(spec, picked), dependency=bool(dependency), prices=prices,
+                                **judging(spec.mention_method, tier_targets(spec, picked)))
         for spec in ctx.tiers.tiers
     }
     breakdown = [{"display": ctx.target_name(t.surface, t.model), "cost_usd": cost} for t, cost in estimate.per_target]

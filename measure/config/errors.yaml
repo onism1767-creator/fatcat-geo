@@ -18,7 +18,7 @@ errors:
     scope: form
     resumable: false
     trigger: {zh: "确认页一个 AI 型号都没勾", en: "No AI model is ticked on the confirm page"}
-    message: {zh: "请至少选一个要测的 AI 型号。", en: "Please pick at least one AI model to test."}
+    message: {zh: "请至少勾上一家要测的 AI。", en: "Please tick at least one AI to test."}
     next_step: {zh: "在「自定义」里勾上型号,或直接选一个档位。", en: "Tick a model under Customise, or pick a tier."}
   - code: FORM_BAD_TIER
     scope: form

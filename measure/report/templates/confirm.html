@@ -50,7 +50,15 @@
 
   <div class="card">
     <h3>{{ t["plan_title"] }}</h3>
-    {#- 档位三张卡片(S9.1,架构书附录 v0.4.27;默认选「中」,用户定):每张用人话写测几个型号、每题问几次、「提到你」怎么认、本单预估 -#}
+    {#- 先勾要测哪几家 AI(用户 2026-11-20 定:默认一家都不勾,有哪家的 key 自己选;没填 key 的本来就不列)。
+        这一行只是页面上的开关,不随表单提交:真正提交的是自定义区里的型号勾选,脚本让它跟着这里和档位变 -#}
+    <label>{{ t["ais_label"] }}</label>
+    <div style="margin:0 0 12px">
+      {% for surface, ai_name, group in target_groups %}
+      <label style="font-weight:400;margin-right:14px"><input type="checkbox" class="ai-pick" value="{{ surface }}"> {{ ai_name }}</label>
+      {% endfor %}
+    </div>
+    {#- 档位三张卡片(S9.1,架构书附录 v0.4.27;默认选「中」,用户定):每张用人话写每家测哪些型号、每题问几次、「提到你」怎么认、本单预估 -#}
     <p class="muted" style="margin:0 0 8px">{{ t["tier_intro"] }}</p>
     <div class="tiers">
       {% for spec, targets in tier_cards %}
@@ -59,7 +67,7 @@
         <b>{{ t["tier_name_" + spec.name] }}</b>{% if spec.name == default_tier %} <span class="muted">({{ t["tier_default_word"] }})</span>{% endif %}
         <div class="muted" style="margin:2px 0 4px">{{ t["tier_blurb_" + spec.name] }}</div>
         <ul class="ev">
-          <li>{{ t["tier_models_line"].format(n=targets|length) }}:{% for x in targets %}{{ target_name(x.surface, x.model) }}{% if not loop.last %};{% endif %}{% endfor %}</li>
+          <li>{{ t["tier_models_line"] }}:{% for x in targets %}{{ target_name(x.surface, x.model) }}{% if not loop.last %};{% endif %}{% endfor %}</li>
           <li>{{ t["tier_runs_line"].format(n=spec.runs_per_prompt) }}</li>
           <li>{{ t["tier_method_line"] }}{{ t["method_" + spec.mention_method.value] }}</li>
           <li>{{ t["tier_est_line"] }}<b><span class="tier-est" data-tier="{{ spec.name }}">–</span></b></li>
@@ -80,11 +88,11 @@
       <p class="muted">{{ t["custom_hint"] }}</p>
       <div class="row">
         <div><label>{{ t["surfaces_label"] }}</label>
-          {% for ai_name, group in target_groups %}
+          {% for surface, ai_name, group in target_groups %}
           <div style="margin-bottom:6px">
             {% if group|length > 1 %}<span class="muted">{{ ai_name }}</span>{% endif %}
             {% for target in group %}
-            <label style="font-weight:400"><input type="checkbox" name="targets_selected" value="{{ target.key }}" {{ "checked" if target.key in default_keys else "" }}> {{ target.model if group|length > 1 else ai_name }}</label>
+            <label style="font-weight:400"><input type="checkbox" name="targets_selected" value="{{ target.key }}" data-surface="{{ surface }}"> {{ target.model if group|length > 1 else ai_name }}</label>
             {% endfor %}
           </div>
           {% endfor %}
@@ -102,6 +110,7 @@
     </div>
     <label style="font-weight:400"><input type="checkbox" name="dependency" value="on"> {{ t["dep_label"] }}</label>
     <p class="muted" style="margin:2px 0 8px">{{ t["dep_hint"] }}</p>
+    <p class="kv muted" id="est-pick-first">{{ t["est_pick_first"] }}</p>
     <p class="kv">{{ t["est_label"] }}<b><span id="est-calls">–</span></b> {{ t["est_calls_word"] }} ·
       ≈ <b>$<span id="est-cost">–</span></b> ·
       ≈ <b><span id="est-min">–</span> {{ t["est_min_word"] }}</b>({{ t["est_note"] }})
@@ -118,17 +127,39 @@
 
 <script>
 // 预估公式只在服务端(report/estimate.py):每次勾选变化把整张表单发过去,这里只负责显示(v0.4.24 审查 #3)。
-// 档位(S9.1):选一档就把该档的型号与次数填进自定义区;用户再改就按自定义算(服务端判)。
+// 测哪几家 AI 由用户自己勾(2026-11-20 用户定:默认一家都不勾);档位(S9.1)决定勾上的每家测哪几个型号、每题几次,
+// 脚本把结果填进自定义区;用户在自定义区再改型号或次数就按自定义算(服务端判)。
 const TIERS = {{ tier_defaults|tojson }};
 const WORDS = {calls: {{ t["est_calls_word"]|tojson }}, min: {{ t["est_min_word"]|tojson }}, judge: {{ t["est_judge"]|tojson }}, judgeUpto: {{ t["est_judge_upto"]|tojson }}, high: {{ t["est_high"]|tojson }}};
 const form = document.getElementById('confirm-form');
-function applyTier(name) {
-  const spec = TIERS[name];
+const modelBoxes = [...form.querySelectorAll('input[name=targets_selected]')];
+const aiBoxes = [...form.querySelectorAll('.ai-pick')];
+function tierNow() { const r = form.querySelector('input[name=tier]:checked'); return r ? TIERS[r.value] : null; }
+function fillAi(surface, on) {  // 一家 AI 的型号:勾上 = 这一档给它挑的那几个;不勾 = 一个都不测
+  const spec = tierNow();
+  modelBoxes.filter(cb => cb.dataset.surface === surface)
+    .forEach(cb => { cb.checked = on && !!spec && spec.keys.includes(cb.value); });
+}
+function applyTier() {  // 换档位:勾着的每一家都按新档位重挑型号,次数跟着档位
+  const spec = tierNow();
   if (!spec) return;
-  form.querySelectorAll('input[name=targets_selected]').forEach(cb => { cb.checked = spec.keys.includes(cb.value); });
+  aiBoxes.forEach(ai => fillAi(ai.value, ai.checked));
   form.querySelector('input[name=runs]').value = spec.runs;
 }
-form.querySelectorAll('input[name=tier]').forEach(r => r.addEventListener('change', () => applyTier(r.value)));
+form.querySelectorAll('input[name=tier]').forEach(r => r.addEventListener('change', applyTier));
+aiBoxes.forEach(ai => ai.addEventListener('change', () => fillAi(ai.value, ai.checked)));
+// 在自定义区手动改了型号:上面那一行跟着显示这家还测不测
+modelBoxes.forEach(cb => cb.addEventListener('change', () => {
+  const ai = aiBoxes.find(box => box.value === cb.dataset.surface);
+  if (ai) ai.checked = modelBoxes.some(box => box.dataset.surface === cb.dataset.surface && box.checked);
+}));
+function blankEstimate() {  // 一家都没勾(或填的次数不对):不留着上一次的数
+  ['est-calls', 'est-cost', 'est-min', 'est-breakdown'].forEach(id => { document.getElementById(id).textContent = '–'; });
+  ['est-custom', 'est-judge'].forEach(id => { document.getElementById(id).style.display = 'none'; });
+  document.getElementById('est-high').textContent = '';
+  form.querySelectorAll('.tier-est').forEach(el => { el.textContent = '–'; });
+  document.getElementById('est-pick-first').style.display = modelBoxes.some(cb => cb.checked) ? 'none' : '';
+}
 function judgeNote(e) { return (e.judge_upto ? WORDS.judgeUpto : WORDS.judge).replace('{n}', e.judge_calls).replace('{cost}', e.judge_cost_usd.toFixed(2)); }
 function fmt(e) {
   return e.calls + ' ' + WORDS.calls + ' · ≈ $' + e.cost_usd.toFixed(2) + ' · ≈ ' + e.minutes.toFixed(1) + ' ' + WORDS.min
@@ -137,10 +168,13 @@ function fmt(e) {
 let seq = 0;
 async function recalc() {
   const mine = ++seq;
+  if (!modelBoxes.some(cb => cb.checked)) { blankEstimate(); return; }  // 一家都没勾:不去问服务端
   const resp = await fetch('/jobs/{{ job.job_id }}/estimate?lang={{ lang }}', {method: 'POST', body: new FormData(form)});
-  if (!resp.ok || mine !== seq) return;
+  if (mine !== seq) return;
+  if (!resp.ok) { blankEstimate(); return; }
   const e = await resp.json();
   if (mine !== seq) return;  // 连续勾选时只显示最后一次的结果
+  document.getElementById('est-pick-first').style.display = 'none';
   document.getElementById('est-calls').textContent = e.calls;
   document.getElementById('est-cost').textContent = e.cost_usd.toFixed(2);
   document.getElementById('est-min').textContent = e.minutes.toFixed(1);

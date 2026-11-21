@@ -109,6 +109,7 @@ def tier_choice(
     tiers: TierConfig, adapters: dict[str, SurfaceAdapter], *, tier: str, runs: str, targets_selected: list[str],
 ) -> tuple[TierChoice, list[Target]] | str:
     """档位 + 自定义(S9.1,用户定 T8):以选中的档位为起点,型号与次数改过就按自定义算,「提到你」的认法跟起点档走。
+    测哪几家 AI 是用户自己勾的(用户 2026-11-20 定:默认都不勾),不算自定义:一档的标准型号 = 勾上的这几家各按档位挑。
     确认与实时预估共用;不合格返回错误码。"""
     spec = tiers.get(tier)
     if spec is None:
@@ -122,7 +123,8 @@ def tier_choice(
     targets = selected_targets(targets_selected, adapters)
     if not targets:
         return "FORM_NO_TARGET"
-    standard = {t.key for t in tier_targets(spec, adapters)}
+    picked = {name: adapters[name] for name in {t.surface for t in targets}}
+    standard = {t.key for t in tier_targets(spec, picked)}
     custom = {t.key for t in targets} != standard or n != spec.runs_per_prompt
     return TierChoice(name=spec.name, runs_per_prompt=n, mention_method=spec.mention_method, custom=custom), targets
 

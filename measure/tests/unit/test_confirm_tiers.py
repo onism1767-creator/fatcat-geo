@@ -61,19 +61,26 @@ def test_confirm_page_shows_three_tier_cards_with_medium_selected():
     assert 'name="tier" value="low"' in html and 'name="tier" value="high"' in html
     assert 'name="tier" value="medium" checked' in html  # 默认「中」(用户定)
     assert "低档" in html and "中档" in html and "高档" in html
-    # 低档每家一个消费端默认型号;中档 s2 两个(主力 + 默认)、s1 一个;高档全部
-    assert "测 2 个 AI 型号:S1 · m1;S2 API · m_cheap" in html
-    assert "测 3 个 AI 型号:S1 · m1;S2 API · m_top;S2 API · m_cheap" in html
+    # 卡片写每家按这一档测哪些型号:低档每家一个消费端默认型号;中档 s2 两个(主力 + 默认)、s1 一个;高档全部
+    assert "每家 AI 测这些型号(只测你勾上的那几家):S1 · m1;S2 API · m_cheap" in html
+    assert "每家 AI 测这些型号(只测你勾上的那几家):S1 · m1;S2 API · m_top;S2 API · m_cheap" in html
     assert "每道题原样问 5 次" in html and "每道题原样问 7 次" in html
     assert "按你的名字和别名精确匹配" in html  # 「提到你」怎么认,从配置来
     assert "自动校准还没做" in html  # 准确率对比只写实测,没有就说没有
-    # 自定义区:型号勾选跟默认档(中档)、次数默认 5、范围 3–10
-    assert 'value="s2::m_top" checked' in html and 'value="s2::m_cheap" checked' in html
+    # 测哪几家 AI 由用户自己勾(用户 2026-11-20 定):每家一个开关,一开始一家都不勾,自定义区的型号也一个都不勾
+    assert 'class="ai-pick" value="s1"> S1' in html and 'class="ai-pick" value="s2"> S2' in html
+    assert "测哪几家 AI(至少勾一家;只列出你填了 key 的)" in html and "勾上要测的 AI 之后,这里显示预估。" in html
+    assert 'name="targets_selected" value="s2::m_top" data-surface="s2">' in html
+    assert html.count('name="targets_selected"') == 3 and "ai-pick\" value=\"s1\" checked" not in html
+    assert not [line for line in html.splitlines() if 'name="targets_selected"' in line and "checked" in line]
+    assert not [line for line in html.splitlines() if 'class="ai-pick"' in line and "checked" in line]
+    # 次数默认 5、范围 3–10
     assert 'name="runs" step="1" min="3" max="10" value="5"' in html
     text = visible_text(html)
     assert not any(token in text for token in UI_FORBIDDEN), text[:300]
     en = client.get(_confirm_url(client).replace("lang=zh", "lang=en")).text
-    assert "Medium" in en and "asked 5 times" in en and "models checked:" in en
+    assert "Medium" in en and "asked 5 times" in en and "Models checked for each AI (only the AIs you tick):" in en
+    assert "Which AIs to test (tick at least one" in en
 
 
 def test_estimate_endpoint_returns_every_tier_and_flags_custom():
@@ -91,9 +98,19 @@ def test_estimate_endpoint_returns_every_tier_and_flags_custom():
     more = client.post(f"{path}/estimate", data={**base, "tier": "low", "runs": "4",
                                                  "targets_selected": ["s1::m1", "s2::m_cheap"]}).json()
     assert more["calls"] == 2 * 4 * 2 and more["custom"] is True
-    fewer = client.post(f"{path}/estimate", data={**base, "tier": "low", "runs": "3",
-                                                  "targets_selected": ["s1::m1"]}).json()
-    assert fewer["custom"] is True
+    swapped = client.post(f"{path}/estimate", data={**base, "tier": "low", "runs": "3",
+                                                    "targets_selected": ["s1::m1", "s2::m_top"]}).json()
+    assert swapped["custom"] is True
+    # 只勾一家 AI 不算自定义(用户 2026-11-20 定:测哪几家自己勾);三张卡片的预估也只算勾上的这一家
+    one_ai = client.post(f"{path}/estimate", data={**base, "tier": "low", "runs": "3",
+                                                   "targets_selected": ["s1::m1"]}).json()
+    assert one_ai["custom"] is False and one_ai["calls"] == 2 * 3 * 1
+    assert {name: est["calls"] for name, est in one_ai["tiers"].items()} == {"low": 6, "medium": 10, "high": 14}
+    two_models = client.post(f"{path}/estimate", data={**base, "tier": "medium", "runs": "5",
+                                                       "targets_selected": ["s2::m_top", "s2::m_cheap"]}).json()
+    assert two_models["custom"] is False and two_models["tiers"]["medium"]["calls"] == 2 * 5 * 2
+    none = client.post(f"{path}/estimate", data={**base, "tier": "medium", "runs": "5"})
+    assert none.status_code == 400 and none.json() == {"error": "FORM_NO_TARGET"}  # 一家都没勾:页面显示「先勾上」
     bad = client.post(f"{path}/estimate", data={**base, "tier": "low", "runs": "11", "targets_selected": ["s1::m1"]})
     assert bad.status_code == 400 and bad.json() == {"error": "FORM_RUNS_RANGE"}
 
