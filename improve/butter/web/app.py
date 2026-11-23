@@ -22,8 +22,10 @@ from typing import Any
 from urllib.parse import urlsplit
 
 from fastapi import FastAPI, Form, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse, Response
 from jinja2 import Environment, FileSystemLoader, StrictUndefined, select_autoescape
+from starlette.exceptions import HTTPException as StarletteHTTPException
 
 import butter
 from butter import cards, sources, store
@@ -106,10 +108,19 @@ def create_app(settings: WebSettings) -> FastAPI:
                                                  path=request.url.path)
         return HTMLResponse(html, status_code=status)
 
-    @app.exception_handler(HTTPException)
-    async def http_error(request: Request, exc: HTTPException):
-        return render(request, "error.html", {"title": "出了点问题", "message": str(exc.detail), "status": exc.status_code},
+    # 挂在 Starlette 的 HTTPException 上:路由找不到时框架自己抛的 404 / 405 也走这个出错页(FastAPI 的是它的子类)
+    @app.exception_handler(StarletteHTTPException)
+    async def http_error(request: Request, exc: StarletteHTTPException):
+        message = str(exc.detail)
+        message = {"Not Found": "没有这个页面。", "Method Not Allowed": "这个地址不能这样用。"}.get(message, message)  # 框架自带的英文短语,换成人话
+        return render(request, "error.html", {"title": "出了点问题", "message": message, "status": exc.status_code},
                       status=exc.status_code)
+
+    @app.exception_handler(RequestValidationError)
+    async def form_error(request: Request, exc: RequestValidationError):
+        return render(request, "error.html", {
+            "title": "出了点问题", "status": 400,
+            "message": "提交的内容里有一处填得不对(比如该填数字的地方填了别的)。请回到上一页改一下再提交。"}, status=400)
 
     # ── 读数据(只读) ──────────────────────────────────────────────────
 
@@ -153,7 +164,8 @@ def create_app(settings: WebSettings) -> FastAPI:
             raise HTTPException(500, f"这次运行的文件读不了:{type(exc).__name__}") from exc
 
     def cards_view():
-        view, problems = cards.load(settings.workspace, as_of=datetime.now(UTC).date())
+        # 本机日期:测量日、部署日记的都是本机日期,用 UTC 的话每天早上 8 点前(北京时间)会差一天
+        view, problems = cards.load(settings.workspace, as_of=datetime.now().date())
         return view, problems
 
     # ── 页面 ──────────────────────────────────────────────────────────

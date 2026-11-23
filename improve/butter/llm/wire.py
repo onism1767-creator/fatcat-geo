@@ -122,18 +122,21 @@ def parse_response(provider: str, data: Any) -> Parsed:
     raise ValueError(f"不认识的提供方:{provider}")
 
 
+NO_CREDIT_MARKS = ("insufficient_quota", "billing_hard_limit_reached", "credit balance is too low", "quota_exceeded")
+
+
 def classify_http(status: int, body_text: str) -> str:
     """HTTP 出错归哪一类。账户类(密钥、余额、权限)立即停;限流与平台内部错误可以重试。
 
-    OpenAI 把「没额度」放在 429 里,靠错误码区分;认得出的按账户类,认不出的 429 按限流。
+    OpenAI 把「没额度」放在 429 里,Anthropic 放在 400 里(credit balance is too low),都靠回答里的文字区分;
+    认得出的按账户类,认不出的 429 按限流、400 按请求写错。
     """
     low = body_text.lower()
     if status in (401, 402, 403):
         return "account"
+    if status in (400, 429) and any(mark in low for mark in NO_CREDIT_MARKS):
+        return "account"
     if status == 429:
-        if any(mark in low for mark in ("insufficient_quota", "billing_hard_limit_reached", "credit balance is too low",
-                                        "quota_exceeded")):
-            return "account"
         return "rate_limit"
     if status in (500, 502, 503, 504, 529):
         return "server"

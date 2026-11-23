@@ -230,3 +230,19 @@ def test_request_hash_ignores_nothing_but_the_secret():
     assert wire.request_hash("anthropic", "claude-opus-5-5", "v1", body) == wire.request_hash("anthropic", "claude-opus-5-5", "v1", body)
     assert wire.request_hash("anthropic", "claude-opus-5-5", "v1", body) != wire.request_hash("anthropic", "claude-opus-5-5", "v2", body)
     assert SECRET not in json.dumps(body)
+
+
+def test_out_of_credit_is_an_account_problem_whatever_the_status():
+    # Anthropic 把"余额不足"放在 400 里,OpenAI 放在 429 里:都算账户问题(立刻停、提示查余额),不是"请求写错"或"限流"
+    anthropic = ('{"type":"error","error":{"type":"invalid_request_error",'
+                 '"message":"Your credit balance is too low to access the Anthropic API."}}')
+    assert wire.classify_http(400, anthropic) == "account"
+    assert wire.classify_http(429, '{"error":{"code":"insufficient_quota"}}') == "account"
+    assert wire.classify_http(400, '{"error":{"message":"max_tokens: field required"}}') == "bad_request"
+    assert wire.classify_http(429, '{"error":{"message":"slow down"}}') == "rate_limit"
+
+
+def test_env_file_saved_with_a_bom_still_gives_the_first_key(tmp_path):
+    env_file = tmp_path / ".env"   # 记事本存成"带 BOM 的 UTF-8":BOM 不能粘在第一行的变量名上
+    env_file.write_bytes(b"\xef\xbb\xbfANTHROPIC_API_KEY=abc\nOPENAI_API_KEY=def\n")
+    assert read_env_file(env_file) == {"ANTHROPIC_API_KEY": "abc", "OPENAI_API_KEY": "def"}

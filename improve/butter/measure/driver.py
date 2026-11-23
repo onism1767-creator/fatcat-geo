@@ -38,6 +38,7 @@ PROGRESS = re.compile(r"^PROGRESS probe (\d+)/(\d+) ([0-9.]+)")
 EXIT_NOTE = {1: "Potato 中途出错停了", 2: "Potato 不认这份配置,或者预算上限拦住了", 3: "Potato 还不支持这个做法",
              4: "这家 AI 的 key 没有,或者被拒了"}
 SAFE_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{1,120}$")
+LOCK_WAIT_S = 2.0
 
 
 def default_potato() -> PotatoSettings:
@@ -138,8 +139,7 @@ def prepare(workspace: Path, out_root: Path, batch_id: str, *, env: Mapping[str,
         files = P.potato_config(panel["questions"], brand, lang=lang, runs=runs, budget_cap_usd=cap)
         digest = hashlib.sha256("".join(files.values()).encode("utf-8")).hexdigest()[:12]
         cfg = bdir / "panel" / f"{lang}-{digest}"
-        if not cfg.is_dir():
-            store.save_text_files(cfg, files)
+        store.ensure_text_files(cfg, files)   # 目录名带内容指纹:缺文件就补(上次写到一半断了也能接上),有了不动
         config_dirs[lang] = str(cfg)
         n_questions[lang] = len(panel["questions"])
         doc = sources.read_yaml(cfg / "questions.yml")
@@ -358,7 +358,8 @@ def run(workspace: Path, batch_id: str, kind: str, *, env: Mapping[str, str], po
     """驱动的主体:拿锁 → 依次跑各条腿 → 读回 → 记事件。返回一句结果(给日志看)。已有驱动在跑就直接返回。"""
     bdir = batch_dir(workspace, batch_id)
     try:
-        with store.hold_lock(bdir / "measure.lock"):
+        # 等一小会儿再认定"已经有驱动":网页查锁时会把锁拿到手一瞬间,不等的话刚起的驱动会被自己人挤掉
+        with store.hold_lock(bdir / "measure.lock", wait_s=LOCK_WAIT_S):
             return _run_locked(workspace, bdir, batch_id, kind, env, potato)
     except store.LockHeld:
         return "这一批已经有一个测量在跑了"
@@ -447,7 +448,10 @@ def spawn(workspace: Path, out_root: Path, batch_id: str, kind: str, *, env: Map
         cmd += ["--potato-pythonpath", potato.pythonpath]
     flags = 0
     if os.name == "nt":
-        flags = subprocess.DETACHED_PROCESS | subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
+        # 不用 DETACHED_PROCESS:那样驱动自己没有控制台,它再起 Potato 时 Windows 会给 Potato 弹一个看得见的黑窗口
+        # (2026-11-23 本机实测),站长顺手关掉这条腿就断了。CREATE_NO_WINDOW 给驱动一个看不见的控制台,Potato 接着用它。
+        # 新进程组 + 自己的控制台:关掉网页服务的窗口、按 Ctrl+C 都不会带走驱动。
+        flags = subprocess.CREATE_NEW_PROCESS_GROUP | subprocess.CREATE_NO_WINDOW
     child_env = potato_env(env, potato)
     child_env.pop("PYTHONPATH", None)  # 驱动自己是 Butter 的进程,不要带上 Potato 的搜索路径
     subprocess.Popen(cmd, cwd=str(Path(__file__).resolve().parents[2]), env=child_env, stdin=subprocess.DEVNULL,

@@ -8,6 +8,7 @@ from __future__ import annotations
 import json
 import subprocess
 import sys
+import threading
 import time
 from datetime import UTC, datetime
 from pathlib import Path
@@ -85,6 +86,10 @@ def test_questions_are_split_into_treated_control_and_background():
     assert P.page_of_target("https://x.test/a 的 <title> / H1") == "https://x.test/a"
     assert P.page_of_target("https://x.test/a:<head> 里的 <meta>") == "https://x.test/a"
     assert P.page_of_target("站点根目录的 robots.txt") is None
+    # 主机后面的端口是网址的一部分(本机测试站 http://localhost:3000),不能在端口前的冒号处截断
+    assert P.page_of_target("http://localhost:3000/products/a:首屏短答") == "http://localhost:3000/products/a"
+    assert P.page_of_target("http://localhost:3000 的 <head>") == "http://localhost:3000"
+    assert P.page_of_target("https://x.test:首屏短答") == "https://x.test"
 
 
 def test_potato_estimate_text_is_parsed():
@@ -435,3 +440,48 @@ def test_plan_says_so_when_potato_would_refuse_an_engine_for_cost(site, monkeypa
     monkeypatch.setenv("STUB_COST", "0.1")     # 假 Potato 的估价是每次花费的 3 倍:72 × 0.3 = $21.6,超过上限 $18
     plan = driver.prepare(workspace, out, batch_id, env={"OPENAI_API_KEY": "k"}, potato=potato)
     assert any("OpenAI" in n and "$21.60" in n and "$18.00" in n and "拦下" in n for n in plan.notes)
+
+
+def test_a_driver_waits_out_the_moment_the_page_peeks_at_the_lock(tmp_path):
+    # 网页看"驱动在不在"时会把锁拿到手一瞬间。刚起的驱动这时来拿:不等就扑空(以前会当成"已经有驱动"直接退出),等一下就拿到
+    lock = tmp_path / "measure.lock"
+    held = threading.Event()
+
+    def peek():
+        with store.hold_lock(lock):
+            held.set()
+            time.sleep(0.3)
+
+    page = threading.Thread(target=peek)
+    page.start()
+    assert held.wait(2)
+    with pytest.raises(store.LockHeld):
+        with store.hold_lock(lock):
+            pass
+    with store.hold_lock(lock, wait_s=2.0):
+        pass
+    page.join()
+    assert not store.lock_is_held(lock)
+
+
+def test_the_driver_gets_a_hidden_console_not_none(site, monkeypatch):
+    # 驱动自己没有控制台(DETACHED_PROCESS)的话,它起 Potato 时 Windows 会弹出一个看得见的黑窗口,站长一关这条腿就断。
+    # 要给它一个看不见的控制台,Potato 接着用(2026-11-23 本机实测过两种写法)。
+    if sys.platform != "win32":
+        return
+    workspace, out, batch_id, potato = site
+    seen: dict = {}
+    monkeypatch.setattr(driver.subprocess, "Popen", lambda cmd, **kwargs: seen.update(kwargs))
+    driver.spawn(workspace, out, batch_id, "baseline", env=ENV, potato=potato)
+    flags = seen["creationflags"]
+    assert flags & subprocess.CREATE_NO_WINDOW and flags & subprocess.CREATE_NEW_PROCESS_GROUP
+    assert not flags & subprocess.DETACHED_PROCESS
+
+
+def test_a_half_written_config_folder_is_completed_not_stuck(site):
+    workspace, out, batch_id, potato = site
+    plan = driver.prepare(workspace, out, batch_id, env=ENV, potato=potato)
+    cfg = Path(next(iter(plan.config_dirs.values())))
+    (cfg / "brands.yml").unlink()                       # 上次写到一半断了:文件夹在,文件不全
+    again = driver.prepare(workspace, out, batch_id, env=ENV, potato=potato)
+    assert again.config_dirs == plan.config_dirs and (cfg / "brands.yml").is_file()

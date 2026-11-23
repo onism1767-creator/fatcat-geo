@@ -11,6 +11,7 @@ import hashlib
 import json
 import os
 import sqlite3
+import time
 from collections.abc import Callable, Iterator
 from contextlib import closing, contextmanager
 from pathlib import Path, PurePosixPath
@@ -137,6 +138,17 @@ def write_llm_cache(cache_dir: Path, digest: str, record: dict) -> None:
 
 
 # ── 提案文档 ─────────────────────────────────────────────────────────
+
+def ensure_text_files(out_dir: Path, files: dict[str, str]) -> None:
+    """保证文件夹里有这组文件:缺哪个补哪个,已经有的不动(只新增、不覆盖)。
+
+    给"名字由内容指纹决定"的文件夹用:上一次写到一半断了,下次进来把缺的补齐,不会一直卡在半成品上。
+    """
+    for name, text in files.items():
+        path = out_dir / _safe_relative(name)
+        if not path.is_file():
+            _write_new(path, text)
+
 
 def save_text_files(out_dir: Path, files: dict[str, str]) -> list[Path]:
     """把一组文本文件(相对路径 → 内容)存进一个新文件夹。文件夹已存在就拒写:只新增、不覆盖。"""
@@ -462,25 +474,32 @@ class LockHeld(OSError):
 
 
 @contextmanager
-def hold_lock(lock_path: Path) -> Iterator[None]:
-    """拿住一把进程级的锁,直到退出 with。拿不到立刻抛 LockHeld,不等。进程没了锁自动放开,不会留下死锁。
+def hold_lock(lock_path: Path, wait_s: float = 0.0) -> Iterator[None]:
+    """拿住一把进程级的锁,直到退出 with。拿不到就抛 LockHeld。进程没了锁自动放开,不会留下死锁。
 
     测量驱动用它保证同一个批次同一时刻只有一个驱动在跑(设计 §6 规则 5)。
+    wait_s:拿不到时最多再等这么久、隔一小会儿重试。网页看"驱动在不在"(lock_is_held)时会把锁拿到手一瞬间,
+    驱动刚好这时来拿会扑空;等一下再试就过去了。默认不等。
     """
     lock_path.parent.mkdir(parents=True, exist_ok=True)
+    deadline = time.monotonic() + wait_s
     with open(lock_path, "a+b") as handle:
-        handle.seek(0)
-        try:
-            if os.name == "nt":
-                import msvcrt
+        while True:
+            handle.seek(0)
+            try:
+                if os.name == "nt":
+                    import msvcrt
 
-                msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
-            else:
-                import fcntl
+                    msvcrt.locking(handle.fileno(), msvcrt.LK_NBLCK, 1)
+                else:
+                    import fcntl
 
-                fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-        except OSError as exc:
-            raise LockHeld(str(lock_path)) from exc
+                    fcntl.flock(handle.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as exc:
+                if time.monotonic() >= deadline:
+                    raise LockHeld(str(lock_path)) from exc
+                time.sleep(0.05)
         try:
             yield
         finally:

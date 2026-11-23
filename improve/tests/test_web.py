@@ -80,6 +80,14 @@ def test_unknown_or_tricky_run_ids_are_404(site):
     assert "回首页" in client.get("/runs/nope").text
 
 
+def test_a_wrong_address_or_a_bad_form_value_gets_the_plain_error_page(site):
+    client, _, _ = site
+    missing = client.get("/no-such-page")               # 路由里没有的地址:也是 Butter 的出错页,不是一行英文 JSON
+    assert missing.status_code == 404 and "没有这个页面" in missing.text and "回首页" in missing.text
+    bad = client.post("/runs", data={"token": "test-token", "url": "https://acme.test", "max_pages": "abc"}, headers=ORIGIN)
+    assert bad.status_code == 400 and "填得不对" in bad.text and "回首页" in bad.text
+
+
 def test_questions_page_generates_matches_and_saves(site):
     client, _, settings = site
     empty = client.get("/runs/run-web/questions.json").json()

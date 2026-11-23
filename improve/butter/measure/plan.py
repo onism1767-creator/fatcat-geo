@@ -20,7 +20,8 @@ LOCALE = {"zh": ("zh-CN", "CN"), "en": ("en-US", "US")}
 # 和 E0 配置里的一样(Potato 的健康灯阈值;Butter 的比对不用它们)
 VERIFY_THRESHOLDS = {"citation_validity_yellow": 0.85, "citation_validity_red": 0.7, "ambiguous_yellow": 0.25,
                      "ambiguous_red": 0.4, "failure_yellow": 0.05, "failure_red": 0.15}
-_URL = re.compile(r"^(https?://[^\s::(]+)")
+# 卡片上"放在哪"写成「网址:位置」或「网址 的 …」:网址到冒号、空白或括号为止;主机后面的 :端口 算网址的一部分
+_URL = re.compile(r"^(https?://[^\s/:(]+(?::\d+(?=[/\s:(]|$))?[^\s:(]*)")
 
 
 def _sha(text: str) -> str:

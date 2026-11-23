@@ -22,7 +22,8 @@ def read_env_file(path: Path) -> dict[str, str]:
     """读 .env 里的 KEY=VALUE 行。只返回本模块认识的那几个变量,其他一概不碰。"""
     wanted = {name for names in ENV_NAMES.values() for name in names}
     out: dict[str, str] = {}
-    for line in Path(path).read_text(encoding="utf-8").splitlines():
+    # utf-8-sig:记事本存的文件开头可能带 BOM,不去掉的话它会粘在第一行的变量名前面,那一行的 key 就认不出来
+    for line in Path(path).read_text(encoding="utf-8-sig").splitlines():
         line = line.strip()
         if not line or line.startswith("#") or "=" not in line:
             continue

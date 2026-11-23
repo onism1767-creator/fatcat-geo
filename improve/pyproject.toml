@@ -1,7 +1,7 @@
 [project]
 name = "butter-geo"
 version = "0.2.0"
-description = "Butter (FatCat GEO Improve): deterministic fact base, audit and change package for one site."
+description = "Butter (FatCat GEO Improve): fact base, audit, change package and before/after measurement for one site."
 requires-python = ">=3.12"
 dependencies = [
     "httpx==0.28.1",
@@ -25,7 +25,7 @@ butter = "butter.cli:main"
 include = ["butter*"]
 
 [tool.setuptools.package-data]
-butter = ["data/*.yaml", "templates/*.j2", "registry/*.yaml", "registry/toast_snapshot/*.yaml",
+butter = ["data/*.yaml", "registry/*.yaml", "registry/toast_snapshot/*.yaml",
           "config/*.yaml", "web/templates/*.html"]
 
 [tool.pytest.ini_options]
