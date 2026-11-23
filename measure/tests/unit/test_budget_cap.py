@@ -93,3 +93,7 @@ def test_spent_grows_with_every_answer_stored():
     assert job.spent_usd == pytest.approx(0.05) and job.completed_runs == 2
     # 这条腿自己的进度与花费也逐条跟着走(边跑边重估用,用户 2026-11-18 定)
     assert (leg.done, leg.paid_runs) == (2, 2) and leg.spent_usd == pytest.approx(0.05)
+    # 没花钱的那次(失败行 $0)占进度、不算「真花了钱的次数」:这一单的均价 = 已花 ÷ 真花钱的次数,
+    # 原来 $0 的失败也加 1,均价被拉低(第四轮审核;开场从库里数时本来就只数花了钱的)
+    sink.insert_surface_run(_run("p", run_id="y", index=2).model_copy(update={"cost_usd": 0.0}))
+    assert (leg.done, leg.paid_runs) == (3, 2) and leg.spent_usd == pytest.approx(0.05)

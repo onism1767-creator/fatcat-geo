@@ -108,6 +108,16 @@ def create_app(
                                      status_code=400)
         return await call_next(request)
 
+    @app.middleware("http")
+    async def forbid_framing(request: Request,
+                             call_next: Callable[[Request], Awaitable[Response]]) -> Response:
+        """不许别的网页把本工具的页面套进框里(点击劫持):透明的框骗用户点一下「接着跑」,那次点击是从本站页面发出的,
+        上面的跨站检查拦不住,会用用户的 key 花钱(第四轮审核)。最后注册 = 最外层,连上面两条拒绝的回应也带上。"""
+        response = await call_next(request)
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Content-Security-Policy"] = "frame-ancestors 'none'"
+        return response
+
     app.state.ctx = WebContext(
         adapters=adapters,
         dsn=resolved_dsn,

@@ -175,7 +175,8 @@ def lang_of(request: Request) -> str:
 
 def error_text(request: Request, code: str, **params: str) -> str:
     """错误码 → 当前界面语言的一句人话 + 下一步(文案只在 config/errors.yaml,S10.1);未知码或缺参数就不显示——
-    错误码可能来自地址栏,不把任意文字回显到页面上,也不因缺参数出错。"""
+    错误码可能来自地址栏,句子只从错误库取,也不因缺参数出错。占位符的值(出错原话、AI 名等)同样来自地址栏,
+    会原样显示在句子里:模板自动转义,不会被当成网页代码执行;只是那一小段文字不一定是本工具写的。"""
     entry = ctx_of(request).errors.get(code) if code else None
     if entry is None:
         return ""

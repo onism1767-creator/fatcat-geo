@@ -7,7 +7,7 @@
 
 {#- 「修好后再测」的单(S11.3):说明一切与上一单相同、全部重新提问,链到上一单报告好对照 -#}
 {% if job.fresh %}
-<div class="card"><b>{{ t["retest_banner_swapped" if job.model_swaps else "retest_banner"] }}</b>{% if parent %} <a href="/jobs/{{ parent.job_id }}/report?lang={{ lang }}">{{ t["retest_parent_link"].format(when=parent.created_at|local_time) }}</a>{% endif %}
+<div class="card"><b>{{ t["retest_banner_swapped" if job.model_swaps else "retest_banner"] }}</b>{% if parent %} <a href="/jobs/{{ parent.job_id }}/report?lang={{ lang }}">{{ t["retest_parent_link"].format(when=(parent.started_at or parent.created_at)|local_time) }}</a>{% endif %}
   {#- 上一单测过、现在已移出清单的型号换成了什么(用户 2026-11-13 定) -#}
   {% for line in swap_lines(job.model_swaps, lang) %}<p style="margin:6px 0 0">{{ line }}</p>{% endfor %}</div>
 {% endif %}
@@ -250,7 +250,7 @@
     {% for sd in d.surfaces %}
     <h3 style="border-top:1px solid #e4e9f0; padding-top:10px">◆ {{ sd.surface }}
       <span class="muted" style="font-weight:400">model={{ sd.model }} · provider={{ sd.provider }}</span></h3>
-    {% set sv = job.surface_verdicts|selectattr("surface", "equalto", sd.surface)|selectattr("model", "equalto", sd.model)|first %}
+    {% set sv = job.surface_verdicts|selectattr("surface", "equalto", sd.surface)|selectattr("model", "equalto", sd.model)|first|default(none) %}
     {% if sv %}<p class="kv">{{ verdict_text(sv, target_name(sd.surface, sd.model), lang) }}</p>{% endif %}
 
     {% for finding in sd.findings %}

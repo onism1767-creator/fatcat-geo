@@ -379,6 +379,11 @@ def resume(
             except ValueError:
                 return redirect(request, f"/jobs/{job.job_id}?error=FORM_BAD_BUDGET")
         only_recompute = job.state is JobState.DONE or (bool(regenerate) and job.finished)
+        # 真要接着问的单里有型号已移出清单:现在问不了(适配器不认、单价表里也没有),拦下说清楚,不让它起来再崩
+        # (第四轮审核)。只重算不受影响;想按现在的型号重测走「修好后再测」(那条路会换型号,11-13)
+        if not only_recompute and (retired := _retired_targets(ctx_of(request), job)):
+            names = ", ".join(ctx_of(request).target_name(t.surface, t.model) for t in retired)
+            return redirect(request, f"/?error=RESUME_RETIRED_MODEL&names={quote(names)}")
         return _relaunch(request, job, replay=only_recompute)
 
 
@@ -442,6 +447,9 @@ def choose_official_domains(
     with job.lock:  # 改名单 → 只重算,一步做完(第二轮)
         if not job.finished:
             return redirect(request, f"/jobs/{job.job_id}")
+        # 先查能不能重算,再改名单:原来先改后查,缺 key 时名单(和编号)改了、报告却没重算(第四轮审核)
+        if missing := _missing_adapters(ctx_of(request), job):
+            return redirect(request, f"/?error=RESUME_MISSING_AI&names={','.join(missing)}")
         if not job.apply_domain_choice(confirm=confirm, remove=remove):
             return redirect(request, f"/jobs/{job.job_id}/report")
         return _relaunch(request, job, replay=True)
@@ -485,8 +493,10 @@ def job_status(request: Request, job: DiagnosisJob = Depends(existing_job)):
     # 边跑边重估:只在提问阶段显示(用户 2026-11-18 定)
     projection = (project_spend(job.legs, spent_usd=job.spent_usd, estimate_usd=job.estimate_usd)
                   if _sampling_now(job) else None)
+    # 「把上限提高到 $N」只在帮得上时给:还在问的型号里有会撞上限的。只剩已经停了的型号撞上限时,中途提高轮不到它们,
+    # 原来按钮照出,每点一次上限涨 $0.1、提示不变(第四轮审核)
     raise_to = (suggested_cap(projection, job.budget_usd)
-                if projection is not None and projection.cap_pct is not None and job.budget_usd is not None else None)
+                if projection is not None and projection.raisable and job.budget_usd is not None else None)
     return ctx.render(request, "job.html", job=job, projection=projection, raise_to=raise_to,
                       runs_per_prompt=job.frozen_tier().runs_per_prompt,
                       elapsed_minutes=job.elapsed_minutes(now), eta_minutes=job.eta_minutes(now),

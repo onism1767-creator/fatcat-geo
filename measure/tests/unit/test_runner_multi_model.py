@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from urllib.parse import urlsplit
 from uuid import uuid4
 
+import psycopg
 import pytest
 from conftest import TEST_DSN
 
@@ -500,6 +501,78 @@ def test_replaying_a_partial_job_keeps_it_partial_and_keeps_why_it_stopped(stora
     job.stop_details = []  # 报告快照读不动的旧单:上一版怎么停的不知道
     runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry(), replay=True)
     assert job.state is JobState.PARTIAL, job.error
+
+
+class Renamed(TwoModelAdapter):
+    """换个仪器名、可以只留一部分型号的假仪器:模拟「上一单测过的型号后来移出了清单」(工程原则 9)。"""
+
+    def __init__(self, surface: str, models: list[str] | None = None) -> None:
+        super().__init__()
+        self._name, self._models = surface, models or [CITES, SILENT]
+
+    def meta(self) -> SurfaceMeta:
+        base = super().meta()
+        return base.model_copy(update={
+            "surface": self._name, "models": self._models,
+            "est_cost_per_call_usd": {m: base.est_cost_per_call_usd[m] for m in self._models}})
+
+    def ask(self, request: AskRequest) -> SurfaceRun:
+        return super().ask(request).model_copy(update={"surface": self._name})
+
+
+def test_replay_survives_a_tested_model_leaving_the_model_list(storage, offline):
+    """第四轮审核:只重算不提问,不该去查单价。单价表只有现在清单里的型号——原来测过已移出清单型号的旧单,一点
+    「重新生成报告」或确认官网名单就 KeyError,完成的单被写成「出错」、报告再也打不开(小米那单测过的型号后来就删了)。"""
+    job, _ = _new_job("中小团队用什么 CRM 好?", surface="retired_replay")
+    runner.execute_job(job=job, adapters={"retired_replay": Renamed("retired_replay")}, dsn=TEST_DSN,
+                       evidence=load_evidence_registry())
+    assert job.state is JobState.DONE, job.error
+    spent = job.spent_usd
+    shrunk = {"retired_replay": Renamed("retired_replay", models=[CITES])}  # 另一个型号后来移出了清单
+    runner.execute_job(job=job, adapters=shrunk, dsn=TEST_DSN, evidence=load_evidence_registry(), replay=True)
+    assert job.state is JobState.DONE and job.error_code is None, job.error_params
+    assert len(_citation_status(job)) == 2 and job.spent_usd == pytest.approx(spent)  # 两个型号的块都在,一分没花
+
+
+def test_a_failed_replay_keeps_the_previous_report(storage, offline, monkeypatch):
+    """第四轮审核:只重算没成(程序错误),上一版报告还在库里——装回它、任务仍是跑完的状态,出错说明留在任务页。
+    原来一律标成「出错」:报告页只给跑完的单看,一次重算失败就再也打不开那份报告。第一次跑就出错的单照旧记失败。"""
+    job, _ = _new_job("中小团队用什么 CRM 好?", surface="failed_replay")
+    adapters = {"failed_replay": Renamed("failed_replay")}
+    runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry())
+    assert job.state is JobState.DONE, job.error
+    before = (job.total_runs, job.completed_runs, _citation_status(job))
+    spent = job.spent_usd
+
+    def boom(**kwargs):
+        raise RuntimeError("重算途中的程序错误")
+
+    monkeypatch.setattr(runner, "diagnose_class_targets", boom)
+    runner.execute_job(job=job, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry(), replay=True)
+    assert job.state is JobState.DONE and job.phase == "phase_done"
+    assert job.error_code == "JOB_CRASHED" and "重算途中的程序错误" in job.error_params["detail"]
+    assert (job.total_runs, job.completed_runs, _citation_status(job)) == before
+    assert job.spent_usd == pytest.approx(spent)
+    [saved] = [s for s in storage.load_job_snapshots() if s["job_id"] == job.job_id]
+    assert saved["state"] == "DONE"  # 重启后照样装回报告
+
+    fresh, _ = _new_job("中小团队用什么 CRM 好?", surface="failed_replay")
+    runner.execute_job(job=fresh, adapters=adapters, dsn=TEST_DSN, evidence=load_evidence_registry())
+    assert fresh.state is JobState.FAILED and fresh.error_code == "JOB_CRASHED"  # 没有上一版报告可留
+
+
+def test_database_dropping_mid_run_is_reported_as_database_down(storage, offline, monkeypatch):
+    """第四轮审核:查到一半断线(psycopg 的 OperationalError)也按「数据库连不上」报、提示去起数据库;
+    原来只认一开始就连不上,跑到一半断线落到兜底,写成「程序错误」。"""
+    job, _ = _new_job("中小团队用什么 CRM 好?", surface="db_drop")
+
+    def drop(*args, **kwargs):
+        raise psycopg.OperationalError("server closed the connection unexpectedly")
+
+    monkeypatch.setattr(runner, "_load_runs", drop)
+    runner.execute_job(job=job, adapters={"db_drop": Renamed("db_drop")}, dsn=TEST_DSN,
+                       evidence=load_evidence_registry())
+    assert job.state is JobState.FAILED and job.error_code == "DB_UNREACHABLE"
 
 
 def test_high_tier_asks_a_judge_once_per_answer_and_reuses_it_on_replay(storage, offline):

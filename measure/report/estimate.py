@@ -278,6 +278,7 @@ class Projection(FrozenModel):
     estimate_usd: float | None  # 开跑前估的;旧单没有
     over_estimate: bool  # 比开跑前估的贵出 OVERRUN_FACTOR 倍以上
     cap_pct: int | None  # 有腿会在问完之前到它那份费用上限时:整单大约问到百分之几;都问得完 → None
+    raisable: bool  # 还在问的腿里有会撞上限的:中途提高上限帮得上(已经停了的腿要等跑完后「接着跑」)
 
 
 def project_spend(legs: Iterable[LegProgress], *, spent_usd: float, estimate_usd: float | None) -> Projection | None:
@@ -289,7 +290,7 @@ def project_spend(legs: Iterable[LegProgress], *, spent_usd: float, estimate_usd
         return None
     total = spent_usd - sum(leg.spent_usd for leg in legs)
     reach = 0
-    capped = False
+    capped = raisable = False
     for leg in legs:
         unit = _unit_now(leg)
         remaining = max(0, leg.slots - leg.done)
@@ -298,12 +299,14 @@ def project_spend(legs: Iterable[LegProgress], *, spent_usd: float, estimate_usd
         if leg.budget_usd is not None and unit > 0:  # 调度器在「已花 ≥ 这条腿的上限」时才停:还发得出几次
             affordable = min(remaining, max(0, math.ceil((leg.budget_usd - leg.spent_usd) / unit)))
             capped = capped or affordable < remaining
+            raisable = raisable or (affordable < remaining and not leg.finished)
         reach += leg.done + affordable
     slots = sum(leg.slots for leg in legs)
     return Projection(
         total_usd=total, estimate_usd=estimate_usd,
         over_estimate=bool(estimate_usd) and total >= OVERRUN_FACTOR * (estimate_usd or 0.0),
         cap_pct=round(100 * reach / slots) if capped and slots else None,
+        raisable=raisable,
     )
 
 

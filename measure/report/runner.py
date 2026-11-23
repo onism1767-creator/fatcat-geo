@@ -85,7 +85,7 @@ from engine.scheduler import (
     is_account_error,
     reinterpret_account_errors,
 )
-from engine.storage import Storage, StorageUnavailable
+from engine.storage import STORAGE_DOWN_ERRORS, Storage
 from engine.tiers import MentionMethod
 from engine.validity import is_valid_answer
 from report.archive import attach_latest_report
@@ -126,7 +126,9 @@ class _ProgressSink:
             self._job.last_result_at = datetime.now(UTC)
             self._leg.done += 1  # 这条腿自己的进度与花费:任务页边跑边重估用
             self._leg.spent_usd += run.cost_usd
-            self._leg.paid_runs += 1
+            # 真花了钱的才算(和开场从库里数的同一个口径):原来每落一条都加 1,$0 的失败行把这一单的均价拉低,
+            # 同一份历史一口气跑完和续跑后的「预计共约」不一样(第四轮审核)
+            self._leg.paid_runs += run.cost_usd > 0
 
     def insert_call_usage(self, run_id: str, usage: dict[str, float]) -> None:
         self._storage.insert_call_usage(run_id, usage)
@@ -157,6 +159,7 @@ def execute_job(
     judges: JudgeConfig | None = None,  # 高档裁判配置(S9.3);None = 读 config/judges.yaml
 ) -> None:
     """replay=True:重新生成报告——只用库里已有的样本重算,不向 AI 提问(样本不补;裁判判定也从库里装回)。"""
+    progress_before = (job.total_runs, job.completed_runs)  # 只重算没成时原样放回(_keep_previous_report)
     try:
         _execute(job, adapters=adapters, dsn=dsn, evidence=evidence, replay=replay, judges=judges)
     except AccountProblem as exc:  # v0.4.21:我方账户问题——停下、说人话、等充值后续跑
@@ -171,7 +174,8 @@ def execute_job(
         job.error = None
         job.phase = "phase_failed"
         _persist_failure(job, dsn)
-    except StorageUnavailable as exc:  # v0.4.22:数据库掉线也要有代码和人话
+    except STORAGE_DOWN_ERRORS as exc:  # v0.4.22:数据库掉线也要有代码和人话
+        # 一开始就连不上、查到一半断线都算(第四轮审核:原来只认前一种,跑到一半断线报成「程序错误」,不提示去起数据库)
         log.error("job_halted_db_unreachable", job_id=job.job_id, error=str(exc))
         job.state = JobState.FAILED
         job.error_code, job.error_params, job.error = "DB_UNREACHABLE", {"detail": str(exc)}, None
@@ -185,11 +189,35 @@ def execute_job(
         _persist_failure(job, dsn)
     except Exception as exc:  # 失败不静默:状态页如实展示,也给码(S10.1)
         log.error("job_failed", job_id=job.job_id, error=f"{type(exc).__name__}: {exc}")
-        job.state = JobState.FAILED
         job.error_code, job.error_params = "JOB_CRASHED", {"detail": f"{type(exc).__name__}: {exc}"}
         job.error = None
+        if replay and _keep_previous_report(job, dsn, progress_before):
+            return
+        job.state = JobState.FAILED
         job.phase = "phase_failed"
         _persist_failure(job, dsn)
+
+
+def _keep_previous_report(job: DiagnosisJob, dsn: str, progress: tuple[int, int]) -> bool:
+    """只重算(重新生成报告 / 确认官网名单)没成:上一版报告还在库里,装回它,任务回到跑完的状态,出错说明留在任务页。
+    原来一律标成「出错」:报告页只给跑完的单看,一次重算失败就再也打不开那份报告,重启后也不装回(第四轮审核)。
+    没有读得动的上一版(或库连不上)→ False,照旧记失败。"""
+    try:
+        with Storage(dsn) as store:
+            attach_latest_report(job, store)
+            if job.sampling is None:
+                return False
+            job.total_runs, job.completed_runs = progress
+            # 和出报告时同一个判法:有提前停的腿,或上一版重算时还有空槽位
+            partial = any(d.truncated or d.stop_reason is StopReason.NOT_RESAMPLED for d in job.stop_details)
+            job.state = JobState.PARTIAL if partial else JobState.DONE
+            job.phase = "phase_partial" if partial else "phase_done"
+            store.upsert_job_snapshot(job.to_snapshot())
+    except Exception:
+        log.warning("previous_report_restore_failed", job_id=job.job_id)
+        return False
+    log.warning("replay_failed_previous_report_kept", job_id=job.job_id, state=job.state.value)
+    return True
 
 
 def _persist_failure(job: DiagnosisJob, dsn: str) -> None:
@@ -215,10 +243,13 @@ def _execute(
     previous_stops = list(job.stop_details) if replay else []
     _reset_progress(job)
     job.stop_details = previous_stops  # 重算的整个过程里任务页照旧显示上一版「提前停的型号」
-    job.access_result = _audit_site(job.website)
+    # 先落一次快照再审计官网:审计(十来次探测,要时开一次真浏览器)可能一两分钟,原来这期间进程死了库里没有这一单,
+    # 出题花的钱只剩辅助账本里一个找不到单的编号(第四轮审核);库连不上也在这里先报,不用白等审计
     with Storage(dsn) as storage:
         storage.ensure_schema()
         storage.upsert_job_snapshot(job.to_snapshot())
+    job.access_result = _audit_site(job.website)
+    with Storage(dsn) as storage:
         # 被测对象 = 仪器 × 型号(v0.4.19):型号是口径的一部分,计划、样本、指标、诊断块一律按对象分开
         adapter_of = {target: adapters[target.surface] for target in job.targets}
         if not replay:
@@ -232,14 +263,22 @@ def _execute(
             storage.upsert_job_snapshot(job.to_snapshot())
         if not replay and not job.fresh:
             _fill_from_cache(job, storage, adapter_of)  # 回答缓存(S11.2):别的单 12 小时内同题同型号的回答先填进空槽位
-        # 单价和确认页同一份:同品牌各单(含本单已问的)的实测优先,再按这单语言的库里实测(成本调研②)
-        prices = unit_prices({t.surface: a for t, a in adapter_of.items()},
-                             storage.call_stats(exclude_prompt_ids=calibration_prompt_ids()),  # 校准题不当实测
-                             locale=job.locale,
-                             brand_stats=storage.call_stats(storage.brand_prompt_ids(job.brand.name)))
-        results = _sample(job, dsn, adapter_of, prices=prices, replay=replay)
+        # 单价和确认页同一份:同品牌各单(含本单已问的)的实测优先,再按这单语言的库里实测(成本调研②)。
+        # 只重算不发任何提问,不用单价:单价表只有现在清单里的型号,原来重算也照查,测过已移出清单型号的旧单
+        # 一点「重新生成报告」/ 确认官网名单就 KeyError、完成的单被写成「出错」(第四轮审核)
+        prices = None if replay else unit_prices(
+            {t.surface: a for t, a in adapter_of.items()},
+            storage.call_stats(exclude_prompt_ids=calibration_prompt_ids()),  # 校准题不当实测
+            locale=job.locale,
+            brand_stats=storage.call_stats(storage.brand_prompt_ids(job.brand.name)))
+        results = _sample(job, dsn, adapter_of, prices=prices)
         fresh_stops = [StopDetail.from_result(r) for r in results.values()]  # 熔断要说清原因(S10.2)
         job.stop_details = previous_stops or fresh_stops
+        # 口径行里「这条腿怎么停的」和「提前停的型号」同一个来源:只重算时沿用上一版的(原来写成重算那次的
+        # not_resampled,和上面那句对不上;第四轮审核)
+        stop_reasons = {plan: result.stop_reason for plan, result in results.items()}
+        stop_reasons.update({(Target(surface=d.surface, model=d.model), d.search_mode): d.stop_reason
+                             for d in job.stop_details})
 
         job.phase = "phase_verify"
         runs_by, offline_runs_by = _load_runs(job, storage)
@@ -272,7 +311,7 @@ def _execute(
             if not prompts:
                 continue
             measurements, closed_book = _measure_class(
-                job, intent, prompts, adapter_of, results, observations, offline_observations)
+                job, intent, prompts, adapter_of, stop_reasons, observations, offline_observations)
             blocks, class_verdicts = diagnose_class_targets(
                 intent=intent, access=access, measurements=measurements, closed_book=closed_book,
                 pages=pages, brand=job.brand, registry=evidence,
@@ -508,9 +547,9 @@ def _sample(
     dsn: str,
     adapter_of: dict[Target, SurfaceAdapter],
     *,
-    prices: UnitPrices,
-    replay: bool,
+    prices: UnitPrices | None,  # None = 只重算:不发提问,不用单价、不分上限
 ) -> dict[PlanKey, SamplingResult]:
+    replay = prices is None
     # 检索依赖对照(第 9 章挂靠):启用时,为支持 search_disabled 的对象追加闭卷腿计划——
     # 同一批题目、同采样参数,仅检索模式不同(模式即口径)
     dependency_targets = [
@@ -530,19 +569,24 @@ def _sample(
     job.completed_runs += sum(taken.values())  # 复用的槽位也算进度,它们的钱也算已花费
     job.spent_usd += sum(spent.values())
 
-    def weight(plan: PlanKey) -> float:
-        """这条腿还要花的预估(还要问的次数 × 确认页同一份单价):费用上限按它的比例分(用户 2026-11-03 定)。"""
-        target, mode = plan
-        return (calls - taken[plan]) * prices.cost(target.key, mode)
+    def unit(plan: PlanKey) -> float:
+        """这条腿开跑前估的单价(确认页同一份);只重算不提问,记 0。"""
+        return 0.0 if prices is None else prices.cost(plan[0].key, plan[1])
 
-    budgets = split_budget(job.budget_usd, {plan: weight(plan) for plan in plans}, spent)
+    def weight(plan: PlanKey) -> float:
+        """这条腿还要花的预估(还要问的次数 × 单价):费用上限按它的比例分(用户 2026-11-03 定)。"""
+        return (calls - taken[plan]) * unit(plan)
+
+    # 只重算一分不花,不设上限:没问完的腿照旧落「重算不补采」,不会因为没有额度被记成「到了费用上限」
+    budgets: dict[PlanKey, float | None] = (
+        dict.fromkeys(plans) if replay else split_budget(job.budget_usd, {plan: weight(plan) for plan in plans}, spent))
     job.total_runs = calls * len(plans)
     # 边跑边重估(用户 2026-11-18 定):记下每条腿问到哪、花了多少、开跑前估的单价与它那份上限;
     # 开跑前的预估只在第一次真开跑时定(续跑不改;只重算的不定)
     legs = {plan: LegProgress(
         slots=calls, done=taken[plan], spent_usd=spent[plan],
         paid_runs=sum(run.cost_usd > 0 for runs in prior[plan].values() for run in runs),
-        unit_usd=prices.cost(plan[0].key, plan[1]), budget_usd=budgets[plan]) for plan in plans}
+        unit_usd=unit(plan), budget_usd=budgets[plan]) for plan in plans}
     job.legs = list(legs.values())
     if job.estimate_usd is None and not replay:
         job.estimate_usd = job.spent_usd + sum(weight(plan) for plan in plans)
@@ -756,7 +800,7 @@ def _measure_class(
     intent: PromptIntent,
     prompts: list[Prompt],
     adapter_of: dict[Target, SurfaceAdapter],
-    results: dict[PlanKey, SamplingResult],
+    stop_reasons: dict[PlanKey, StopReason],
     observations: dict[RunsKey, list[RunObservations]],
     offline_observations: dict[RunsKey, list[RunObservations]],
 ) -> tuple[list[TargetMeasurement], dict[Target, ClassSurfaceMetric]]:
@@ -773,17 +817,17 @@ def _measure_class(
         open_obs = [o for pid in prompt_ids for o in observations[(pid, target)]]
         measurements.append(measure_target(
             target, meta.provider, intent, open_obs, prompt_ids,
-            stop_reason=results[(target, SearchMode.DEFAULT)].stop_reason,
+            stop_reason=stop_reasons[(target, SearchMode.DEFAULT)],
             competitor_names=competitor_names,
             exposes_retrieval=meta.capabilities.supports_query_trace,
             primary_domain=_primary_domain(job.brand),
             channels_known=bool(job.brand.official_channels),
         ))
         closed_key = (target, SearchMode.SEARCH_DISABLED)
-        if closed_key in results:
+        if closed_key in stop_reasons:
             closed_obs = [o for pid in prompt_ids for o in offline_observations[(pid, target)]]
             closed_book[target] = measure_closed_book(
-                target, meta.provider, intent, closed_obs, prompt_ids, stop_reason=results[closed_key].stop_reason)
+                target, meta.provider, intent, closed_obs, prompt_ids, stop_reason=stop_reasons[closed_key])
     return measurements, closed_book
 
 

@@ -231,6 +231,18 @@ def test_a_leg_that_will_hit_its_share_of_the_cap_says_how_far_the_check_will_ge
     assert spent_out is not None and spent_out.cap_pct == 30  # 已经过了它那份:一次也发不出了
 
 
+def test_raising_midway_is_only_offered_when_a_leg_still_asking_would_hit_the_cap():
+    """第四轮审核:中途提高上限轮不到已经停了的腿(要等跑完后「接着跑」)。只剩它们撞上限时不该再给「把上限提高到 $N」:
+    原来按钮照出,每点一次上限涨 $0.1、提示不变。提醒本身照旧(这一单确实问不完)。"""
+    stopped = _leg(done=4, paid_runs=4, spent_usd=2.0, budget_usd=2.0, finished=True)  # 到了它那份,已经停了
+    cheap = _leg(done=5, paid_runs=5, spent_usd=0.05, budget_usd=2.0)  # 还在问,问得完
+    only_stopped = project_spend([stopped, cheap], spent_usd=2.05, estimate_usd=4.0)
+    assert only_stopped is not None and only_stopped.cap_pct is not None and not only_stopped.raisable
+    tight = _leg(done=5, paid_runs=5, spent_usd=1.5, budget_usd=2.0)  # 还在问,会撞上限:提高帮得上
+    still_asking = project_spend([stopped, tight], spent_usd=3.5, estimate_usd=4.0)
+    assert still_asking is not None and still_asking.raisable
+
+
 def test_raising_the_cap_midway_resplits_it_among_the_legs_still_asking():
     """中途提高上限(任务页按钮):新上限按「还要花的」比例重分——单价用各条腿现在的(问满 5 次用自己的均价);
     这一次已经停了的腿不再占额度,停在它已花的数。"""

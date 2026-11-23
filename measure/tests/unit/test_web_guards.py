@@ -8,8 +8,10 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from adapters.base import SurfaceMeta
 from report.app import create_app
 from report.forms import brand_from_form, website_host
+from report.jobs import JobState
 from tests.unit.test_report_page import REGISTRY, DummyAdapter, finished_job, visible_text
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -204,3 +206,83 @@ def test_brand_domain_and_site_address_use_the_normalized_host(website, normaliz
     brand, site = brand_from_form("极光CRM", "", website)
     assert site == normalized
     assert brand.domains == [website_host(website)]
+
+
+def test_pages_may_not_be_framed_by_other_sites():
+    """第四轮审核(点击劫持):别的网页用透明的框套住本工具、骗用户点「接着跑」,那次点击是本站页面发出的,
+    跨站检查拦不住。每个回应都声明不许被套进框里,连两条拒绝的回应也带。"""
+    client = _client()
+    responses = [client.get("/"),
+                 client.post("/jobs", data=FORM, headers={"origin": "http://evil.test"}),  # 跨站:403
+                 client.get("/", headers={"host": "evil.test"})]  # 不是本机的主机名:400
+    assert [r.status_code for r in responses] == [200, 403, 400]
+    for resp in responses:
+        assert resp.headers["x-frame-options"] == "DENY"
+        assert resp.headers["content-security-policy"] == "frame-ancestors 'none'"
+
+
+class _OneModelLeft(DummyAdapter):
+    """清单里只剩 m-new:任务测过的 m1 已移出(工程原则 9)。"""
+
+    def meta(self) -> SurfaceMeta:
+        return super().meta().model_copy(
+            update={"models": ["m-new"], "default_model": "m-new", "consumer_default_model": "m-new",
+                    "main_model": "m-new", "est_cost_per_call_usd": {"m-new": 0.005}})
+
+
+def _sync_client(monkeypatch, runs: list, adapters: dict) -> TestClient:
+    """线程换成同步执行;执行器桩只记下被怎么叫(replay 与否)。"""
+
+    class SyncThread:
+        def __init__(self, *, target, kwargs, daemon):
+            self._target, self._kwargs = target, kwargs
+
+        def start(self):
+            self._target(**self._kwargs)
+
+    monkeypatch.setattr("report.launcher.threading.Thread", SyncThread)
+    return TestClient(create_app(
+        call_stats=lambda brand=None: [], adapters=adapters, dsn="postgresql://unused", evidence=REGISTRY,
+        job_runner=lambda *, job, replay, **_: runs.append(replay), calibration=None, category_check=lambda job: None))
+
+
+def test_resuming_a_job_whose_model_left_the_list_is_refused_plainly_but_recompute_still_runs(monkeypatch):
+    """第四轮审核:真要接着问的单里有型号已移出清单,现在问不了——拦下、说清楚、不起执行器(原来起来就崩,
+    部分完成的单被写成「出错」,报告打不开)。只用已有回答重新生成报告不受影响。"""
+    runs: list = []
+    client = _sync_client(monkeypatch, runs, {"s1": _OneModelLeft()})
+    job = finished_job()
+    job.state, job.phase = JobState.PARTIAL, "phase_partial"
+    client.app.state.ctx.registry.add(job)
+    resp = client.post(f"/jobs/{job.job_id}/resume?lang=zh", follow_redirects=False)
+    assert resp.status_code == 303 and "error=RESUME_RETIRED_MODEL" in resp.headers["location"]
+    assert runs == [] and job.state is JobState.PARTIAL  # 没起执行器,单子原样
+    home = visible_text(client.get(resp.headers["location"]).text)
+    assert "已经不在型号清单里,不能接着问:S1 · m1" in home and "修好后再测" in home
+    en = client.post(f"/jobs/{job.job_id}/resume?lang=en", follow_redirects=False)
+    assert "no longer on the model list" in visible_text(client.get(en.headers["location"]).text)
+    client.post(f"/jobs/{job.job_id}/resume?lang=zh", data={"regenerate": "1"}, follow_redirects=False)
+    assert runs == [True]  # 只重算:照常
+
+
+def test_official_domain_choice_is_not_applied_when_the_report_cannot_be_recomputed(monkeypatch):
+    """第四轮审核:原来先改名单、后查缺 key——缺 key 时名单和编号改了、报告却没重算,页面上名单是新的、数字是旧的。
+    现在先查,不能重算就什么都不改。"""
+    from datetime import UTC, datetime
+
+    from engine.models import BrandDomain, BrandDomainList, DomainEvidence, DomainStatus, DomainTier
+
+    runs: list = []
+    client = _sync_client(monkeypatch, runs, {})  # 这单测过的 AI 现在没接入(key 被拿掉了)
+    job = finished_job()
+    job.adopt_domain_list(BrandDomainList(
+        primary="aurora-crm.com", discovered_at=datetime(2026, 10, 13, tzinfo=UTC), public_suffix_list="test",
+        domains=[BrandDomain(domain="aurora-crm.jp", tier=DomainTier.B1, status=DomainStatus.UNCONFIRMED,
+                             evidence=[DomainEvidence(kind="seen", detail="5")], seen_count=5)],
+    ))
+    client.app.state.ctx.registry.add(job)
+    before = (job.fingerprint, job.domain_list, list(job.brand.domains))
+    resp = client.post(f"/jobs/{job.job_id}/official_domains?lang=zh", data={"confirm": ["aurora-crm.jp"]},
+                       follow_redirects=False)
+    assert resp.status_code == 303 and "error=RESUME_MISSING_AI" in resp.headers["location"]
+    assert runs == [] and (job.fingerprint, job.domain_list, list(job.brand.domains)) == before

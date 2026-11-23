@@ -193,6 +193,9 @@ function showAfterAi() {  // 勾了至少一家才展开档位和预估;档位�
   const picked = aiBoxes.filter(ai => ai.checked).map(surfaceOf);
   document.getElementById('after-ai').hidden = picked.length === 0;
   document.getElementById('est-pick-first').hidden = picked.length > 0;
+  // 一个型号都没勾就不让提交:原来能点,被服务端挡回后整页重画,取消的题、补的问题、勾的写法全丢(第四轮审核);
+  // 脚本没跑起来时按钮照常可点,由服务端拦(FORM_NO_TARGET)
+  form.querySelector('button[type=submit]').disabled = !modelBoxes.some(cb => cb.checked);
   form.querySelectorAll('.ai-option').forEach(el => {  // 一家的选项只在勾了这一家之后露出来
     el.hidden = !aiBoxes.some(ai => ai.checked && ai.value === el.dataset.base);
   });

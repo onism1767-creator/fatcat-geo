@@ -19,7 +19,7 @@ errors:
     resumable: false
     trigger: {zh: "确认页一个 AI 型号都没勾", en: "No AI model is ticked on the confirm page"}
     message: {zh: "请至少勾上一家要测的 AI。", en: "Please tick at least one AI to test."}
-    next_step: {zh: "在「自定义」里勾上型号,或直接选一个档位。", en: "Tick a model under Customise, or pick a tier."}
+    next_step: {zh: "回到确认页,在最上面「测哪几家 AI」里至少勾一家。", en: "Go back to the confirm page and tick at least one AI under “Which AIs to test” at the top."}
   - code: FORM_BAD_TIER
     scope: form
     resumable: false
@@ -68,6 +68,12 @@ errors:
     trigger: {zh: "要接着跑 / 再测的单里有 AI 没接入(缺 API key)", en: "A job to resume or re-test uses an AI that is not connected (missing API key)"}
     message: {zh: "有的 AI 没接入(缺少 API key),这单不能接着跑或再测:{names}", en: "Some AIs are not connected (missing API key), so this job cannot resume or be re-tested: {names}"}
     next_step: {zh: "在 .env 里补上这家的 key,重启服务后再点「接着跑」或「修好后再测」。", en: "Add that key to .env, restart the service, then press Resume or Re-test."}
+  - code: RESUME_RETIRED_MODEL
+    scope: form
+    resumable: false
+    trigger: {zh: "要接着跑的单里有型号已经移出型号清单", en: "A job to resume tested a model that is no longer on the model list"}
+    message: {zh: "这一单测过的型号已经不在型号清单里,不能接着问:{names}", en: "This job tested models that are no longer on the model list, so it cannot resume: {names}"}
+    next_step: {zh: "已经问到的回答都留着。出过报告的单可以在报告页点「修好后再测」,按现在的型号重测;没出过报告的请新开一单。", en: "The answers already collected are kept. If this job has a report, press Re-test on the report page to test the current models; otherwise start a new check."}
 
   # ── 我方账户 ──
   - code: ACCOUNT_AUTH
