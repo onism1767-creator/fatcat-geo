@@ -12,7 +12,11 @@ import httpx
 
 from butter import sources
 from butter.audit import numeric_traceability, visible_date
-from butter.contracts import FetchedPage, Platform, Question, QuestionBoard, RobotsFetch, SitemapEntry, SiteSnapshot
+from butter.check import check_proposal
+from butter.contracts import (
+    DraftProposal, FetchedPage, Platform, Question, QuestionBoard, RobotsFetch, SitemapEntry, SiteSnapshot,
+)
+from butter.draft import build_contexts, build_tasks
 from butter.extract.html import extract_page, extract_site
 from butter.extract.sitemap import lastmod_suspicion
 from butter.factbase import build_factbase, looks_like_profile, strip_tracking
@@ -206,3 +210,45 @@ def test_numbers_in_repeated_boilerplate_are_not_counted():
 
     alone = numeric_traceability.check([ex("https://x.test/only", "")])
     assert alone[0].level == "notice" and "1 处统计型数字" in alone[0].message, "只有一页时无法判断模板文字,照常计"
+
+
+# ── 六:检查器「数字要有出处」不能拿页头页脚当出处(2026-11-17 真实起草时看到,11-23 修) ──
+
+def _k1(text: str, ctx) -> list[str]:
+    proposal = DraftProposal(task_id="t", field="meta_description", text=text)
+    return [r.detail for r in check_proposal(proposal, ctx)[1] if r.rule == "K1" and r.outcome == "作废"]
+
+
+def _contexts(pages: list[FetchedPage]):
+    snapshot = _snapshot(pages)
+    extracts = extract_site(snapshot.pages, snapshot.sitemap_entries)
+    fb = build_factbase(snapshot, extracts, platforms=sources.load_platforms(), run_id="run-k1", now=NOW)
+    tasks, _ = build_tasks(fb, {})
+    contexts = build_contexts(fb, tasks, extracts, None)
+    return {ctx.page_url: ctx for ctx in contexts.values()}
+
+
+def test_checker_does_not_take_header_or_footer_text_as_a_source():
+    nav = "<nav><p>Free shipping over 250 USD. Try it 90 days at no cost.</p></nav>"
+    product = """<script type="application/ld+json">{"@context": "https://schema.org", "@type": "Product",
+        "name": "Kettle NAME", "sku": "K-NAME", "description": "A kettle.",
+        "offers": {"@type": "Offer", "price": "49.00", "priceCurrency": "USD"}}</script>"""
+
+    def page(path: str, body: str) -> FetchedPage:
+        return _page(f"https://x.test/{path}", _html(nav + FILLER + product.replace("NAME", path.upper()) + body,
+                                                       title=f"Kettle {path}"))   # 每页一个自己的商品,才都会起草
+
+    pages = [page("a", "<p>The dust bag lasts 90 days before you empty it.</p>"),
+             page("b", "<p>It heats 1.7 litres of water.</p>"), page("c", "<p>Made of steel.</p>")]
+    by_url = _contexts(pages)
+    own, other = by_url["https://x.test/a"], by_url["https://x.test/b"]
+    assert "90 days at no cost" not in own.page_text and "dust bag lasts 90 days" in own.page_text   # 导航去掉了,正文还在
+    assert _k1("The dust bag lasts 90 days.", own) == []                    # 这一页自己的正文里有 90:照过
+    assert _k1("Runs for 90 days.", other) and "90" in _k1("Runs for 90 days.", other)[0]   # 只有导航里有 90:不过
+    assert _k1("Ships free over 250 USD.", own)                             # 导航里的 250 也不算出处
+    assert _k1("Heats 1.7 litres.", other) == [] and _k1("Costs 49.00 USD.", other) == []   # 正文和事实里的数照过
+
+    alone = _contexts([pages[1]])["https://x.test/b"]                       # 只读到一页:分不出哪块是页头页脚,整页都算
+    assert "90 days at no cost" in alone.page_text and _k1("Runs for 90 days.", alone) == []
+    two = _contexts(pages[:2])["https://x.test/b"]                          # 只读到两页:两页都有的才算页头页脚
+    assert _k1("Runs for 90 days.", two)

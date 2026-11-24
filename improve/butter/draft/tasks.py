@@ -14,6 +14,7 @@ from butter.contracts import (
     CheckContext, DraftFact, DraftLimits, DraftTask, FactBase, PageExtract, PageFacts, PotatoBrands, ProductFacts,
     Question,
 )
+from butter.audit.numeric_traceability import boilerplate_blocks
 from butter.check.lexicon import puffery_hits
 from butter.util import norm_text
 
@@ -96,8 +97,15 @@ def build_tasks(
 def build_contexts(
     fb: FactBase, tasks: list[DraftTask], extracts: list[PageExtract], brands: PotatoBrands | None,
 ) -> dict[str, CheckContext]:
-    """每个任务一份检查用的对照(键是 task_id)。竞品名来自 Potato 品牌表里不是本站的那些。"""
-    text_by_url = {e.url: e.visible_text for e in extracts}
+    """每个任务一份检查用的对照(键是 task_id)。竞品名来自 Potato 品牌表里不是本站的那些。
+
+    「原页面的文字」只算这一页自己的内容。在多个页面上原样重复的文字块(页头、页脚、弹窗)不算:
+    导航里一句「90 天无风险试用」,不能让草稿里随便一个 90 都过关(2026-11-17 真实起草时看到的口子)。
+    认法和审计「数值可溯源」用的是同一个(boilerplate_blocks):3 页以上都有就算;只读到两页时两页都有才算;
+    只读到一页时分不出来,整页都算。
+    """
+    boilerplate = boilerplate_blocks(extracts)
+    text_by_url = {e.url: "\n".join(b.text for b in e.blocks if norm_text(b.text) not in boilerplate) for e in extracts}
     own = [v.value for f in (fb.entity.name, fb.entity.aliases) for v in f.values]
     own_norm = {norm_text(n) for n in own}
     competitors: list[str] = []
