@@ -197,3 +197,26 @@ def test_representation_brand_fact_with_no_sentence_and_many_failures_is_unsure(
     assert finding.headline.code == "repr.headline.probe_none" and finding.low_confidence is True
     steady = diagnose_representation(PromptIntent.BRAND_FACT, make_metric(0, 5), {})
     assert steady.headline.code == "repr.headline.probe_none" and steady.low_confidence is False
+
+
+def test_a_model_with_no_valid_answer_is_not_described_as_hiding_its_sources():
+    """第四轮审核:某型号这类题一条有效回答都没有(熔断 / 到费用上限 / 叫停),检索和引用两步原来和「这家 AI 不公开
+    搜索结果 / 参考来源」共用一句,主视图对着公开这些的 AI 这么写是错的,还和第四步「没有拿到可分析的回答」打架。
+    现在三步说同一句;真不公开的(没有这条观测通道)照旧说不公开。"""
+    from diagnosis.generative_retrieval import diagnose_generative_retrieval
+
+    def plain(finding) -> str:
+        return render_msg(finding.headline, "zh", "plain")
+
+    nothing = make_metric(0, 0, failed=4)  # 4 次都失败:没有有效回答
+    retrieval = diagnose_generative_retrieval(nothing, [], None, None, None)
+    citation = diagnose_citation(nothing)
+    assert retrieval.status is StageStatus.NOT_OBSERVABLE and citation.status is StageStatus.NOT_OBSERVABLE
+    assert plain(retrieval) == plain(citation) == "没有拿到可分析的回答,这一项本次看不到"
+    assert "No analyzable answers" in render_msg(citation.headline, "en", "plain")
+    # 没有这条观测通道(平台不给):照旧说不公开
+    assert "不公开搜索结果" in plain(diagnose_generative_retrieval(None, [], None, None, None))
+    assert "不公开参考来源" in plain(diagnose_citation(None))
+    # 有有效回答、但引用这一项每条都看不到(n = 0):也是「不公开参考来源」,不是「没有回答」
+    unseen = make_metric(0, 0).model_copy(update={"accounting": make_metric(0, 6).accounting})
+    assert "不公开参考来源" in plain(diagnose_citation(unseen))

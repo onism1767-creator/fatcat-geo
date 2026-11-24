@@ -2,7 +2,7 @@
 # 数据目录 .pgdata/(已 gitignore),端口 5433,用户 geo,trust 认证(仅本机)。
 #
 # 用法:
-#   .\scripts\pgdev.ps1 init      # 首次初始化(initdb + 建库 geo_tool)
+#   .\scripts\pgdev.ps1 init      # 首次初始化(initdb + 建库 geo_toast)
 #   .\scripts\pgdev.ps1 start     # 启动并等到真的能连(最多 180 秒);已在跑则直接返回
 #   .\scripts\pgdev.ps1 status    # 三态:RUNNING_OK / PG_ZOMBIE(在听但不应答)/ STOPPED
 #   .\scripts\pgdev.ps1 stop      # 正常停止(30 秒内停不掉会提示 kill)

@@ -119,10 +119,13 @@ def recommend(
     channel: str = "own",
     access_checks: frozenset[str] | None = None,
     data_available: frozenset[str] | None = None,
+    only_matching_checks: bool = False,
 ) -> list[Recommendation]:
     """给定【已定位的失败阶段】、需求意图与线(官网 / 第三方),产出建议。
     调用方只允许传该线的 primary_failure 阶段——这是"上游 FAIL 禁下游药方"的执行点。
     access_checks:官网审计里 FAIL 的检查项名;给了就只出对应这些检查项的 ACCESS 条目(None = 不按检查项过滤)。
+    only_matching_checks:没写检查项的条目也不出——只为某几个提示项取建议时用(官网审计通过时,条目必须明写对应的
+    提示项才出;原来没写检查项的 ACCESS 条目会跟着漏出来,现有条目都写了所以没出过事,第四轮审核)。
     data_available:本次成立的数据条件;给了就只出条件全部成立的条目(None = 不按数据条件过滤)。"""
     out = [
         Recommendation(
@@ -143,7 +146,8 @@ def recommend(
         and entry.channel == channel
         and entry.evidence_level in _OUTPUT_LEVELS
         and intent in entry.supported_intents
-        and (access_checks is None or not entry.access_checks or set(entry.access_checks) & access_checks)
+        and (access_checks is None or (not entry.access_checks and not only_matching_checks)
+             or set(entry.access_checks) & access_checks)
         and (data_available is None or set(entry.requires_data) <= data_available)
     ]
     out.sort(key=lambda rec: rec.evidence_level)  # 证据强的排前面

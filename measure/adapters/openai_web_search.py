@@ -122,7 +122,13 @@ _MODELS_CHECKED = ("2026-11-17 官方型号页 + 价目页:现役阵容 6.2 Astr
                    "官方帮助中心「GPT-6 and other models in ChatGPT」(11-17 更新):免费版默认 GPT-5.6 Luna、"
                    "付费版聊天默认 GPT-6(Sol),6.2 两款只在 Work 与 Codex;"
                    "用户 11-15 定主力 = 消费端默认在最新一代里的同款(gpt-6-luna);"
-                   "用户 11-17 定按清单改:6.2 两款冒烟通过入清单,删 gpt-6-astra / gpt-6.1-sol / gpt-6-sol")
+                   "用户 11-17 定按清单改:6.2 两款冒烟通过入清单,删 gpt-6-astra / gpt-6.1-sol / gpt-6-sol;"
+                   "用户 11-20 定「每家只留两个」:清单 = gpt-5.6-luna(消费端默认)+ gpt-6-luna(主力),"
+                   "6.1 Terra 与 6.2 两款删掉;"
+                   "2026-11-23 按工程原则 10 复核:列型号接口没有新一代;ChatGPT 发布说明 11-23"
+                   "「GPT-6.2, now in the chat tab」——6.2 进了付费版(Plus / Pro / Business / Enterprise)的聊天页,"
+                   "背后是为聊天调过的 6.2 Sol,免费版与 Go 没提(浏览器逐字读过);6.2 代仍没有 Luna,"
+                   "消费端默认与主力都不变,「6.2 只在 Work 与 Codex」那句自这天起不再成立,已报用户")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,

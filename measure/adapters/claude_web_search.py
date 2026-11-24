@@ -70,7 +70,8 @@ MAX_TOKENS = 4096  # 回答长度上限(平台必填):成本上界的一部分,�
 _MAX_CONTINUATIONS = 3  # pause_turn 续传上限:有界完成单次采样,超限按瞬时错误上抛
 
 # 官方价目(2026-10-14 核对 platform.claude.com 型号页与价目,与模型清单同步维护):模型 → (输入, 输出) USD / MTok
-# 只列官方当前一代(Fable 5.1 / Opus 5.5 / Sonnet 5.5 / Haiku 5.5);上一代(sonnet-5、opus-5、haiku-4-5)2026-10-14 移出。
+# 10-14 时只列官方当前一代(Fable 5.1 / Opus 5.5 / Sonnet 5.5 / Haiku 5.5),上一代(sonnet-5、opus-5、haiku-4-5)移出;
+# 2026-11-20「每家只留两个」起被测的只有 Sonnet 5.5 与 Opus 5.5,Haiku 5.5 只当裁判,Fable 5.1 删掉。
 # 新型号入清单前须经 scripts/smoke_models.py 真实冒烟(本批 S9.0 换代后待冒烟)。
 # 2026-11-12 核对 platform.claude.com/docs/en/about-claude/pricing:Fable 5.2 $8 / $40(缓存命中 $0.20),其余四个不变;
 # web search 仍 $10 / 千次,「搜索出错的那次不计费」。列型号接口同日确认 claude-fable-5-2 已可调用。
@@ -109,7 +110,10 @@ _MODELS_CHECKED = ("2026-10-14 官方型号页 + 价目页;消费端默认按应
                    "2026-11-15 按工程原则 10 复核:列型号接口没有新一代(Fable 5.2 仍在、冒烟没过);"
                    "2026-11-20 用户定「每家只留两个」:消费端默认 + 主力(这家两个标记同一款,再留紧挨着的 Opus 5.5),"
                    "Fable 5.1 删掉、Haiku 5.5 只当裁判;"
-                   "帮助中心与发布说明 10-07 Haiku 5.5 之后没有新型号,仍没写免费版默认,标记不变")
+                   "帮助中心与发布说明 10-07 Haiku 5.5 之后没有新型号,仍没写免费版默认,标记不变;"
+                   "2026-11-23 按工程原则 10 复核:列型号接口没有新一代;型号页与发布说明(最新一条 11-20)"
+                   "没有新型号,价目页只写免费版含 Sonnet 与 Haiku、没写默认哪个"
+                   "(程序抓取读的,没用浏览器逐字核),标记不变")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,

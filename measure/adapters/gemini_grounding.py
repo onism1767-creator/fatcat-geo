@@ -101,7 +101,7 @@ _DEFAULT_MODEL = "gemini-3.5-flash-lite"  # 2026-11-13 跟着 3.8 Flash 移出�
 # 它在最新一代里的同款是 4 Hydrogen:第 4 代没有 Flash-Lite,型号页写「新项目用 4 Hydrogen 或 3.5 Flash-Lite」,
 # Hydrogen 是第 4 代的快型号。11-13 时 Gemini 应用里还没有;11-15 再核帮助中心:应用里原来写「Flash」的地方
 # 都换成了 4 Hydrogen(免费版自动选型「要推理的走 Hydrogen」,Plus / Pro / Ultra 都可选),免费版默认仍是 Flash-Lite。
-# 11-12 到 11-15 主力是 4 Argon(付费默认自动选型范围里的最高档);它仍在清单里,高档照测。
+# 11-12 到 11-15 主力是 4 Argon(付费默认自动选型范围里的最高档);11-20「每家只留两个」起它不在清单里了。
 _CONSUMER_DEFAULT_MODEL = "gemini-3.5-flash-lite"
 _MAIN_MODEL = "gemini-4-hydrogen"
 _MODELS_CHECKED = ("2026-10-14 官方型号页 + 价目页 + 应用更新日志;2026-11-11 官方帮助中心「About Gemini models」:"
@@ -116,7 +116,13 @@ _MODELS_CHECKED = ("2026-10-14 官方型号页 + 价目页 + 应用更新日志;
                    "2026-11-20 官方型号页 + 价目页($3 / $15)核对、冒烟通过,用户定入清单(只有高档测到);"
                    "应用里它给 Pro / Ultra 订阅用户选(官方发布文与 9to5Google 的摘要,没逐字读原文),"
                    "免费版默认与主力不受影响,标记不变;"
-                   "2026-11-20 用户定「每家只留两个」:消费端默认 + 主力,4 Neon / 4 Argon / 4 Carbon 删掉")
+                   "2026-11-20 用户定「每家只留两个」:消费端默认 + 主力,4 Neon / 4 Argon / 4 Carbon 删掉;"
+                   "2026-11-23 按工程原则 10 复核:列型号接口没有新的第 4 代型号;帮助中心「About Gemini models」"
+                   "改写了(浏览器逐字读过):没有付费方案的聊天只有 Auto,在 4 Hydrogen 和一款没点名的"
+                   "「fast, lightweight model」之间自动分配,整页不再出现 Flash-Lite 这个名字,"
+                   "Pro 档的 Argon 换成了 Neon;"
+                   "消费端默认填 3.5 Flash-Lite 的依据(「多数走 Flash-Lite」)今天在这页上对不出原话,"
+                   "标记没动,已报用户、等用户定")
 
 _CAPABILITIES = CapabilityRegistry(
     supports_query_trace=True,

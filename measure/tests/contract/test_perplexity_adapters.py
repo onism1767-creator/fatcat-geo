@@ -315,3 +315,17 @@ def test_agent_odd_field_types_are_a_structure_error_with_the_response_kept():
     with pytest.raises(AdapterPermanentError) as top_info:
         PerplexityAgentAdapter(api_key="test-key").ask(make_request())
     assert "not" in (top_info.value.response_body or "")
+
+
+@respx.mock
+def test_agent_prices_the_call_itself_when_the_platform_reports_no_total():
+    """第四轮审核:平台没报 usage.cost 时原来记 0 元、还算成功——平台哪天改了这个字段的名字或位置,这家的花费会
+    整单悄悄记成 0,费用上限和实测均价一起失明。现在按牌价折算(用量 × 牌价;真实回包验算过与平台总价对得上)。"""
+    body = golden("perplexity_agent", "success_with_citations.json")
+    reported = body["usage"].pop("cost")["total_cost"]
+    respx.post(AGENT_URL).mock(return_value=httpx.Response(200, json=body))
+    adapter = PerplexityAgentAdapter(api_key="test-key")
+    run = adapter.ask(make_request())
+    assert run.outcome is Outcome.SUCCESS
+    assert run.cost_usd == pytest.approx(priced(adapter.meta().price_table[PRESET], adapter.usage_of(body)))
+    assert run.cost_usd == pytest.approx(reported, abs=5e-5) and run.cost_usd > 0

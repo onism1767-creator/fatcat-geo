@@ -58,7 +58,7 @@ class SampleAccounting(FrozenModel):
     n_permanent_failure: int
     refusal_rate: float
     failure_rate: float
-    invalid_rate: float  # (拒答+失败)/总数;LOW_CONFIDENCE 的判定依据(取保守口径)
+    invalid_rate: float  # (拒答 + 失败 + 空回答)/ 总数 = 1 − 有效 / 总数;LOW_CONFIDENCE 的判定依据(取保守口径)
     low_confidence: bool
     # v0.4.21:我方账户问题(认证 / 额度 / 欠费)导致没发出的观测。照常落库、随口径输出,
     # 但不是尝试:不进 n_total,不进失败率——那是我们的账户,不是 AI 的行为

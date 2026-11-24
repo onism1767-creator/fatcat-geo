@@ -195,7 +195,7 @@ def cited_elsewhere(observations: Iterable[RunObservations]) -> CitedElsewhere |
                 continue
             if entry.text_source in SUMMARY_SOURCES:  # 只读到标题 + 简介:正文深处可能写了你,看不到就不算(铁律 7;第二轮)
                 continue
-            key = (entry.final_url or entry.url).split("#", 1)[0]  # 同一篇文章带不同 # 片段算一篇(第二轮)
+            key = _page_key(entry)  # 同一篇文章带不同 # 片段算一篇(第二轮)
             if key in seen:
                 continue
             seen.add(key)
@@ -302,8 +302,19 @@ def _tp_lead(entries: list[SourceAttribution]) -> bool:
                for e in entries)
 
 
+def _page_key(entry: SourceAttribution) -> str:
+    """同一篇文章的键:跳转后的终点网址,去掉 # 片段(与「AI 引用了但没写到你」名单同一个键)。"""
+    return (entry.final_url or entry.url).split("#", 1)[0]
+
+
+def _distinct_pages(entries: Iterable[SourceAttribution]) -> list[SourceAttribution]:
+    """按文章去重(各留第一次出现的那条)。报告里这两句数的是「篇文章」:原来数的是引用 / 搜索结果的条数,
+    同一篇存档文章被 12 条回答引用、又出现在它们的搜索结果里,就写成「另有 24 篇文章」(第四轮审核)。"""
+    return list({_page_key(e): e for e in reversed(list(entries))}.values())
+
+
 def _archive_tally(entry_lists: list[list[SourceAttribution]]) -> ArchiveTally | None:
-    archived = [e for entries in entry_lists for e in entries if e.archived_at is not None]
+    archived = _distinct_pages(e for entries in entry_lists for e in entries if e.archived_at is not None)
     if not archived:
         return None
     stamps = sorted(e.archived_at for e in archived if e.archived_at)
@@ -329,8 +340,10 @@ def _summary_only(entry_lists: list[list[SourceAttribution]]) -> dict[str, int]:
 
 def _unobservable(entry_lists: list[list[SourceAttribution]]) -> dict[str, int]:
     counts = Counter(
-        e.reason or "UNKNOWN" for entries in entry_lists for e in entries
-        if e.source_class is SourceClass.NOT_OBSERVABLE or not _live(e)  # 存档行按实时抓取的原因计看不到
+        e.reason or "UNKNOWN" for e in _distinct_pages(
+            e for entries in entry_lists for e in entries
+            if e.source_class is SourceClass.NOT_OBSERVABLE or not _live(e)  # 存档行按实时抓取的原因计看不到
+        )
     )
     return dict(counts)
 

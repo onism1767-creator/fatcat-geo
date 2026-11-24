@@ -285,11 +285,14 @@ def _check_reachability(
     evidence: dict[str, JsonValue] = {"status": baseline.status_code, "final_url": final_url}
     if baseline.is_success:
         status, detail = CheckStatus.PASS, msg("access.reach.ok", status=baseline.status_code)
-    elif baseline.status_code in PROTECTION_SUSPECT_STATUSES:
+    elif (baseline.status_code in PROTECTION_SUSPECT_STATUSES
+          or protection_marks(baseline.headers, baseline.text)):
         # 铁律 7:探针被拒 ≠ 真人被拒 ≠ 爬虫被拒。带浏览器 UA 仍被 401/403/429/503
         # 拒绝,典型为 CDN 机器人防护按客户端指纹拦截非浏览器客户端(2026-09
         # 香奈儿首测复盘:真实浏览器可开,一切自动化客户端被 Akamai 403)。
         # 三种真相在本审计视角下不可区分,只能 UNKNOWN,不许判死。
+        # 别的状态码(405、406……)带着认得出的防护 / 验证码页也一样:原来只按状态码分,这种被判成
+        # 「网站对普通访问者也打不开」,把我们自己被拦说成了网站的故障(产品文档原则 4;第四轮审核)
         status, detail = CheckStatus.UNKNOWN, msg("access.reach.blocked", status=baseline.status_code)
     else:
         status, detail = CheckStatus.FAIL, msg("access.reach.bad", status=baseline.status_code)
@@ -461,8 +464,14 @@ def _check_content(
                         evidence), fallback, skipped
     small_baseline = baseline is not None and (ok_baseline is None or (browser_chars or 0) < MIN_VISIBLE_TEXT_CHARS)
     protection = [name for p in probes for name in p.protection]
+    # 「我们拿到的这张小页面」自己带的防护标记:只数读到了页面的那些身份和基准页。被拒的身份(比如只拦训练爬虫)
+    # 身上的标记不算在这张页面头上——原来混在一起,真·脚本空壳站因为别的身份被拦过就被说成「被拦了」,
+    # 真浏览器对照也跳过(第四轮审核)
+    page_protection = [name for p in probes if p.visible_text_chars is not None for name in p.protection]
     if small_baseline and baseline is not None:
-        protection += protection_marks(baseline.headers, baseline.text)
+        baseline_marks = protection_marks(baseline.headers, baseline.text)
+        protection += baseline_marks
+        page_protection += baseline_marks
     evidence["protection"] = list(dict.fromkeys(protection))
     if browser_chars is not None and browser_chars >= MIN_VISIBLE_TEXT_CHARS and bot_views:
         # 浏览器视角有正文、冒充的爬虫 UA 拿到 200 空壳:本工具用的是假身份,分不清「拦真爬虫」与「拦假身份」
@@ -479,9 +488,9 @@ def _check_content(
         shells += shell_marks(ok_baseline.text)
     shell_hint: Msg | str = msg("access.content.shell_hint", framework=_names(shells)) if shells else ""
     evidence["shell"] = list(dict.fromkeys(shells))
-    if protection:  # ① 指纹:防护的拦截页
+    if page_protection:  # ① 指纹:防护的拦截页
         return _content(CheckStatus.UNKNOWN, msg("access.content.protected", chars=chars, label=label,
-                                                 vendors=_names(protection)), evidence), fallback, skipped
+                                                 vendors=_names(page_protection)), evidence), fallback, skipped
     if renderer is None:
         return _content(CheckStatus.UNKNOWN, msg("access.content.unconfirmed", chars=chars, label=label,
                                                  threshold=MIN_VISIBLE_TEXT_CHARS,
@@ -510,6 +519,13 @@ def _check_content(
     if document_chars is not None and document_chars >= MIN_VISIBLE_TEXT_CHARS:
         return _content(CheckStatus.UNKNOWN, msg("access.content.served_differently", chars=chars, label=label,
                                                  document=document_chars), evidence), fallback, seen
+    if rendered_chars >= MIN_VISIBLE_TEXT_CHARS and document_chars is None:
+        # 真浏览器没交回它收到的原始网页:分不清是「网站给不同身份不同页面」还是「内容靠脚本加载」,不判挂。
+        # 原来直接落到下面判挂了——判挂的条件是「原始网页也空」,这里原始网页根本没看到(第四轮审核)
+        return _content(CheckStatus.UNKNOWN, msg("access.content.unconfirmed", chars=chars, label=label,
+                                                 threshold=MIN_VISIBLE_TEXT_CHARS,
+                                                 why=msg("access.content.why.no_document"), shell=shell_hint),
+                        evidence), fallback, seen
     if rendered_chars >= MIN_VISIBLE_TEXT_CHARS:
         return _content(CheckStatus.FAIL, msg("access.content.script_only", chars=chars, label=label,
                                               rendered=rendered_chars, shell=shell_hint), evidence), fallback, seen

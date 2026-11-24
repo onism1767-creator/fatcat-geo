@@ -56,10 +56,13 @@ def diagnose_generative_retrieval(
     """产出该 AI 自己的 RETRIEVAL 阶段结论(v0.4.11 分家:与引用同仪器,
     直接作为该 surface 漏斗的检索环节参与定位)。无有效样本 → NOT_OBSERVABLE。"""
     if presence_metric is None or presence_metric.rate is None:
+        # 一条有效回答都没有(熔断 / 到费用上限 / 叫停)和「这家不公开搜索结果」是两回事:原来共用一句,
+        # 主视图对着公开搜索结果的 AI 写「这家 AI 不公开搜索结果」(第四轮审核)
+        no_answers = presence_metric is not None and presence_metric.accounting.n_valid == 0
         return StageFinding(
             stage=Stage.RETRIEVAL,
             status=StageStatus.NOT_OBSERVABLE,
-            headline=msg("genret.headline.not_observable"),
+            headline=msg("genret.headline.no_valid_answers" if no_answers else "genret.headline.not_observable"),
         )
     r = presence_metric.rate
     accounting = presence_metric.accounting

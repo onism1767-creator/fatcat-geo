@@ -262,7 +262,7 @@ def parse_verdict(text: str, answer: str) -> JudgeVerdict:
         mentioned=mentioned, spans=spans if mentioned else [],
         first_position=min(answer.find(s) for s in spans) if mentioned else None,
         confidence=float(confidence), sentiment=sentiment if mentioned else None,
-        reason=str(data.get("reason", "")).strip(),
+        reason=str(data.get("reason") or "").strip(),  # 键在、值是 null 时原来存成字符串 "None"(第四轮审核)
         reason_code=None if mentioned else reason_code,
         new_spellings=list(dict.fromkeys(s for s in new_spellings if s and s in answer)),
     )

@@ -135,6 +135,10 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": "生成端检索通道无有效样本,不可观测",
         "en": "The generative-side retrieval channel has no valid samples — not observable",
     },
+    "genret.headline.no_valid_answers": {
+        "zh": "没有一条有效回答,生成端检索不可观测",
+        "en": "No valid answers at all — generative-side retrieval is not observable",
+    },
     "genret.presence": {
         "zh": f"候选在场率(模型自拟检索词换来的候选集中出现品牌域名):{_RATE}",
         "en": f"Candidate presence rate (brand domain among results fetched for model-authored queries): {_RATE_EN}",
@@ -185,6 +189,10 @@ CATALOG: dict[str, dict[str, str]] = {
     "citation.headline.not_observable": {
         "zh": "无引用观测通道或无有效样本,引用阶段不可观测",
         "en": "No citation observation channel or no valid samples — the citation stage is not observable",
+    },
+    "citation.headline.no_valid_answers": {
+        "zh": "没有一条有效回答,引用阶段不可观测",
+        "en": "No valid answers at all — the citation stage is not observable",
     },
     "citation.rate": {
         "zh": f"被引比例:{_RATE}",
@@ -656,6 +664,12 @@ CATALOG: dict[str, dict[str, str]] = {
         "zh": "真浏览器没能打开首页(超时或出错)",
         "en": "the real browser could not open the homepage (timeout or error)",
     },
+    "access.content.why.no_document": {
+        "zh": "真浏览器运行脚本后有内容,但没交回它收到的原始网页,分不清是网站给不同身份不同页面、还是内容靠脚本加载",
+        "en": "the real browser showed content after running scripts but did not hand back the raw page it "
+              "received, so a site serving different pages to different clients cannot be told apart from "
+              "script-loaded content",
+    },
     "access.content.thin_or_slow": {
         "zh": "原始网页只有约 {chars} 字符可见文本({label}),真浏览器运行脚本后也只有约 {rendered} 字符:可能首页本来字就少,"
               "也可能内容加载得慢,分不清,记为看不到,不判定",
@@ -939,10 +953,12 @@ PLAIN: dict[str, dict[str, str]] = {
     "genret.headline.weak": {"zh": "AI 按自己的习惯搜索时,有时能找到你的官网,不稳定", "en": "Searching its own way, the AI sometimes finds your site, not reliably"},
     "genret.headline.pass": {"zh": "AI 按自己的习惯搜索时,能稳定找到你的官网", "en": "Searching its own way, the AI reliably finds your site"},
     "genret.headline.not_observable": {"zh": "这家 AI 不公开搜索结果,这一项本次看不到", "en": "This AI does not expose its search results; this item could not be observed"},
+    "genret.headline.no_valid_answers": {"zh": "没有拿到可分析的回答,这一项本次看不到", "en": "No analyzable answers; this item could not be observed"},
     "citation.headline.fail": {"zh": "它基本不拿你的官网当参考", "en": "It basically never uses your site as a reference"},
     "citation.headline.weak": {"zh": "它偶尔拿你的官网当参考", "en": "It occasionally uses your site as a reference"},
     "citation.headline.pass": {"zh": "它常常拿你的官网当参考", "en": "It often uses your site as a reference"},
     "citation.headline.not_observable": {"zh": "它不公开参考来源,这一项本次看不到", "en": "It does not show its references; this item could not be observed"},
+    "citation.headline.no_valid_answers": {"zh": "没有拿到可分析的回答,这一项本次看不到", "en": "No analyzable answers; this item could not be observed"},
     "repr.headline.not_observable": {"zh": "没有拿到可分析的回答,这一项本次看不到", "en": "No analyzable answers; this item could not be observed"},
     # 第三方线的人话一律说「别人提到你的文章」(用户定 2026-10-13,措辞已拍板)
     "thirdparty.retrieved.headline.fail": {"zh": "它搜索时基本找不到别人提到你的文章", "en": "When it searches, it basically never finds other people's pages about you"},

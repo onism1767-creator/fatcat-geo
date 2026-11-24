@@ -428,3 +428,10 @@ def test_offline_judge_reuses_stored_verdicts_and_never_asks():
     run = run_with("我们推荐 AuroraCRM。")
     assert judge.judge(run, BRAND) is None
     assert all(len(getattr(a, "requests", [])) == 0 for a in ads.values())
+
+
+def test_a_null_reason_from_the_judge_is_stored_as_empty_not_as_the_word_none():
+    """第四轮审核:裁判回包里 "reason": null 原来被存成字符串 "None",单条回答页的理由显示「None」。"""
+    v = parse_verdict('{"mentioned": true, "spans": ["极光CMR"], "confidence": 0.7, "sentiment": null, '
+                      '"reason": null}', "我们推荐 极光CMR,它比竞品甲好。")
+    assert v.reason == ""

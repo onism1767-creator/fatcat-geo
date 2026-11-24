@@ -43,6 +43,7 @@ from adapters.base import (
     CapabilityRegistry,
     SurfaceMeta,
     known_model,
+    priced,
 )
 from adapters.http_support import STRUCTURE_ERRORS, HttpAdapter, domain_of, full_body, malformed, require_list, spent_on
 from engine.models import (
@@ -102,7 +103,11 @@ _MAIN_MODEL = PRESET
 _MODELS_CHECKED = ("2026-11-15 官方帮助中心:Sonar 不在 Pro 手选清单(11-11 快照),应用默认「Best」自动挑、没说挑哪个;"
                    "Agent API 预设页:fast / low / medium 背后是 openai/gpt-6-luna;"
                    "用户定改测 low 预设、固定版本 low@2026-11-11.0,删掉 perplexity/sonar;"
-                   "冒烟 4 道题:引用 4/4 看得到,每次 $0.0017–0.0045")
+                   "冒烟 4 道题:引用 4/4 看得到,每次 $0.0017–0.0045;"
+                   "2026-11-23 按工程原则 10 复核:预设页 low 背后仍是 openai/gpt-6-luna,"
+                   "更新日志 11 月只有 xhigh 换了版本、"
+                   "low 没有新版本;帮助中心默认仍是「Best」自动挑(程序抓取读的,没用浏览器逐字核;"
+                   "low 当前生效的版本号文档没逐字写,只有回包能确认,这次没调接口),标记不变")
 
 _CAPABILITIES = CapabilityRegistry(supports_query_trace=True, supports_citations=True)
 
@@ -187,11 +192,13 @@ def _usage(data: dict[str, Any]) -> dict[str, float]:
     }
 
 
-def _cost_usd(data: dict[str, Any]) -> float:
+def _cost_usd(data: dict[str, Any], prices: dict[str, float]) -> float:
+    """平台自报的总价照搬;没报就按牌价折算(确定性折算,不是臆造)。原来没报就记 0:平台哪天改了这个字段的名字或位置,
+    这家的花费会整单悄悄记成 0,费用上限和实测均价一起失明、没有任何报错(第四轮审核;和另一台自报费用的仪器同口径)。"""
     cost = (data.get("usage") or {}).get("cost")
     if isinstance(cost, dict) and "total_cost" in cost:
         return float(cost["total_cost"])
-    return 0.0  # 平台未报成本时不臆造
+    return priced(prices, _usage(data))
 
 
 def _translate(
@@ -232,7 +239,7 @@ def _translate(
         raw_payload=data,
         timestamp=started_at,
         latency_ms=latency_ms,
-        cost_usd=_cost_usd(data),
+        cost_usd=_cost_usd(data, _PRICE_TABLE[model]),
     )
 
 
@@ -275,14 +282,18 @@ class PerplexityAgentAdapter(HttpAdapter):
         data, latency_ms, started_at = self._post(AGENT_URL, payload=payload, timeout_s=request.timeout_s)
         items = _output_items(data)
         status = data.get("status")
+
+        def cost() -> float:
+            return _cost_usd(data, _PRICE_TABLE[model])
+
         if status not in _SUCCESS_STATUSES:  # 平台回了话、钱照计,却报失败:花费随失败行落(第二轮审核 26)
             error = data.get("error") if isinstance(data.get("error"), dict) else {}
             raise AdapterTransientError(f"平台返回 status={status!r}: {error.get('message') or '无说明'}",
-                                        response_body=full_body(data), cost_usd=spent_on(lambda: _cost_usd(data)))
+                                        response_body=full_body(data), cost_usd=spent_on(cost))
         try:
             return _translate(request, model, items, data, latency_ms, started_at)
         except STRUCTURE_ERRORS as exc:  # 字段类型怪(标题不是字符串、位置不是数字、成本不是数……):也算结构不符
-            raise malformed(exc, data, lambda: _cost_usd(data)) from exc
+            raise malformed(exc, data, cost) from exc
 
     def healthcheck(self) -> bool:
         """按同一个固定版本发最小请求:顺带确认这个版本还在(版本没了平台回 400,预检报 PRECHECK_REJECTED);

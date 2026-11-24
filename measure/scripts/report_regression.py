@@ -77,7 +77,8 @@ def _seal_network(adapters: dict) -> None:
 
 
 def _recompute(job_id: str, access: AccessAuditResult, adapters: dict) -> dict:
-    access_audit_mod.audit = lambda url: access  # type: ignore[assignment]
+    # 执行器 10-29 起带着 renderer 参数调审计;这里原来只收一个参数,一调就 TypeError,脚本跑不动(第四轮审核)
+    access_audit_mod.audit = lambda url, **kwargs: access  # type: ignore[assignment]
     with storage_mod.Storage(_dsn(COPY_DB)) as copy:
         snapshot = next(s for s in copy.load_job_snapshots() if s["job_id"] == job_id)
     job = DiagnosisJob.from_snapshot(snapshot)

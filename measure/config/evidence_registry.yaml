@@ -359,7 +359,7 @@ entries:
       en: Correcting outdated/incorrect information in highly-cited third-party sources may reduce AI misdescriptions of the brand
     plain:
       zh: "找到 AI 常引用的第三方页面里过时或错误的信息,请对方更正,可能减少 AI 说错你(还没被证明)"
-      en: "Find outdated or wrong information about you on the third-party pages AI cites most, and ask them to correct it"
+      en: "Find outdated or wrong information about you on the third-party pages AI cites most, and ask them to correct it; this may reduce AI misdescribing you (not proven)"
     verify:
       zh: "对方更正后等 2–4 周再测一次,看 AI 的介绍里还有没有那条错误说法"
       en: "2–4 weeks after the source corrects it, re-test and check whether the wrong statement still appears in the AI's description"

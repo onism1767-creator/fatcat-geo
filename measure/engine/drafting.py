@@ -318,6 +318,10 @@ def suggest_competitors(
         key = name.lower()
         if not name or not domain or key == focal or key in seen:
             continue
+        # AI 把品牌自己的别名 / 连写当竞品给了(品牌「Aurora CRM」,竞品里有「AuroraCRM」):不要。留着的话对比题一点它的名
+        # 就被判成「题里点了品牌名」,三轮都撞、出题失败,三轮的钱已经花了(第四轮审核)。认法和判撞车的是同一个
+        if find_mention(name, brand, locale) is not None:
+            continue
         seen.add(key)
         out.append(CompetitorSuggestion(name=name, domain=domain))
         if len(out) >= k:

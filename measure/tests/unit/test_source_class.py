@@ -134,3 +134,18 @@ def test_malformed_urls_are_unattributable_not_a_crash():
 
     assert url_host("http://[bad/x") == "" and url_host("https://a.test:abc/x") == "a.test"
     assert channel_hit("http://[bad/x", ["brand.tmall.com/"]) is None
+
+
+def test_archived_and_unobservable_pages_are_counted_once_however_often_they_were_cited():
+    """第四轮审核:报告里这两句数的是「篇文章」(「另有 N 篇文章现在打不开,只看到存档」「有 N 篇文章这次看不到」)。
+    原来数的是引用 / 搜索结果的条数:同一篇存档文章被 4 条回答引用、又出现在它们的搜索结果里,写成 8 篇。"""
+    context = ObserveContext(competitors=[RIVAL], pages=PAGES)
+    runs = [_run(f"same-{i}", ["https://old.test/a", "https://wall.test/y"], ["https://old.test/a"]) for i in range(4)]
+    observations = [observe(run, BRAND, context) for run in runs]
+    m = measure_target(Target(surface="s1", model="m"), "p", PromptIntent.CATEGORY_DISCOVERY, observations, ["p1"],
+                       stop_reason=StopReason.COMPLETED, competitor_names=["Beta"], exposes_retrieval=True)
+    tp = m.third_party
+    assert tp is not None and tp.archived is not None
+    assert (tp.archived.pages, tp.archived.mentioning) == (1, 1)  # 一篇存档文章,不是 8 篇
+    assert tp.unobservable_cited == {"BLOCKED": 2}  # 两篇看不到的(被拦的那篇 + 只有存档的那篇),不是 8 篇
+    assert tp.unobservable_retrieved == {"BLOCKED": 1}

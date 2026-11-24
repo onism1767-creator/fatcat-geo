@@ -1,6 +1,7 @@
 """L2 存储:只追加的原始层与派生层(铁律 8、13.5)。
 
-- surface_run / derived_observation / recompute_event / aux_call(辅助调用账本)/ report_snapshot 由数据库触发器
+- surface_run / derived_observation / recompute_event / aux_call(辅助调用账本)/ report_snapshot /
+  page_check / citation_resolution / cache_reuse 由数据库触发器
   强制只追加:UPDATE / DELETE / TRUNCATE 一律被 RAISE EXCEPTION 拒绝。
   不可变性不靠代码纪律,靠数据库拒绝(13.5);tests/unit/test_storage.py
   的不变式测试直接对真库验证。

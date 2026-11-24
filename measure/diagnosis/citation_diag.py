@@ -78,10 +78,12 @@ def diagnose_citation(
     """红绿灯看官网引用率(任一官网域名);主站引用率、按域名拆分、官方渠道引用(单列)、还原失败的引用条数
     只作证据行(v0.4.26 S4 / S5)。"""
     if metric is None or metric.rate is None:
+        # 一条有效回答都没有和「它不公开参考来源」是两回事,各说各的(同 generative_retrieval;第四轮审核)
+        no_answers = metric is not None and metric.accounting.n_valid == 0
         return StageFinding(
             stage=Stage.CITATION,
             status=StageStatus.NOT_OBSERVABLE,
-            headline=msg("citation.headline.not_observable"),
+            headline=msg("citation.headline.no_valid_answers" if no_answers else "citation.headline.not_observable"),
         )
     r = metric.rate
     accounting = metric.accounting

@@ -163,7 +163,8 @@ def diagnose_surface(
     if access.hint_checks:
         have = {r.evidence_id for r in recommendations}
         recommendations += [r for r in recommend(registry, stage=Stage.ACCESS, intent=intent,
-                                                 access_checks=frozenset(access.hint_checks), data_available=data)
+                                                 access_checks=frozenset(access.hint_checks), data_available=data,
+                                                 only_matching_checks=True)
                             if r.evidence_id not in have]
     # 第三方线单独定位:同一套「第一个 FAIL,否则第一个 WEAK」,同样有通道分歧防线;建议只从第三方线的条目里取
     tp_findings = list(third_party or [])

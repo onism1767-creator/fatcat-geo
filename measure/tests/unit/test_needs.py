@@ -178,3 +178,14 @@ def test_brand_domain_collisions_need_a_boundary_on_both_sides():
     texts = ["Is amazon.com cheaper for running shoes?", "Visit shop.on.com today", "see on.com/shoes",
              "neon.com deals"]
     assert brand_collisions(texts, on, "en-US") == ["Visit shop.on.com today", "see on.com/shoes"]
+
+
+def test_suggested_competitors_never_include_the_brands_own_alias_or_spelling():
+    """第四轮审核:AI 把品牌自己的别名 / 连写当竞品给了(别名 AuroraCRM、写法 Aurora-CRM)。原来只排除和品牌名
+    完全相同的:它进了竞品候选,对比题一点它的名就被判成「题里点了品牌名」,三轮都撞、出题失败,钱已经花了。"""
+    own = {"competitors": [{"name": "AuroraCRM", "domain": "aurora-crm.com"},
+                           {"name": "Aurora-CRM", "domain": "aurora.example"},
+                           {"name": "SalesLoop", "domain": "salesloop.example"}]}
+    competitors = suggest_competitors(RecordingAdapter([own]), category=CATEGORY, brand=BRAND,
+                                      ledger=lambda run: None)
+    assert [c.name for c in competitors] == ["SalesLoop"]

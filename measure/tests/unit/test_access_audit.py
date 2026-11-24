@@ -406,3 +406,57 @@ def test_cited_site_pages_are_added_as_a_cross_check_to_an_unresolved_homepage()
     zh = render_msg(content.detail, "zh")
     assert "AI 引用过的 2 个官网页面" in zh and "1 个有完整正文" in zh and "1 个被拦" in zh
     assert "of 2 site page(s) the AI cited" in render_msg(content.detail, "en")
+
+
+@respx.mock
+def test_a_challenge_page_with_an_unusual_status_is_not_reported_as_the_site_being_down():
+    """第四轮审核:首页被验证码 / 防护页以 401 / 403 / 429 / 503 之外的状态码拒绝(比如 405),原来只按状态码分,
+    判成「网站对普通访问者也打不开」、整单卡在第一步——把我们自己被拦说成了网站的故障(产品文档原则 4)。
+    认得出是防护页就记看不到;认不出的非 2xx 照旧判打不开。"""
+    respx.get(f"{SITE}/robots.txt").mock(
+        return_value=httpx.Response(200, text=ROBOTS_ALLOW_ALL + f"Sitemap: {SITE}/s.xml\n"))
+    respx.get(f"{SITE}/").mock(return_value=httpx.Response(
+        405, headers={"x-amzn-waf-action": "captcha"}, html="<html><script src='https://x.awswaf.com/c.js'></script>"))
+    blocked = audit(SITE, BOTS)
+    reach = check_by_name(blocked, "reachability")
+    assert reach.status is CheckStatus.UNKNOWN and blocked.overall is not CheckStatus.FAIL
+    assert "405" in render_msg(reach.detail, "zh")
+
+    respx.get(f"{SITE}/").mock(return_value=httpx.Response(410, html="<html><body>Gone</body></html>"))
+    gone = audit(SITE, BOTS)
+    assert check_by_name(gone, "reachability").status is CheckStatus.FAIL and gone.overall is CheckStatus.FAIL
+
+
+@respx.mock
+def test_marks_on_a_refused_identity_are_not_pinned_on_the_page_we_did_read():
+    """第四轮审核:首页是真·脚本空壳,浏览器身份和搜索类爬虫身份都读到了(200 空壳),只有另一个身份被防护 403。
+    原来把被拒身份身上的防护标记算到「我们拿到的这张首页」头上:说成「被拦了」,真浏览器对照也跳过,
+    本该查出的「内容靠脚本加载」漏掉。现在只认读到的页面自己的标记。"""
+    blocked_bot = CrawlerBot(name="TestOtherBot", robots_token="TestOtherBot",
+                             user_agent="Mozilla/5.0 (compatible; TestOtherBot/1.0)", purpose="training", gating=False)
+
+    def home(request: httpx.Request) -> httpx.Response:
+        if "TestOtherBot" in request.headers["user-agent"]:
+            return httpx.Response(403, headers={"cf-mitigated": "challenge"}, html=CHALLENGE_HTML)
+        return httpx.Response(200, html=SHELL_HTML)
+
+    respx.get(f"{SITE}/robots.txt").mock(
+        return_value=httpx.Response(200, text=ROBOTS_ALLOW_ALL + f"Sitemap: {SITE}/s.xml\n"))
+    respx.get(f"{SITE}/").mock(side_effect=home)
+    renderer = FakeRenderer(_page(html=RICH_HTML))
+    result = audit(SITE, [*BOTS, blocked_bot], renderer=renderer)
+    content = check_by_name(result, "html_content")
+    assert renderer.calls == [SITE]  # 开了真浏览器对照
+    assert content.status is CheckStatus.FAIL and "大部分内容靠脚本加载" in render_msg(content.detail, "zh")
+
+
+@respx.mock
+def test_script_only_is_not_concluded_when_the_real_browser_hands_back_no_raw_page():
+    """第四轮审核:判「内容靠脚本加载」的条件是「真浏览器收到的原始网页也空、运行脚本后才有内容」。真浏览器没交回
+    原始网页时(跳转后的主文档有时读不出),原始网页根本没看到——分不清是不是网站给不同身份不同页面,不判挂。"""
+    _shell_site()
+    result = audit(SITE, BOTS, renderer=FakeRenderer(_page(html=RICH_HTML, document=None)))
+    content = check_by_name(result, "html_content")
+    assert content.status is CheckStatus.UNKNOWN and result.overall is not CheckStatus.FAIL
+    zh, en = render_msg(content.detail, "zh"), render_msg(content.detail, "en")
+    assert "没交回它收到的原始网页" in zh and "did not hand back the raw page" in en
