@@ -24,6 +24,7 @@ from butter.measure import driver
 from butter.measure import plan as P
 from butter.pipeline import RunOptions, process_snapshot
 from butter.questions import draft_questions, to_board_questions
+from butter.web import app as app_module
 from butter.web.app import WebSettings, create_app
 
 from conftest import NOW
@@ -365,6 +366,10 @@ def test_page_follows_a_running_measurement_and_offers_to_resume_a_dead_one(site
         html = client.get(f"/batches/{batch_id}").text
         assert 'http-equiv="refresh" content="5"' in html and "/resume" not in html
         assert client.post(f"/batches/{batch_id}/resume", **FORM).status_code == 303 and started == ["baseline"]  # 不会起第二个
+    html = client.get(f"/batches/{batch_id}").text                                        # 刚点完的头几秒:进程还在起,不说"停了"
+    assert "测到一半停了" not in html and "/resume" not in html and 'http-equiv="refresh" content="5"' in html
+    assert client.get(f"/batches/{batch_id}.json").json()["starting"]
+    monkeypatch.setattr(app_module, "STARTING_GRACE_S", 0)                                # 过了这几秒还没有进程:才是真停了
     html = client.get(f"/batches/{batch_id}").text                                        # 驱动没了,但还没测完
     assert "测到一半停了" in html and f'action="/batches/{batch_id}/resume"' in html and 'http-equiv="refresh"' not in html
     assert client.post(f"/batches/{batch_id}/resume", **FORM).status_code == 303 and started == ["baseline", "baseline"]
@@ -485,3 +490,113 @@ def test_a_half_written_config_folder_is_completed_not_stuck(site):
     (cfg / "brands.yml").unlink()                       # 上次写到一半断了:文件夹在,文件不全
     again = driver.prepare(workspace, out, batch_id, env=ENV, potato=potato)
     assert again.config_dirs == plan.config_dirs and (cfg / "brands.yml").is_file()
+
+
+# ── 第二、三个按钮:记下「已放上网站」、测改之后 ─────────────────────────
+
+def _card_ids(workspace, batch_id) -> list[str]:
+    return [c.card_id for c in cards.load(workspace)[0].cards if c.batch_id == batch_id]
+
+
+def _deploy(client, batch_id, data):
+    return client.post(f"/batches/{batch_id}/deployed", data=data, headers={"origin": BASE}, follow_redirects=False)
+
+
+def test_deploy_button_records_the_day_and_the_picked_changes(site):
+    workspace, _, batch_id, _ = site
+    client = web(site)
+    ids = _card_ids(workspace, batch_id)
+    today = datetime.now().date().isoformat()
+    picked = {f"card:{i}": "on" for i in ids[:2]}
+    html = client.get(f"/batches/{batch_id}").text
+    assert f'action="/batches/{batch_id}/deployed"' in html and 'type="date"' in html and "你还没测过改之前的情况" in html
+    assert "/remeasure" not in html and "/undeploy" not in html and "<script" not in html.lower()   # 还没放,没有"测改之后"
+    assert _deploy(client, batch_id, {"token": "wrong", "day": today, **picked}).status_code == 403
+    assert client.post(f"/batches/{batch_id}/deployed", data={"token": "t", "day": today, **picked}).status_code == 403
+    assert _deploy(client, batch_id, {"token": "t", "day": today}).status_code == 400                  # 一条都没勾
+    assert _deploy(client, batch_id, {"token": "t", "day": "下周", **picked}).status_code == 400        # 日期读不懂
+    assert _deploy(client, batch_id, {"token": "t", "day": "2999-01-01", **picked}).status_code == 400  # 将来的日期
+    assert _deploy(client, batch_id, {"token": "t", "day": today, "card:not-a-card": "on"}).status_code == 400
+    assert _deploy(client, "b-nope", {"token": "t", "day": today, **picked}).status_code == 400        # 没有这一批
+    assert phase(workspace, batch_id) == "已出包"                                                       # 上面这些一笔都没记
+    assert _deploy(client, batch_id, {"token": "t", "day": today, **picked}).status_code == 303
+    state = state_of(workspace, batch_id)
+    assert state.phase == "已部署" and state.deploy.day == today and state.deploy.card_ids == ids[:2]
+    data = client.get(f"/batches/{batch_id}.json").json()
+    assert data["phase_text"] == "已放上网站" and data["deployed_on"] == today and data["deployed_cards"] == 2
+    assert not data["can_deploy"] and not data["can_measure"] and data["can_remeasure"] and data["can_undeploy"]
+    assert "没测过改之前" in data["no_compare_note"] and [c["deployed"] for c in data["cards"]].count(True) == 2
+    assert _deploy(client, batch_id, {"token": "t", "day": today, **picked}).status_code == 400        # 已经记过了
+    # 记错了可以撤,撤完回到上一步
+    assert client.post(f"/batches/{batch_id}/undeploy", data={"token": "wrong"}, headers={"origin": BASE}).status_code == 403
+    assert client.post(f"/batches/{batch_id}/undeploy", **FORM).status_code == 303
+    assert phase(workspace, batch_id) == "已出包" and state_of(workspace, batch_id).deploy is None
+    assert client.post(f"/batches/{batch_id}/undeploy", **FORM).status_code == 400                      # 没有可撤的
+
+
+def test_three_buttons_take_a_batch_from_before_to_compared(site, monkeypatch):
+    workspace, _, batch_id, _ = site
+    client = web(site)
+    today = datetime.now().date().isoformat()
+    assert client.post(f"/batches/{batch_id}/remeasure", **FORM).status_code == 400          # 还没放上网站,不能测"改之后"
+    assert client.post(f"/batches/{batch_id}/baseline", **FORM).status_code == 303            # 按钮 1:测改之前
+    deploy = {"token": "t", "day": today, **{f"card:{i}": "on" for i in _card_ids(workspace, batch_id)}}
+    assert _deploy(client, batch_id, deploy).status_code == 303                               # 按钮 2:记下已放上网站
+    data = client.get(f"/batches/{batch_id}.json").json()
+    assert data["replan"]["typical_usd"] == pytest.approx(5.18, abs=0.01) and data["replan"]["questions"] == 24
+    assert data["plan"] is None and not data["no_compare_note"] and "才 0 天" in data["remeasure_note"]
+    html = client.get(f"/batches/{batch_id}").text
+    assert f'action="/batches/{batch_id}/remeasure"' in html and "测改之后" in html and "预计 $5.18" in html
+    assert f'action="/batches/{batch_id}/undeploy"' in html and "/baseline" not in html and "/deployed" not in html
+    assert phase(workspace, batch_id) == "已部署"                                             # 打开页面不会开始测
+    monkeypatch.setenv("STUB_SEED", "after")
+    monkeypatch.setenv("STUB_MENTION_BOOST", ",".join(state_of(workspace, batch_id).batch.treated_q) + "=0.95")
+    assert client.post(f"/batches/{batch_id}/remeasure", data={"token": "wrong"}, headers={"origin": BASE}).status_code == 403
+    assert client.post(f"/batches/{batch_id}/remeasure", **FORM).status_code == 303           # 按钮 3:测改之后
+    state = state_of(workspace, batch_id)
+    assert state.phase == "已比对" and len(state.readings) == 1 and len(state.readings[0].legs) == 4
+    data = client.get(f"/batches/{batch_id}.json").json()
+    reading = data["readings"][0]
+    assert data["phase_text"] == "已出对比结果" and len(reading["lines"]) == 4 and not reading["scoring"]
+    assert [(s["name"], s["ok"], s["expected"]) for s in reading["samples"]] == [
+        ("Anthropic(Claude） · 英文", 72, 72), ("OpenAI · 英文", 72, 72)]
+    assert data["can_remeasure"] and data["remeasured"] and not data["can_undeploy"]
+    html = client.get(f"/batches/{batch_id}").text
+    assert "改之后测到的" in html and "改前" in html and "再测一次" in html and "/undeploy" not in html
+    assert client.post(f"/batches/{batch_id}/undeploy", **FORM).status_code == 400            # 测过改之后就不能撤了
+    assert client.post(f"/batches/{batch_id}/remeasure", **FORM).status_code == 303           # 还可以再测,结果接着列
+    assert len(state_of(workspace, batch_id).readings) == 2
+
+
+def test_remeasure_works_even_if_nothing_was_measured_before(site):
+    """没测过改之前就放上网站:再测是这一批的第一次测量。照样能测,只列当时的数,不比。"""
+    workspace, _, batch_id, _ = site
+    client = web(site)
+    today = datetime.now().date().isoformat()
+    deploy = {"token": "t", "day": today, **{f"card:{i}": "on" for i in _card_ids(workspace, batch_id)}}
+    assert _deploy(client, batch_id, deploy).status_code == 303
+    assert not state_of(workspace, batch_id).batch.frozen
+    data = client.get(f"/batches/{batch_id}.json").json()
+    assert data["replan"]["questions"] == 24 and "没测过改之前" in data["no_compare_note"]
+    assert client.post(f"/batches/{batch_id}/remeasure", **FORM).status_code == 303
+    state = state_of(workspace, batch_id)
+    assert state.phase == "已比对" and state.batch.frozen and state.baseline is None
+    assert state.readings[0].legs == [] and len(state.readings[0].samples) == 2
+    html = client.get(f"/batches/{batch_id}").text
+    assert "没有能比的「改之前」" in html and "72 / 72" in html
+
+
+def test_remeasure_follows_what_was_frozen_and_says_when_a_key_is_gone(site):
+    workspace, out, batch_id, potato = site
+    plan = driver.prepare(workspace, out, batch_id, env=ENV, potato=potato)
+    driver.start(workspace, plan)
+    driver.run(workspace, batch_id, "baseline", env=ENV, potato=potato)
+    cards.submit(workspace, at=datetime.now(UTC), actor="owner", batch_id=batch_id, type="deployed",
+                 payload=DeployMark(day=datetime.now().date().isoformat(), card_ids=_card_ids(workspace, batch_id)))
+    again = driver.prepare_remeasure(workspace, out, batch_id, env={"OPENAI_API_KEY": "k"}, potato=potato)
+    assert [(leg.provider, leg.calls) for leg in again.legs] == [("anthropic", 72), ("openai", 72)]   # 照第一次定下的两家
+    assert again.freeze.treated_q == plan.freeze.treated_q and again.typical_usd == plan.typical_usd
+    assert again.upper_usd == plan.upper_usd and again.config_dirs == plan.config_dirs
+    assert any("Claude" in n and "key" in n for n in again.notes)                                     # 少了一家的 key,先说清楚
+    with pytest.raises(ValueError):
+        driver.prepare_remeasure(workspace, out, "b-nope", env=ENV, potato=potato)

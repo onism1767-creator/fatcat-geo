@@ -25,7 +25,7 @@ butter = "butter.cli:main"
 include = ["butter*"]
 
 [tool.setuptools.package-data]
-butter = ["data/*.yaml", "registry/*.yaml", "registry/toast_snapshot/*.yaml",
+butter = ["data/*.yaml", "data/*.json", "registry/*.yaml", "registry/toast_snapshot/*.yaml",
           "config/*.yaml", "web/templates/*.html"]
 
 [tool.pytest.ini_options]

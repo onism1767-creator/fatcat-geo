@@ -197,6 +197,62 @@ def prepare(workspace: Path, out_root: Path, batch_id: str, *, env: Mapping[str,
         notes=notes)
 
 
+def _cached_uppers(cfg: Path) -> dict[tuple[str, str], float]:
+    """这份配置以前叫 Potato 估过的花费上界(prepare 存下的)。读不到就当没有。"""
+    out: dict[tuple[str, str], float] = {}
+    for path in sorted(cfg.glob("estimate-*.json")):
+        try:
+            out |= {(p, m): float(usd) for p, m, usd in json.loads(path.read_text(encoding="utf-8"))["uppers"]}
+        except (OSError, ValueError, TypeError, KeyError):
+            continue
+    return out
+
+
+def prepare_remeasure(workspace: Path, out_root: Path, batch_id: str, *, env: Mapping[str, str],
+                      potato: PotatoSettings) -> MeasurePlan:
+    """再测之前给站长看的:要问几次、大概花多少。
+
+    第一次测量时题板、引擎、分组、判读规则都定下了,再测照那一份来(改之前改之后要问一样的题才能比),这里只估费,不写任何文件。
+    没测过改之前就放上网站的批次,再测是它的第一次测量:和「测一次」一样准备。做不了的时候抛 ValueError,话是给站长看的。
+    """
+    batch_dir(workspace, batch_id)
+    view, _ = cards.load(workspace)
+    state = next((b for b in view.batches if b.batch.batch_id == batch_id), None)
+    if state is None:
+        raise ValueError("没有这一批改动。")
+    batch = state.batch
+    if not batch.frozen or batch.rules is None:
+        return prepare(workspace, out_root, batch_id, env=env, potato=potato)
+    defaults = load_defaults()
+    runs = batch.plan.runs_per_question if batch.plan else int(defaults.get("measure.runs_per_question"))
+    cfg_dirs = {p.lang: Path(p.path).parent for p in batch.panel}
+    n_questions = {lang: len(sources.read_yaml(cfg / "questions.yml")["questions"]) for lang, cfg in cfg_dirs.items()}
+    have = set(available_providers(env))
+    judged = {(r.lang, r.provider) for r in batch.rules.legs if r.metric == "mention" and r.band_pp is not None}
+    estimates, notes = [], []
+    for surface in batch.surfaces:
+        upper = _cached_uppers(cfg_dirs[surface.lang]).get((surface.provider, surface.model))
+        estimates.append(P.estimate_leg(defaults, lang=surface.lang, provider=surface.provider, model=surface.model,
+                                        calls=n_questions[surface.lang] * runs, upper=upper,
+                                        judged=(surface.lang, surface.provider) in judged))
+    for provider in sorted({s.provider for s in batch.surfaces} - have):
+        notes.append(f"现在找不到 {P.ENGINE_NAME.get(provider, provider)} 的 key:这一家这次会测不成,别的照常测。")
+    if not batch.treated_q:
+        notes.append("这批题里没有一道对上被改的页面,测了也比不出改动的效果。")
+    bands = [r.band_pp for r in batch.rules.legs if r.metric == "mention" and r.band_pp is not None]
+    uppers_all = [e.upper_usd for e in estimates]
+    freeze = BatchFreeze(panel=batch.panel, brands=batch.brands, surfaces=batch.surfaces, plan=batch.plan,
+                         treated_q=batch.treated_q, control_q=batch.control_q, question_pages=batch.question_pages,
+                         rules=batch.rules)
+    return MeasurePlan(
+        batch_id=batch_id, freeze=freeze, config_dirs={lang: str(cfg) for lang, cfg in cfg_dirs.items()},
+        legs=estimates, n_questions=n_questions, n_treated=len(batch.treated_q), n_control=len(batch.control_q),
+        typical_usd=round(sum(e.typical_usd for e in estimates), 2),
+        upper_usd=round(sum(uppers_all), 2) if estimates and all(u is not None for u in uppers_all) else None,
+        minutes=round(sum(e.minutes for e in estimates), 0), band_pp=round(max(bands) * 100, 1) if bands else None,
+        notes=notes)
+
+
 # ── 进度 ──────────────────────────────────────────────────────────────
 
 def _stamp(state, kind: str) -> str:
@@ -431,10 +487,19 @@ def _run_locked(workspace: Path, bdir: Path, batch_id: str, kind: str, env: Mapp
 
 
 def start(workspace: Path, plan: MeasurePlan, kind: str = "baseline") -> str | None:
-    """站长点了按钮:把"开始测"记到批次上(第一次测量同时冻结题板、分组和判读规则)。返回没记上的原因,记上了返回 None。"""
+    """站长点了按钮:把"开始测"记到批次上(第一次测量同时冻结题板、分组和判读规则)。返回没记上的原因,记上了返回 None。
+
+    再测一般不带冻结参数(早就定下了)。只有一种情况要带:没测过改之前就放上网站,再测是这一批的第一次测量。
+    """
+    freeze = plan.freeze
+    if kind == "remeasure":
+        view, _ = cards.load(workspace)
+        state = next((b for b in view.batches if b.batch.batch_id == plan.batch_id), None)
+        if state is not None and state.batch.frozen:
+            freeze = None
     decision = cards.submit(workspace, at=datetime.now(UTC), actor="owner", batch_id=plan.batch_id,
                             type="baseline_started" if kind == "baseline" else "remeasure_started",
-                            payload=MeasureStart(freeze=plan.freeze if kind == "baseline" else None))
+                            payload=MeasureStart(freeze=freeze))
     return None if decision.ok else decision.reason
 
 

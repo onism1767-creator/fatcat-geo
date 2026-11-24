@@ -1,6 +1,6 @@
 {% extends "base.html" %}
 {% block main %}
-<p><a href="/">← 回首页</a></p>
+<p><a href="/">← {{ "回展示页" if static else "回首页" }}</a></p>
 <h1>{{ v.host }}</h1>
 <p class="muted">{{ v.generated_at[:16] | replace("T", " ") }} 跑的，读了 {{ v.pages }} 个页面。从 <span class="wrap">{{ v.site_url }}</span> 开始。</p>
 
@@ -16,9 +16,11 @@
     <span><span class="chip plain">不适用 {{ v.audit_counts.not_applicable }}</span></span>
   </div>
   <p class="row">
+    {% if not static %}
     <a href="/runs/{{ v.run_id }}/package.zip">下载改动包(zip）</a>
     <a href="/runs/{{ v.run_id }}/questions">出题和勾选</a>
     <a href="/runs/{{ v.run_id }}/facts">读错了？改事实</a>
+    {% endif %}
     {% if v.batch_id %}<a href="/batches/{{ v.batch_id }}">看这批改动的进展</a>{% endif %}
   </p>
   {% if v.draft %}

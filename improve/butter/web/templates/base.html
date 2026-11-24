@@ -66,9 +66,10 @@ summary { cursor: pointer; padding-block: .25rem; }
 form .field { display: flex; flex-direction: column; align-items: flex-start; gap: .25rem; margin-block-end: 1.25rem; }
 form label { font-weight: 600; }
 form .hint { color: var(--muted); font-size: .9rem; }
-input[type="text"], textarea { font: inherit; font-size: max(1rem, 1em); padding: .6rem .75rem; min-block-size: 2.75rem;
+input[type="text"], input[type="date"], textarea { font: inherit; font-size: max(1rem, 1em); padding: .6rem .75rem; min-block-size: 2.75rem;
   border: 1px solid var(--muted); border-radius: .375rem; background: var(--surface); color: var(--text);
   inline-size: min(100%, 40rem); }
+input[type="date"] { inline-size: auto; }
 textarea { min-block-size: 5rem; }
 fieldset { border: 1px solid var(--line); border-radius: .5rem; padding: .75rem 1rem; margin-block: 1rem; margin-inline: 0; }
 legend { font-weight: 600; padding-inline: .5rem; }
@@ -82,6 +83,8 @@ button { font: inherit; font-size: 1rem; padding: .6rem 1.1rem; min-block-size: 
   border: 1px solid var(--accent); background: var(--accent); color: var(--bg); font-weight: 600; }
 button.secondary { background: transparent; color: var(--accent); }
 .notice { border-inline-start: 4px solid var(--accent); padding: .5rem .75rem; background: var(--surface); margin-block: 1rem; }
+table.bars td:last-child { inline-size: 35%; min-inline-size: 8rem; }
+.bar { display: block; block-size: .8rem; min-inline-size: 2px; background: var(--accent); border-radius: .25rem; }
 .visually-hidden { position: absolute; clip-path: inset(50%); overflow: hidden; width: 1px; height: 1px; margin: -1px;
   padding: 0; border: 0; white-space: nowrap; }
 code { font-family: ui-monospace, Consolas, monospace; font-size: .9em; overflow-wrap: anywhere; }
@@ -93,10 +96,15 @@ footer.site { max-inline-size: 68rem; margin-inline: auto; padding: 1rem; color:
 <header class="site">
   <nav aria-label="主导航">
     <span class="brand">Butter</span>
+    {% if static %}
+    <a href="/"{% if path == "/" %} aria-current="page"{% endif %}>展示页</a>
+    <a href="/registry"{% if path.startswith("/registry") %} aria-current="page"{% endif %}>证据表</a>
+    {% else %}
     <a href="/"{% if path == "/" %} aria-current="page"{% endif %}>首页</a>
     <a href="/batches"{% if path.startswith("/batches") %} aria-current="page"{% endif %}>改动批次</a>
     <a href="/registry"{% if path.startswith("/registry") %} aria-current="page"{% endif %}>证据表</a>
     <a href="/settings"{% if path.startswith("/settings") %} aria-current="page"{% endif %}>设置</a>
+    {% endif %}
   </nav>
 </header>
 <main>

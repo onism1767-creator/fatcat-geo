@@ -17,7 +17,8 @@ PURE = [p for p in FILES if p.parent.name in ("extract", "audit", "generate", "c
         or (p.parent.name in ("registry", "config") and p.name not in ("load.py", "__init__.py"))
         or (p.parent.name == "registry" and p.name == "__init__.py")
         or (p.parent.name == "llm" and p.name in ("wire.py", "pricing.py"))
-        or (p.parent.name == "measure" and p.name == "plan.py")]
+        or (p.parent.name == "measure" and p.name == "plan.py")
+        or (p.parent.name == "showcase" and p.name in ("names.py", "static.py"))]
 NETWORK = {"httpx", "requests", "urllib3", "aiohttp", "socket", "http", "ftplib", "smtplib", "websockets", "playwright"}
 SIBLINGS = {"aivis", "engine", "diagnosis", "report", "adapters", "crawler", "trafilatura", "psycopg", "psycopg2",
             "sqlalchemy"}

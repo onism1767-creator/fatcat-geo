@@ -1,8 +1,8 @@
 """本地服务(外壳):FastAPI 路由 + Jinja2 模板。只绑定本机,零 JavaScript。设计 §10。
 
 每个页面都有 `.json` 孪生:同一个视图对象,渲染成网页或 JSON(设计 §10.1)。
-这一版是骨架:看运行、看改动包、下载、出题与勾选、看批次与卡片、看证据表、看设置。
-起新运行和三个按钮要走后台作业,在下一步接上(设计 §10.2)。
+能做的事:起新运行、看运行和改动包、下载、改事实、出题与勾选、看批次与卡片、看证据表、看设置,
+以及批次页上的三个按钮:测一次(改之前)、记下已放上网站、再测(改之后)。短任务走后台作业,测量另起驱动(设计 §10.2)。
 
 安全(设计 §10.3):Host 只认 127.0.0.1 和 localhost;会改东西的 POST 要带本次启动的随机令牌,
 并且来源必须是本机;模板自动转义,抓来的文字只当文字显示;下载文件名做清洗;密钥只显示"有 / 没有"。
@@ -30,7 +30,7 @@ from starlette.exceptions import HTTPException as StarletteHTTPException
 import butter
 from butter import cards, sources, store
 from butter.config import load_defaults, load_pricing
-from butter.contracts import AuditReport, ChangePackage, FactBase, PotatoSettings
+from butter.contracts import AuditReport, ChangePackage, DeployMark, FactBase, OwnerNote, PotatoSettings
 from butter.drafting import draft_offer
 from butter.factedit import changed_edits
 from butter.jobs import JobManager
@@ -44,6 +44,8 @@ TEMPLATES = Path(__file__).resolve().parent / "templates"
 ALLOWED_HOSTS = ("127.0.0.1", "localhost")
 RUN_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{2,80}$")
 MAX_CATEGORIES = 5
+# 点了「测一次」之后,测量进程要几秒才起得来(另起一个 Python)。这段时间里它还没拿到锁,页面不能说成"测到一半停了"。
+STARTING_GRACE_S = 20
 
 
 @dataclass(frozen=True)
@@ -105,7 +107,7 @@ def create_app(settings: WebSettings) -> FastAPI:
         if request.url.path.endswith(".json"):
             return JSONResponse(view, status_code=status)
         html = env.get_template(template).render(v=view, token=settings.token, version=butter.__version__,
-                                                 path=request.url.path)
+                                                 path=request.url.path, static=False)
         return HTMLResponse(html, status_code=status)
 
     # 挂在 Starlette 的 HTTPException 上:路由找不到时框架自己抛的 404 / 405 也走这个出错页(FastAPI 的是它的子类)
@@ -307,15 +309,24 @@ def create_app(settings: WebSettings) -> FastAPI:
         state = next((b for b in view.batches if b.batch.batch_id == batch_id), None)
         if state is None:
             raise HTTPException(404, "没有这一批改动。")
-        plan = plan_error = None
+        plan = plan_error = replan = replan_error = None
         if state.phase in views.CAN_MEASURE:
             try:
                 plan = driver.prepare(settings.workspace, settings.out_root, batch_id, env=settings.env, potato=potato)
             except (ValueError, OSError) as exc:
                 plan_error = str(exc)
-        _, legs, alive = driver.current_progress(settings.workspace, batch_id)
-        return render(request, "batch.html", views.batch_detail(state, view, load_defaults(), plan=plan,
-                                                                 plan_error=plan_error, legs=legs, alive=alive))
+        if state.deploy is not None and state.phase in views.CAN_REMEASURE:
+            try:
+                replan = driver.prepare_remeasure(settings.workspace, settings.out_root, batch_id, env=settings.env,
+                                                  potato=potato)
+            except (ValueError, OSError) as exc:
+                replan_error = str(exc)
+        stamp, legs, alive = driver.current_progress(settings.workspace, batch_id)
+        starting = (bool(stamp) and not alive
+                    and (datetime.now(UTC) - state.updated_at).total_seconds() < STARTING_GRACE_S)
+        return render(request, "batch.html", views.batch_detail(
+            state, view, load_defaults(), plan=plan, plan_error=plan_error, legs=legs, alive=alive, replan=replan,
+            replan_error=replan_error, today=datetime.now().date().isoformat(), starting=starting))
 
     @app.post("/batches/{batch_id}/baseline")
     def start_baseline(batch_id: str, token: str = Form("")):
@@ -328,6 +339,44 @@ def create_app(settings: WebSettings) -> FastAPI:
         if reason:
             raise HTTPException(400, reason)
         spawn(settings.workspace, settings.out_root, batch_id, "baseline", env=settings.env, potato=potato)
+        driver.wait_started(settings.workspace, batch_id)
+        return RedirectResponse(f"/batches/{batch_id}", status_code=303)
+
+    @app.post("/batches/{batch_id}/deployed")
+    async def mark_deployed(request: Request, batch_id: str, token: str = Form(""), day: str = Form("")):
+        """第二个按钮:站长把改动放上网站了,记下是哪天、放了哪几条。只记一笔,不联网、不花钱。"""
+        check_token(token)
+        form = await request.form()
+        picked = [key[5:] for key, value in form.items() if key.startswith("card:") and value == "on"]
+        decision = cards.submit(settings.workspace, at=datetime.now(UTC), actor="owner", batch_id=batch_id,
+                                type="deployed", payload=DeployMark(day=day.strip(), card_ids=picked))
+        if not decision.ok:
+            raise HTTPException(400, decision.reason)
+        return RedirectResponse(f"/batches/{batch_id}", status_code=303)
+
+    @app.post("/batches/{batch_id}/undeploy")
+    def undo_deployed(batch_id: str, token: str = Form("")):
+        """日子或勾选记错了:撤掉这次标记,重新记。再测过之后就撤不了了(状态机会拒绝并说明)。"""
+        check_token(token)
+        decision = cards.submit(settings.workspace, at=datetime.now(UTC), actor="owner", batch_id=batch_id,
+                                type="deploy_reverted", payload=OwnerNote(reason="站长在网页上撤掉了这次标记"))
+        if not decision.ok:
+            raise HTTPException(400, decision.reason)
+        return RedirectResponse(f"/batches/{batch_id}", status_code=303)
+
+    @app.post("/batches/{batch_id}/remeasure")
+    def start_remeasure(batch_id: str, token: str = Form("")):
+        """第三个按钮:放上网站之后再测一次。照第一次测量时定下的题和引擎来,测完自动和改之前比。"""
+        check_token(token)
+        try:
+            plan = driver.prepare_remeasure(settings.workspace, settings.out_root, batch_id, env=settings.env,
+                                            potato=potato)
+        except (ValueError, OSError) as exc:
+            raise HTTPException(400, str(exc)) from exc
+        reason = driver.start(settings.workspace, plan, "remeasure")
+        if reason:
+            raise HTTPException(400, reason)
+        spawn(settings.workspace, settings.out_root, batch_id, "remeasure", env=settings.env, potato=potato)
         driver.wait_started(settings.workspace, batch_id)
         return RedirectResponse(f"/batches/{batch_id}", status_code=303)
 

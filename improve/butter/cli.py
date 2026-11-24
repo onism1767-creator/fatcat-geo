@@ -6,6 +6,7 @@
     python -m butter run https://example.com --html-dir 存下的页面/  # 不联网:读你自己存下的 HTML 文件
     python -m butter proposals                                     # 生成给 Toast 的提案文档(只是文档)
     python -m butter rebuild-index                                 # 按事件日志重建卡片索引
+    python -m butter showcase build                                # 把最近一次运行导出成展示页(真名换成代号)
 """
 
 from __future__ import annotations
@@ -64,6 +65,15 @@ def _parser() -> argparse.ArgumentParser:
     drv.add_argument("--potato-dir", help="Potato 所在的文件夹(默认是同级的 AI checker)")
     drv.add_argument("--potato-python", help="Potato 的解释器")
     drv.add_argument("--potato-pythonpath", default="", help="额外的模块搜索路径(测试用)")
+    show = sub.add_parser("showcase", help="展示页:把一次运行导出成能离线打开的静态文件夹,真名换成代号")
+    show_sub = show.add_subparsers(dest="showcase_command", required=True)
+    build = show_sub.add_parser("build", help="导出展示页。导出里还搜得到真名就不导出")
+    build.add_argument("--run", help="用哪次运行(运行号);不给就用最近的一次")
+    build.add_argument("--out", type=Path, default=DEFAULT_OUT, help=f"运行产出目录(默认 {DEFAULT_OUT})")
+    build.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE, help=f"工作目录(默认 {DEFAULT_WORKSPACE})")
+    build.add_argument("--names", type=Path,
+                       help="人工补的对照表(默认 <工作目录>/showcase/names.yaml;没有会新建一份空的)。它不进仓库、不随展示页导出")
+    build.add_argument("--to", type=Path, help="导出到哪个新文件夹(默认 <产出目录>/showcase/<日期-时间>);已存在就不写")
     web = sub.add_parser("serve", help="在本机打开 Butter 的网页界面(只有这台电脑能访问)")
     web.add_argument("--out", type=Path, default=DEFAULT_OUT, help=f"运行产出目录(默认 {DEFAULT_OUT})")
     web.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE, help=f"工作目录(默认 {DEFAULT_WORKSPACE})")
@@ -102,6 +112,52 @@ def _rebuild_index(args) -> int:
     for skipped in view.skipped:
         print(f"注意:日志第 {skipped.seq} 条事件不合规,没有计入({skipped.reason})", file=sys.stderr)
     print(f"索引已按事件日志重建:{view.events} 条事件,{len(view.batches)} 个批次,{len(view.cards)} 张卡。")
+    return 0
+
+
+NAMES_STARTER = """# 展示页的对照表:真名 → 代号。这个文件不进仓库,也不随展示页导出。
+# Butter 会自动换掉:品牌名和别名、官网域名、社交账号、商品名、货号、本站的网址。
+# 这里只补它认不出来的,比如系列名。一行一个,例如:
+#   - {real: "SkyLine", code: "Series 1"}
+names: []
+"""
+
+
+def _showcase_build(args) -> int:
+    from datetime import datetime
+
+    from butter import sources, store
+    from butter.showcase import ShowcaseLeak, build, parse_names
+
+    runs = store.read_run_index(args.out)
+    run_id = args.run or (runs[-1]["run_id"] if runs else "")
+    run_dir = store.find_run_dir(args.out, run_id) if run_id else None
+    if run_dir is None:
+        print("没有找到这次运行。先跑一次(python -m butter run 网址),或者用 --run 给一个运行号。", file=sys.stderr)
+        return 1
+    names_path = args.names or args.workspace / "showcase" / "names.yaml"
+    if args.names is None:
+        store.ensure_text_files(names_path.parent, {names_path.name: NAMES_STARTER})
+    manual = parse_names(sources.read_yaml(names_path))
+    now = datetime.now()
+    try:
+        files, report = build(run_dir, args.workspace, manual=manual, today=now.date().isoformat())
+    except ShowcaseLeak as exc:
+        print(f"没有导出:{exc}", file=sys.stderr)
+        return 1
+    out_dir = args.to or args.out / "showcase" / now.strftime("%Y%m%d-%H%M%S")
+    store.save_text_files(out_dir, files)
+    print(f"展示页导出在:{out_dir}")
+    print(f"  用的是运行 {run_id};{len(report.pages)} 个页面,改动包里的文件 {report.package_files} 个。打开 index.html 看。")
+    print(f"  换掉了 {len(report.names)} 个真名(人工补的 {len(manual)} 个,对照表在 {names_path})。导出的文件里搜不到它们。")
+    if report.skipped_files:
+        print(f"  改动包里有 {len(report.skipped_files)} 个不是文本的文件,没有导出:{'、'.join(report.skipped_files[:5])}")
+    if report.too_short:
+        print(f"  这些词太短,没有自动换,要你看一眼:{'、'.join(report.too_short)}")
+    if report.hints:
+        words = "、".join(f"{word}({count} 处)" for word, count in report.hints)
+        print(f"  商品名里的这些词没在对照表上,导出里还在:{words}")
+        print("  其中要是有系列名、型号,补进对照表再导出一次;普通词不用管。发布之前请你自己再看一遍页面。")
     return 0
 
 
@@ -155,8 +211,10 @@ def main(argv: list[str] | None = None) -> int:
         from butter.web.serve import serve
 
         return serve(args.out, args.workspace, open_browser=not args.no_browser, env=_env(args.env_file))
-    if args.command in ("proposals", "rebuild-index"):
+    if args.command in ("proposals", "rebuild-index", "showcase"):
         try:
+            if args.command == "showcase":
+                return _showcase_build(args)
             return _proposals(args) if args.command == "proposals" else _rebuild_index(args)
         except (ValueError, OSError) as exc:
             print(f"没做成:{exc}", file=sys.stderr)
