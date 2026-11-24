@@ -131,7 +131,7 @@ def test_snapshot_plus_extension_resolves_every_id_used_in_code(tmp_path):
     reg = load_registry(tmp_path / "no-toast-here" / "evidence_registry.yaml")  # 找不到 Toast → 用快照
     assert len(reg) == 33
     snap = reg.sources[0]
-    assert snap.origin == "toast_snapshot" and snap.snapshot_taken_on == "2026-11-14" and "5214e99" in snap.snapshot_of
+    assert snap.origin == "toast_snapshot" and snap.snapshot_taken_on == "2026-11-23" and "28fb76a" in snap.snapshot_of
     assert reg.sources[1].origin == "butter_extension" and reg.sources[1].entries == 13
     assert not reg.missing(ids.ALL_IDS)
     literal: set[str] = set()

@@ -3,8 +3,8 @@
 # 把换行统一为 LF,再改下面的 sha256、taken_on、toast_commit 与 entries。
 # sha256 按「换行统一为 LF 后」的内容计算:Toast 的文件是 CRLF,本仓库入库一律 LF(.gitattributes),只有这样两边才对得上。
 source: 你的网页被增强了快上/config/evidence_registry.yaml
-toast_commit: 5214e99e6e468f7ebb146f4ca4ec4b21b36836b8
-toast_commit_date: "2026-10-29"
-taken_on: "2026-11-14"
+toast_commit: 28fb76a7075347075bd3183db75a48c23149fe6c
+toast_commit_date: "2026-11-23"
+taken_on: "2026-11-23"
 entries: 20
-sha256: 5f00a964c15cacfad891432ab338b495c7a1812102c2677cf82594b5d6dd4cd9
+sha256: e57a336435411dd201abb46f2a23e39b8c45d389ccc49f94ff87058431deb2d1
