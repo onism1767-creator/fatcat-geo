@@ -173,3 +173,67 @@ def test_crawler_identity_probe_is_capped_too():
         response = get_as(client, "https://big.test/", "TestBot/1.0", max_bytes=10)
         assert response.content == b"x" * 10 and response.extensions["truncated"] is True
         assert respx.calls.last.request.headers["User-Agent"] == "TestBot/1.0"
+
+
+def test_unknown_encoding_names_do_not_crash_and_known_aliases_decode_properly():
+    """第四轮审核:响应头或网页写了个 Python 不认识的编码名(日本老站的 windows-31j、泰国的 windows-874……),
+    原来官网审计 / 官网名单 / 跳转还原一读文字就 LookupError,这类站整单崩。现在先查别名表,还不认识就当没写。"""
+    from crawler.fetch import decode_page, page_encoding
+
+    japanese = "日本語のページ".encode("cp932")
+    for label in ("windows-31j", "x-sjis"):
+        assert decode_page(japanese, label) == "日本語のページ", label
+    assert page_encoding(b"", "windows-874") == "cp874" and page_encoding(b"", "iso-8859-8-i") == "iso-8859-8"
+    assert page_encoding(b"", "no-such-encoding") == "utf-8"  # 完全不认识:当没写
+    assert page_encoding(b'<meta charset="x-gbk">', "no-such-encoding") == "gbk"  # 头不认识、网页里写的认识
+    assert page_encoding(b'<meta charset="made-up">', None) == "utf-8"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, content=japanese, headers={"content-type": "text/html; charset=windows-31j"})
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        assert get_as_browser(client, "https://jp.test/").text == "日本語のページ"  # 走 _capped_get 的那条路也不崩
+
+
+def test_nul_characters_in_a_page_become_replacement_characters():
+    """二进制内容被标成网页、标题里夹了个 0x00:带空字符的文字存不进数据库(第四轮审核)。"""
+    from crawler.fetch import decode_page, page_title
+
+    text = decode_page(b"<title>a\x00b</title>", None)
+    assert "\x00" not in text and page_title(text) == "a\ufffdb"
+
+
+def test_reading_a_body_stops_at_the_total_time_limit():
+    """第四轮审核:httpx 的读超时管的是「每等一块数据」,对方隔几秒吐一点就永远不超时,核实网页的预算也打不断
+    正在读的这一页。读正文另有总时限,到点按读超时算。"""
+    from crawler.fetch import _read_capped
+
+    ticks = iter(range(0, 1000, 4))  # 假时钟:每看一次过去 4 秒
+
+    def drip():
+        while True:
+            yield b"x"
+
+    slow = httpx.Response(200, stream=httpx.ByteStream(b""))
+    slow.iter_bytes = lambda *args, **kwargs: drip()  # type: ignore[method-assign]
+    with pytest.raises(httpx.ReadTimeout):
+        _read_capped(slow, 1_000_000, total_s=10.0, clock=lambda: float(next(ticks)))
+    quick = httpx.Response(200, content=b"hello")
+    assert _read_capped(quick, 1_000_000, total_s=10.0) == (b"hello", False)
+
+
+def test_page_intro_parsing_stays_fast_on_hostile_markup():
+    """别人的网页是不可信输入:开标签重复几十万次、一直不闭合时,取标题 / H1 / 元信息原来随大小平方变慢
+    (2 MB 要半小时以上,整个服务跟着卡);现在一步步往后找,几毫秒(第四轮审核)。"""
+    import time
+
+    from crawler.fetch import extract_meta_summary, extract_page_intro, page_title
+
+    assert page_title('<head><TITLE lang="en">  Hello\n World </Title></head>') == "Hello World"
+    assert page_title("<title>没有闭合") is None
+    summary = extract_meta_summary('<title>T</title><meta content="简介在前" name="description">')
+    assert summary == "T\n\n简介在前"
+    started = time.perf_counter()
+    for hostile in ("<title>" * 300_000, "<h1>" * 400_000, "<meta " * 300_000):
+        assert extract_page_intro(hostile).empty
+    assert time.perf_counter() - started < 5.0

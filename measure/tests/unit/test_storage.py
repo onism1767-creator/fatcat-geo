@@ -233,6 +233,27 @@ def test_surface_run_round_trip(storage):
     assert any(r == original for r in fetched)  # 逐字段等值往返
 
 
+def test_nul_characters_are_stored_as_replacement_characters_instead_of_failing(storage):
+    """第四轮审核:PostgreSQL 的 text 与 jsonb 都存不了空字符。原来原样写入整条报错——一条怪回答或怪网页
+    (二进制内容被标成网页、标题里夹了 0x00)就让整单崩,钱花了、回答没存上,每次接着跑还再崩在同一条。"""
+    from engine.models import PageCheck, PageFetchStatus
+
+    odd = make_run("run-nul-1").model_copy(update={
+        "prompt_id": "need-nul",
+        "answer": Answer(answer_text="前\x00后", citations_available=True),
+        "raw_payload": {"text": "a\x00b", "parts": ["\x00", {"k\x00": 1}]},
+    })
+    storage.insert_surface_run(odd)
+    [stored] = storage.runs_for_prompt("need-nul", surface="test_surface")
+    assert stored.answer.answer_text == "前\ufffd后"
+    assert stored.raw_payload == {"text": "a\ufffdb", "parts": ["\ufffd", {"k\ufffd": 1}]}
+    page = PageCheck(url="https://nul.test/a", normalized_url="https://nul.test/a", status=PageFetchStatus.OK,
+                     title="标题\x00", text="正文\x00正文", error="x\x00", fetcher_version=1)
+    storage.insert_page_check(page)
+    kept = storage.recent_page_checks(["https://nul.test/a"])["https://nul.test/a"]
+    assert (kept.title, kept.text, kept.error) == ("标题\ufffd", "正文\ufffd正文", "x\ufffd")
+
+
 def test_failure_run_round_trip(storage):
     failure = make_run("run-rt-2").model_copy(update={
         "outcome": Outcome.TRANSIENT_FAILURE,

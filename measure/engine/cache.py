@@ -44,6 +44,10 @@ class CacheStore(Protocol):
         """这些运行里哪些是从缓存复制来的(cache_reuse 里的 run_id)。"""
         ...
 
+    def cache_sources(self, job_id: str) -> set[str]:
+        """这一单已经复用过的原件(cache_reuse 里的 source_run_id)。"""
+        ...
+
 
 def cached_answers(
     store: CacheStore,
@@ -58,7 +62,9 @@ def cached_answers(
     region: str | None,  # 必填(第二轮审核 B8):和采样钉的地区一致;原来默认空,以后钉了地区忘传就会串用
 ) -> list[SurfaceRun]:
     """别的检测里可复用的有效回答,新的在前;不含本单自己的题。只拿原件:别的单从缓存复制来的那条
-    (时间戳、原文都和原件一样)不再当成第二条回答,否则同一条回答会填进同一道题的两个槽位(审核 2026-10-27 黄 6)。"""
+    (时间戳、原文都和原件一样)不再当成第二条回答,否则同一条回答会填进同一道题的两个槽位(审核 2026-10-27 黄 6)。
+    本单已经用过的原件也不再给:原来只防住了跨单——一单开场复用了 3 条、还差 2 条没问就停了,接着跑时又把那 3 条里的
+    2 条填进剩下的槽位,同一道题里同一条回答算两次,该真问的那 2 次再也不问(第四轮审核,两位审核员各自查到)。"""
     wanted = normalize_prompt(prompt.text)
     since = now - timedelta(hours=hours)
     hits: list[SurfaceRun] = []
@@ -69,8 +75,8 @@ def cached_answers(
             if (run.search_mode is search_mode and run.region == region and run.timestamp >= since
                     and is_valid_answer(run)):
                 hits.append(run)
-    copies = store.cache_copies([r.run_id for r in hits]) if hits else set()
-    hits = [r for r in hits if r.run_id not in copies]
+    skip = (store.cache_copies([r.run_id for r in hits]) | store.cache_sources(job_id)) if hits else set()
+    hits = [r for r in hits if r.run_id not in skip]
     hits.sort(key=lambda r: r.timestamp, reverse=True)
     return hits
 

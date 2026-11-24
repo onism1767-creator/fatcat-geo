@@ -85,6 +85,24 @@ class StorageUnavailable(RuntimeError):
 # 网页层据此给 WEB_DB_UNREACHABLE 的人话页(第二轮审核 B13:原来裸 500),不用自己认识 psycopg。
 STORAGE_DOWN_ERRORS: tuple[type[Exception], ...] = (StorageUnavailable, psycopg.OperationalError)
 
+
+def _no_nul(value: Any) -> Any:
+    """空字符(U+0000)换成替换符(U+FFFD),字典与列表往里走。PostgreSQL 的 text 与 jsonb 都存不了空字符:原样写入
+    整条 INSERT 报错——一条怪回答或怪网页就能撂倒整单,钱花了、回答没存上,每次接着跑还再崩在同一条(第四轮审核)。
+    真带空字符的那一条,存进库的和对方给的差这一个字符;存不进去就什么都没有。"""
+    if isinstance(value, str):
+        return value.replace("\x00", "�") if "\x00" in value else value
+    if isinstance(value, dict):
+        return {_no_nul(key): _no_nul(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_no_nul(item) for item in value]
+    return value
+
+
+def _jsonb(value: Any) -> Jsonb:
+    return Jsonb(_no_nul(value))
+
+
 CONNECT_TIMEOUT_S = 10
 DEFAULT_DSN = "postgresql://geo@localhost:5433/geo_toast"  # 项目专用库(scripts/pgdev.ps1 管理)
 
@@ -142,10 +160,10 @@ class Storage:
                 run.locale,
                 run.region,
                 run.outcome.value,
-                Jsonb(run.error.model_dump(mode="json")) if run.error else None,
-                Jsonb(run.search_trace.model_dump(mode="json")),
-                Jsonb(run.answer.model_dump(mode="json")) if run.answer else None,
-                Jsonb(run.raw_payload) if run.raw_payload is not None else None,
+                _jsonb(run.error.model_dump(mode="json")) if run.error else None,
+                _jsonb(run.search_trace.model_dump(mode="json")),
+                _jsonb(run.answer.model_dump(mode="json")) if run.answer else None,
+                _jsonb(run.raw_payload) if run.raw_payload is not None else None,
                 run.timestamp,
                 run.latency_ms,
                 run.cost_usd,
@@ -177,7 +195,7 @@ class Storage:
                 observation.detector_name,
                 observation.detector_version,
                 observation.computed_at,
-                Jsonb(payload),
+                _jsonb(payload),
             ),
         )
         return True
@@ -192,8 +210,8 @@ class Storage:
             "VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)",
             (
                 check.check_id, check.url, check.normalized_url, check.fetched_at, check.status.value,
-                check.http_status, check.final_url, check.title, check.text, check.text_source,
-                check.text_chars, check.truncated, check.error, check.fetcher_version,
+                check.http_status, check.final_url, _no_nul(check.title), _no_nul(check.text), check.text_source,
+                check.text_chars, check.truncated, _no_nul(check.error), check.fetcher_version,
                 check.archive_url, check.archive_timestamp,
                 check.live_status.value if check.live_status is not None else None,
             ),
@@ -307,7 +325,7 @@ class Storage:
                 datetime.fromisoformat(snapshot["created_at"]),
                 snapshot["state"],
                 snapshot["fingerprint"],
-                Jsonb(snapshot),
+                _jsonb(snapshot),
             ),
         )
 
@@ -333,7 +351,7 @@ class Storage:
         self._conn.execute(
             "INSERT INTO call_usage (run_id, usage, extracted_at) VALUES (%s, %s, clock_timestamp()) "
             "ON CONFLICT (run_id) DO UPDATE SET usage = EXCLUDED.usage, extracted_at = EXCLUDED.extracted_at",
-            (run_id, Jsonb(usage)),
+            (run_id, _jsonb(usage)),
         )
 
     def run_ids_without_usage(self) -> list[str]:
@@ -370,6 +388,11 @@ class Storage:
         if not run_ids:
             return set()
         rows = self._conn.execute("SELECT run_id FROM cache_reuse WHERE run_id = ANY(%s)", (run_ids,)).fetchall()
+        return {r[0] for r in rows}
+
+    def cache_sources(self, job_id: str) -> set[str]:
+        """这一单已经从缓存复用过哪些原件(source_run_id):接着跑时不再拿同一条填第二个槽位(第四轮审核)。"""
+        rows = self._conn.execute("SELECT source_run_id FROM cache_reuse WHERE job_id = %s", (job_id,)).fetchall()
         return {r[0] for r in rows}
 
     def load_job_snapshots(self) -> list[dict[str, Any]]:
@@ -454,7 +477,7 @@ class Storage:
             "INSERT INTO report_snapshot "
             "(snapshot_id, job_id, created_at, fingerprint, code_version, spent_usd, payload) "
             "VALUES (%s, %s, clock_timestamp(), %s, %s, %s, %s)",
-            (str(uuid4()), job_id, fingerprint, code_version, spent_usd, Jsonb(payload)),
+            (str(uuid4()), job_id, fingerprint, code_version, spent_usd, _jsonb(payload)),
         )
 
     def insert_aux_call(self, *, job_id: str, task: str, run: SurfaceRun) -> None:
@@ -462,7 +485,7 @@ class Storage:
         self._conn.execute(
             "INSERT INTO aux_call (call_id, job_id, task, created_at, cost_usd, outcome, run) "
             "VALUES (%s, %s, %s, clock_timestamp(), %s, %s, %s)",
-            (run.run_id, job_id, task, run.cost_usd, run.outcome.value, Jsonb(run.model_dump(mode="json"))),
+            (run.run_id, job_id, task, run.cost_usd, run.outcome.value, _jsonb(run.model_dump(mode="json"))),
         )
 
     def job_progress(self, prompt_ids: list[str], runs_per_prompt: int) -> tuple[int, float]:

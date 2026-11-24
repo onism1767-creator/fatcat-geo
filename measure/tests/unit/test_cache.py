@@ -59,6 +59,9 @@ class FakeStore:
         copied = self._copies | {r["run_id"] for r in self.reuses}
         return {rid for rid in run_ids if rid in copied}
 
+    def cache_sources(self, job_id):
+        return {r["source_run_id"] for r in self.reuses if r["job_id"] == job_id}
+
 
 def test_normalize_prompt_ignores_width_case_and_spacing():
     assert normalize_prompt("  中小团队用什么　CRM 好?") == normalize_prompt("中小团队用什么 crm 好?")
@@ -117,6 +120,24 @@ def test_copies_made_from_cache_are_not_served_again_as_a_second_answer():
     assert [(c.run_index, c.raw_payload) for c in filled] == [(1, {"k": "orig"})]  # 第二个槽位空着,等真提问
 
 
+def test_resuming_does_not_copy_the_same_cached_answer_into_a_second_slot():
+    """第四轮审核(两位审核员各自查到):一单开场从缓存复用了 3 条、还差 2 条没问就停了(到上限 / 叫停 / 中断);
+    接着跑时原来又把那 3 条里的 2 条填进剩下的槽位——同一道题里同一条回答算两次,该真问的 2 次再也不问。
+    现在本单用过的原件不再给;别的单照样能用。"""
+    prompts = [("极光CRM", "p-a", "中小团队用什么 CRM 好?", "zh-CN")]
+    runs = [make_run("p-a", f"a{i}", hours_ago=i, text=f"回答{i}") for i in (1, 2, 3)]
+    store = FakeStore(prompts, runs)
+    prompt = Prompt(prompt_id="p-b", text="中小团队用什么 CRM 好?", intent=PromptIntent.CATEGORY_DISCOVERY,
+                    origin=PromptOrigin.USER, locale="zh-CN")
+    common = dict(brand_name="极光CRM", prompt=prompt, target=TARGET, search_mode=SearchMode.DEFAULT, now=NOW,
+                  region=None)
+    first = fill_from_cache(store, job_id="b", missing_indices=[1, 2, 3, 4, 5], **common)
+    assert [c.run_index for c in first] == [1, 2, 3]  # 只有 3 条可用:4、5 等着真问
+    again = fill_from_cache(store, job_id="b", missing_indices=[4, 5], **common)  # 接着跑
+    assert again == [] and len(store.inserted) == 3
+    assert [r.run_id for r in cached_answers(store, job_id="c", **common)] == ["a1", "a2", "a3"]  # 别的单不受影响
+
+
 def test_cache_reuse_table_is_append_only_and_counted_per_job(storage):
     run = make_run("p-cache", "cache-src-1")
     copy = run.model_copy(update={"run_id": "cache-copy-1", "prompt_id": "p-cache-2"})
@@ -126,6 +147,8 @@ def test_cache_reuse_table_is_append_only_and_counted_per_job(storage):
     assert storage.cache_reuse_count("job-cache") == 1 and storage.cache_reuse_count("job-none") == 0
     assert storage.cache_copies(["cache-copy-1", "cache-src-1", "nope"]) == {"cache-copy-1"}  # 复制件认得出来
     assert storage.cache_copies([]) == set()
+    # 这一单用过哪些原件(接着跑时不再拿同一条填第二个槽位)
+    assert storage.cache_sources("job-cache") == {"cache-src-1"} and storage.cache_sources("job-none") == set()
     with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
         storage._conn.execute("UPDATE cache_reuse SET cache_age_s = 0")
     with pytest.raises(psycopg.errors.RaiseException, match="append-only"):

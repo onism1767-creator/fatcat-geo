@@ -6,10 +6,12 @@ robots.txt 读取,疑似机器人防护的状态码。
 
 from __future__ import annotations
 
+import codecs
 import html as html_lib
 import json
 import re
 import string
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from html.parser import HTMLParser
@@ -24,9 +26,14 @@ BROWSER_UA: Final = (
     "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
 )
 TIMEOUT_S: Final = 15.0
-# 核实第三方网页的超时与体积(产品文档 10.4 / D23):连接 5 秒、总计 10 秒;单页 5 MB,超出截断并告知
+# 核实第三方网页的超时与体积(产品文档 10.4 / D23):连接 5 秒、每等一块数据最多 10 秒;单页 5 MB,超出截断并告知
 FETCH_TIMEOUT: Final = httpx.Timeout(10.0, connect=5.0)
 MAX_PAGE_BYTES: Final = 5_000_000
+# 读一个响应正文的总时限。httpx 的读超时管的是「每等一块数据」,不是总时间:对方隔几秒吐一点就永远不超时,
+# 核实网页那 15 分钟的预算也打不断正在读的这一页,整单停在「核对网页」不动(第四轮审核)。到点按读超时算
+# (httpx.ReadTimeout),调用方照「超时」记;实际最多再多等一块数据的时间
+BODY_TOTAL_S: Final = 30.0  # 官网审计 / 官网名单 / robots / 网站地图(_capped_get)
+FETCH_BODY_TOTAL_S: Final = 10.0  # 核实第三方网页(fetch_page;产品文档 10.4「总计 10 秒」)
 # 疑似机器人防护的拒绝状态(401/403/429/503):被拒只说明「这个客户端此刻被拒」,不能判定页面不可达
 PROTECTION_SUSPECT_STATUSES: Final = (401, 403, 429, 503)
 MAX_PARSED_BYTES: Final = 2_000_000
@@ -37,10 +44,14 @@ def new_client(*, follow_redirects: bool = True, timeout: httpx.Timeout | float 
     return httpx.Client(timeout=timeout, follow_redirects=follow_redirects)
 
 
-def _read_capped(response: httpx.Response, max_bytes: int) -> tuple[bytes, bool]:
-    """流式读响应正文,最多 max_bytes(超出截断);读完关流。返回 (正文, 是否截断)。"""
+def _read_capped(
+    response: httpx.Response, max_bytes: int, *, total_s: float, clock: Callable[[], float] = time.monotonic,
+) -> tuple[bytes, bool]:
+    """流式读响应正文,最多 max_bytes(超出截断)、最多读 total_s 秒(超了抛 httpx.ReadTimeout);读完关流。
+    返回 (正文, 是否截断)。"""
     chunks: list[bytes] = []
     size, truncated = 0, False
+    deadline = clock() + total_s
     try:
         for chunk in response.iter_bytes():
             chunks.append(chunk)
@@ -48,6 +59,8 @@ def _read_capped(response: httpx.Response, max_bytes: int) -> tuple[bytes, bool]
             if size >= max_bytes:
                 truncated = True
                 break
+            if clock() > deadline:
+                raise httpx.ReadTimeout(f"读正文超过 {total_s:g} 秒的总时限(对方发得太慢)")
     finally:
         response.close()
     return b"".join(chunks)[:max_bytes], truncated
@@ -59,22 +72,45 @@ _META_CHARSET = re.compile(rb"""<meta[^>]+charset\s*=\s*["']?\s*([A-Za-z0-9_\-:.
 _DECODED_BODY_DROP = frozenset({"content-encoding", "content-length", "transfer-encoding"})
 
 
+# 网页上真有人写、Python 却不认识的编码名(WHATWG 编码标准里的别名)→ Python 认识的名字
+_ENCODING_ALIASES: Final = {
+    "windows-31j": "cp932", "x-sjis": "cp932", "windows-874": "cp874", "dos-874": "cp874",
+    "iso-8859-8-i": "iso-8859-8", "csiso88598i": "iso-8859-8", "logical": "iso-8859-8",
+    "x-gbk": "gbk", "x-euc-jp": "euc_jp", "windows-949": "cp949", "x-x-big5": "big5",
+    "x-cp1250": "cp1250", "x-cp1251": "cp1251", "x-cp1252": "cp1252", "unicode-1-1-utf-8": "utf-8",
+}
+
+
+def _known_encoding(name: str | None) -> str | None:
+    """Python 解得了的编码名;没写或不认识 → None。"""
+    if not name:
+        return None
+    name = _ENCODING_ALIASES.get(name.strip().lower(), name)
+    try:
+        codecs.lookup(name)
+    except LookupError:
+        return None
+    return name
+
+
 def page_encoding(raw: bytes, header_charset: str | None) -> str:
     """网页文字的编码:响应头写了就按它;没写看开头的 BOM 与网页里的 <meta charset>;都没有按 UTF-8。
-    只按 UTF-8 硬解时,没写编码的 GBK 中文页会变乱码、被误判「没写到你」(审核 2026-10-28 第二轮)。"""
-    if header_charset:
-        return header_charset
+    只按 UTF-8 硬解时,没写编码的 GBK 中文页会变乱码、被误判「没写到你」(审核 2026-10-28 第二轮)。
+    返回的一定是 Python 解得了的名字:响应头或网页写了个不认识的(日本老站的 windows-31j、泰国的 windows-874……)
+    先查别名表,还不认识就当没写。原来原样交出去,官网审计、官网名单、跳转还原一读文字就 LookupError:
+    这类站一单都跑不了;钱花完了才撞上的,每次接着跑还再崩在同一处(第四轮审核)。"""
+    if known := _known_encoding(header_charset):
+        return known
     if raw.startswith(b"\xef\xbb\xbf"):
         return "utf-8-sig"
     match = _META_CHARSET.search(raw[:4096])
-    return match.group(1).decode("ascii", "ignore").lower() if match else "utf-8"
+    return (match and _known_encoding(match.group(1).decode("ascii", "ignore"))) or "utf-8"
 
 
 def decode_page(raw: bytes, header_charset: str | None) -> str:
-    try:
-        return raw.decode(page_encoding(raw, header_charset), errors="replace")
-    except LookupError:  # 网页写了个不认识的编码名
-        return raw.decode("utf-8", errors="replace")
+    """按 page_encoding 解成文字;空字符换成替换符(HTML 规范也这么处理):二进制内容被标成网页、标题里夹了个 0x00 时,
+    带空字符的文字存不进数据库,整单会崩在这一页(第四轮审核)。"""
+    return raw.decode(page_encoding(raw, header_charset), errors="replace").replace("\x00", "�")
 
 
 def _capped_get(
@@ -85,7 +121,7 @@ def _capped_get(
     request = client.build_request("GET", url, headers=headers)
     follow = client.follow_redirects if follow_redirects is None else follow_redirects
     streamed = client.send(request, stream=True, follow_redirects=follow)
-    raw, truncated = _read_capped(streamed, max_bytes)
+    raw, truncated = _read_capped(streamed, max_bytes, total_s=BODY_TOTAL_S)
     kept = {k: v for k, v in streamed.extensions.items() if k in ("http_version", "reason_phrase")}
     headers_out = [(k, v) for k, v in streamed.headers.multi_items() if k.lower() not in _DECODED_BODY_DROP]
     rebuilt = httpx.Response(
@@ -146,18 +182,30 @@ def fetch_page(
             if not may_visit(target):
                 raise VisitRefused(target)
             request = client.build_request("GET", target, headers=headers)
-    raw, truncated = _read_capped(response, max_bytes)
+    raw, truncated = _read_capped(response, max_bytes, total_s=FETCH_BODY_TOTAL_S)
     return response, decode_page(raw, response.charset_encoding), truncated
 
 
-_TITLE = re.compile(r"<title[^>]*>(.*?)</title>", re.IGNORECASE | re.DOTALL)
+def _first_element(html: str, tag: str) -> str | None:
+    """第一个 <tag …>…</tag> 里的内容;没有 → None。一步步往后找、不回头:别人的网页是不可信输入,原来用一条带
+    「.*?」的正则,碰到开标签重复成千上万次、一直不闭合的网页,耗时随大小平方涨(2 MB 要半小时以上),
+    Python 的正则不放锁,任务页和别的线程一起卡(第四轮审核;robots 的同类问题第二轮改过)。"""
+    head = html[:MAX_PARSED_BYTES]
+    opened = re.search(rf"<{tag}\b", head, re.IGNORECASE)
+    if opened is None:
+        return None
+    start = head.find(">", opened.end())
+    if start < 0:
+        return None
+    closed = re.compile(rf"</{tag}\b", re.IGNORECASE).search(head, start + 1)
+    return head[start + 1:closed.start()] if closed is not None else None
 
 
 def page_title(html: str) -> str | None:
-    match = _TITLE.search(html[:MAX_PARSED_BYTES])
-    if match is None:
+    inner = _first_element(html, "title")
+    if inner is None:
         return None
-    title = re.sub(r"\s+", " ", html_lib.unescape(match.group(1))).strip()
+    title = re.sub(r"\s+", " ", html_lib.unescape(inner)).strip()
     return title or None
 
 
@@ -169,13 +217,27 @@ _META = re.compile(
     r"""(?:property|name)\s*=\s*["'](?P<key2>""" + _META_KEYS + r""")["']""",
     re.IGNORECASE | re.DOTALL,
 )
+_META_OPEN = re.compile(r"<meta\s", re.IGNORECASE)
+_META_TAG_MAX_CHARS: Final = 4000  # 一个 <meta …> 标签最长看这么多字;更长的不是正常的元信息
 MIN_VISIBLE_CHARS: Final = 200  # 可见文字至少这么多才算「页面有正文」(产品文档 C02 同一阈值)
 
 
 def _meta_fields(html: str) -> dict[str, str]:
     """标题 / 简介类元信息(og:/twitter:/description),同名只取第一条。"""
     found: dict[str, str] = {}
-    for match in _META.finditer(html[:MAX_PARSED_BYTES]):
+    head = html[:MAX_PARSED_BYTES]
+    position = 0
+    # 一个标签一个标签往后走,正则只用在单个标签上(同 _first_element:在整页上跑会被不闭合的 <meta 拖成平方级)
+    while (opened := _META_OPEN.search(head, position)) is not None:
+        end = head.find(">", opened.end())
+        if end < 0:
+            break
+        position = end + 1
+        if end - opened.start() > _META_TAG_MAX_CHARS:
+            continue
+        match = _META.search(head[opened.start():end + 1])
+        if match is None:
+            continue
         key = (match.group("key") or match.group("key2") or "").lower()
         value = html_lib.unescape(match.group("value") or match.group("value2") or "").strip()
         if value and key not in found:
@@ -433,16 +495,15 @@ class PageIntro:
 
 
 INTRO_FIELD_MAX_CHARS: Final = 400  # 每一样最多留这么多字:自我介绍是几句话,不是整页正文
-_H1 = re.compile(r"<h1[^>]*>(.*?)</h1>", re.IGNORECASE | re.DOTALL)
 _INTRO_SCHEMA_TYPES: Final = frozenset({"Organization", "Corporation", "LocalBusiness", "Product"})
 
 
 def page_h1(html: str) -> str | None:
     """第一个 <h1> 的文字(去掉里面的标签与多余空白)。"""
-    match = _H1.search(html[:MAX_PARSED_BYTES])
-    if match is None:
+    inner = _first_element(html, "h1")
+    if inner is None:
         return None
-    text = re.sub(r"\s+", " ", html_lib.unescape(re.sub(r"<[^>]+>", " ", match.group(1)))).strip()
+    text = re.sub(r"\s+", " ", html_lib.unescape(re.sub(r"<[^>]+>", " ", inner))).strip()
     return text or None
 
 
