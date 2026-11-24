@@ -18,13 +18,14 @@ import yaml
 from fastapi.testclient import TestClient
 
 from butter import cards, sources, store
-from butter.contracts import DeployMark, PotatoSettings
+from butter.contracts import DeployMark, LegResult, PotatoSettings
 from butter.jobs import JobManager, create_batch
 from butter.measure import driver
 from butter.measure import plan as P
 from butter.pipeline import RunOptions, process_snapshot
 from butter.questions import draft_questions, to_board_questions
 from butter.web import app as app_module
+from butter.web import views
 from butter.web.app import WebSettings, create_app
 
 from conftest import NOW
@@ -557,12 +558,24 @@ def test_three_buttons_take_a_batch_from_before_to_compared(site, monkeypatch):
     assert state.phase == "已比对" and len(state.readings) == 1 and len(state.readings[0].legs) == 4
     data = client.get(f"/batches/{batch_id}.json").json()
     reading = data["readings"][0]
-    assert data["phase_text"] == "已出对比结果" and len(reading["lines"]) == 4 and not reading["scoring"]
+    assert data["phase_text"] == "已出对比结果" and len(reading["results"]) == 4 and not reading["scoring"]
+    first = reading["results"][0]
+    assert first["name"] == "Anthropic(Claude） · 英文" and first["what"] == "提到你品牌的回答"
+    assert first["verdict"] == "明显变多了" and first["diff"].startswith("多了 ") and first["band_pp"] > 0
+    assert any("全站的改动" in n and "只作记录" in n for n in first["notes"])       # 没有对照:说清楚,不拿来下结论
+    assert [(row["name"], row["ok"], row["expected"]) for row in reading["rows"]] == [
+        ("Anthropic(Claude） · 英文", 72, 72), ("OpenAI · 英文", 72, 72)]                # 页面上一家一行,两个结果并排
+    assert all(row["mention"]["verdict"] and row["citation"]["what"] == "引用你官网的回答" for row in reading["rows"])
+    assert len(reading["shared_notes"]) == 1 and "全站的改动" in reading["shared_notes"][0]  # 每格都有的同一句,只说一次
+    assert all(not row["mention"]["notes"] for row in reading["rows"])
     assert [(s["name"], s["ok"], s["expected"]) for s in reading["samples"]] == [
         ("Anthropic(Claude） · 英文", 72, 72), ("OpenAI · 英文", 72, 72)]
     assert data["can_remeasure"] and data["remeasured"] and not data["can_undeploy"]
     html = client.get(f"/batches/{batch_id}").text
-    assert "改之后测到的" in html and "改前" in html and "再测一次" in html and "/undeploy" not in html
+    assert "改之后测到的" in html and "明显变多了" in html and "再测一次" in html and "/undeploy" not in html
+    assert "下面一行是 Butter 的说法" in html and "和你在 App 里看到的不一样" in html and html.count("全站的改动") == 1
+    for jargon in ("en ×", "× anthropic", "提及率", "被引率", "区间", "对照组", "无有效对照", "基线", "条腿", "只作记录(", "σ"):
+        assert jargon not in html, jargon                                                     # 界面上不出现这些说法
     assert client.post(f"/batches/{batch_id}/undeploy", **FORM).status_code == 400            # 测过改之后就不能撤了
     assert client.post(f"/batches/{batch_id}/remeasure", **FORM).status_code == 303           # 还可以再测,结果接着列
     assert len(state_of(workspace, batch_id).readings) == 2
@@ -600,3 +613,68 @@ def test_remeasure_follows_what_was_frozen_and_says_when_a_key_is_gone(site):
     assert any("Claude" in n and "key" in n for n in again.notes)                                     # 少了一家的 key,先说清楚
     with pytest.raises(ValueError):
         driver.prepare_remeasure(workspace, out, "b-nope", env=ENV, potato=potato)
+
+
+# ── 对比结果的大白话(设计 §9.6):卡片上保留原来的说法,界面上换 ──────────────
+
+def _leg(**fields):
+    base = dict(lang="en", provider="openai", metric="mention", label="within")
+    return LegResult(**{**base, **fields})
+
+
+def test_result_rows_say_it_in_plain_words():
+    up = views.result_row(_leg(label="up", pre_T=0.40, post_T=0.55, d_T=0.15, band_T=0.088, n_T=20, outcome="won"))
+    assert up == {"name": "OpenAI · 英文", "what": "提到你品牌的回答", "pre": 0.40, "post": 0.55,
+                  "diff": "多了 15 个百分点", "band_pp": 8.8, "verdict": "明显变多了", "notes": []}
+    down = views.result_row(_leg(metric="citation", label="down", pre_T=0.30, post_T=0.167, d_T=-0.133, band_T=0.062))
+    assert down["what"] == "引用你官网的回答" and down["diff"] == "少了 13.3 个百分点" and down["verdict"] == "明显变少了"
+    same = views.result_row(_leg(pre_T=0.4, post_T=0.4, d_T=0.0, band_T=0.088))
+    assert same["diff"] == "没变" and same["verdict"] == "变化不大，可能只是正常起伏"
+
+
+def test_result_rows_explain_the_untouched_questions_and_why_nothing_is_concluded():
+    did = views.result_row(_leg(label="up", pre_T=0.4, post_T=0.6, d_T=0.2, band_T=0.09, d_C=0.05, did=0.15,
+                                band_did=0.07, primary="did", n_T=12, n_C=12, outcome="won"))
+    assert did["notes"] == ["同一段时间里，没改的那些题多了 5 个百分点。把这部分扣掉，是多了 15 个百分点（什么都不改时通常在 ±7.0 个百分点以内）。"]
+    sitewide = views.result_row(_leg(label="up", pre_T=0.4, post_T=0.6, d_T=0.2, band_T=0.09, no_control=True,
+                                     reason="批次含全站改动", outcome="inconclusive"))
+    assert sitewide["verdict"] == "明显变多了" and "只作记录，不拿来下结论" in sitewide["notes"][0]
+    drift = views.result_row(_leg(label="drift", pre_T=0.4, post_T=0.6, d_T=0.2, band_T=0.09, d_C=0.2,
+                                  reason="对照组自己也超出了波动范围"))
+    assert drift["verdict"] == "看不出来" and "分不清是不是改动带来的" in drift["notes"][-1]
+
+
+def test_result_rows_that_cannot_be_compared_say_why():
+    cases = [
+        (dict(label="not_comparable", reason="处理组只有 3 题,少于 5 题", n_T=3), "对上被改页面的题只有 3 道"),
+        (dict(label="not_comparable", metric="citation", reason="基线里搜索过的回答只占 12%,这条腿不比被引率"), "很少上网搜"),
+        (dict(label="not_comparable", reason="没有这条腿的波动数据", pre_T=0.4, post_T=0.5, d_T=0.1), "只列数字，不说变没变"),
+        (dict(label="incomplete", reason="再测成功 40/72,低于 90%"), "改之后那次没问全"),
+        (dict(label="incomplete", reason="基线成功 40/72,低于 90%"), "改之前那次没问全"),
+        (dict(label="config_changed", reason="前后不一致:引擎型号、搜索工具版本"), "AI 的型号、AI 的搜索功能变了"),
+        (dict(label="baseline_invalid", reason="部署在基线之后 9 天,超过 7 天"), "日子对不上"),
+    ]
+    for fields, expected in cases:
+        row = views.result_row(_leg(**fields))
+        assert row["verdict"] == "这次没法比" and expected in row["notes"][-1], (fields, row)
+        for jargon in ("处理组", "对照组", "基线", "条腿", "被引率", "波动数据", "引擎"):
+            assert jargon not in row["notes"][-1], (jargon, row)
+    listed = views.result_row(_leg(label="not_comparable", reason="没有这条腿的波动数据", pre_T=0.4, post_T=0.5, d_T=0.1))
+    assert listed["diff"] == "多了 10 个百分点" and listed["band_pp"] is None                 # 数照列
+    unknown = views.result_row(_leg(label="not_comparable", reason="以后新加的某种原因"))
+    assert unknown["notes"] == ["以后新加的某种原因"]                                          # 认不出来的照原样给,不吞掉
+
+
+def test_card_notes_are_plain_too():
+    assert views.plain_note("") == ""
+    assert views.plain_note("已再测 2 次,只作记录") == "改之后测过 2 次，还没到用来下结论的那一次"
+    assert views.plain_note("未部署:不参与比对") == "这一条没放上网站，不算进这次对比"
+    assert views.plain_note("无可辨变化") == "变化不大，可能只是正常起伏"
+    assert views.plain_note("同批 3 条改动都挂这一个条目,合起来算一次") == "这批的 3 条改动依据的是同一条做法，合起来算一次"
+    assert views.plain_note("同批 6 条一起改(涉及 4 个条目),不能单独归因;这一批测到的是变多") == \
+        "这批 6 条改动是一起放上去的，分不清是哪一条起的作用；这一批整体测到的是变多"
+    assert views.plain_note("各条腿方向不一致:1 条变多,2 条变少") == "有的 AI 那边变多、有的变少（1 家变多，2 家变少），下不了结论"
+    assert views.plain_note("在波动内(无有效对照)、同期漂移") == \
+        "变化不大；而且没有「没改的题」可以对照，不下结论；没改的那些题自己也变了不少，分不清是不是改动带来的"
+    assert views.plain_note("不可比:样本不够 / 该腿不比(处理组只有 3 题,少于 5 题)") == "这次没法比"
+    assert views.plain_note("这一批已放弃") == "这一批已放弃" and views.plain_note("以后新加的说法") == "以后新加的说法"

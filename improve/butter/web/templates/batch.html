@@ -27,6 +27,16 @@
   {% endif %}
 {% endmacro %}
 
+{# 对比结果里的一格:改之前 → 改之后、差多少、Butter 的说法。「测改之后」的结果表用。 #}
+{% macro result_cell(x) %}
+  {% if x %}
+    {% if x.pre is not none and x.post is not none %}{{ x.pre | pct }} → {{ x.post | pct }}，{{ x.diff }}<br>{% endif %}
+    <strong>{{ x.verdict }}</strong>
+    {% if x.band_pp is not none %}<br><span class="muted">什么都不改时，前后通常差在 ±{{ x.band_pp }} 个百分点以内</span>{% endif %}
+    {% for n in x.notes %}<br><span class="muted">{{ n }}</span>{% endfor %}
+  {% else %}—{% endif %}
+{% endmacro %}
+
 {% block main %}
 {% if static %}<p><a href="/">← 回展示页</a></p>{% else %}<p><a href="/batches">← 回改动批次</a></p>{% endif %}
 <h1>{{ v.site_host }} 的一批改动</h1>
@@ -169,14 +179,31 @@
 
 {% if v.readings %}
 <h2>改之后测到的</h2>
+<p class="muted">{{ v.api_note }}</p>
 {% for r in v.readings %}
 <div class="card">
   <h3 id="h-read-{{ loop.index }}">{{ r.day }}{% if r.scoring %}（这一次用来下结论）{% endif %}</h3>
-  {% if r.lines %}
-  <ul>{% for line in r.lines %}<li>{{ line }}</li>{% endfor %}</ul>
+  {% if r.results %}
+  <p class="muted">每一格先写「改之前 → 改之后」的数，下面一行是 Butter 的说法。</p>
+  <div class="table-wrap" tabindex="0" role="region" aria-labelledby="h-read-{{ loop.index }}">
+    <table>
+      <thead><tr><th>问的是谁</th><th>提到你品牌的回答</th><th>引用你官网的回答</th><th>问成了几次</th></tr></thead>
+      <tbody>
+      {% for row in r.rows %}
+        <tr>
+          <th scope="row">{{ row.name }}</th>
+          <td>{{ result_cell(row.mention) }}</td>
+          <td>{{ result_cell(row.citation) }}</td>
+          <td>{% if row.expected is defined %}{{ row.ok }} / {{ row.expected }}{% else %}—{% endif %}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+  {% for n in r.shared_notes %}<p>{{ n }}</p>{% endfor %}
+  <p class="muted">这里只算对上了要改页面的那些题。</p>
   {% else %}
   <p>这一批没有能比的「改之前」，下面只是这一天测到的数。</p>
-  {% endif %}
   <div class="table-wrap" tabindex="0" role="region" aria-labelledby="h-read-{{ loop.index }}">
     <table>
       <thead><tr><th>问的是谁</th><th>提到你品牌的回答</th><th>引用你官网的回答</th><th>问成了几次</th></tr></thead>
@@ -192,6 +219,7 @@
       </tbody>
     </table>
   </div>
+  {% endif %}
 </div>
 {% endfor %}
 {% endif %}

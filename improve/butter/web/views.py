@@ -6,13 +6,16 @@
 
 from __future__ import annotations
 
+import re
 from datetime import date
 from pathlib import Path
 from typing import Any
 
 from butter.compare import stats
 from butter.config.core import Defaults
-from butter.contracts import BatchState, Card, CardsView, GeneratedQuestion, Job, LegProgress, MeasurePlan, Pricing
+from butter.contracts import (
+    BatchState, Card, CardsView, GeneratedQuestion, Job, LegProgress, LegResult, MeasurePlan, Pricing, Reading,
+)
 from butter.factedit import editable_fields
 from butter.registry.core import Registry
 
@@ -173,7 +176,8 @@ def _card_row(card: Card) -> dict[str, Any]:
     return {"card_id": card.card_id, "target": card.intervention.target,
             "kind_text": KIND_TEXT.get(card.intervention.kind, card.intervention.kind), "entry_id": card.entry_id,
             "deployed": card.deployed, "state_text": validation_text(card.validation, card.direction),
-            "note": card.validation_note, "effects": [line for r in card.observed_effect for line in r.lines],
+            "note": plain_note(card.validation_note),
+            "effects": [line for r in card.observed_effect for line in r.lines],   # 原来的说法,只在 .json 里,给做研究的人看
             "limitations": card.limitations}
 
 
@@ -183,6 +187,114 @@ def batches(cards_view: CardsView, problems: list[str]) -> dict[str, Any]:
              "updated_at": b.updated_at.isoformat(timespec="minutes")}
             for b in sorted(cards_view.batches, key=lambda b: b.updated_at, reverse=True)]
     return {"title": "改动批次", "batches": rows, "problems": problems}
+
+
+# ── 对比结果的大白话(设计 §9.6)。卡片和给 Toast 的提案里保留原来的说法,只有界面上换 ──────────
+
+WHAT_TEXT = {"mention": "提到你品牌的回答", "citation": "引用你官网的回答"}
+VERDICT_TEXT = {
+    "up": "明显变多了", "down": "明显变少了", "within": "变化不大，可能只是正常起伏",
+    "drift": "看不出来", "not_comparable": "这次没法比", "incomplete": "这次没法比", "config_changed": "这次没法比",
+    "baseline_invalid": "这次没法比", "not_deployed": "这批改动还没放上网站", "not_remeasurable": "这类平台不做再测",
+}
+SETTING_TEXT = {"题板、品牌表或采样设置": "问的题或设置", "引擎型号": "AI 的型号", "搜索工具版本": "AI 的搜索功能"}
+API_NOTE = "我们用 AI 公司开放的接口测，结果可能和你在 App 里看到的不一样。"
+
+
+def _points(value: float) -> str:
+    """比例之差 → 「多了 3.3 个百分点」这样的话。"""
+    pp = round(value * 100, 1)
+    if pp == 0:
+        return "没变"
+    return f"{'多了' if pp > 0 else '少了'} {abs(pp):g} 个百分点"
+
+
+def _why_not(leg: LegResult) -> str:
+    """没比成、或者比了但不拿来下结论的原因,换成大白话。认不出来的原因照原样给,不吞掉。"""
+    reason = leg.reason
+    if not reason:
+        return ""
+    if "搜索过的回答只占" in reason:
+        return "改之前那次，这家 AI 很少上网搜，所以不比「引用了谁」。"
+    if "处理组只有" in reason:
+        return f"对上被改页面的题只有 {leg.n_T} 道，太少，不够比。"
+    if "没有这条腿的波动数据" in reason:
+        return "还不知道这一家平时自己会晃多少，所以只列数字，不说变没变。"
+    if "低于" in reason and "成功" in reason:
+        which = "改之后" if reason.startswith("再测") else "改之前"
+        return f"{which}那次没问全，成功拿到的回答太少。"
+    if reason.startswith("前后不一致"):
+        changed = "、".join(SETTING_TEXT.get(x, x) for x in reason.split(":", 1)[-1].split("、"))
+        return f"两次测量用的不是同一套东西（{changed}变了），比不了。"
+    if "部署" in reason and "基线" in reason or reason == "没有部署日期":
+        return "改之前那次测量和放上网站的日子对不上（隔得太久，或者先放上网站才测的）。"
+    if "还没部署" in reason:
+        return "这批改动还没放上网站。"
+    if "对照组自己也超出" in reason:
+        return "没改的那些题自己也变了不少，分不清是不是改动带来的。"
+    if "全站改动" in reason:
+        return "这批里有全站的改动，没有「没改的题」可以对照，所以这一次只作记录，不拿来下结论。"
+    if "对照组只有" in reason:
+        return "没改的题太少，没法对照，所以这一次只作记录，不拿来下结论。"
+    if "数据有问题" in reason:
+        return "数据有问题，没比成。"
+    return reason
+
+
+def result_row(leg: LegResult) -> dict[str, Any]:
+    """一家 AI、一个指标的对比结果 → 批次页表格里的一行。数照实给,话按 P4 写;不出现「区间」「对照组」「腿」这类词。"""
+    notes: list[str] = []
+    if leg.d_C is not None:
+        note = f"同一段时间里，没改的那些题{_points(leg.d_C)}。"
+        if leg.did is not None and leg.primary == "did":
+            note += f"把这部分扣掉，是{_points(leg.did)}"
+            if leg.band_did is not None:
+                note += f"（什么都不改时通常在 ±{leg.band_did * 100:.1f} 个百分点以内）"
+            note += "。"
+        notes.append(note)
+    why = _why_not(leg)
+    if why:
+        notes.append(why)
+    return {
+        "name": _leg_name(leg.provider, leg.lang), "what": WHAT_TEXT.get(leg.metric, leg.metric),
+        "pre": leg.pre_T, "post": leg.post_T, "diff": _points(leg.d_T) if leg.d_T is not None else "",
+        "band_pp": round(leg.band_T * 100, 1) if leg.band_T is not None else None,
+        "verdict": VERDICT_TEXT.get(leg.label, leg.label), "notes": notes,
+    }
+
+
+_NOTE_PATTERNS: list[tuple[str, str]] = [
+    (r"^已再测 (\d+) 次,只作记录$", r"改之后测过 \1 次，还没到用来下结论的那一次"),
+    (r"^未部署.*$", "这一条没放上网站，不算进这次对比"),
+    (r"^同批 (\d+) 条改动都挂这一个条目,合起来算一次$", r"这批的 \1 条改动依据的是同一条做法，合起来算一次"),
+    (r"^同批 (\d+) 条一起改\(涉及 \d+ 个条目\),不能单独归因;这一批测到的是(变多|变少)$",
+     r"这批 \1 条改动是一起放上去的，分不清是哪一条起的作用；这一批整体测到的是\2"),
+    (r"^无可辨变化$", "变化不大，可能只是正常起伏"),
+    (r"^各条腿方向不一致:(\d+) 条变多,(\d+) 条变少$", r"有的 AI 那边变多、有的变少（\1 家变多，\2 家变少），下不了结论"),
+    (r"^这一批含全站类改动.*$", "这批里有全站的改动，没有「没改的题」可以对照，所以不下结论"),
+    (r"^没有改之前的测量.*$", "没测过改之前的情况，只有当时的数，没有对比"),
+    (r"^基线无效.*$", "改之前那次测量用不上（没测完整，或者和放上网站的日子对不上），所以不下结论"),
+    (r"^在波动内\(无有效对照\).*$", "变化不大；而且没有「没改的题」可以对照，不下结论"),
+    (r"^超出波动(上升|下降)\(无有效对照\).*$", "测到了变化，但没有「没改的题」可以对照，不下结论"),
+    (r"^同期漂移.*$", "没改的那些题自己也变了不少，分不清是不是改动带来的"),
+    (r"^不可比.*$", "这次没法比"),
+    (r"^不可再测$", "这类平台不做再测"),
+]
+
+
+def plain_note(note: str) -> str:
+    """卡片上「现在的结论」下面那行小字,换成大白话。几条并列的(用、隔开)逐条换;认不出来的照原样给。"""
+    if not note:
+        return ""
+    out = []
+    for part in note.split("、"):
+        for pattern, plain in _NOTE_PATTERNS:
+            if re.match(pattern, part):
+                part = re.sub(pattern, plain, part)
+                break
+        if part not in out:
+            out.append(part)
+    return "；".join(out)
 
 
 LANG_TEXT = {"zh": "中文", "en": "英文"}
@@ -220,6 +332,24 @@ def _no_compare_note(note: str) -> str:
     return "改之前那次测量离放上网站隔得太久，所以再测时不和它比，只列出当时的数。"
 
 
+def _reading_view(reading: Reading) -> dict[str, Any]:
+    """一次「改之后」的测量。results 是一行一个结果;rows 把同一家 AI 的两个结果并成一行,页面用它排版(列少,好读)。
+    每个结果都带着的同一句提醒(比如「这批里有全站的改动」)只在表格下面说一次。"""
+    results = [result_row(leg) for leg in reading.legs]
+    shared = [n for n in (results[0]["notes"] if results else []) if all(n in x["notes"] for x in results)]
+    rows: dict[str, dict[str, Any]] = {}
+    for leg, row in zip(reading.legs, results, strict=True):
+        cell = {**row, "notes": [n for n in row["notes"] if n not in shared]}
+        rows.setdefault(row["name"], {"name": row["name"], "mention": None, "citation": None})[leg.metric] = cell
+    samples = [{"name": _leg_name(leg.provider, leg.lang), "mention_rate": leg.mention_rate,
+                "citation_rate": leg.citation_rate, "ok": leg.ok, "expected": leg.expected} for leg in reading.samples]
+    for sample in samples:
+        if sample["name"] in rows:
+            rows[sample["name"]] |= {"ok": sample["ok"], "expected": sample["expected"]}
+    return {"day": reading.day, "scoring": reading.scoring, "results": results, "rows": list(rows.values()),
+            "shared_notes": shared, "samples": samples}
+
+
 def _days_between(start: str, end: str) -> int | None:
     try:
         return (date.fromisoformat(end) - date.fromisoformat(start)).days
@@ -249,10 +379,7 @@ def batch_detail(state: BatchState, cards_view: CardsView, defaults: Defaults, *
         "title": f"{batch.site_host} 的一批改动", "batch_id": batch.batch_id, "site_host": batch.site_host,
         "run_id": batch.run_id, "phase_text": PHASE_TEXT.get(state.phase, state.phase), "cards": cards,
         "deployed_on": state.deploy.day if state.deploy else "", "baseline_on": state.baseline.day if state.baseline else "",
-        "readings": [{"day": r.day, "lines": r.lines, "scoring": r.scoring,
-                      "samples": [{"name": _leg_name(leg.provider, leg.lang), "mention_rate": leg.mention_rate,
-                                   "citation_rate": leg.citation_rate, "ok": leg.ok, "expected": leg.expected}
-                                  for leg in r.samples]} for r in state.readings],
+        "readings": [_reading_view(r) for r in state.readings],
         "abandoned_reason": state.abandoned_reason,
         "remeasure_hint": f"推荐改完隔 {interval.value} 天测一次，看看改动后的效果。",
         "can_measure": state.phase in CAN_MEASURE, "plan": _plan_view(plan) if plan else None,
@@ -268,6 +395,7 @@ def batch_detail(state: BatchState, cards_view: CardsView, defaults: Defaults, *
         "can_remeasure": state.deploy is not None and state.phase in CAN_REMEASURE,
         "replan": _plan_view(replan) if replan else None, "replan_error": replan_error or "",
         "days_since_deploy": since, "remeasure_note": remeasure_note, "remeasured": bool(state.readings),
+        "api_note": API_NOTE,
         "measuring": measuring, "driver_alive": alive, "starting": starting,  # starting = 刚点了开始,进程还在起
         "legs": [{"name": _leg_name(leg.provider, leg.lang), "state": leg.state, "done": leg.done, "total": leg.total,
                   "failed": leg.failed, "cost_usd": leg.cost_usd, "note": leg.note} for leg in (legs or [])],
