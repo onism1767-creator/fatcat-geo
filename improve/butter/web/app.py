@@ -164,7 +164,7 @@ def create_app(settings: WebSettings) -> FastAPI:
             raise HTTPException(500, f"这次运行的文件读不了:{type(exc).__name__}") from exc
 
     def cards_view():
-        # 本机日期:测量日、部署日记的都是本机日期,用 UTC 的话每天早上 8 点前(北京时间)会差一天
+        # 本机日期:测量日、部署日记的都是本机日期。用 UTC 的话每天有几个小时和本机差一天(本机是 UTC−8:下午 4 点以后 UTC 已经是第二天)
         view, problems = cards.load(settings.workspace, as_of=datetime.now().date())
         return view, problems
 
