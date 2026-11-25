@@ -74,6 +74,16 @@ def _parser() -> argparse.ArgumentParser:
     build.add_argument("--names", type=Path,
                        help="人工补的对照表(默认 <工作目录>/showcase/names.yaml;没有会新建一份空的)。它不进仓库、不随展示页导出")
     build.add_argument("--to", type=Path, help="导出到哪个新文件夹(默认 <产出目录>/showcase/<日期-时间>);已存在就不写")
+    cmp_toast = sub.add_parser(
+        "compare-toast",
+        help="比 Toast 前后两单的结果(改之前的那一单、它的「修好后再测」);不问 AI、不花钱。只列数字,不判变没变")
+    cmp_toast.add_argument("--before", type=Path, required=True, help="改之前那一单的下载包(zip 或解开的文件夹,只读)")
+    cmp_toast.add_argument("--after", type=Path, required=True, help="再测那一单的下载包(只读)")
+    cmp_toast.add_argument("--deployed", help="改动放上网站的日子(如 2026-11-25);不给就当还没部署")
+    cmp_toast.add_argument("--treated", help="处理组的题号,逗号隔开;不给就用全部不点名品牌的题")
+    cmp_toast.add_argument("--control", default="", help="对照组的题号,逗号隔开(给了 --treated 才有用)")
+    cmp_toast.add_argument("--sitewide", action="store_true", help="这批改动里有全站性的改动(给了 --treated 才有用)")
+    cmp_toast.add_argument("--json", type=Path, help="把完整结果存成这个新文件(已存在就不写)")
     web = sub.add_parser("serve", help="在本机打开 Butter 的网页界面(只有这台电脑能访问)")
     web.add_argument("--out", type=Path, default=DEFAULT_OUT, help=f"运行产出目录(默认 {DEFAULT_OUT})")
     web.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE, help=f"工作目录(默认 {DEFAULT_WORKSPACE})")
@@ -161,6 +171,29 @@ def _showcase_build(args) -> int:
     return 0
 
 
+def _compare_toast(args) -> int:
+    from datetime import date
+
+    from butter import store
+    from butter.measure import toast
+
+    ids = lambda text: [x.strip() for x in text.split(",") if x.strip()]  # noqa: E731
+    if args.deployed:
+        date.fromisoformat(args.deployed)  # 写错了在这里就报(ValueError),不带着错日期往下算
+    result = toast.compare_runs(
+        toast.load_run(args.before), toast.load_run(args.after), deploy_day=args.deployed or None,
+        treated=ids(args.treated) if args.treated else None, control=ids(args.control), sitewide=args.sitewide)
+    for line in toast.summary_lines(result):
+        print(line)
+    if args.json:
+        if args.json.exists():
+            print(f"没做成:{args.json} 已经存在,没有覆盖。", file=sys.stderr)
+            return 1
+        store.write_new_json(args.json, result)
+        print(f"完整结果存在:{args.json}")
+    return 0
+
+
 def _env(env_file: Path | None) -> dict[str, str]:
     """整份环境变量,再加上 .env 文件里的模型 key(只读)。cli 自己不认变量名,原样交给 llm。"""
     import os
@@ -211,8 +244,10 @@ def main(argv: list[str] | None = None) -> int:
         from butter.web.serve import serve
 
         return serve(args.out, args.workspace, open_browser=not args.no_browser, env=_env(args.env_file))
-    if args.command in ("proposals", "rebuild-index", "showcase"):
+    if args.command in ("proposals", "rebuild-index", "showcase", "compare-toast"):
         try:
+            if args.command == "compare-toast":
+                return _compare_toast(args)
             if args.command == "showcase":
                 return _showcase_build(args)
             return _proposals(args) if args.command == "proposals" else _rebuild_index(args)
