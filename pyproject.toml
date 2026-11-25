@@ -38,6 +38,8 @@ pythonpath = ["."]
 [tool.ruff]
 line-length = 120
 target-version = "py312"
+# 并进来的几部分各有各的格式规矩(各自的 pyproject),根目录的检查不管它们
+extend-exclude = ["measure", "improve", "legacy"]
 
 [tool.ruff.lint]
 select = ["E", "F", "W", "I", "B", "UP"]

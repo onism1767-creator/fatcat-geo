@@ -29,8 +29,9 @@ PATTERNS: dict[str, re.Pattern[str]] = {
     "GitHub token": re.compile(r"gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{40,}"),
     "private key block": re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----"),
     "key assignment": re.compile(r"\b[A-Z][A-Z0-9_]*(?:API_KEY|SECRET|TOKEN)\s*[=:]\s*[\"']?([A-Za-z0-9_\-]{24,})"),
-    "personal path": re.compile(r"(?:[A-Za-z]:\\+Users\\+|/home/|/Users/)(?!Public|Default|runner|someone|you|name|user)"
-                                r"([A-Za-z0-9_.\-]{2,})"),
+    # /home/、/Users/ 只在一段路径的开头才算(前面是行首、空白、引号、等号、括号):网址中间也有这样的片段,那不是个人路径
+    "personal path": re.compile(r"(?:[A-Za-z]:[\\/]+Users[\\/]+|/[A-Za-z]/Users/|(?:^|(?<=[\s\"'=(`]))(?:/home/|/Users/))"
+                                r"(?!Public\b|Default\b|runner\b|someone\b|you\b|name\b|user\b)([A-Za-z0-9_.\-]{2,})"),
 }
 # 明摆着是假的、占位的:测试里的编造值、文档里的省略写法
 _FAKE = re.compile(r"sk-test-|placeholder|example|your[-_ ]?key|xxxx|0123456789abcdef|not-a-key|REDACTED", re.I)
