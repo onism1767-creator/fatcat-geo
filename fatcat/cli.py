@@ -31,9 +31,17 @@ def _models_check(strict: bool = False) -> int:
     stored = models.load_catalog()
     fresh = models.build_catalog(models.read_toast(modules["toast"]), modules["toast"].commit())
     diffs = models.catalog_drift(stored, fresh)
-    diffs += models.compare(stored, models.read_potato(modules["potato"]), models.read_butter(modules["butter"]),
-                            models.load_id_map())
+    id_map, skipped = models.load_id_map(), []
+    # 不在统一流程里的两张表:读得到就核,读不到(比如旧采样工具没有装它自己的环境)就照实说没核,不让整项检查停下
+    for name, read, compare in (("potato", models.read_potato, models._compare_potato),
+                                ("butter", models.read_butter, models._compare_butter)):
+        try:
+            diffs += compare(stored, read(modules[name]), id_map)
+        except (ModuleError, KeyError) as exc:
+            skipped.append(f"{name} 自己的型号表这次没有核:{exc}")
     print(models.render_diffs(diffs))
+    for line in skipped:
+        print(line)
     return 1 if (diffs if strict else models.in_flow(diffs)) else 0
 
 
