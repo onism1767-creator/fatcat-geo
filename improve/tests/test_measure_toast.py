@@ -53,9 +53,9 @@ def responses(day: str, mention=None, cited=None, *, failed=(), runs: int = 3, a
 BRAND = json.dumps({"brand": {"name": "Acme", "domains": ["acme.test"]}, "list": None})
 
 
-def export(tmp_path, name: str, body: str, *, texts=None, brand: str = BRAND):
+def export(tmp_path, name: str, body: str, *, texts=None, brand: str = BRAND, summary: str = ""):
     return make_zip(tmp_path / name, {"prompts.csv": prompts_csv(texts), "responses.jsonl": body,
-                                      "brand-domains.json": brand, "citations.csv": "", "summary.md": ""})
+                                      "brand-domains.json": brand, "citations.csv": "", "summary.md": summary})
 
 
 def test_counts_use_the_verdicts_toast_stored(tmp_path):
@@ -171,6 +171,21 @@ def test_a_model_missing_on_one_side_is_reported_not_guessed(tmp_path):
     assert {x["ai"] for x in result["legs"]} == {"Alpha API · alpha-1"}
     assert any("beta-2" in note and "再测里没有" in note for note in result["notes"])
     assert any("beta-3" in note and "改之前没测过" in note for note in result["notes"])
+
+
+def test_a_different_method_version_is_pointed_out(tmp_path):
+    line = "- 方法版本 {} · 程序版本 abc1234(同一方法版本的两份报告才能前后对照)\n"
+    old = toast.load_run(export(tmp_path, "a.zip", responses("2026-11-20"), summary=line.format("0.4.35")))
+    new = toast.load_run(export(tmp_path, "b.zip", responses("2026-12-10"),
+                                summary="- Method version 0.4.36 · build abc1234\n"))
+    assert (old.method_version, new.method_version) == ("0.4.35", "0.4.36")
+    result = toast.compare_runs(old, new, deploy_day="2026-11-22")
+    assert any("0.4.35 → 0.4.36" in note for note in result["notes"])
+    assert result["before"]["method_version"] == "0.4.35" and result["legs"]  # 只提醒,数照列
+    same = toast.compare_runs(old, old, deploy_day="2026-11-20")
+    assert same["notes"] == []
+    unknown = toast.load_run(export(tmp_path, "c.zip", responses("2026-12-10")))  # 汇总里没写版本:不猜,不提醒
+    assert unknown.method_version == "" and toast.compare_runs(old, unknown, deploy_day="2026-11-22")["notes"] == []
 
 
 def test_given_groups_are_used_as_given(tmp_path):

@@ -16,6 +16,7 @@ from __future__ import annotations
 import csv
 import io
 import json
+import re
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -41,6 +42,9 @@ _VERDICT = {"mention": "mentioned", "citation": "brand_site_cited"}
 # 判定器的版本前后不一样,数就不能直接比。只看决定这两个数的那几个
 _DETECTORS = {"mention": ("brand_mention_rules", "brand_mention_fuzzy", "brand_mention_judge"),
               "citation": ("citation_domain_match",)}
+
+
+_METHOD = re.compile(r"(?:方法版本|Method version)\s*([0-9][0-9.]*)")  # Toast 汇总里那一行,中英两种写法
 
 
 @dataclass(frozen=True)
@@ -75,6 +79,7 @@ class ToastRun:
     prompts: dict[str, dict[str, str]]       # 题号 → intent、text、locale
     legs: dict[tuple[str, str], Leg]         # (接口, 型号) → 这个型号的回答
     domains: list[str] = field(default_factory=list)   # 算引用时认的官网域名
+    method_version: str = ""                           # Toast 写在汇总里的测量方法版本;读不到就是空
 
     @property
     def unprompted(self) -> list[str]:
@@ -128,7 +133,9 @@ def load_run(path: str | Path) -> ToastRun:
                              | {str(d) for d in (doc.get("brand") or {}).get("domains") or []})
         except (ValueError, AttributeError):
             domains = []
-    return ToastRun(path=str(path), day=day, prompts=prompts, legs=legs, domains=domains)
+    method = _METHOD.search(members["summary.md"].decode("utf-8-sig", errors="replace")) if "summary.md" in members else None
+    return ToastRun(path=str(path), day=day, prompts=prompts, legs=legs, domains=domains,
+                    method_version=method.group(1) if method else "")
 
 
 @dataclass(frozen=True)
@@ -271,6 +278,10 @@ def compare_runs(before: ToastRun, after: ToastRun, *, treated: list[str] | None
             treated, control, sitewide = before.unprompted, [], True
     control = control or []
     sitewide = bool(sitewide)
+    if before.method_version and after.method_version and before.method_version != after.method_version:
+        # Toast 的规矩:同一方法版本的两单才能直接对照。这里不替它判哪些数受影响,只把版本不同这件事摆出来
+        notes.append(f"前后两单用的测量方法版本不一样({before.method_version} → {after.method_version})。"
+                     "按测量工具的规矩,同一方法版本的两单才能直接对照;两个版本之间改了什么,看它的版本说明。")
     shared = [key for key in before.legs if key in after.legs]
     for key in before.legs.keys() - after.legs.keys():
         notes.append(f"{before.legs[key].ai}:改之前测了,再测里没有这个型号,比不了。")
@@ -295,8 +306,10 @@ def compare_runs(before: ToastRun, after: ToastRun, *, treated: list[str] | None
                                                                   "post": [post.ok, len(post.rows)]}})
     return {
         "schema": "butter.compare-toast/1", "method_version": rules.method_version,
-        "before": {"file": Path(before.path).name, "day": before.day, "questions": len(before.prompts)},
-        "after": {"file": Path(after.path).name, "day": after.day, "questions": len(after.prompts)},
+        "before": {"file": Path(before.path).name, "day": before.day, "questions": len(before.prompts),
+                   "method_version": before.method_version},
+        "after": {"file": Path(after.path).name, "day": after.day, "questions": len(after.prompts),
+                  "method_version": after.method_version},
         "deploy_day": deploy_day,
         "groups": {"basis": basis, "treated": treated, "control": control, "sitewide": sitewide, "pages": pages},
         "noise": "none",  # 这套测法上还没有波动数据:只列数字,不判变没变
