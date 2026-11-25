@@ -72,5 +72,6 @@ def test_model_tables_outside_the_flow_are_listed_but_do_not_fail_the_check() ->
     assert models.in_flow([*outside, stale]) == [stale]
     assert "统一流程用到的型号:1 处对不上" in models.render_diffs([stale])
     assert "Butter(不在统一流程里):和清单一致" in models.render_diffs([])
+    assert "Potato" not in models.render_diffs([], present={"toast", "butter"})  # 这份安装里没有的项目不提
     unread = models.render_diffs([], {"potato": "找不到它的解释器"})  # 没读到的不说「一致」
     assert "Potato(不在统一流程里):这次没有核。找不到它的解释器" in unread and "Potato(不在统一流程里):和清单一致" not in unread

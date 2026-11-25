@@ -16,6 +16,7 @@ import ctypes
 import json
 import os
 import signal
+import socket
 import subprocess
 import sys
 import threading
@@ -43,6 +44,37 @@ _DB_EXIT = {
     11: "本机数据库的端口在听但不应答(PG_ZOMBIE);要在测量工具的文件夹里运行 scripts\\pgdev.ps1 restart",
     13: "本机数据库启动失败(PG_START_FAILED)",
 }
+
+
+DB_PORT = 5433  # 测量工具的本机数据库固定用这个端口(它的 engine/storage.py 里写着)
+NO_POSTGRES = ("这台电脑上没有找到 PostgreSQL。测量的结果存在它里面,要先装:到 postgresql.org 下载 Windows 版,"
+               "一路用默认选项装完,再回来点一次。测量工具没有启动。")
+
+
+def db_action(*, listening: bool, installed: bool, initialised: bool) -> str:
+    """启动测量工具之前,数据库这边该做什么。返回 skip / init / start,或者一句给用户看的话(做不了的原因)。
+
+    - 端口上已经有数据库在听:什么都不做。别处(比如原来的文件夹)开着的那一个照用,绝不另起一个空库把它顶掉。
+    - 没在听、这个文件夹下也没有建过库:第一次用,建一个(init:建库目录、启动、建好要用的库)。
+    - 没在听、建过:启动(start)。
+    """
+    if listening:
+        return "skip"
+    if not installed:
+        return NO_POSTGRES
+    return "start" if initialised else "init"
+
+
+def _port_open(port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(1.0)
+        return probe.connect_ex(("127.0.0.1", port)) == 0
+
+
+def _postgres_installed() -> bool:
+    """和测量工具的脚本找法一样:C:\\Program Files\\PostgreSQL\\<版本>\\bin 里有没有 pg_ctl。"""
+    root = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "PostgreSQL"
+    return any(root.glob("*/bin/pg_ctl.exe"))
 
 
 def _port_owner(port: int) -> int | None:
@@ -226,14 +258,20 @@ class MeasureTool:
         return ("它最后说的是:" + " / ".join(line.strip() for line in lines if line.strip())) if lines else ""
 
     def _ensure_db_real(self) -> str | None:
-        """测量工具的结果存在本机的 PostgreSQL 里,要先开着。用它自带的脚本开;已经开着的话脚本直接返回。"""
+        """测量工具的结果存在本机的 PostgreSQL 里,要先开着。用它自带的脚本开;第一次用的电脑顺手建好。"""
         script = self.module.require_path() / "scripts" / "pgdev.ps1"
         if not _WINDOWS or not script.is_file():
             return None  # 没有这个脚本的装法:数据库由用户自己管,连不上时测量工具会自己说
+        action = db_action(listening=_port_open(DB_PORT), installed=_postgres_installed(),
+                           initialised=(self.module.path / ".pgdata" / "PG_VERSION").is_file())
+        if action == "skip":
+            return None
+        if action not in ("init", "start"):
+            return action
         with open(self.state_dir / "database.log", "ab") as log:
             # 输出进文件、不接管道:数据库进程会继承输出句柄,接了管道这里要等到数据库停掉才读得完
             done = subprocess.run(
-                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), "start"],
+                ["powershell", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), action],
                 cwd=self.module.path, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
                 timeout=DB_SECONDS, creationflags=_NO_WINDOW)
         if done.returncode == 0:

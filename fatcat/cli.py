@@ -35,11 +35,13 @@ def _models_check(strict: bool = False) -> int:
     # 不在统一流程里的两张表:读得到就核,读不到(比如旧采样工具没有装它自己的环境)就照实说没核,不让整项检查停下
     for name, read, compare in (("potato", models.read_potato, models._compare_potato),
                                 ("butter", models.read_butter, models._compare_butter)):
+        if name not in modules:  # 这份安装里根本没有这个项目(发布的仓库不带旧采样工具):不核,也不提它
+            continue
         try:
             diffs += compare(stored, read(modules[name]), id_map)
         except (ModuleError, KeyError) as exc:
             skipped[name] = str(exc)
-    print(models.render_diffs(diffs, skipped))
+    print(models.render_diffs(diffs, skipped, present=set(modules)))
     return 1 if (diffs if strict else models.in_flow(diffs)) else 0
 
 
@@ -127,9 +129,11 @@ def main(argv: list[str] | None = None) -> int:
     evidence_parser.add_argument("action", choices=["check"], help="check:核对改进工具自带的那份复制件和测量工具的原件")
     commands.add_parser("sources", help="列出现在能拿来出报告的结果")
     report_parser = commands.add_parser("report", help="把几步的结果拼成一份长报告(一个 HTML 文件)")
-    report_parser.add_argument("--toast-job", help="Toast 的单号(测量与诊断)")
-    report_parser.add_argument("--butter-run", help="Butter 一次运行的文件夹(改进)")
-    report_parser.add_argument("--butter-workspace", help="Butter 的工作区;不给就用它自己文件夹下的 workspace")
+    # 对外用前一个写法;后一个是内部代号的老写法,留着不让旧命令失效
+    report_parser.add_argument("--measure-job", "--toast-job", dest="toast_job", metavar="ID", help="测量与诊断那一单的单号")
+    report_parser.add_argument("--improve-run", "--butter-run", dest="butter_run", metavar="DIR", help="读网站那一次运行的文件夹")
+    report_parser.add_argument("--improve-workspace", "--butter-workspace", dest="butter_workspace", metavar="DIR",
+                               help="改进工具的工作区;不给就用它自己文件夹下的 workspace")
     report_parser.add_argument("--weblite", help="Quick Check 的证据包 zip")
     report_parser.add_argument("--lang", choices=["en", "zh"], default="en", help="报告语言,默认英文")
     report_parser.add_argument("--out", required=True, help="写到哪个 HTML 文件")

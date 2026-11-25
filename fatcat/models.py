@@ -305,14 +305,17 @@ def in_flow(diffs: list[Diff]) -> list[Diff]:
     return [d for d in diffs if d.module not in OUTSIDE_FLOW]
 
 
-def render_diffs(diffs: list[Diff], not_read: dict[str, str] | None = None) -> str:
-    """not_read:这次没读到的表(名字 → 原因)。没读到的不说「一致」,照实说没核。"""
+def render_diffs(diffs: list[Diff], not_read: dict[str, str] | None = None, present: set[str] | None = None) -> str:
+    """not_read:这次没读到的表(名字 → 原因)。没读到的不说「一致」,照实说没核。
+    present:这份安装里有哪些项目;不在里面的不提(None = 都有)。"""
     not_read = not_read or {}
     flow = in_flow(diffs)
     lines = ["统一流程用到的型号:" + (f"{len(flow)} 处对不上" if flow else "全部对得上(统一清单 = 测量工具现在的声明)。")]
     for diff in flow:
         lines.append(f"  [{_KIND_WORDS[diff.kind]}] {diff.provider}:{diff.text}")
     for module in OUTSIDE_FLOW:
+        if present is not None and module not in present:
+            continue
         mine = [d for d in diffs if d.module == module]
         if module in not_read:
             lines += ["", f"{_MODULE_WORDS[module]}(不在统一流程里):这次没有核。{not_read[module]}"]

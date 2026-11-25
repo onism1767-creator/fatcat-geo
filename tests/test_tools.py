@@ -193,6 +193,20 @@ def test_stop_only_clears_the_record_when_the_tool_is_already_gone(tmp_path: Pat
     assert world.killed == [] and not tool.record_path.exists()
 
 
+def test_database_is_created_on_first_use_and_never_replaced() -> None:
+    from fatcat.hub.tools import NO_POSTGRES, db_action
+
+    # 端口上已经有数据库在听:什么都不做(不管这个文件夹下建没建过库,都不另起一个把它顶掉)
+    assert db_action(listening=True, installed=True, initialised=False) == "skip"
+    assert db_action(listening=True, installed=False, initialised=False) == "skip"
+    # 第一次用的电脑:建库;建过的:启动
+    assert db_action(listening=False, installed=True, initialised=False) == "init"
+    assert db_action(listening=False, installed=True, initialised=True) == "start"
+    # 没装 PostgreSQL:说清楚要装什么,不去跑注定失败的脚本
+    assert db_action(listening=False, installed=False, initialised=False) == NO_POSTGRES
+    assert "postgresql.org" in NO_POSTGRES
+
+
 class ToolBackend(Backend):
     def __init__(self, tool: MeasureTool, jobs: list[dict]) -> None:
         super().__init__({}, tool=tool)
