@@ -159,8 +159,13 @@ class Backend:
             raise ModuleError("测量工具没有开新的一单:上一单可能还没做完。")
         return self.toast_url + location
 
-    def butter_compare(self, before_zip: Path, after_zip: Path, deploy_day: str | None, out_json: Path) -> dict[str, Any]:
-        """比改之前和再测两单的下载包。不问 AI、不花钱;数是测量工具存下的判定,比对的规矩是改进工具的。"""
+    def butter_compare(self, before_zip: Path, after_zip: Path, deploy_day: str | None, out_json: Path,
+                       site_run: str | None = None) -> dict[str, Any]:
+        """比改之前和再测两单的下载包。不问 AI、不花钱;数是测量工具存下的判定,比对的规矩是改进工具的。
+
+        site_run:读网站那次运行的文件夹。给了就按「哪道题对应哪个改过的页面」分处理组和对照组;
+        分不出来时改进工具退回全部不点名的题,并在结果里说明。
+        """
         module = self.modules["butter"]
         python = module.python if module.python and module.python.is_file() else shutil.which("python")
         if python is None:
@@ -172,6 +177,8 @@ class Backend:
                    "--after", str(after_zip), "--json", str(out_json)]
         if deploy_day:
             command += ["--deployed", deploy_day]
+        if site_run and Path(site_run).is_dir():
+            command += ["--run", str(Path(site_run).resolve())]
         env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONDONTWRITEBYTECODE="1")
         try:
             done = subprocess.run(command, cwd=module.require_path(), env=env, capture_output=True, text=True,

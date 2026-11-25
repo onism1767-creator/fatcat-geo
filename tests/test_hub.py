@@ -45,6 +45,7 @@ class FakeBackend:
         self.retests: list[str] = []
         self.retest_error: str | None = None
         self.compare_calls: list[tuple] = []
+        self.site_runs: list[str | None] = []
         self.compare_error: str | None = None
 
     def toast_retest(self, job_id: str) -> str:
@@ -53,9 +54,10 @@ class FakeBackend:
         self.retests.append(job_id)
         return "http://127.0.0.1:8600/jobs/feed00000001"
 
-    def butter_compare(self, before_zip: Path, after_zip: Path, deploy_day, out_json: Path) -> dict:
+    def butter_compare(self, before_zip: Path, after_zip: Path, deploy_day, out_json: Path, site_run=None) -> dict:
         if self.compare_error:
             raise ModuleError(self.compare_error)
+        self.site_runs.append(site_run)
         self.compare_calls.append((before_zip.read_bytes(), after_zip.read_bytes(), deploy_day))
         out_json.write_text(json.dumps(COMPARE), encoding="utf-8")
         return COMPARE

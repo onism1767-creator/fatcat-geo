@@ -453,6 +453,7 @@ class _Builder:
         blocks = [Block("p", text=w["c9_when"].format(before=c["before"]["day"], after=c["after"]["day"],
                                                      deploy=c.get("deploy_day") or w["c9_no_deploy"]))]
         which = w["c9_all_unprompted" if groups.get("basis") == "all_unprompted" else "c9_given"]
+        # 分不出「哪道题对应哪个改过的页面」时,原因在改进工具给的说明里,列在本章末尾
         blocks.append(Block("p", text=which.format(n=len(groups.get("treated") or []),
                                                    control=len(groups.get("control") or []))))
         blocks.append(Block("note", text=w["c9_listed_only"]))

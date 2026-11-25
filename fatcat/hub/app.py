@@ -575,7 +575,8 @@ def create_app(root: Path, backend: Any, *, inline_jobs: bool = False) -> FastAP
                 raise ModuleError(f"{job_id} 不是 {before} 这一单的再测,不能拿来比")
             (base / BEFORE_NAME).write_bytes(backend.toast_export(before))
             (base / AFTER_NAME).write_bytes(backend.toast_export(job_id))
-            backend.butter_compare(base / BEFORE_NAME, base / AFTER_NAME, p.deploy_day, base / COMPARE_NAME)
+            backend.butter_compare(base / BEFORE_NAME, base / AFTER_NAME, p.deploy_day, base / COMPARE_NAME,
+                                   p.improve_run if p.improve_state == "done" else None)
         except ModuleError as exc:
             projects.update(root, p.id, compare_note=str(exc))
             return show(lang, projects.load(root, p.id), "", 400)

@@ -108,6 +108,10 @@ def test_a_finished_remeasurement_is_compared_and_shown(client: TestClient, back
     done = client.post(f"/projects/{project_id}/remeasure/attach", data={"job_id": "feed00000001"})
     assert done.status_code == 303
     assert backend.compare_calls == [(b"PK-export-of-job1", b"PK-export-of-feed00000001", TODAY)]
+    assert backend.site_runs == [None]  # 还没读过网站:没有可以用来分组的运行
+    client.post(f"/projects/{project_id}/improve/start")
+    client.post(f"/projects/{project_id}/remeasure/attach", data={"job_id": "feed00000001"})
+    assert backend.site_runs == [None, "RUN_DIR"]  # 读过网站以后再比:把那次运行递过去,按页面分组
     assert (folder / BEFORE_NAME).is_file() and (folder / AFTER_NAME).is_file() and (folder / COMPARE_NAME).is_file()
     saved = projects.load(tmp_path / "runs", project_id)
     assert (saved.retest_job, saved.retest_pending, saved.compare_file, saved.compare_note) == (
