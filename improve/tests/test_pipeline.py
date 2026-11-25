@@ -30,7 +30,7 @@ def test_one_run_writes_the_three_outputs(tmp_path, acme_snapshot):
                                                        "hidden_text", "jsonld_consistency"}
     assert all(f["entry_id"].startswith("EVIDENCE_") for f in audit["findings"])
     meta = json.loads((run / "run.json").read_text(encoding="utf-8"))
-    assert meta["models_called"] == 0 and meta["cost_usd"] == 0 and "Chrome/126" in meta["user_agent"]
+    assert meta["models_called"] == 0 and meta["cost_usd"] == 0 and "Chrome/157" in meta["user_agent"]
     index = (tmp_path / "runs.jsonl").read_text(encoding="utf-8").splitlines()
     assert len(index) == 1 and json.loads(index[0])["run_id"] == "run-a"
 

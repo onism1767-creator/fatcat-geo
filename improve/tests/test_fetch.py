@@ -25,7 +25,7 @@ def test_acme_crawl_stays_on_host_and_obeys_robots(acme_recorder, acme_snapshot)
 def test_always_fixed_browser_ua_never_a_crawler(acme_recorder, acme_snapshot):
     agents = {r.headers["user-agent"] for r in acme_recorder.requests}
     assert agents == {BROWSER_UA}
-    assert "Chrome/126.0.0.0" in BROWSER_UA
+    assert "Chrome/157.0.0.0" in BROWSER_UA
     assert "bot" not in BROWSER_UA.lower() and "compatible" not in BROWSER_UA.lower()
     assert acme_snapshot.user_agent == BROWSER_UA
     assert not any("cookie" in r.headers for r in acme_recorder.requests)

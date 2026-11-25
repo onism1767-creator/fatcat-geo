@@ -32,10 +32,12 @@ from butter.extract.sitemap import parse_sitemap
 from butter.util import decode_html as _decode
 from butter.util import host_of, normalize_site_url, page_key, safe_http_url, same_site, strip_tracking
 
-# 与 Toast crawler/fetch.py 的 BROWSER_UA 同一串(产品文档 D13:固定版本的 Chrome 浏览器 UA)
+# 与 Toast crawler/fetch.py、Web Lite weblite/config.py 同一串(产品文档 D13、D30:固定版本的 Chrome 浏览器 UA)。
+# 版本是定死的,不跟着浏览器更新:157 是 2026-11-19 的稳定版,那天基线 D30 用它换掉了 126(2024 年中)。
+# 一个落后好几年的浏览器版本本身就不寻常。要换版本,三处一起换(FatCat 整合,阶段 3)。
 BROWSER_UA: Final = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"
 )
 _KEPT_HEADERS: Final = ("content-type", "x-robots-tag", "last-modified", "location", "cf-mitigated")
 _NON_HTML_EXT: Final = re.compile(

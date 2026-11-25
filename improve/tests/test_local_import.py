@@ -79,7 +79,7 @@ def test_cli_runs_an_import_end_to_end(tmp_path, capsys):
 
     readme = (run / "change-package" / "README.md").read_text(encoding="utf-8")
     assert "本次读取(本地导入)" in readme and "没有向你的站发任何请求" in readme
-    assert "Chrome/126" not in readme, "没发请求,就不该写用了什么 UA"
+    assert "Chrome/1" not in readme, "没发请求,就不该写用了什么 UA"
     assert (run / "change-package" / "robots" / "robots.txt").is_file(), "文件夹里有 robots.txt,三段式照常生成"
     assert "取的是文件的修改时间" in readme
     audit_md = (run / "audit.md").read_text(encoding="utf-8")
