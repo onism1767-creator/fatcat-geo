@@ -2,9 +2,9 @@
   "schema": 1,
   "source": {
     "module": "toast",
-    "commit": "29cf0c0",
+    "commit": "faf3773",
     "rule": "产品文档 v1.20 D41:被测型号每家只留两个(产品界面默认的那款 + 它在最新一代里的同款)",
-    "read_at": "2026-11-24T23:04:34Z"
+    "read_at": "2026-11-25T03:44:04Z"
   },
   "providers": [
     {

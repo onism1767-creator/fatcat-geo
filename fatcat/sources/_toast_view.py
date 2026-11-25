@@ -41,10 +41,9 @@ def _jobs(storage: Any) -> list[dict[str, Any]]:
 
 
 def _view(storage: Any, job_id: str) -> dict[str, Any]:
-    from pydantic import ValidationError
-
     from diagnosis.messages import msg, render_msg
     from engine.loader import build_adapters, load_surface_registry
+    from pydantic import ValidationError
     from report.i18n import INTENT_LABELS, MESSAGES, STATUS_LABELS
     from report.jobs import DiagnosisJob, ReportMeta
     from report.narrative import (

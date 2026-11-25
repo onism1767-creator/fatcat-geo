@@ -9,11 +9,10 @@ from fastapi.testclient import TestClient
 
 from fatcat import project as projects
 from fatcat.hub.backend import Backend, NeedsConfirm
-from fatcat.hub.tools import FAILED, RUNNING, STARTING, STOPPED, MeasureTool
+from fatcat.hub.tools import FAILED, RUNNING, STOPPED, MeasureTool
 from fatcat.keys import FROM_FILE, FROM_PAGE, KeyStore
 from fatcat.modules import Module, ModuleError
-from tests.test_hub import FakeBackend, _create  # noqa: F401  (client、backend 两个夹具从 conftest 以外借来)
-from tests.test_hub import backend, client  # noqa: F401
+from tests.test_hub import FakeBackend, _create, backend, client  # noqa: F401  (client、backend 两个夹具从 conftest 以外借来)  # noqa: F401
 
 NAMES = {"alpha": "ALPHA_API_KEY", "gemini": "GOOGLE_API_KEY"}
 SECRET = "sk-test-0123456789abcdef"  # 编的,不是任何一家的 key

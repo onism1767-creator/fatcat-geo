@@ -90,10 +90,9 @@ def _serve(args: argparse.Namespace) -> int:
 
     from fatcat.hub.app import create_app
     from fatcat.hub.backend import Backend
-    from fatcat.modules import ROOT
-
     from fatcat.keys import KeyStore
     from fatcat.models import load_catalog
+    from fatcat.modules import ROOT
 
     runs = Path(args.runs) if args.runs else ROOT / "runs"
     # 各家 key 的变量名以统一型号清单为准;测量工具的进程号和启动日志记在 runs/.tools 里(不进仓库)

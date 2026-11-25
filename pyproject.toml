@@ -1,7 +1,10 @@
 [project]
 name = "fatcat-geo"
-version = "0.0.1"
+version = "0.1.0"
 description = "FatCat GEO Full Toolkit: one entry point over Measure, Diagnose and Improve."
+readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 requires-python = ">=3.12"
 dependencies = [
     "fastapi>=0.111",
@@ -13,7 +16,10 @@ dependencies = [
 ]
 
 [dependency-groups]
-dev = ["pytest>=8"]
+dev = [
+    "pytest>=8",
+    "ruff>=0.16",
+]
 
 [project.scripts]
 fatcat = "fatcat.cli:main"
@@ -28,3 +34,13 @@ include = ["fatcat*"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+# B008:FastAPI 的 File(...)、Form(...) 就是写在参数默认值里的。
+# E501:中文字符按两格算,一行中文注释或界面文字很容易超 120;行宽靠人看,不让它挡检查。
+ignore = ["B008", "E501"]

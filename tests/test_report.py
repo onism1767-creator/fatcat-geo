@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import zipfile
+from datetime import UTC
 from pathlib import Path
 
 import pytest
@@ -240,7 +241,7 @@ def test_every_moment_is_written_the_same_way() -> None:
     assert _when("2026-11-24T23:31:38Z", west) == "2026-11-24 15:31 UTC-8"
     assert _when("2026-11-25T01:30:07+00:00", west) == "2026-11-24 17:30 UTC-8"  # 世界时已经是第二天,本地还是同一天
     assert _when("2026-11-24T23:31:38Z", timezone(timedelta(hours=5, minutes=30))) == "2026-11-25 05:01 UTC+5:30"
-    assert _when("2026-11-24T23:31:38Z", timezone.utc) == "2026-11-24 23:31 UTC+0"
+    assert _when("2026-11-24T23:31:38Z", UTC) == "2026-11-24 23:31 UTC+0"
     assert _when("not a time") == "not a time" and _when(None) == ""
     assert _when("2026-11-24T10:00:00") == "2026-11-24T10:00:00"  # 没写时区的不猜
     method = _text(_chapter(build(_full(), "en", generated_at=NOW), "method"))

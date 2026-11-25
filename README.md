@@ -1,41 +1,71 @@
-# fatcat-geo（整合中）
+# FatCat GEO Full Toolkit (fatcat-geo)
 
-把 FatCat GEO 的测量、诊断、改进三个项目接成一个：一个入口、一份型号清单、一条流程、一份报告。
+English · [中文](README.zh.md)
 
-现在还在整合的早期。三个项目各自还在自己的文件夹里，这里只读它们，不往里写。
+One entry point over the three parts of FatCat GEO: measure how AI systems answer questions about your
+brand, diagnose where you drop out, improve your site, and measure again. One list of measured AI models,
+one guided flow, one long report.
 
-| 想看 | 在哪 |
+It runs on your own computer with your own AI keys. Nothing is sent to a FatCat server.
+
+| Looking for | Where |
 |---|---|
-| 为什么这么合、每件事留谁的 | [docs/整合方案.md](docs/整合方案.md) |
-| 做到哪了、下一步是什么 | [docs/待办.md](docs/待办.md) |
-| 整合时看到的问题 | [docs/错误日志.md](docs/错误日志.md) |
-| 被测的 AI 型号（唯一的一份） | [catalog/models.json](catalog/models.json) |
+| Why the parts are joined this way | [docs/整合方案.md](docs/整合方案.md) (Chinese) |
+| What is done and what is next | [docs/待办.md](docs/待办.md) (Chinese) |
+| Problems found along the way | [docs/错误日志.md](docs/错误日志.md) (Chinese) |
+| The measured AI models (the only list) | [catalog/models.json](catalog/models.json) |
 
-## 现在能用的
+## Status
 
-需要 Python 3.12 和 uv。三个项目的位置写在 `modules.toml`。
+The three parts still live in their own folders next to this one; `modules.toml` says where. This project
+reads their results and drives them. Merging them into this repository is in progress.
+
+## Install and run
+
+You need Python 3.12 and [uv](https://docs.astral.sh/uv/).
 
 ```
 uv sync
-.venv\Scripts\python -m fatcat serve           打开统一入口(本机 http://127.0.0.1:8500/)
-.venv\Scripts\python -m fatcat sources         列出现在能拿来出报告的结果
-.venv\Scripts\python -m fatcat report --toast-job <单号> --butter-run <文件夹> --weblite <证据包.zip> --lang zh --out 报告.html
-.venv\Scripts\python -m fatcat models sync     从 Toast 的适配器声明读出被测型号,存成 catalog/models.json
-.venv\Scripts\python -m fatcat models check    核对 Potato 和 Butter 的型号;有对不上的,退出码是 1
-.venv\Scripts\python -m pytest -q              测试,不联网、不花钱
+.venv\Scripts\python -m fatcat serve             open the entry page at http://127.0.0.1:8500/ (this computer only)
+.venv\Scripts\python -m fatcat sources           list results that can go into a report
+.venv\Scripts\python -m fatcat report --toast-job <id> --butter-run <folder> --weblite <bundle.zip> --lang en --out report.html
+.venv\Scripts\python -m fatcat models sync       read the measured models from the measurement tool into catalog/models.json
+.venv\Scripts\python -m fatcat models check      check the model list; exit code 1 when it does not match
+.venv\Scripts\python -m fatcat evidence check    check that the copied evidence table still matches the original
+.venv\Scripts\python scripts\check.py            pre-release checks: lint, tests, both checks, secret scan
+.venv\Scripts\python -m pytest -q                tests; offline, free
 ```
 
-统一入口的六步:
+## The six steps on the entry page
 
-1. Quick Check(可跳过):把网站上下载的证据包加进来。
-2. 品牌信息:只填一次。
-3. 测量与诊断:在这一步点「启动测量工具」(它要的本机数据库会一起开),再点「打开测量工具」,带着你填的信息过去。它用你自己的 AI key,开始测之前会先给你看预估花费。
-4. 改进:读一遍你的网站(不问 AI,不花钱),出事实清单、内容检查和改动包。
-5. 把改动放上网站,再测一次:记下改动是哪天放上网站的,点「现在开始再测」。**这一下马上开始花钱**(照上一单原样重问,没有确认页),按钮上写着大约多少。做完点「和这一单比」,改前改后的数进报告。
-6. 报告:把做完的步骤拼成一份长报告;没做的步骤照实写没做。
+1. Quick Check (optional): add the evidence bundle downloaded from the website.
+2. Brand details: filled in once.
+3. Measure and diagnose: press "Start the measurement tool" (the local database it needs starts with it),
+   then "Open the measurement tool". It shows a full cost estimate before any measuring starts.
+4. Improve: reads your site (no AI, free) and prepares the facts it found, content checks and a change package.
+5. Put the changes live, then measure again: record the day the changes went live and press "Measure again
+   now". **This starts spending at once** (it repeats the earlier run; there is no confirmation page); the
+   button states roughly how much. Then press "Compare with this one".
+6. Report: one long report from everything done so far. Steps not done say so.
 
-AI key 只填一次:首页最下面有一块「AI key」。在页面上填的只放在内存里,入口一关就没了;想长期留着,写进本文件夹下的 `.env`(变量名页面上有)。哪一家这里没有,测量工具照旧用它自己的配置。
+## Cost and keys
 
-测量工具是独立于入口的:入口关了它还在,正在测的不会断。要关它,在第 3 步点「关掉测量工具」(正在测量时不让关)。
+- Only two steps cost money: measuring (step 3) and measuring again (step 5). They use your own AI keys and
+  you pay the AI providers directly.
+- Enter keys once, at the bottom of the entry page. Keys typed there stay in memory only. To keep them, put
+  them in a `.env` file in this folder, using the variable names shown on the page.
+- Keys are never written to logs, reports or result files. `.env` and `runs/` are not committed.
+- The measurement tool runs independently of the entry page: closing the entry page does not stop a
+  measurement. Stop the tool from step 3; it refuses while a measurement is running.
 
-这里读三个项目的结果;读 Toast 的数据库时连接是只读的。每次运行的结果在 `runs/` 里,不进仓库。阶段 3 起往改进工具里加了一个命令(`python -m butter compare-toast`),见 `docs/待办.md`。
+## Limits you should know
+
+- Answers come from each provider's API with web search on. They are not the same as what you see in the
+  providers' chat products.
+- Before/after numbers are listed without a verdict: how much these models move on their own has not been
+  measured for this method yet.
+- Nothing here promises an effect. Whether a change helped is only known after measuring again.
+
+## License
+
+MIT, see [LICENSE](LICENSE). Changes are listed in [CHANGELOG.md](CHANGELOG.md).

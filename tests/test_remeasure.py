@@ -12,8 +12,7 @@ from fatcat.hub.app import AFTER_NAME, BEFORE_NAME, COMPARE_NAME
 from fatcat.hub.tools import STOPPED
 from fatcat.report import Sources, build, render
 from fatcat.report.words import WORDS
-from tests.test_hub import COMPARE, FakeBackend, _create
-from tests.test_hub import backend, client  # noqa: F401
+from tests.test_hub import COMPARE, FakeBackend, _create, backend, client  # noqa: F401
 from tests.test_report import NOW, _chapter, _text, _toast
 
 TODAY = date.today().isoformat()
