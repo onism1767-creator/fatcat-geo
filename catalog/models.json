@@ -1,0 +1,159 @@
+{
+  "schema": 1,
+  "source": {
+    "module": "toast",
+    "commit": "29cf0c0",
+    "rule": "产品文档 v1.20 D41:被测型号每家只留两个(产品界面默认的那款 + 它在最新一代里的同款)",
+    "read_at": "2026-11-24T23:04:34Z"
+  },
+  "providers": [
+    {
+      "id": "anthropic",
+      "key_env": "ANTHROPIC_API_KEY",
+      "measured": [
+        {
+          "model": "claude-sonnet-5-5",
+          "roles": [
+            "consumer_default",
+            "main"
+          ]
+        },
+        {
+          "model": "claude-opus-5-5",
+          "roles": []
+        }
+      ],
+      "helpers": [
+        "claude-haiku-5-5"
+      ],
+      "surfaces": [
+        {
+          "surface": "claude_web_search",
+          "api_name": "Anthropic Messages API",
+          "display_name": "Claude",
+          "variant_of": null
+        }
+      ],
+      "models_checked": "2026-10-14 官方型号页 + 价目页;消费端默认按应用默认 Sonnet 系填 5.5,待核对;2026-11-12 用户付费账号截图:付费版默认停在 Opus 5.5(当时的主力);Fable 5.2 同日冒烟两次都撞 4,096 零正文,不入清单、5.1 留着;2026-11-15 用户定主力 = 消费端默认在最新一代里的同款,Sonnet 5.5 已是最新一代,主力就是它;2026-11-15 按工程原则 10 复核:列型号接口没有新一代(Fable 5.2 仍在、冒烟没过);2026-11-20 用户定「每家只留两个」:消费端默认 + 主力(这家两个标记同一款,再留紧挨着的 Opus 5.5),Fable 5.1 删掉、Haiku 5.5 只当裁判;帮助中心与发布说明 10-07 Haiku 5.5 之后没有新型号,仍没写免费版默认,标记不变;2026-11-23 按工程原则 10 复核:列型号接口没有新一代;型号页与发布说明(最新一条 11-20)没有新型号,价目页只写免费版含 Sonnet 与 Haiku、没写默认哪个(程序抓取读的,没用浏览器逐字核),标记不变"
+    },
+    {
+      "id": "gemini",
+      "key_env": "GOOGLE_API_KEY",
+      "measured": [
+        {
+          "model": "gemini-3.5-flash-lite",
+          "roles": [
+            "consumer_default"
+          ]
+        },
+        {
+          "model": "gemini-4-hydrogen",
+          "roles": [
+            "main"
+          ]
+        }
+      ],
+      "helpers": [
+        "gemini-3.1-flash-lite"
+      ],
+      "surfaces": [
+        {
+          "surface": "gemini_grounding",
+          "api_name": "Gemini API",
+          "display_name": "Gemini",
+          "variant_of": null
+        }
+      ],
+      "models_checked": "2026-10-14 官方型号页 + 价目页 + 应用更新日志;2026-11-11 官方帮助中心「About Gemini models」:免费与付费都默认自动选型(多数走 Flash-Lite);用户 2026-11-12 定消费端默认换 Flash-Lite,同日冒烟后填 3.5 Flash-Lite(接口里现行的 Flash-Lite;官方帮助中心只写「Flash-Lite」没写版本);4 Carbon 同日冒烟通入高档;2026-11-13 按工程原则 9 移出第 3 代的 3.8 Flash、3.1 Pro,4 Hydrogen 入清单;2026-11-15 用户定主力 = 消费端默认在最新一代里的同款,填 4 Hydrogen(原主力 4 Argon);2026-11-15 按工程原则 10 复核:列型号接口没有新的第 4 代型号;帮助中心里 Flash 换成了 4 Hydrogen(主力已在应用里),标记不变;2026-11-19 按工程原则 10 核对:列型号接口新出现 gemini-4-neon(官方 11-18 发布);2026-11-20 官方型号页 + 价目页($3 / $15)核对、冒烟通过,用户定入清单(只有高档测到);应用里它给 Pro / Ultra 订阅用户选(官方发布文与 9to5Google 的摘要,没逐字读原文),免费版默认与主力不受影响,标记不变;2026-11-20 用户定「每家只留两个」:消费端默认 + 主力,4 Neon / 4 Argon / 4 Carbon 删掉;2026-11-23 按工程原则 10 复核:列型号接口没有新的第 4 代型号;帮助中心「About Gemini models」改写了(浏览器逐字读过):没有付费方案的聊天只有 Auto,在 4 Hydrogen 和一款没点名的「fast, lightweight model」之间自动分配,整页不再出现 Flash-Lite 这个名字,Pro 档的 Argon 换成了 Neon;消费端默认填 3.5 Flash-Lite 的依据(「多数走 Flash-Lite」)今天在这页上对不出原话,标记没动,已报用户、等用户定"
+    },
+    {
+      "id": "openai",
+      "key_env": "OPENAI_API_KEY",
+      "measured": [
+        {
+          "model": "gpt-5.6-luna",
+          "roles": [
+            "consumer_default"
+          ]
+        },
+        {
+          "model": "gpt-6-luna",
+          "roles": [
+            "main"
+          ]
+        }
+      ],
+      "helpers": [],
+      "surfaces": [
+        {
+          "surface": "openai_web_search",
+          "api_name": "OpenAI Responses API",
+          "display_name": "OpenAI",
+          "variant_of": null
+        }
+      ],
+      "models_checked": "2026-11-17 官方型号页 + 价目页:现役阵容 6.2 Astra / 6.2 Sol / 6.1 Terra / 6 Luna,价目逐项核对(含各型号的缓存命中价);官方帮助中心「GPT-6 and other models in ChatGPT」(11-17 更新):免费版默认 GPT-5.6 Luna、付费版聊天默认 GPT-6(Sol),6.2 两款只在 Work 与 Codex;用户 11-15 定主力 = 消费端默认在最新一代里的同款(gpt-6-luna);用户 11-17 定按清单改:6.2 两款冒烟通过入清单,删 gpt-6-astra / gpt-6.1-sol / gpt-6-sol;用户 11-20 定「每家只留两个」:清单 = gpt-5.6-luna(消费端默认)+ gpt-6-luna(主力),6.1 Terra 与 6.2 两款删掉;2026-11-23 按工程原则 10 复核:列型号接口没有新一代;ChatGPT 发布说明 11-23「GPT-6.2, now in the chat tab」——6.2 进了付费版(Plus / Pro / Business / Enterprise)的聊天页,背后是为聊天调过的 6.2 Sol,免费版与 Go 没提(浏览器逐字读过);6.2 代仍没有 Luna,消费端默认与主力都不变,「6.2 只在 Work 与 Codex」那句自这天起不再成立,已报用户"
+    },
+    {
+      "id": "perplexity",
+      "key_env": "PERPLEXITY_API_KEY",
+      "measured": [
+        {
+          "model": "low@2026-11-11.0",
+          "roles": [
+            "consumer_default",
+            "main"
+          ]
+        }
+      ],
+      "helpers": [
+        "openai/gpt-6-luna"
+      ],
+      "surfaces": [
+        {
+          "surface": "perplexity_agent",
+          "api_name": "Perplexity Agent API",
+          "display_name": "Perplexity",
+          "variant_of": null
+        }
+      ],
+      "models_checked": "2026-11-15 官方帮助中心:Sonar 不在 Pro 手选清单(11-11 快照),应用默认「Best」自动挑、没说挑哪个;Agent API 预设页:fast / low / medium 背后是 openai/gpt-6-luna;用户定改测 low 预设、固定版本 low@2026-11-11.0,删掉 perplexity/sonar;冒烟 4 道题:引用 4/4 看得到,每次 $0.0017–0.0045;2026-11-23 按工程原则 10 复核:预设页 low 背后仍是 openai/gpt-6-luna,更新日志 11 月只有 xhigh 换了版本、low 没有新版本;帮助中心默认仍是「Best」自动挑(程序抓取读的,没用浏览器逐字核;low 当前生效的版本号文档没逐字写,只有回包能确认,这次没调接口),标记不变"
+    },
+    {
+      "id": "xai",
+      "key_env": "XAI_API_KEY",
+      "measured": [
+        {
+          "model": "grok-4.5",
+          "roles": [
+            "consumer_default"
+          ]
+        },
+        {
+          "model": "grok-4.7",
+          "roles": [
+            "main"
+          ]
+        }
+      ],
+      "helpers": [
+        "grok-4.3"
+      ],
+      "surfaces": [
+        {
+          "surface": "grok_web_search",
+          "api_name": "Grok API",
+          "display_name": "Grok",
+          "variant_of": null
+        },
+        {
+          "surface": "grok_web_xposts_search",
+          "api_name": "Grok API + X",
+          "display_name": "Grok + X",
+          "variant_of": "grok_web_search"
+        }
+      ],
+      "models_checked": "2026-11-17 接口列型号(免费):grok-4.7 / 4.6 / 4.5 / 4.3 / 4.20 系列 / grok-build-0.1;官方型号页(09-21 更新):旗舰 Grok 4.7,聊天与写代码都用它;价目页逐项核对,与接口自报价目一致;官方公告 07-22:Grok 4.5 进 grok.com / X / iOS / Android,之后 4.6(08-12)、4.7(09-21)的公告没提进应用;应用默认是 4.5:用户 11-18 确认(官方没写免费版与付费版是否不同);用户 11-17 定清单 = 4.5 + 4.7、只搜网页(X 帖子试一轮没搜,砍掉);冒烟 11-17 / 18:4.5 一次 $0.12、4.7 三次 $0.12–0.22,都没截断;4.7 三次都不在正文里标出处(引用记看不到),4.5 三次都标;2026-11-23 按工程原则 10 复核:列型号接口没有比 4.7 新的;型号页最强仍是 4.7,发布说明 9 月之后没有新的文字型号(程序抓取读的,没用浏览器逐字核;x.ai/news 索引页被拒、没读到),标记不变"
+    }
+  ]
+}
