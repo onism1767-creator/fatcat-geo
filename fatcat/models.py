@@ -292,17 +292,32 @@ def render_catalog(catalog: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+# 不在统一流程里的两处(2026-11-24 用户定 Z1:问 AI 只留测量工具那一套)。它们的型号表照样核、照样列,
+# 但不算统一流程没对上:统一流程不经过它们。哪天它们的提问彻底退出,这两张表也就没有了。
+OUTSIDE_FLOW = {
+    "potato": "Potato 的提问已经退出统一流程;它的仓库在 2026-12-04 E0 结束前不动",
+    "butter": "这是改进工具自己页面上「测一次 / 测改之后」用的型号(经 Potato 提问);统一流程里的再测走测量工具,不用这张表",
+}
+
+
+def in_flow(diffs: list[Diff]) -> list[Diff]:
+    """统一流程本身没对上的那些(现在只有一种:统一清单和测量工具的声明不一致)。"""
+    return [d for d in diffs if d.module not in OUTSIDE_FLOW]
+
+
 def render_diffs(diffs: list[Diff]) -> str:
-    if not diffs:
-        return "全部对得上。"
-    lines: list[str] = []
-    for module in ("catalog", "potato", "butter"):
+    flow = in_flow(diffs)
+    lines = ["统一流程用到的型号:" + (f"{len(flow)} 处对不上" if flow else "全部对得上(统一清单 = 测量工具现在的声明)。")]
+    for diff in flow:
+        lines.append(f"  [{_KIND_WORDS[diff.kind]}] {diff.provider}:{diff.text}")
+    for module in OUTSIDE_FLOW:
         mine = [d for d in diffs if d.module == module]
         if not mine:
+            lines += ["", f"{_MODULE_WORDS[module]}(不在统一流程里):和清单一致。"]
             continue
-        lines.append(f"{_MODULE_WORDS[module]}:{len(mine)} 处对不上")
+        lines += ["", f"{_MODULE_WORDS[module]}(不在统一流程里):和清单有 {len(mine)} 处不一样", f"  说明:{OUTSIDE_FLOW[module]}"]
         for diff in mine:
             lines.append(f"  [{_KIND_WORDS[diff.kind]}] {diff.provider}:{diff.text}")
-        lines.append("")
-    lines.append(f"合计 {len(diffs)} 处。")
+    outside = len(diffs) - len(flow)
+    lines += ["", f"合计:统一流程 {len(flow)} 处;不在统一流程里的 {outside} 处(只列出来,不算统一流程没对上;加 --strict 时也算)。"]
     return "\n".join(lines)

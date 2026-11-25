@@ -26,7 +26,7 @@ def _models_show() -> int:
     return 0
 
 
-def _models_check() -> int:
+def _models_check(strict: bool = False) -> int:
     modules = load_modules()
     stored = models.load_catalog()
     fresh = models.build_catalog(models.read_toast(modules["toast"]), modules["toast"].commit())
@@ -34,7 +34,17 @@ def _models_check() -> int:
     diffs += models.compare(stored, models.read_potato(modules["potato"]), models.read_butter(modules["butter"]),
                             models.load_id_map())
     print(models.render_diffs(diffs))
-    return 1 if diffs else 0
+    return 1 if (diffs if strict else models.in_flow(diffs)) else 0
+
+
+def _evidence_check() -> int:
+    from fatcat import evidence
+
+    modules = load_modules()
+    state = evidence.read(modules["toast"], modules["butter"])
+    found = evidence.problems(state)
+    print(evidence.render(state, found))
+    return 1 if found else 0
 
 
 def _sources() -> int:
@@ -104,8 +114,12 @@ def main(argv: list[str] | None = None) -> int:
     model_parser = commands.add_parser("models", help="统一型号清单")
     model_parser.add_argument(
         "action", choices=["sync", "show", "check"],
-        help="sync:从 Toast 读出清单并存下;show:打印清单;check:核对 Potato 和 Butter,有对不上的退出码为 1",
+        help="sync:从 Toast 读出清单并存下;show:打印清单;check:核对统一清单和测量工具的声明,对不上退出码为 1"
+             "(Potato、Butter 自己的型号表不在统一流程里,只列出来)",
     )
+    model_parser.add_argument("--strict", action="store_true", help="check 时,不在统一流程里的那两张表对不上也算(退出码 1)")
+    evidence_parser = commands.add_parser("evidence", help="证据表")
+    evidence_parser.add_argument("action", choices=["check"], help="check:核对改进工具自带的那份复制件和测量工具的原件")
     commands.add_parser("sources", help="列出现在能拿来出报告的结果")
     report_parser = commands.add_parser("report", help="把几步的结果拼成一份长报告(一个 HTML 文件)")
     report_parser.add_argument("--toast-job", help="Toast 的单号(测量与诊断)")
@@ -124,7 +138,11 @@ def main(argv: list[str] | None = None) -> int:
         if args.command == "serve":
             return _serve(args)
         if args.command == "models":
-            return {"sync": _models_sync, "show": _models_show, "check": _models_check}[args.action]()
+            if args.action == "check":
+                return _models_check(args.strict)
+            return {"sync": _models_sync, "show": _models_show}[args.action]()
+        if args.command == "evidence":
+            return _evidence_check()
         if args.command == "sources":
             return _sources()
         return _report(args)
