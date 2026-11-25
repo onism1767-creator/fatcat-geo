@@ -21,9 +21,12 @@ from urllib.parse import urlsplit
 import httpx
 import trafilatura
 
+# 和 Web Lite(weblite/config.py)、Butter(butter/fetch.py)同一串(产品文档 D13、D30)。版本是定死的,不跟着浏览器更新:
+# 157 是 2026-11-19 的稳定版,那天 D30 用它换掉了 126(2024 年中);一个落后好几年的浏览器版本本身就不寻常。
+# 要换版本,三处一起换,并升 engine/method.py 的方法版本(FatCat 整合,阶段 3,2026-11-24)。
 BROWSER_UA: Final = (
     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-    "(KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36"
+    "(KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36"
 )
 TIMEOUT_S: Final = 15.0
 # 核实第三方网页的超时与体积(产品文档 10.4 / D23):连接 5 秒、每等一块数据最多 10 秒;单页 5 MB,超出截断并告知
