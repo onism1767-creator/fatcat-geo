@@ -21,11 +21,17 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any
 
+from butter.cards.build import SITEWIDE_KINDS
 from butter.compare import compare_batch
 from butter.compare.core import METHOD_VERSION, label_text
 from butter.config import load_defaults
 from butter.config.core import Defaults
-from butter.contracts import BatchFacts, CompareResult, CompareRules, LegData, LegRule, QuestionObs
+from butter.contracts import (
+    BatchFacts, ChangePackage, CompareResult, CompareRules, FactBase, LegData, LegRule, QuestionObs,
+)
+from butter.generate.headings import tokens
+from butter.measure import plan as P
+from butter.questions import categories_from_factbase
 from butter.sources import SourceFileError, _csv_cell, _toast_members
 
 BRAND_INTENT = "brand_fact"  # Toast 五类题里点名问品牌的那一类:只作背景,不进处理组和对照组
@@ -125,6 +131,56 @@ def load_run(path: str | Path) -> ToastRun:
     return ToastRun(path=str(path), day=day, prompts=prompts, legs=legs, domains=domains)
 
 
+@dataclass(frozen=True)
+class Groups:
+    """哪些题进处理组、哪些进对照组,以及是怎么分出来的。"""
+
+    treated: list[str]
+    control: list[str]
+    sitewide: bool
+    basis: str                               # by_page:按题对上的页面分的;all_unprompted:分不出来,退回全部不点名的题
+    pages: dict[str, str] = field(default_factory=dict)   # 题号 → 它对上的那一页
+    notes: list[str] = field(default_factory=list)
+
+
+def groups_from_site_run(run_dir: str | Path, run: ToastRun) -> Groups:
+    """在统一的题目上分处理组和对照组(设计 §9.2 的分法,原来只用在 Butter 自己出的题上)。
+
+    一道题对上一个页面,要两头都成立:事实库里的某个品类词整个出现在题目里,也整个出现在页面的标题或 H1 里
+    (和 `questions.match_by_category` 同一条规矩;那边的品类词是出题时填进去的,这里的题是 Toast 出的,所以先看题里有没有)。
+    对上被改页面的 → 处理组;只对上没改页面的 → 对照组;对不上任何页面的、点名问品牌的 → 只作背景。
+    一道题都进不了处理组时,退回「全部不点名的题」,并说明原因:那时比的不是某个页面的改动,只是前后两次的总数。
+    """
+    run_dir = Path(run_dir)
+    try:
+        fb = FactBase.model_validate_json((run_dir / "factbase.json").read_text(encoding="utf-8"))
+        package = ChangePackage.model_validate_json(
+            (run_dir / "change-package" / "manifest.json").read_text(encoding="utf-8"))
+    except (OSError, ValueError) as exc:
+        raise SourceFileError(f"读不了 {run_dir} 里的事实库或改动包清单:{type(exc).__name__}") from exc
+    items = [item for item in package.items if item.action != "none"]
+    changed = {page for item in items if (page := P.page_of_target(item.target))}
+    sitewide = any(item.kind in SITEWIDE_KINDS for item in items)
+    categories = [words for c in categories_from_factbase(fb) if (words := tokens(c))]
+    page_words = {p.url: set().union(*(tokens(f) for f in (p.title or "", *p.h1))) for p in fb.pages}
+    question_pages: dict[str, list[str]] = {}
+    for no in run.unprompted:
+        in_question = tokens(run.prompts[no]["text"])
+        mine = [words for words in categories if words <= in_question]
+        question_pages[no] = [url for url, words in page_words.items() if any(c <= words for c in mine)]
+    treated, control, pages = P.split_questions(question_pages, set(), changed)
+    if treated:
+        return Groups(treated=treated, control=control, sitewide=sitewide, basis="by_page", pages=pages)
+    if not categories:
+        why = "网站上没有读到品类词,分不出哪道题对应哪个页面"
+    elif not changed:
+        why = "这批改动里没有落在具体页面上的(都是全站性的,或者要你自己定怎么改的)"
+    else:
+        why = "没有一道题对得上被改的页面"
+    return Groups(treated=run.unprompted, control=[], sitewide=True, basis="all_unprompted",
+                  notes=[f"{why}。下面列的是全部不点名品牌的题前后两次的数,不是某个页面改动的效果。"])
+
+
 def _per_question(leg: Leg, metric: str) -> dict[str, tuple[int, int]]:
     """每道题:(命中几次, 判得出来的有几次)。只算成功的回答。"""
     out: dict[str, tuple[int, int]] = {}
@@ -196,20 +252,25 @@ def _pooled(data: LegData, ids: list[str]) -> dict[str, list[int]]:
 
 def compare_runs(before: ToastRun, after: ToastRun, *, treated: list[str] | None = None,
                  control: list[str] | None = None, deploy_day: str | None = None, sitewide: bool | None = None,
-                 defaults: Defaults | None = None) -> dict[str, Any]:
+                 groups: Groups | None = None, defaults: Defaults | None = None) -> dict[str, Any]:
     """比两单。返回一份可以直接存成 JSON 的结果。
 
-    treated / control:处理组、对照组的题号。都不给时,处理组 = 全部不点名品牌的题,没有对照组,按「全站改动」处理
-    (还没有「哪道题对应哪个改过的页面」的分法时只能这样;结果里的 basis 会写明)。
+    分组三种给法,先后是:groups(按读网站那次运行分出来的,见 groups_from_site_run)> treated / control(直接给题号)>
+    都不给(处理组 = 全部不点名品牌的题,没有对照组,按「全站改动」处理)。结果里的 basis 写明用的是哪一种。
     deploy_day:改动放上网站的日子(ISO 日期);不给就是还没部署。
     """
     defaults = defaults or load_defaults()
-    basis = "given" if treated is not None else "all_unprompted"
-    if treated is None:
-        treated, control, sitewide = before.unprompted, [], True
+    notes: list[str] = []
+    pages: dict[str, str] = {}
+    if groups is not None:
+        treated, control, sitewide, basis = groups.treated, groups.control, groups.sitewide, groups.basis
+        notes, pages = list(groups.notes), dict(groups.pages)
+    else:
+        basis = "given" if treated is not None else "all_unprompted"
+        if treated is None:
+            treated, control, sitewide = before.unprompted, [], True
     control = control or []
     sitewide = bool(sitewide)
-    notes: list[str] = []
     shared = [key for key in before.legs if key in after.legs]
     for key in before.legs.keys() - after.legs.keys():
         notes.append(f"{before.legs[key].ai}:改之前测了,再测里没有这个型号,比不了。")
@@ -237,7 +298,7 @@ def compare_runs(before: ToastRun, after: ToastRun, *, treated: list[str] | None
         "before": {"file": Path(before.path).name, "day": before.day, "questions": len(before.prompts)},
         "after": {"file": Path(after.path).name, "day": after.day, "questions": len(after.prompts)},
         "deploy_day": deploy_day,
-        "groups": {"basis": basis, "treated": treated, "control": control, "sitewide": sitewide},
+        "groups": {"basis": basis, "treated": treated, "control": control, "sitewide": sitewide, "pages": pages},
         "noise": "none",  # 这套测法上还没有波动数据:只列数字,不判变没变
         "legs": legs, "notes": notes, "errors": errors,
     }

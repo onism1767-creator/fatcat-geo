@@ -80,7 +80,9 @@ def _parser() -> argparse.ArgumentParser:
     cmp_toast.add_argument("--before", type=Path, required=True, help="改之前那一单的下载包(zip 或解开的文件夹,只读)")
     cmp_toast.add_argument("--after", type=Path, required=True, help="再测那一单的下载包(只读)")
     cmp_toast.add_argument("--deployed", help="改动放上网站的日子(如 2026-11-25);不给就当还没部署")
-    cmp_toast.add_argument("--treated", help="处理组的题号,逗号隔开;不给就用全部不点名品牌的题")
+    cmp_toast.add_argument("--run", type=Path,
+                           help="读网站那次运行的文件夹:按「哪道题对应哪个改过的页面」分处理组和对照组;分不出来时退回全部不点名的题并说明")
+    cmp_toast.add_argument("--treated", help="处理组的题号,逗号隔开(没给 --run 时用);不给就用全部不点名品牌的题")
     cmp_toast.add_argument("--control", default="", help="对照组的题号,逗号隔开(给了 --treated 才有用)")
     cmp_toast.add_argument("--sitewide", action="store_true", help="这批改动里有全站性的改动(给了 --treated 才有用)")
     cmp_toast.add_argument("--json", type=Path, help="把完整结果存成这个新文件(已存在就不写)")
@@ -180,8 +182,10 @@ def _compare_toast(args) -> int:
     ids = lambda text: [x.strip() for x in text.split(",") if x.strip()]  # noqa: E731
     if args.deployed:
         date.fromisoformat(args.deployed)  # 写错了在这里就报(ValueError),不带着错日期往下算
+    before = toast.load_run(args.before)
     result = toast.compare_runs(
-        toast.load_run(args.before), toast.load_run(args.after), deploy_day=args.deployed or None,
+        before, toast.load_run(args.after), deploy_day=args.deployed or None,
+        groups=toast.groups_from_site_run(args.run, before) if args.run else None,
         treated=ids(args.treated) if args.treated else None, control=ids(args.control), sitewide=args.sitewide)
     for line in toast.summary_lines(result):
         print(line)

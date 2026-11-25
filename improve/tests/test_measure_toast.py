@@ -10,10 +10,12 @@ import json
 import pytest
 
 from butter.cli import main
+from butter.contracts import ChangeItem, ChangePackage
 from butter.measure import plan as P
 from butter.measure import toast
 from butter.sources import SourceFileError
 
+from conftest import NOW, SITE
 from test_toast_export import make_zip
 
 AIS = (("alpha_search", "alpha-1", "Alpha API · alpha-1"), ("beta_search", "beta-2", "Beta API · beta-2"))
@@ -109,7 +111,7 @@ def test_before_and_after_are_listed_but_not_judged(tmp_path):
         cited={("alpha_search", 1): [True, True, True]}))
     result = toast.compare_runs(toast.load_run(before), toast.load_run(after), deploy_day="2026-11-22")
     assert result["groups"] == {"basis": "all_unprompted", "treated": ["1", "2", "3", "4", "5", "6"], "control": [],
-                                "sitewide": True}
+                                "sitewide": True, "pages": {}}
     assert result["noise"] == "none" and result["errors"] == [] and result["notes"] == []
     assert [(x["ai"], x["metric"]) for x in result["legs"]] == [
         ("Alpha API · alpha-1", "mention"), ("Alpha API · alpha-1", "citation"),
@@ -175,7 +177,8 @@ def test_given_groups_are_used_as_given(tmp_path):
     base = toast.load_run(export(tmp_path, "a.zip", responses("2026-11-20")))
     later = toast.load_run(export(tmp_path, "b.zip", responses("2026-12-10")))
     result = toast.compare_runs(base, later, deploy_day="2026-11-22", treated=["1", "2"], control=["3", "4"])
-    assert result["groups"] == {"basis": "given", "treated": ["1", "2"], "control": ["3", "4"], "sitewide": False}
+    assert result["groups"] == {"basis": "given", "treated": ["1", "2"], "control": ["3", "4"], "sitewide": False,
+                                "pages": {}}
     assert result["legs"][0]["label"] == "not_comparable" and "少于" in result["legs"][0]["reason"]  # 处理组不够 5 题
 
 
@@ -202,3 +205,74 @@ def test_command_line_writes_the_result_once(tmp_path, capsys):
     assert main(args) == 1                                             # 已经有了就不覆盖
     assert main(["compare-toast", "--before", str(before), "--after", str(after), "--deployed", "not-a-day"]) == 1
     assert main(["compare-toast", "--before", str(tmp_path / "x.zip"), "--after", str(after)]) == 1
+
+
+# ── 在统一的题目上分处理组、对照组 ─────────────────────────────────────
+
+def site_run(tmp_path, acme_factbase, *, categories, items):
+    """一个读网站的运行文件夹:事实库(品类词换成给定的)+ 改动包清单。"""
+    doc = json.loads(acme_factbase.model_dump_json())
+    like = doc["entity"]["name"]["values"][0]
+    doc["entity"]["category"]["values"] = [like | {"value": c} for c in categories]
+    for product in doc["products"]:
+        product["category"]["values"] = []
+    run_dir = tmp_path / "site-run"
+    (run_dir / "change-package").mkdir(parents=True, exist_ok=True)
+    (run_dir / "factbase.json").write_text(json.dumps(doc, ensure_ascii=False), encoding="utf-8")
+    package = ChangePackage(site_url=SITE, run_id="test-run", generated_at=NOW, items=[
+        ChangeItem(item_id=f"i{n}", kind=kind, entry_id="EVIDENCE_STRUCT_V1", action=action, target=target,
+                   rationale="r", validation_state="假设") for n, (kind, action, target) in enumerate(items)])
+    (run_dir / "change-package" / "manifest.json").write_text(package.model_dump_json(), encoding="utf-8")
+    return run_dir
+
+
+TEXTS = {1: "which stovetop kettles are worth buying", 2: "is a classic kettle better than an electric one",
+         3: "what should I cook tonight"}
+CLASSIC = f"{SITE}products/classic"
+
+
+def test_questions_are_grouped_by_the_page_they_belong_to(tmp_path, acme_factbase):
+    base = toast.load_run(export(tmp_path, "a.zip", responses("2026-11-20"), texts=TEXTS))
+    later = toast.load_run(export(tmp_path, "b.zip", responses("2026-12-10"), texts=TEXTS))
+    run_dir = site_run(tmp_path, acme_factbase, categories=["stovetop kettles", "classic kettle"],
+                       items=[("jsonld_product", "add", f"{CLASSIC}:<head>"), ("fact_block", "none", f"{SITE}about")])
+    groups = toast.groups_from_site_run(run_dir, base)
+    # 题 2 说的是 classic kettle,那一页改了 → 处理组;题 1 说的是 stovetop kettles,对上的首页没改 → 对照组;
+    # 题 3 对不上任何页面、题 7–8 点名问品牌 → 只作背景
+    assert (groups.basis, groups.treated, groups.control, groups.sitewide) == ("by_page", ["2"], ["1"], False)
+    assert groups.pages == {"1": SITE, "2": CLASSIC} and groups.notes == []
+    result = toast.compare_runs(base, later, deploy_day="2026-11-22", groups=groups)
+    assert result["groups"]["basis"] == "by_page" and result["groups"]["pages"]["2"] == CLASSIC
+    leg = result["legs"][0]
+    assert (leg["label"], leg["counts"]["pre"]) == ("not_comparable", [0, 3]) and "处理组只有 1 题" in leg["reason"]
+
+
+def test_when_no_question_fits_a_changed_page_it_says_so_and_lists_totals(tmp_path, acme_factbase):
+    base = toast.load_run(export(tmp_path, "a.zip", responses("2026-11-20"), texts=TEXTS))
+    everything = ["1", "2", "3", "4", "5", "6"]
+    sitewide_only = site_run(tmp_path, acme_factbase, categories=["classic kettle"],
+                             items=[("robots", "replace", "/robots.txt(站点根目录)")])
+    groups = toast.groups_from_site_run(sitewide_only, base)
+    assert (groups.basis, groups.treated, groups.control, groups.sitewide) == ("all_unprompted", everything, [], True)
+    assert "没有落在具体页面上的" in groups.notes[0] and "不是某个页面改动的效果" in groups.notes[0]
+    no_words = site_run(tmp_path, acme_factbase, categories=[], items=[("jsonld_product", "add", f"{CLASSIC}:<head>")])
+    assert "没有读到品类词" in toast.groups_from_site_run(no_words, base).notes[0]
+    elsewhere = site_run(tmp_path, acme_factbase, categories=["stovetop kettles"],
+                         items=[("jsonld_product", "add", f"{CLASSIC}:<head>")])
+    assert "没有一道题对得上被改的页面" in toast.groups_from_site_run(elsewhere, base).notes[0]
+    result = toast.compare_runs(base, base, deploy_day="2026-11-20", groups=toast.groups_from_site_run(elsewhere, base))
+    assert result["notes"] and result["groups"]["treated"] == everything
+    with pytest.raises(SourceFileError, match="读不了"):
+        toast.groups_from_site_run(tmp_path / "no-such-run", base)
+
+
+def test_command_line_takes_the_site_run(tmp_path, acme_factbase, capsys):
+    before = export(tmp_path, "a.zip", responses("2026-11-20"), texts=TEXTS)
+    after = export(tmp_path, "b.zip", responses("2026-12-10"), texts=TEXTS)
+    run_dir = site_run(tmp_path, acme_factbase, categories=["classic kettle"],
+                       items=[("jsonld_product", "add", f"{CLASSIC}:<head>")])
+    out = tmp_path / "by-page.json"
+    assert main(["compare-toast", "--before", str(before), "--after", str(after), "--deployed", "2026-11-22",
+                 "--run", str(run_dir), "--json", str(out)]) == 0
+    saved = json.loads(out.read_text(encoding="utf-8"))
+    assert saved["groups"]["basis"] == "by_page" and saved["groups"]["treated"] == ["2"]
