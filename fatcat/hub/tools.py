@@ -161,7 +161,23 @@ class _Detached:
         return _exit_code(self.pid)
 
 
+def nobody_listening(url: str, seconds: float = 0.5) -> bool:
+    """本机这个端口是不是没人在听。只对 127.0.0.1 的地址下结论,别的地址一律返回 False(网络慢不等于没开)。
+
+    为什么要先敲一下门:Windows 上连一个没人听的本机端口,要等两秒左右才回「拒绝」。页面每打开一次都要问
+    一遍测量工具在不在,它没开的时候每一页就都慢两秒。有人在听的本机端口几毫秒内就接上,所以半秒够判断。
+    """
+    parts = urlsplit(url)
+    if parts.hostname != "127.0.0.1":
+        return False
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as probe:
+        probe.settimeout(seconds)
+        return probe.connect_ex(("127.0.0.1", parts.port or 80)) != 0
+
+
 def _alive(url: str) -> bool:
+    if nobody_listening(url):
+        return False
     try:
         return httpx.get(url + "/", timeout=3.0).status_code == 200
     except httpx.HTTPError:

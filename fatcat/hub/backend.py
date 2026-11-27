@@ -15,7 +15,7 @@ from typing import Any
 
 import httpx
 
-from fatcat.hub.tools import RUNNING, MeasureTool
+from fatcat.hub.tools import RUNNING, MeasureTool, nobody_listening
 from fatcat.keys import KeyStore
 from fatcat.modules import Module, ModuleError
 from fatcat.project import Project
@@ -100,6 +100,8 @@ class Backend:
         return toast.load_view(self.modules["toast"], job_id)
 
     def toast_alive(self) -> bool:
+        if nobody_listening(self.toast_url):
+            return False
         try:
             return httpx.get(self.toast_url + "/", timeout=3.0).status_code == 200
         except httpx.HTTPError:

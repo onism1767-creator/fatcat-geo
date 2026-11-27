@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 
 from fatcat import project as projects
 from fatcat.hub.backend import Backend, NeedsConfirm
-from fatcat.hub.tools import FAILED, RUNNING, STOPPED, MeasureTool
+from fatcat.hub.tools import FAILED, RUNNING, STOPPED, MeasureTool, nobody_listening
 from fatcat.keys import FROM_FILE, FROM_PAGE, KeyStore
 from fatcat.modules import Module, ModuleError
 from tests.test_hub import FakeBackend, _create, backend, client  # noqa: F401  (client、backend 两个夹具从 conftest 以外借来)  # noqa: F401
@@ -274,3 +274,18 @@ def test_stopping_with_a_draft_waiting_asks_again_and_then_drops_the_link(
     backend.stop_error = ModuleError("测量工具正在测量(run1)")
     refused = client.post("/tools/measure/stop", data={"back": project_id})
     assert refused.status_code == 409 and "正在测量" in refused.text and "Stop it anyway" not in refused.text
+
+
+def test_a_closed_local_port_is_known_at_once_and_other_hosts_are_never_guessed() -> None:
+    import socket
+    import time
+
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as server:
+        server.bind(("127.0.0.1", 0))
+        server.listen(1)
+        port = server.getsockname()[1]
+        assert nobody_listening(f"http://127.0.0.1:{port}") is False  # 有人在听:不拦,接着正经问一遍
+    started = time.monotonic()
+    assert nobody_listening(f"http://127.0.0.1:{port}") is True      # 关了:半秒内就知道,不等系统那两秒
+    assert time.monotonic() - started < 1.5
+    assert nobody_listening("http://example.invalid:8600") is False    # 不是本机:不下结论,也不去连
