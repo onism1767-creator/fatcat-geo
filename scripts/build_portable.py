@@ -275,7 +275,8 @@ def stage_launchers(pg_version: str) -> None:
     (STAGE / "Stop-FatCat-GEO.bat").write_bytes(STOP_BAT.encode("ascii"))
     words = {"version": version(), "port": DB_PORT, "pyver": PYVER, "pgver": pg_version}
     (STAGE / "README-English.txt").write_text(README_EN.format(**words), encoding="utf-8-sig", newline="\r\n")
-    (STAGE / "README-简体中文.txt").write_text(README_ZH.format(**words), encoding="utf-8-sig", newline="\r\n")
+    # 中文说明的文件名也只用英文字母:有的解压工具会把中文文件名解成乱码
+    (STAGE / "README-zh.txt").write_text(README_ZH.format(**words), encoding="utf-8-sig", newline="\r\n")
     for name in ("LICENSE", "CHANGELOG.md"):
         shutil.copy2(ROOT / name, STAGE / name)
 

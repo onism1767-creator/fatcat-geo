@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+import time
 from pathlib import Path
 
 from fatcat import models
@@ -130,6 +131,11 @@ def _stop(args: argparse.Namespace) -> int:
     hub = Backend(modules, state_dir=runs / ".tools")
     database = bundled_database(modules["toast"])
     tool = hub.tool_status()
+    for _ in range(8):  # 测量工具刚应答的头半秒,入口可能还没来得及记下它的进程号:等一等再认,不急着说「不是这里启动的」
+        if tool["state"] != "running" or tool["ours"]:
+            break
+        time.sleep(0.5)
+        tool = hub.tool_status()
     if tool["state"] == "running":
         if not tool["ours"]:
             print("测量工具开着,但不是从这里启动的,这里不去关它。")
