@@ -284,8 +284,24 @@ def stage_launchers(pg_version: str) -> None:
 def precompile() -> None:
     """先把 .pyc 编好。入口每开一个页面都要另起几个 Python 进程,没有编好的要现编,慢好几秒。
     用「不核对」的 .pyc:解压以后文件时间会变,按时间核对的 .pyc 会全部作废。"""
+    # -s / -p:.pyc 里会记下源文件的完整路径。不改的话,打包这台电脑的用户名和文件夹名就跟着包发出去了;
+    # 这里把打包目录那一段去掉,只留「FatCat-GEO\...」这样的相对写法。
     run(str(STAGE / "python" / "python.exe"), "-m", "compileall", "-q", "--invalidation-mode", "unchecked-hash",
-        str(STAGE / "lib"), str(STAGE / "app"))
+        "-s", str(STAGE), "-p", NAME, str(STAGE / "lib"), str(STAGE / "app"))
+
+
+def personal_paths() -> list[str]:
+    """打好的文件夹里,哪些文件带着这台电脑的用户目录(用户名)。应当一个都没有。"""
+    home = Path.home()
+    needles = {str(home).encode("utf-8").lower(), home.as_posix().encode("utf-8").lower(),
+               str(home).replace("\\", "\\\\").encode("utf-8").lower()}
+    found = []
+    for path in STAGE.rglob("*"):
+        if path.is_file():
+            data = path.read_bytes().lower()
+            if any(needle in data for needle in needles):
+                found.append(str(path.relative_to(STAGE)))
+    return found
 
 
 def pack() -> Path:
@@ -323,6 +339,10 @@ def main(argv: list[str] | None = None) -> int:
     stage_launchers(pg_version)
     print("== 预先编好 .pyc", flush=True)
     precompile()
+    leaked = personal_paths()
+    if leaked:
+        raise SystemExit(f"打好的文件夹里有 {len(leaked)} 个文件带着这台电脑的用户目录,不能发出去。比如:{leaked[0]}")
+    print("== 查过了:没有文件带着这台电脑的用户目录", flush=True)
     print("== 压成 zip", flush=True)
     out = pack()
     digest = hashlib.sha256(out.read_bytes()).hexdigest()
