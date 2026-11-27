@@ -92,11 +92,14 @@ class LocalPostgres:
     def stop(self, log_dir: Path) -> str:
         """停掉这个数据目录的数据库。返回一句结果。别的数据库不动。"""
         if not self.initialised or not (self.data_dir / "postmaster.pid").is_file():
-            return "这个包自己的数据库本来就没有开着。"
+            return "The database was not running. / 这个包自己的数据库本来就没有开着。"
         log_dir.mkdir(parents=True, exist_ok=True)
         try:
             code = self._run("pg_ctl", "-D", str(self.data_dir), "-m", "fast", "-w", "-t", "60", "stop",
                              log=log_dir / "database.log", timeout=90)
         except (OSError, subprocess.SubprocessError) as exc:
-            return f"停数据库的时候出错了:{type(exc).__name__}。"
-        return "数据库停了。" if code == 0 else f"数据库没有停下来(退出码 {code}),原因记在 {log_dir / 'database.log'}。"
+            return f"Could not stop the database ({type(exc).__name__}). / 停数据库的时候出错了。"
+        if code == 0:
+            return "Database stopped. / 数据库停了。"
+        return (f"The database did not stop (exit code {code}); see {log_dir / 'database.log'}. / "
+                f"数据库没有停下来(退出码 {code}),原因记在 {log_dir / 'database.log'}。")

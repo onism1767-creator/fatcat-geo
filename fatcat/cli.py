@@ -138,16 +138,18 @@ def _stop(args: argparse.Namespace) -> int:
         tool = hub.tool_status()
     if tool["state"] == "running":
         if not tool["ours"]:
+            print("The measurement tool is running but was not started from here, so it is left alone.")
             print("测量工具开着,但不是从这里启动的,这里不去关它。")
             return 1
         try:
             hub.tool_stop([], force=True)  # 草稿丢不丢由用户自己定:这是他明说要停的
-            print("测量工具停了。")
+            print("Measurement tool stopped. / 测量工具停了。")
         except ModuleError as exc:
+            print("The measurement tool was NOT stopped. A running measurement is never interrupted; the reason is below.")
             print(f"测量工具没有停:{exc}")
             return 1
     else:
-        print("测量工具本来就没有开着。")
+        print("The measurement tool was not running. / 测量工具本来就没有开着。")
     if database is not None:
         print(database.stop(runs / ".tools"))
     return 0

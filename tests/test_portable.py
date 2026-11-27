@@ -42,7 +42,7 @@ def test_missing_programs_are_reported_not_guessed(tmp_path: Path) -> None:
     problem = database.ensure(tmp_path / "logs")
     assert problem is not None and "没有找到数据库的程序" in problem and "重新解压" in problem
     assert not (tmp_path / "data" / "pg").exists()  # 没有程序就什么都不建
-    assert database.stop(tmp_path / "logs") == "这个包自己的数据库本来就没有开着。"
+    assert "was not running" in database.stop(tmp_path / "logs")  # 这个窗口里的话中英都说
     assert database.initialised is False and database.ours_running is False
 
 
