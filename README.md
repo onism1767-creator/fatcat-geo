@@ -1,47 +1,65 @@
-# FatCat GEO Full Toolkit (fatcat-geo)
+# FatCat GEO Full Toolkit
 
 English · [中文](README.zh.md)
 
-One entry point over the three parts of FatCat GEO: measure how AI systems answer questions about your
-brand, diagnose where you drop out, improve your site, and measure again. One list of measured AI models,
-one guided flow, one long report.
+Measure how AI systems answer questions about your brand, see where you drop out, improve your site, and
+measure again. One guided flow, one list of measured AI models, one long report.
 
 It runs on your own computer with your own AI keys. Nothing is sent to a FatCat server.
 
-| Looking for | Where |
+## What is in this repository
+
+| Folder | What it does |
 |---|---|
-| Why the parts are joined this way | [docs/整合方案.md](docs/整合方案.md) (Chinese) |
-| What is done and what is next | [docs/待办.md](docs/待办.md) (Chinese) |
-| Problems found along the way | [docs/错误日志.md](docs/错误日志.md) (Chinese) |
-| The measured AI models (the only list) | [catalog/models.json](catalog/models.json) |
+| `fatcat/` | The entry page: fill in your brand once and follow six steps; builds the long report |
+| `measure/` | Asks the AIs your questions, judges the answers and diagnoses where you drop out |
+| `improve/` | Reads your site, checks its content, prepares a change package, compares before and after |
+| `catalog/models.json` | The measured AI models (the only list) |
 
-## Status
+## The quick way: portable package for Windows
 
-The three parts still live in their own folders next to this one; `modules.toml` says where. This project
-reads their results and drives them. Merging them into this repository is in progress.
+Download `FatCat-GEO-<version>-windows-x64.zip` from the
+[Releases page](https://github.com/onism1767-creator/fatcat-geo/releases), unzip it and double-click
+`FatCat-GEO.bat`. Python and the database are inside the folder; there is nothing to install.
+The package has no headless browser, so a few cited pages that only show their content after running
+scripts are recorded as could not be read. Everything else is the same.
+
+The rest of this page is for installing from source.
+
+## Before you install
+
+- Windows 10 or 11.
+- Python 3.12 and [uv](https://docs.astral.sh/uv/).
+- PostgreSQL, installed with the Windows installer from [postgresql.org](https://www.postgresql.org/download/windows/)
+  using the default options. The measurement results are stored in it, on your computer. The entry page
+  creates and starts the database it needs the first time you start the measurement tool.
+- An API key for at least one of: Anthropic, OpenAI, Google Gemini, xAI, Perplexity.
 
 ## Install and run
 
-You need Python 3.12 and [uv](https://docs.astral.sh/uv/).
+```
+uv sync --all-packages
+uv run python -m playwright install chromium      once; used to read pages that only render in a browser
+uv run python -m fatcat serve                     open http://127.0.0.1:8500/ (this computer only)
+```
+
+Other commands:
 
 ```
-uv sync
-.venv\Scripts\python -m fatcat serve             open the entry page at http://127.0.0.1:8500/ (this computer only)
-.venv\Scripts\python -m fatcat sources           list results that can go into a report
-.venv\Scripts\python -m fatcat report --toast-job <id> --butter-run <folder> --weblite <bundle.zip> --lang en --out report.html
-.venv\Scripts\python -m fatcat models sync       read the measured models from the measurement tool into catalog/models.json
-.venv\Scripts\python -m fatcat models check      check the model list; exit code 1 when it does not match
-.venv\Scripts\python -m fatcat evidence check    check that the copied evidence table still matches the original
-.venv\Scripts\python scripts\check.py            pre-release checks: lint, tests, both checks, secret scan
-.venv\Scripts\python -m pytest -q                tests; offline, free
+uv run python -m fatcat sources                   list results that can go into a report
+uv run python -m fatcat report --measure-job <id> --improve-run <folder> --weblite <bundle.zip> --lang en --out report.html
+uv run python -m fatcat models check              check the model list; exit code 1 when it does not match
+uv run python -m fatcat evidence check            check that the copied evidence table still matches the original
+uv run python scripts/check.py                    lint, tests, both checks, secret scan
+uv run python scripts/build_portable.py           build the portable package (Windows; needs PostgreSQL installed to copy its programs from)
 ```
 
 ## The six steps on the entry page
 
-1. Quick Check (optional): add the evidence bundle downloaded from the website.
+1. Quick Check (optional): add the evidence bundle downloaded from the FatCat GEO website.
 2. Brand details: filled in once.
-3. Measure and diagnose: press "Start the measurement tool" (the local database it needs starts with it),
-   then "Open the measurement tool". It shows a full cost estimate before any measuring starts.
+3. Measure and diagnose: press "Start the measurement tool", then "Open the measurement tool". It shows a
+   full cost estimate before any measuring starts.
 4. Improve: reads your site (no AI, free) and prepares the facts it found, content checks and a change package.
 5. Put the changes live, then measure again: record the day the changes went live and press "Measure again
    now". **This starts spending at once** (it repeats the earlier run; there is no confirmation page); the
@@ -64,6 +82,8 @@ uv sync
   providers' chat products.
 - Before/after numbers are listed without a verdict: how much these models move on their own has not been
   measured for this method yet.
+- `improve/` also has pages of its own with an older before/after measurement. That one needs a separate
+  sampling tool which is not part of this repository; use step 5 on the entry page instead.
 - Nothing here promises an effect. Whether a change helped is only known after measuring again.
 
 ## License

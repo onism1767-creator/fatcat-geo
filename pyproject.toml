@@ -46,3 +46,7 @@ select = ["E", "F", "W", "I", "B", "UP"]
 # B008:FastAPI 的 File(...)、Form(...) 就是写在参数默认值里的。
 # E501:中文字符按两格算,一行中文注释或界面文字很容易超 120;行宽靠人看,不让它挡检查。
 ignore = ["B008", "E501"]
+
+# 一份锁文件、一条命令装完:uv sync --all-packages
+[tool.uv.workspace]
+members = ["measure", "improve"]

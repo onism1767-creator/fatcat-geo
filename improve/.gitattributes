@@ -1,0 +1,7 @@
+# 改进这一部分的文本统一 LF(入库与检出都是 LF)。原仓库在根目录有同样的规矩,并进来时只带了代码文件夹,这里补上。
+# 测试用的网页样本靠它保持原样:按 CRLF 检出的话,「存下再读回」的快照就和原来的对不上。
+* text=auto eol=lf
+*.jsonl -text
+*.zip binary
+*.png binary
+*.jpg binary

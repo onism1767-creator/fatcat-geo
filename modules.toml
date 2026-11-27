@@ -1,26 +1,14 @@
-# 三个项目和 Web Lite 在这台电脑上的位置,相对本文件所在的文件夹。
-# 仓库合并之前,统一入口靠这张表找到它们;合并之后这张表删掉。
-# python 是各项目自己的解释器(相对该项目的文件夹);留空 = 它没有自己的虚拟环境,用系统里的 python。
+# 各部分在这个仓库里的位置,相对本文件所在的文件夹。
+# python 是跑它用的解释器(相对该部分的文件夹);各部分共用仓库根的那一个环境(uv sync --all-packages)。
 # url 是它的本机网页地址。
-# 这里只读这些项目,不往里写任何东西。
 
 [modules.toast]
-role = "问 AI、判定、诊断(基线 15.2 与 15.3)"
-path = "../../你的网页被增强了快上"
-python = ".venv/Scripts/python.exe"
+role = "measure: ask the AIs, judge the answers, diagnose"
+path = "measure"
+python = "../.venv/Scripts/python.exe"
 url = "http://127.0.0.1:8600"
 
-[modules.potato]
-role = "旧的测量引擎;E0 实验和 Butter 的再测现在还跑在它上面"
-path = "../../AI checker"
-python = ".venv/Scripts/python.exe"
-
 [modules.butter]
-role = "改进:读网站事实、查问题、出改动包、改前改后对比"
-path = "../../有人对GEO开挂啊/butter"
-python = ""
-
-[modules.weblite]
-role = "网站上的快速检查"
-path = "../web-lite"
-python = ".venv/Scripts/python.exe"
+role = "improve: read the site, check content, prepare changes, compare before and after"
+path = "improve"
+python = "../.venv/Scripts/python.exe"
