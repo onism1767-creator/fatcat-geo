@@ -1,6 +1,6 @@
 [project]
 name = "fatcat-geo"
-version = "0.1.0"
+version = "0.1.1"
 description = "FatCat GEO Full Toolkit: one entry point over Measure, Diagnose and Improve."
 readme = "README.md"
 license = "MIT"

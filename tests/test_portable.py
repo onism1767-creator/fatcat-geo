@@ -31,6 +31,12 @@ def test_a_package_with_its_own_database_is_recognised(tmp_path: Path) -> None:
     assert bundled_database(load_modules(plain)["toast"]) is None
 
 
+def test_the_package_reports_the_same_version_as_pyproject() -> None:
+    import fatcat
+
+    assert fatcat.__version__ == build.version()  # 包名、说明、发布页上的版本都从 pyproject.toml 来
+
+
 def test_the_packaged_database_keeps_off_the_usual_ports() -> None:
     assert build.DB_PORT not in (5432, 5433)  # 这台电脑上另装着 PostgreSQL 时互不相干
     assert f":{build.DB_PORT}/geo_toast" in build.MODULES_TOML

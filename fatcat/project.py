@@ -18,7 +18,7 @@ from fatcat.modules import ModuleError
 _ID = re.compile(r"^[a-z0-9][a-z0-9-]{2,80}$")
 LOCALES = ("en-US", "zh-CN")
 # 改项目文件一律在这把锁里「重读、改、写」。网页的几个操作和后台的读网站会同时改同一个文件,
-# 各自拿着先前读到的整份内容写回去,后写的就把先写的盖掉(2026-11-24 真跑时丢过一次证据包,见错误日志)。
+# 各自拿着先前读到的整份内容写回去,后写的就把先写的盖掉(2026-11-24 真跑时丢过一次证据包)。
 LOCK = threading.RLock()
 _FIXED = ("id", "created_at")
 
