@@ -1,0 +1,254 @@
+"""L1 适配器契约:SurfaceAdapter 接口 + CapabilityRegistry + 三类契约异常。
+
+架构书第 6 章(接口)与第 13.1 节(异常契约)的代码形态,改动需评审。
+
+适配器只做两件事:把 AskRequest 翻译成该平台的调用;把平台返回翻译成
+SurfaceRun。不判定品牌提及、不算指标、不猜缺失字段、不自行重试。
+
+依赖说明:本模块只允许引用 engine.models 中的契约类型(第 6 章数据契约),
+不得引用 engine 的任何逻辑模块(scheduler / storage / detectors / metrics)。
+"""
+
+from __future__ import annotations
+
+from abc import ABC, abstractmethod
+from collections.abc import Iterable, Mapping
+from datetime import datetime
+
+from engine.models import ACCOUNT_ERROR_TYPES, AskRequest, FrozenModel, JsonValue, RunErrorType, SearchMode, SurfaceRun
+
+# ── 异常契约(13.1):适配器对外只允许抛以下三类 ─────────────────────────
+
+
+class AdapterError(Exception):
+    """Transient/Permanent 的公共基类,便于引擎统一捕获。
+
+    response_body:平台响应体,随失败 SurfaceRun 进 raw_payload 存档——失败不蒸发也包括失败的证据(13.1 增补)。
+    2xx 却报失败的整份存(与成功回答一样全量);HTTP 错误页只留头尾(防代理吐巨型网页)。
+
+    cost_usd:这次尝试已经花掉的钱(第二轮审核 26)。平台正常回了话、却在响应里报失败时,token 与检索费照样计了;
+    适配器按该家价目从响应里折算后带上,调度器记进失败行(或加到重试后成功的那一行),不让花费蒸发。"""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        http_status: int | None = None,
+        response_body: str | None = None,
+        cost_usd: float = 0.0,
+    ) -> None:
+        super().__init__(message)
+        self.http_status = http_status
+        self.response_body = response_body
+        self.cost_usd = cost_usd
+
+
+class AdapterTransientError(AdapterError):
+    """超时、限流、5xx。引擎按 13.2 重试;耗尽后落 outcome=TRANSIENT_FAILURE。
+
+    retry_after_s:平台 Retry-After 头要求的等待秒数(v0.4.26 C5)。适配器只把头翻译进来,
+    等不等、等多久、等不起怎么办,全归调度器(有界等待,单次上限见 SamplingPolicy.max_wait_s)。"""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        http_status: int | None = None,
+        response_body: str | None = None,
+        retry_after_s: float | None = None,
+        cost_usd: float = 0.0,
+    ) -> None:
+        super().__init__(message, http_status=http_status, response_body=response_body, cost_usd=cost_usd)
+        self.retry_after_s = retry_after_s
+
+
+class AdapterPermanentError(AdapterError):
+    """非法请求等永久性错误。不重试,落 outcome=PERMANENT_FAILURE 并告警。"""
+
+
+class AdapterAccountError(AdapterPermanentError):
+    """账户问题(v0.4.21;2026-10-29 细分五种):换 key(AUTH)、充值或调高上限(CREDIT)、地区不支持(REGION)、
+    账户或项目受限(RESTRICTED)、周期额度用完(QUOTA),见 engine.models.RunErrorType。
+    仍是永久类(不重试),但它不是对 surface 的观测——是我们这边没能发出观测。引擎另作处理:
+    照常落库(error_type 取 error_type 参数),不计入尝试数 / 失败率 / 熔断窗口,并立即停止整个
+    任务;任务页按五种代码分别解释(每种一句话、一个下一步,文案在 config/errors.yaml)。"""
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        error_type: RunErrorType,
+        http_status: int | None = None,
+        response_body: str | None = None,
+    ) -> None:
+        if error_type not in ACCOUNT_ERROR_TYPES:
+            raise ValueError(f"AdapterAccountError 只接受账户类 error_type,收到 {error_type!r}")
+        super().__init__(message, http_status=http_status, response_body=response_body)
+        self.error_type = error_type
+
+
+class CapabilityNotSupportedError(Exception):
+    """请求了未声明的能力。这是编程错误而非运行时波动:直接上抛,
+    任务失败,不落 SurfaceRun。故意不继承 AdapterError,
+    避免被引擎的重试/落库路径捕获吞掉(铁律:显式报错,不静默降级)。"""
+
+
+# ── 能力声明(6.1)────────────────────────────────────────────────────
+
+
+class CapabilityRegistry(FrozenModel):
+    """每个适配器必须声明的能力集合。引擎按能力调度;
+    声明不支持的能力被请求时显式报错,禁止静默降级。"""
+
+    supports_query_trace: bool = False
+    supports_citations: bool = False
+    supports_region: bool = False
+    supports_forced_search: bool = False
+    supports_search_disabled: bool = False
+    # 该仪器给的引用是平台跳转链,链接主机名是跳转服务不是来源:适配器照旧只翻译(domain = 链接主机名),
+    # 引擎采样后跟随跳转还原终点再判(v0.4.26 S4,C2)
+    citation_urls_redirect: bool = False
+
+    def require(self, capability: str) -> None:
+        if capability not in type(self).model_fields:
+            raise CapabilityNotSupportedError(f"未知能力名: {capability!r}")
+        if not getattr(self, capability):
+            raise CapabilityNotSupportedError(f"该 surface 未声明能力: {capability}")
+
+    def require_search_mode(self, mode: SearchMode) -> None:
+        """校验请求的检索模式是否在声明能力内。"""
+        if mode is SearchMode.FORCED_SEARCH:
+            self.require("supports_forced_search")
+        elif mode is SearchMode.SEARCH_DISABLED:
+            self.require("supports_search_disabled")
+
+    def require_request(self, request: AskRequest) -> None:
+        """适配器在 ask() 入口调用:检索模式与地区都要在声明能力内。闭卷(search_disabled)钉不了地区——
+        地区参数随检索工具一起下发,该模式不带工具(四家一样,原来两家各写一份)。"""
+        self.require_search_mode(request.search_mode)
+        if request.region is None:
+            return
+        self.require("supports_region")
+        if request.search_mode is SearchMode.SEARCH_DISABLED:
+            raise CapabilityNotSupportedError("search_disabled 模式无法钉地区:地区参数随检索工具下发,该模式不带工具")
+
+
+# ── SurfaceMeta 与接口(6.1)──────────────────────────────────────────
+
+
+class BillingNote(FrozenModel):
+    """这家的记账规则改过一次(配置资产,由适配器声明):since 之前建的单,它的费用是按旧规则记的。
+    用户 2026-11-03 定(Q8):已落库的 cost_usd 不改(原始层只追加),旧单的报告注明;文案 zh / en 两套,
+    报告层按界面语言通用渲染(report/web.py),不认厂商名。"""
+
+    since: datetime
+    zh: str
+    en: str
+
+
+class MethodNote(FrozenModel):
+    """这台仪器测的东西和它的产品界面有一处读报告的人该知道的差别(配置资产,由适配器声明;例:产品界面会搜的某一路来源,
+    接口这边没开)。一句人话,zh / en 两套;生成报告时冻进采样说明(以后适配器改了,旧报告照旧这么写),
+    报告层按界面语言原样列在「这次是怎么测的」里,不认厂商名(用户 2026-11-18 定)。
+    models:只对这几个型号说(这一单测了其中任何一个才写);空 = 这台仪器测了就写。某个型号自己的状况
+    (例:它通常不在回答里标出处,引用看不到)用它(用户 2026-11-18:「加一行提示解释一下这个单独型号的状态」)。"""
+
+    zh: str
+    en: str
+    models: list[str] = []
+
+
+class SurfaceMeta(FrozenModel):
+    provider: str
+    surface: str
+    display_name: str  # 确认页等处的产品名(v0.4.14);厂商名只许出现在适配器与配置
+    # 报告里的名字写「接口 · 型号」(产品文档 P4,用户定;S8.1):接口名由适配器声明,如 "Anthropic Messages API"
+    api_name: str
+    models: list[str]
+    # 只做裁判这类不联网小调用、不被测的型号(BR6):不进档位、不上确认页、不算报价覆盖。
+    # 声明在这里 = 适配器保证它能按 search_disabled 调(哪怕这台仪器的被测型号不能闭卷)。
+    helper_models: list[str] = []
+    # 型号 → 实际写字的是哪一家的型号(那一家适配器的 provider 名);不写 = 本家自己的型号。
+    # 有的接口是替别家型号套了一层(预设背后是别家的型号):挑裁判时按「谁写的」认是不是同一家
+    # (BR6;用户 2026-11-17 定)。键必须在 models / helper_models 里(加载器校验)。
+    made_by: dict[str, str] = {}
+    default_model: str
+    # 型号标记(配置资产,S9.0;用户定 2026-10-14):「消费端默认」= 该家聊天产品(免费版)界面默认用的型号;
+    # 「主力」= 消费端默认那款在该家最新一代里的同款(用户 2026-11-15 定「跟最新一代」;消费端默认已是最新一代的,
+    # 主力就是它自己)。沿革:10-14 是「最强」= Mythos 级 → 11-03 定 ③ 改「付费版默认」→ 11-15 改成现在这样;
+    # 11-20 起各家清单只留这两个(工程原则 9),旗舰款不再测。两个都必须在 models 里(加载器校验);
+    # 跟新的做法见 CLAUDE.md 工程原则 10。
+    # 来源与核对日期写在 models_checked,查不到官方说法的写明「待核对」,不猜(铁律 7)。
+    consumer_default_model: str
+    main_model: str
+    models_checked: str
+    capabilities: CapabilityRegistry
+    # 牌价(2026-11-03 成本调研②):型号 → 计费项 → 每单位美元;计费项的键和 usage_of 读出的用量一致,
+    # 费用 = Σ 用量 × 牌价(priced)。确认页给没实测过的型号估价就靠它:同家默认型号的用量 × 这个型号的牌价。
+    # 必须覆盖 models 与 helper_models 的每个型号(加载器校验);费用由平台自报的仪器也要列,预估按它算。
+    price_table: dict[str, dict[str, float]] = {}
+    # 单次调用期望成本,确认页预估用(v0.4.6;v0.4.19 起按型号报价):键 = models 里的每个型号
+    # (加载器强制全覆盖——型号是口径的一部分,各测各的,漏报一个预估就静默漏计)。
+    # 由适配器自行声明,单一真相源;口径二选一且须在适配器内注明——实测均值 或 推导上界。
+    # 真实计费仍以 SurfaceRun.cost_usd 为准。
+    est_cost_per_call_usd: dict[str, float]
+    # search_disabled 模式(检索依赖诊断闭卷腿)的单次期望成本(v0.4.7),同样按型号:
+    # 声明 supports_search_disabled 的适配器必须报价(加载器强制),否则为 None。
+    est_cost_per_call_search_disabled_usd: dict[str, float] | None = None
+    billing_notes: list[BillingNote] = []  # 记账规则改过的说明(Q8);没改过就空
+    method_notes: list[MethodNote] = []  # 测法上要告诉读者的差别(见 MethodNote);没有就空
+    # 这台仪器是另一台的「多开一个开关」的版本(用户 2026-11-20 定:某一路来源让用户自己勾):variant_of = 那一台的仪器名,
+    # variant_label = 确认页上那个勾选框旁边的话(zh / en;models 不用)。两台各是各的仪器:回答分开存、分开报、分开估价,
+    # 引擎与诊断层不知道它们有关系;只有确认页把它收在那一台下面当一个可勾的选项,勾上 = 测这一台、不测那一台。
+    variant_of: str | None = None
+    variant_label: MethodNote | None = None
+
+
+def known_model(requested: str | None, default: str, allowed: Iterable[str]) -> str:
+    """请求的型号(没给就用默认)必须在本仪器的清单里:清单与价目同步维护,清单外的型号算不出钱,不能带病跑。
+    四家适配器共用这一处(原来各写一份、两种措辞)。"""
+    model = requested or default
+    if model not in allowed:
+        raise AdapterPermanentError(f"未知模型 {model!r},本 surface 支持: {list(allowed)}")
+    return model
+
+
+def priced(prices: Mapping[str, float], usage: Mapping[str, float]) -> float:
+    """用量 × 牌价:各适配器算实际费用、确认页按用量形状估价,都是这一个公式。牌价里没有的计费项不计(不臆造)。"""
+    return sum(quantity * prices.get(key, 0.0) for key, quantity in usage.items())
+
+
+class SurfaceAdapter(ABC):
+    """统一适配器接口。实现者自查清单:
+    - ask() 入口先 require_search_mode,不支持即抛 CapabilityNotSupportedError;
+    - 平台原生错误只翻译为 AdapterTransientError / AdapterPermanentError;
+    - 整条不肯答的机器可读信号(如 stop_reason=refusal)翻译为 outcome=REFUSED 的
+      SurfaceRun 返回,不抛错;已给出部分正文、中途被内容过滤截断的仍是 SUCCESS(用户 2026-11-11 定);
+      从回答文本猜测"算不算拒答"属 L2 判定器,不做;
+    - raw_payload 全量存档;不可观测字段记 NOT_OBSERVABLE;
+    - 禁止 sleep/重试/退避(归引擎调度器)。
+    """
+
+    @abstractmethod
+    def meta(self) -> SurfaceMeta: ...
+
+    @abstractmethod
+    def ask(self, request: AskRequest) -> SurfaceRun: ...
+
+    @abstractmethod
+    def healthcheck(self) -> bool:
+        """key 有效性、配额可用性(最小请求,成本近零)。账户问题(key 无效 / 额度不足)直接抛 AdapterAccountError——
+        开跑前预检据此停单并说清是换 key 还是充值(S11.1);永久错误(HTTP 4xx:型号下线、接口地址没了)直接抛
+        AdapterPermanentError——重试没用,预检据此说要改适配器(PRECHECK_REJECTED,第三轮审核 A23);
+        其余问题(服务不可用、网络、限流)返回 False。
+        走 HTTP 的适配器用 adapters/http_support.HttpAdapter._probe,四家一样。"""
+
+    def usage_of(self, raw_payload: JsonValue) -> dict[str, float]:
+        """从原始存档里读出这次调用的计费用量(输入 / 输出 / 思考 token、搜了几次……),键与 meta().price_table 的计费项
+        一致;读不出就空。只翻译数字,不判定。真实适配器必须覆写(算费用与它共用一个解析);测试替身默认没有用量。
+        派生表 call_usage 存它,确认页按「用量 × 牌价」估价;老的回答能从 raw_payload 补出来(原始层不动)。"""
+        return {}
+
+    def close(self) -> None:  # noqa: B027 —— 刻意的可选钩子,不设为抽象方法
+        """释放底层连接。持有 httpx.Client 的适配器必须覆写;
+        默认无资源可释放(测试替身/模拟适配器无需实现)。"""

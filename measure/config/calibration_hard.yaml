@@ -1,0 +1,204 @@
+# 校准难题集(BR1;调研报告 docs/研究/品牌名识别-方法调研-2026-10-28.md 第 5.2 节)。
+# 这些不是用户的品牌,是专门挑的「难名字」:常用词、撞别家、中日韩越文字、带标点。答案由构造决定,不靠人工。
+# 只量判法会不会犯这类错,不是真实回答上错多少(真实底本要跑几单难品牌,BR3)。
+#
+# name / aliases:当成被测品牌的名字
+# skip_bases:这些真实品牌的回答可能真提到它(同品类),不拿来当底本
+# negatives:种类 → 塞进回答的写法,答案都是「没提到」
+# positives:种类 → 塞进回答的写法,答案都是「提到了」(防止修过头)
+# tone_language:声调有区别意义的语言(越南文按回答语言定口径,用户 2026-10-29 定 Q2)
+# category / peers:这个名字的品类和常见竞品,判定器用它们当线索(BR4);正例里没线索的句子算说不准,是设计如此
+# 韩文近形、日文近形、越南文声调、跨标点由程序生成(engine/hard_cases.py),不用写在这里。
+brands:
+  - name: "On"  # 不加引号 YAML 会读成布尔值 true
+    aliases: [On Running]
+    skip_bases: [始祖鸟]
+    category: running shoes
+    peers: [Hoka, Brooks]
+    negatives:
+      常用词:
+        - Turn on the heater before you leave.
+        - Focus on the basics first.
+        - On the other hand, prices vary by region.
+    positives:
+      语境里的品牌:
+        - Runners often compare Hoka, On and Brooks.
+        - On Running makes lightweight shoes.
+        - Hoka、On 和 Brooks 都是常见选择。
+
+  - name: Apple
+    category: phone 手机
+    negatives:
+      常用词:
+        - An apple a day keeps the doctor away.
+        - Apple pie is a classic dessert.
+      多尾巴撞别词:
+        - Fresh apples are on sale this week.
+    positives:
+      所有格:
+        - Apple's newest phone has a better camera.
+      语境里的品牌:
+        - Apple 的手机保值率比较高。
+
+  - name: Notion
+    category: workspace templates
+    negatives:
+      常用词:
+        - The notion that price equals quality is common.
+      多尾巴撞别词:
+        - Both notions are outdated now.
+    positives:
+      所有格:
+        - Notion's templates save a lot of time.
+      全角:
+        - ＮＯＴＩＯＮ
+      语境里的品牌:
+        - Notion is a popular workspace tool.
+
+  - name: Target
+    category: store
+    negatives:
+      常用词:
+        - Set a target for each quarter.
+      多尾巴撞别词:
+        - Each team has its own targets.
+    positives:
+      所有格:
+        - Target's store brands are affordable.
+
+  - name: Square
+    category: card reader
+    negatives:
+      常用词:
+        - The square is in the city center.
+      多尾巴撞别词:
+        - Cut the cake into squares.
+    positives:
+      所有格:
+        - Square's card reader is easy to set up.
+
+  - name: Canvas
+    category: gradebook
+    negatives:
+      常用词:
+        - It is an oil painting on canvas.
+      少尾巴撞别家:
+        - Canva is a design tool.
+    positives:
+      所有格:
+        - Canvas's gradebook is easy to use.
+
+  - name: Columbia
+    skip_bases: [始祖鸟]
+    category: jackets
+    negatives:
+      多尾巴撞别词:
+        - Columbian coffee is famous.
+    positives:
+      所有格:
+        - Columbia's jackets are good value.
+
+  - name: Meta AI
+    positives:
+      原样:
+        - Meta AI
+      连写:
+        - MetaAI
+        - Meta-AI
+
+  - name: Monday.com
+    positives:
+      原样:
+        - Monday.com
+        - monday.com
+
+  - name: 小米
+    category: 手机、智能家居
+    negatives:
+      中文词中词:
+        - 小米粥很养胃。
+        - 小米椒很辣。
+      普通词单写:  # BR3 真实回答里见到的:讲粥时只写「小米」,排除词管不住,该说不准
+        - 水开后下小米,转小火慢煮。
+        - 小米淘洗一遍就够了。
+    positives:
+      语境里的品牌:
+        - 小米手机性价比高。
+        - 小米的智能家居产品很全。
+
+  - name: 联想
+    category: 笔记本
+    negatives:
+      中文词中词:
+        - 这让人联想到海边的日落。
+        - 看到它就联想起童年。
+    positives:
+      语境里的品牌:
+        - 联想笔记本适合办公。
+        - 联想 ThinkPad 很耐用。
+
+  - name: 美的
+    category: 空调、洗衣机
+    negatives:
+      中文词中词:
+        - 这是一次完美的旅行。
+        - 甜美的笑容让人印象深刻。
+    positives:
+      语境里的品牌:
+        - 美的空调很省电。
+        - 美的集团旗下有洗衣机。
+
+  - name: 三星
+    category: 手机、机型
+    negatives:
+      中文词中词:
+        - 这是一家三星级酒店。
+        - 三星堆遗址位于四川。
+    positives:
+      语境里的品牌:
+        - 三星手机的屏幕很好。
+        - 三星电子发布了新机型。
+
+  - name: Salesforce
+    negatives:
+      普通短语拆开:  # BR2 试跑时发现:名字中间允许空格,普通短语拆开正好是名字
+        - The company built a strong sales force last year.
+    positives:
+      原样:
+        - Salesforce
+
+  - name: 기아
+    positives:
+      带助词:
+        - 기아는 한국의 자동차 회사입니다.
+        - 기아의 전기차가 인기입니다.
+
+  - name: 삼성
+    positives:
+      带助词:
+        - 삼성은 스마트폰을 만듭니다.
+
+  - name: ドコモ
+    positives:
+      片假名复合词:
+        - ドコモショップで契約しました。
+      半角片假名:
+        - ﾄﾞｺﾓ
+
+  - name: ソニー
+    positives:
+      片假名复合词:
+        - ソニーストアで購入しました。
+
+  - name: Phở Hòa
+    tone_language: vi-VN
+    positives:
+      原样:
+        - Phở Hòa
+
+  - name: Citroën
+    positives:
+      去重音:
+        - Citroen
+      原样:
+        - Citroën

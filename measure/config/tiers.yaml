@@ -1,0 +1,36 @@
+# 档位(架构书附录 v0.4.27 + 用户 2026-10-14 拍板;S9.1):一套冻结的测量参数 = 型号怎么选 × 每题几次 × 「提到你」怎么认。
+# 新档位 = 本文件加一段,L2 / L3 零改动(硬边界 10)。档位名与参数记进报告「这次是怎么测的」;方法版本号不带档位。
+#
+# models(型号从各适配器 meta 的标记里选;标记是配置资产,来源与核对日期写在各适配器里):
+#   consumer_default                 每家消费端默认型号一个(该家聊天产品界面默认用的那个)
+#   main_and_consumer_default        每家主力 + 消费端默认各一个;主力 = 消费端默认那款在该家最新一代里的同款
+#                                    (用户 2026-11-15 定「跟最新一代」;沿革:10-14「最强」→ 11-03「付费版默认」→ 现在)。
+#                                    同一个型号只算一个,再补清单里紧挨着它的下一个
+#                                    (排在它后面的第一个;它已是最后一个就补前面那个;清单只有一个就不补)。
+#   all                              每家适配器清单里的全部型号。用户 2026-11-20 定「每家只留两个」(消费端默认 + 主力,
+#                                    CLAUDE.md 工程原则 9):清单本身只剩这两个,所以现在高档和中档测的型号一样,
+#                                    区别只在每题次数和「提到你」怎么认;各家的旗舰款不再测。新型号先冒烟才入清单
+# mention_method(「提到你」怎么认;自定义跟起点档走,不单独选):
+#   rules              别名表 + 词边界精确匹配(判定器 brand_mention_rules v3);常用词和太短的名字看大小写和线索,看不出来记说不准
+#   rules_fuzzy        + 规整 + 模糊匹配(判定器 brand_mention_fuzzy v4:只认复数尾巴 + 拉丁字母去重音,S9.2 起中档用它);
+#                      说不准的那几条请 AI 裁判,一单最多 300 条,判不了仍记说不准(BR4,用户定 Q3;裁判型号在 judges.yaml)
+#   rules_fuzzy_judge  + 另一家 AI 读上下文裁定每一条(判定器 brand_mention_judge v2,S9.3 起高档用它)
+# 配置写的就是现在真实用的,不预先写还没有的方法。
+
+default: medium
+custom_runs:            # 自定义每题次数范围(用户定 2026-10-14:3–10)
+  min: 3
+  max: 10
+tiers:
+  - name: low
+    runs_per_prompt: 3
+    models: consumer_default
+    mention_method: rules
+  - name: medium
+    runs_per_prompt: 5
+    models: main_and_consumer_default
+    mention_method: rules_fuzzy    # S9.2 起;BR4 起说不准的请裁判,费用按 judges.yaml 另计,名字没风险时一般不花这笔钱
+  - name: high
+    runs_per_prompt: 7
+    models: all
+    mention_method: rules_fuzzy_judge   # S9.3 起:裁判每条回答判一次,费用按 judges.yaml 另计

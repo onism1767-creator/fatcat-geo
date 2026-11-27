@@ -1,0 +1,10 @@
+.venv/
+__pycache__/
+.pytest_cache/
+*.pyc
+.env
+.pgdata/
+GEO面试准备.pdf
+# 用户本机「可视化工作台」钩子,不入库
+.claude/settings.json
+.claude/skills/

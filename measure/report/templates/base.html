@@ -1,0 +1,84 @@
+<!doctype html>
+<html lang="{{ lang }}">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>{% block title %}GEO Insight{% endblock %}</title>
+<style>
+  :root { --ink:#1a1a1a; --muted:#777; --line:#e3e3e0; --bg:#faf9f7; --card:#fff;
+          --pass:#1a7f37; --weak:#b26a00; --fail:#c0392b; --na:#8a8a8a; --accent:#0b5cad; }
+  * { box-sizing:border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:15px/1.65 "Segoe UI", "Microsoft YaHei", system-ui, sans-serif; }
+  header { border-bottom:1px solid var(--line); background:var(--card); }
+  header .wrap { display:flex; align-items:baseline; gap:12px; }
+  header a { color:var(--ink); text-decoration:none; font-weight:700; font-size:17px; }
+  .wrap { max-width:920px; margin:0 auto; padding:14px 20px; }
+  main.wrap { padding-top:22px; padding-bottom:60px; }
+  h1 { font-size:22px; margin:0 0 14px; } h2 { font-size:18px; margin:26px 0 10px; }
+  h3 { font-size:15px; margin:16px 0 8px; }
+  .muted { color:var(--muted); font-size:13px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:8px;
+          padding:16px 18px; margin:14px 0; }
+  label { display:block; margin:10px 0 4px; font-weight:600; font-size:14px; }
+  input[type=text], input[type=number], textarea, select {
+    width:100%; padding:8px 10px; border:1px solid var(--line); border-radius:6px;
+    font:inherit; background:#fff; }
+  textarea { min-height:80px; }
+  .row { display:flex; gap:16px; flex-wrap:wrap; } .row > div { flex:1; min-width:180px; }
+  button { background:var(--accent); color:#fff; border:0; border-radius:6px;
+           padding:10px 22px; font:inherit; font-weight:600; cursor:pointer; margin-top:14px; }
+  .chip { display:inline-block; padding:1px 10px; border-radius:999px; font-size:12.5px;
+          font-weight:700; color:#fff; vertical-align:middle; }
+  .chip.PASS{background:var(--pass);} .chip.WEAK{background:var(--weak);}
+  .chip.FAIL{background:var(--fail);} .chip.NOT_OBSERVABLE{background:var(--na);}
+  /* 检索依赖四档:HIGH=风险色(全押检索),LOW=安然色 */
+  .chip.HIGH{background:var(--fail);} .chip.MEDIUM{background:var(--weak);}
+  .chip.LOW{background:var(--pass);} .chip.INCONCLUSIVE{background:var(--na);}
+  .chip.intent { background:#eef3f9; color:var(--accent); font-weight:600; }
+  .bar { height:10px; background:#ececec; border-radius:5px; overflow:hidden; }
+  .bar > div { height:100%; background:var(--accent); transition:width .5s; }
+  .bar.total { height:14px; border-radius:7px; } .bar.total > div { background:#1f4e8c; }
+  table { border-collapse:collapse; width:100%; font-size:14px; }
+  td, th { border-bottom:1px solid var(--line); padding:6px 8px; text-align:left; }
+  ul.ev { margin:6px 0 2px; padding-left:20px; }
+  ul.ev li { margin:3px 0; font-size:13.5px; color:#333; }
+  .caution { background:#fff8e6; border:1px solid #f0dfae; border-radius:6px;
+             padding:10px 14px; margin:10px 0; font-size:14px; }
+  .rec { border-left:3px solid var(--accent); padding:8px 12px; margin:10px 0;
+         background:#f6f9fc; border-radius:0 6px 6px 0; }
+  tr.rec { border-left:0; background:transparent; }
+  .rec .id { font-family:Consolas, monospace; font-size:12.5px; color:var(--accent); }
+  .err { background:#fdecea; border:1px solid #f5c6c3; border-radius:6px;
+         padding:10px 14px; margin:12px 0; }
+  .kv { font-size:13px; color:#444; }
+  [hidden] { display:none !important; }  /* 页面脚本收起的东西一律不显示(label 等自带 display 的也一样) */
+  /* 确认页档位卡片:只列勾上的那几家的型号,分号补在显示出来的型号之间 */
+  .tier-model:not([hidden]) ~ .tier-model:not([hidden])::before { content:";"; }
+  .ring { display:inline-flex; align-items:center; gap:6px; margin:4px 18px 4px 0; vertical-align:middle; }
+  .ring-label { font-size:13px; line-height:1.3; }
+  pre.answer { white-space:pre-wrap; word-break:break-word; font:inherit; background:#f6f7f9; padding:12px; border-radius:6px; }
+  a.button { display:inline-block; background:var(--accent); color:#fff; text-decoration:none; border-radius:6px;
+             padding:6px 14px; font-size:14px; }
+  table.step td, table.step th { font-size:13.5px; vertical-align:top; }
+  table.step tr.api td { background:#f3f6fa; font-weight:600; }
+  table.step td.model { padding-left:22px; color:#333; }
+  details summary { cursor:pointer; color:var(--accent); font-size:13.5px; margin-top:4px; }
+  /* 报告两视图(v0.4.13 条目 8):决策视图在上,审计视图折叠在下 */
+  .exec p { margin:6px 0; }
+  ul.verdicts { margin:4px 0 8px; padding-left:20px; } ul.verdicts li { margin:4px 0; }
+  table.brief td { vertical-align:top; font-size:13.5px; }
+  table.brief td:first-child, table th:first-child { white-space:nowrap; }
+  .layer { font-weight:600; font-size:13px; color:#444; margin:10px 0 2px; }
+  details.audit > summary { font-size:15px; color:var(--ink); margin:0; }
+  .id { font-family:Consolas, monospace; font-size:12.5px; color:var(--accent); }
+</style>
+</head>
+<body>
+<header><div class="wrap"><a href="/?lang={{ lang }}">GEO Insight</a>
+  <span class="muted">{{ t["tagline"] }}</span>
+  <span style="margin-left:auto"><a class="muted" href="/errors?lang={{ lang }}">{{ t["errors_nav"] }}</a> ·
+    <a class="muted" href="?lang={{ 'en' if lang == 'zh' else 'zh' }}">{{ t["lang_switch"] }}</a></span></div></header>
+<main class="wrap">{% block content %}{% endblock %}</main>
+</body>
+</html>

@@ -1,0 +1,117 @@
+{% extends "base.html" %}
+{% block title %}{{ t["job_title"] }} {{ job.job_id }}{% endblock %}
+{% block content %}
+{% if job.state.value in ("CONFIRMED", "RUNNING") %}<meta http-equiv="refresh" content="3">{% endif %}
+<h1>{{ t["job_title"] }} · {{ job.brand.name }}</h1>
+{#- 跑完了、有型号因为费用上限停了:弹窗问要不要补齐(用户 2026-11-03 定);建议上限由服务端算好 -#}
+{% if cap_dialog %}
+<dialog open class="card">
+  <h3 style="margin-top:0">{{ t["cap_title"] }}</h3>
+  {% for line in cap_dialog.lines %}<p>{{ line }} <a href="/errors?lang={{ lang }}#BUDGET_EXHAUSTED">{{ t["errors_link"].format(code="BUDGET_EXHAUSTED") }}</a></p>{% endfor %}
+  <p>{{ t["cap_ask"] }}</p>
+  <form method="post" action="/jobs/{{ job.job_id }}/resume?lang={{ lang }}">
+    <label>{{ t["cap_budget_label"] }}</label>
+    <input type="number" name="budget" step="0.1" min="0.1" value="{{ cap_dialog.suggested }}" style="max-width:160px">
+    <button type="submit">{{ t["cap_resume_btn"] }}</button>
+    <a href="/jobs/{{ job.job_id }}/report?lang={{ lang }}"><button type="button">{{ t["cap_report_btn"] }}</button></a>
+  </form>
+  <p class="muted" style="margin-bottom:0">{{ t["cap_hint"] }}</p>
+</dialog>
+{% endif %}
+<div class="card">
+  {% set state = state_labels[job.state.value] %}{% set phase = t[job.phase] %}
+  <p><b>{{ state }}</b>{% if phase != state %} · {{ phase }}{% endif %}
+     <span class="muted">{{ job.prompts|length }} {{ t["prompts_word"] }} × {{ runs_per_prompt }} {{ t["runs_word"] }} × {{ job.targets|length }} {{ t["surfaces_word"] }}
+     · {{ t["fingerprint_word"] }} {{ job.fingerprint or "—" }}</span></p>
+  {#- 「修好后再测」的单(S11.3):全部重新提问、不用缓存,链到上一单报告 -#}
+  {% if job.fresh %}<p class="kv">{{ t["retest_banner_swapped" if job.model_swaps else "retest_banner"] }}{% if job.parent_job_id %} <a href="/jobs/{{ job.parent_job_id }}/report?lang={{ lang }}">{{ t["retest_parent_short"] }}</a>{% endif %}</p>
+  {#- 上一单测过、现在已移出清单的型号换成了什么(用户 2026-11-13 定) -#}
+  {% for line in swap_lines(job.model_swaps, lang) %}<p class="kv">{{ line }}</p>{% endfor %}{% endif %}
+  {#- 总进度(用户定 2026-10-14):按阶段分段的一条,下面才是各阶段自己的 -#}
+  <p class="kv" style="margin-bottom:2px"><b>{{ t["overall_word"] }} {{ job.overall_pct }}%</b> <span class="muted">{{ t["overall_note"] }}</span></p>
+  <div class="bar total"><div style="width: {{ job.overall_pct }}%"></div></div>
+  <div class="bar" style="margin-top:10px"><div style="width: {{ job.sampling_pct }}%"></div></div>
+  <p class="kv">{{ t["progress_word"] }} {{ job.sampling_pct }}%({{ t["runs_done_word"] }} {{ job.completed_runs }}/{{ job.total_runs }})
+     · {{ t["spent_word"] }} ${{ "%.4f"|format(job.spent_usd) }}{% if job.budget_usd %} / {{ t["budget_word"] }} ${{ job.budget_usd }}{% endif %}</p>
+  {#- 边跑边重估(用户 2026-11-18 定):照这一单自己的花费算问完要多少;会撞上限或比开跑前估的贵出五成才提醒,只提醒、照常跑 -#}
+  {% if projection %}
+  {% set total = "%.2f"|format(projection.total_usd) %}
+  <p class="kv">{% if projection.estimate_usd is not none %}{{ t["reest_line"].format(total=total, estimate="%.2f"|format(projection.estimate_usd)) }}{% else %}{{ t["reest_line_plain"].format(total=total) }}{% endif %}</p>
+  {#- 提醒里的两个按钮(用户 2026-11-18 定):中途提高上限(只在会撞上限时)、现在停下;点了「现在停下」后换成一句「正在停下」 -#}
+  {% set stop_form %}<form method="post" action="/jobs/{{ job.job_id }}/stop?lang={{ lang }}" style="display:inline"><button type="submit">{{ t["reest_stop_btn"] }}</button></form>{% endset %}
+  {% if job.stop_requested %}
+  <div class="caution">{{ t["reest_stopping"] }}</div>
+  {% elif projection.cap_pct is not none %}
+  <div class="caution">{{ t["reest_cap"].format(pct=projection.cap_pct, cap=job.budget_usd) }}
+    <p style="margin:8px 0 0">{% if raise_to %}<form method="post" action="/jobs/{{ job.job_id }}/raise_cap?lang={{ lang }}" style="display:inline"><input type="hidden" name="budget" value="{{ raise_to }}"><button type="submit">{{ t["reest_raise_btn"].format(cap=raise_to) }}</button></form> {% endif %}{{ stop_form }}</p></div>
+  {% elif projection.over_estimate %}
+  <div class="caution">{{ t["reest_over"].format(total=total, ratio="%.1f"|format(projection.total_usd / projection.estimate_usd)) }}{% if not job.budget_usd %} {{ t["reest_no_cap"] }}{% endif %}
+    <p style="margin:8px 0 0">{{ stop_form }}</p></div>
+  {% endif %}
+  {% elif job.stop_requested and job.state.value == "RUNNING" and job.phase == "phase_sampling" %}
+  <div class="caution">{{ t["reest_stopping"] }}</div>
+  {% endif %}
+  {#- 提问阶段的剩余时间按实际速度算;提问完了之后是核对网页(S8.5):有自己的进度条,时间按预算给上限 -#}
+  {% set sampling_done = job.total_runs and job.completed_runs >= job.total_runs and not job.finished %}
+  {% if elapsed_minutes is not none and not sampling_done %}
+  <p class="kv">{% if eta_minutes is not none %}{{ t["eta_line"].format(elapsed=elapsed_minutes|round(1), eta=eta_minutes|round(1)) }}{% else %}{{ t["eta_waiting"].format(elapsed=elapsed_minutes|round(1)) }}{% endif %}</p>
+  {% endif %}
+  {#- 只在跑的时候显示:失败 / 中断了不能还挂着「最多再等 N 分钟」 -#}
+  {% if job.verify_started_at and job.state.value == "RUNNING" %}
+  <p class="kv"><b>{{ t["verify_word"] }}</b> · {{ t["verify_line"].format(done=job.verify_done, total=job.verify_total, minutes=(verify_remaining_minutes or 0)|round(1)) }}{% if job.verify_stage == "render" %} · {{ t["verify_stage_render"] }}{% elif job.verify_stage == "archive" %} · {{ t["verify_stage_archive"] }}{% elif job.verify_stage == "done" %} · {{ t["verify_stage_done"] }}{% endif %}</p>
+  <div class="bar"><div style="width: {{ (100 * job.verify_done / job.verify_total)|round|int if job.verify_total else 0 }}%"></div></div>
+  {% elif sampling_done and elapsed_minutes is not none %}
+  <p class="kv">{{ t["sampling_done_line"].format(elapsed=elapsed_minutes|round(1)) }}</p>
+  {% endif %}
+  {#- 高档 AI 裁判复核(S9.3):AI 裁判逐条读回答判「提到你」,按已判条数走 -#}
+  {% if job.phase == "phase_judging" and job.state.value == "RUNNING" %}
+  <p class="kv"><b>{{ t["judge_word"] }}</b> · {{ t["judge_line"].format(done=job.judge_done, total=job.judge_total) }}</p>
+  <div class="bar"><div style="width: {{ (100 * job.judge_done / job.judge_total)|round|int if job.judge_total else 0 }}%"></div></div>
+  {% endif %}
+  {% if quiet_minutes %}<p class="kv muted">{{ t["last_result_line"].format(minutes=quiet_minutes|round(1)) }}</p>{% endif %}
+  {% if stalled_text %}<div class="err">{{ stalled_text }} <a href="/errors?lang={{ lang }}#JOB_STALLED">{{ t["errors_link"].format(code="JOB_STALLED") }}</a></div>{% endif %}
+  {#- 提前停的腿(S10.2):错误库组句,码链到说明 -#}
+  {% if stop_texts %}<div class="caution"><b>{{ t["breaker_title"] }}</b>
+    <ul class="ev">{% for code, text in stop_texts %}<li>{{ text }} <a href="/errors?lang={{ lang }}#{{ code }}">{{ t["errors_link"].format(code=code) }}</a></li>{% endfor %}</ul>
+    {% if job.state.value == "RUNNING" %}<p class="muted" style="margin:4px 0 0">{{ t["breaker_running_note"] }}</p>{% endif %}</div>{% endif %}
+  {% if error_text %}<div class="err">{{ t["job_failed"] }}:{{ error_text }}{% if job.error_code %} <a href="/errors?lang={{ lang }}#{{ job.error_code }}">{{ t["errors_link"].format(code=job.error_code) }}</a>{% endif %}</div>{% endif %}
+</div>
+
+{% if job.access_result %}
+<div class="card">
+  <h3>{{ t["access_early"] }} <span class="chip {{ job.access_result.overall.value }}">{{ access_labels[job.access_result.overall.value] }}</span></h3>
+  <p style="margin:4px 0">{{ access_headline(job.access_result.overall)|plain(lang) }}</p>
+  <details><summary>{{ t["access_detail"] }}</summary>
+  <ul class="ev">
+    {% for check in job.access_result.checks if check.gating %}
+    <li>[{{ check.status.value }}] {{ check.check }} — {{ check.detail|msg(lang) }}</li>
+    {% endfor %}
+  </ul>
+  </details>
+</div>
+{% endif %}
+
+{#- 底部动作(S10.3 统一):完成 → 看报告;部分完成 → 看报告 + 接着跑(可提高费用上限);中断 / 出错 → 接着跑;跑着 → 自动刷新 -#}
+{% if form_error %}<div class="err">{{ form_error }}</div>{% endif %}
+{% if job.finished and job.sampling %}
+<p><a href="/jobs/{{ job.job_id }}/report?lang={{ lang }}"><button>{{ t["view_report_btn"] }}</button></a></p>
+{% elif job.finished %}
+{#- 报告快照读不动(结构随代码演进,v0.4.17 起是真实场景):不给「看报告」,给「重新生成报告」(不重新提问,不花钱) -#}
+<form method="post" action="/jobs/{{ job.job_id }}/resume?lang={{ lang }}" style="display:inline">
+  <input type="hidden" name="regenerate" value="1">
+  <button type="submit">{{ t["btn_recompute"] }}</button>
+</form>
+{% endif %}
+{% if job.state.value in ("PARTIAL", "INTERRUPTED", "FAILED") %}
+<form method="post" action="/jobs/{{ job.job_id }}/resume?lang={{ lang }}" class="card">
+  <p style="margin:0 0 6px">{{ t["resume_fill_hint"] }}</p>
+  {% if job.state.value == "PARTIAL" %}
+  <label>{{ t["resume_budget_label"] }}</label>
+  <input type="number" name="budget" step="0.1" min="0.1" placeholder="{{ job.budget_usd if job.budget_usd else '' }}" style="max-width:200px">
+  {% endif %}
+  <button type="submit">{{ t["btn_resume_fill"] }}</button>
+</form>
+{% elif job.state.value == "RUNNING" %}
+<p class="muted">{{ t["auto_refresh"] }}</p>
+{% endif %}
+{% endblock %}

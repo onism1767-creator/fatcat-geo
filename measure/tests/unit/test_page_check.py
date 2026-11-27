@@ -1,0 +1,556 @@
+"""网页核实(v0.4.26 S6.1;产品文档 D14 / D23):抽正文、看不到按原因记、边界有上限、同一网址复用。
+
+respx 模拟全部抓取(零真实网络);时钟与 sleep 可注入,边界测试不真等。库表只追加另在 test_storage。
+"""
+
+import threading
+import time
+from datetime import UTC, datetime, timedelta
+
+import httpx
+import psycopg
+import pytest
+import respx
+
+from crawler.render import RenderedPage
+from engine.detectors.page_mention import MentionPosition, page_mention
+from engine.models import BrandSpec, PageCheck, PageFetchStatus
+from engine.page_check import PageChecker, PageIndex, PageRequest, normalize_url
+
+BRAND = BrandSpec(name="AuroraCRM", aliases=["Aurora CRM"], domains=["aurora-crm.com"])
+FILLER = "This is a long paragraph of ordinary review text that makes the page look like a real article. " * 6
+ARTICLE = (
+    "<html><head><title>Best CRMs 2026</title></head><body>"
+    "<nav><a href='/'>Home</a> AuroraCRM partners</nav>"
+    f"<main><h1>Best CRMs for small teams</h1><p>{FILLER}</p>"
+    f"<p>We also tried Aurora CRM for a month. {FILLER}</p></main>"
+    "<footer>© footer AuroraCRM</footer></body></html>"
+)
+LEAD_ARTICLE = (
+    "<html><head><title>Field notes</title></head><body>"
+    f"<main><p>AuroraCRM review: a CRM for small teams. {FILLER}</p><p>{FILLER}</p></main></body></html>"
+)
+NO_BRAND = f"<html><head><title>Unrelated</title></head><body><main><p>{FILLER}</p></main></body></html>"
+SHELL = "<html><head><title>App</title></head><body><div id='root'></div><script>window.x=1</script></body></html>"
+
+
+class MemoryStore:
+    def __init__(self) -> None:
+        self.rows: list[PageCheck] = []
+
+    def insert_page_check(self, check: PageCheck) -> None:
+        self.rows.append(check)
+
+    def recent_page_checks(self, normalized_urls, *, max_age_days=7):
+        return {row.normalized_url: row for row in self.rows if row.normalized_url in normalized_urls}
+
+
+def _html(body: str, status: int = 200) -> httpx.Response:
+    return httpx.Response(status, text=body, headers={"content-type": "text/html; charset=utf-8"})
+
+
+def _check(urls: list[str], store: MemoryStore | None = None, **kwargs) -> tuple[PageIndex, MemoryStore]:
+    store = store or MemoryStore()
+    checker = PageChecker(store, sleep=lambda s: None, **kwargs)
+    try:
+        return checker.check([PageRequest(url=u) for u in urls]), store
+    finally:
+        checker.close()
+
+
+def test_normalize_url_strips_fragment_keeps_www_and_query():
+    assert normalize_url("https://WWW.Ex.com/a?x=1#frag") == "https://www.ex.com/a?x=1"
+    assert normalize_url("https://ex.com") == "https://ex.com/"
+
+
+@respx.mock
+def test_main_text_is_extracted_and_mentions_are_judged_by_position():
+    """正文抽取去掉导航 / 页脚里的品牌名;命中位置:标题 → 首段 → 正文。"""
+    respx.get("https://site-a.com/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://site-a.com/review").mock(return_value=_html(ARTICLE))
+    respx.get("https://site-a.com/lead").mock(return_value=_html(LEAD_ARTICLE))
+    respx.get("https://site-a.com/none").mock(return_value=_html(NO_BRAND))
+    index, store = _check(["https://site-a.com/review#c1", "https://site-a.com/review#c2",
+                           "https://site-a.com/lead", "https://site-a.com/none"])
+    assert len(store.rows) == 3  # 去 fragment 后同一网址只开一次
+
+    review = index.lookup("https://site-a.com/review")
+    assert review is not None and review.status is PageFetchStatus.OK and review.text_source == "main"
+    assert review.title == "Best CRMs 2026" and "footer AuroraCRM" not in (review.text or "")
+    assert page_mention(review, BRAND) is not None
+    assert page_mention(review, BRAND).position is MentionPosition.BODY  # 导航 / 页脚的品牌名不算,正文第二段才有
+
+    lead = index.lookup("https://site-a.com/lead")
+    assert lead is not None and page_mention(lead, BRAND).position is MentionPosition.LEAD
+
+    none = index.lookup("https://site-a.com/none")
+    assert none is not None and page_mention(none, BRAND).found is False and none.status is PageFetchStatus.OK
+
+
+@respx.mock
+def test_unobservable_pages_are_recorded_by_reason_not_guessed():
+    respx.get("https://site-b.com/robots.txt").mock(
+        return_value=httpx.Response(200, text="User-agent: *\nDisallow: /private/\n"))
+    respx.get("https://site-b.com/private/x").mock(return_value=_html(ARTICLE))
+    respx.get("https://site-b.com/shell").mock(return_value=_html(SHELL))
+    respx.get("https://site-b.com/doc.pdf").mock(
+        return_value=httpx.Response(200, content=b"%PDF-1.7", headers={"content-type": "application/pdf"}))
+    respx.get("https://site-b.com/blocked").mock(return_value=httpx.Response(403, text="denied"))
+    respx.get("https://site-b.com/members").mock(return_value=httpx.Response(302, headers={"Location": "https://site-b.com/login?next=/members"}))
+    respx.get("https://site-b.com/login?next=/members").mock(return_value=_html("<html><body>sign in</body></html>"))
+    respx.get("https://site-b.com/gone").mock(return_value=httpx.Response(404))
+    respx.get("https://site-b.com/down").mock(side_effect=httpx.ConnectError("no route"))
+    index, store = _check([
+        "https://site-b.com/private/x", "https://site-b.com/shell", "https://site-b.com/doc.pdf",
+        "https://site-b.com/blocked", "https://site-b.com/members", "https://site-b.com/gone", "https://site-b.com/down",
+    ])
+    statuses = {url.rsplit("/", 1)[-1]: index.lookup(url).status for url in [
+        "https://site-b.com/private/x", "https://site-b.com/shell", "https://site-b.com/doc.pdf",
+        "https://site-b.com/blocked", "https://site-b.com/members", "https://site-b.com/gone", "https://site-b.com/down"]}
+    assert statuses == {
+        "x": PageFetchStatus.ROBOTS_DISALLOWED, "shell": PageFetchStatus.EMPTY_TEXT,
+        "doc.pdf": PageFetchStatus.NOT_HTML,
+        "blocked": PageFetchStatus.BLOCKED, "members": PageFetchStatus.LOGIN_REQUIRED,
+        "gone": PageFetchStatus.FETCH_FAILED, "down": PageFetchStatus.FETCH_FAILED,
+    }
+    assert index.lookup("https://site-b.com/down").error == "ConnectError"
+    assert index.lookup("https://site-b.com/gone").http_status == 404
+    assert len(store.rows) == 7  # 失败也落库,不蒸发
+    for url in ["https://site-b.com/shell", "https://site-b.com/blocked"]:
+        assert page_mention(index.lookup(url), BRAND) is None  # 看不到 → 不可判定
+
+
+@respx.mock
+def test_own_site_pages_ignore_robots_while_third_party_respects_it():
+    respx.get("https://brand.test/robots.txt").mock(
+        return_value=httpx.Response(200, text="User-agent: *\nDisallow: /\n"))
+    page = respx.get("https://brand.test/p").mock(return_value=_html(ARTICLE))
+    store = MemoryStore()
+    checker = PageChecker(store, sleep=lambda s: None)
+    try:
+        index = checker.check([PageRequest(url="https://brand.test/p", respect_robots=False),
+                               PageRequest(url="https://brand.test/q", respect_robots=True)])
+    finally:
+        checker.close()
+    assert index.lookup("https://brand.test/p").status is PageFetchStatus.OK and page.call_count == 1
+    assert index.lookup("https://brand.test/q").status is PageFetchStatus.ROBOTS_DISALLOWED
+
+
+@respx.mock
+def test_recent_checks_are_reused_and_budget_stops_further_fetches():
+    """7 天内同一网址复用不重抓;时间预算到顶,剩下的记「没来得及开」(不在 attempted 里)。"""
+    respx.get("https://site-c.com/robots.txt").mock(return_value=httpx.Response(404))
+    cached = respx.get("https://site-c.com/cached").mock(return_value=_html(ARTICLE))
+    first, store = _check(["https://site-c.com/cached"])
+    assert cached.call_count == 1
+    second, _ = _check(["https://site-c.com/cached"], store)
+    assert cached.call_count == 1 and second.lookup("https://site-c.com/cached") is not None
+
+    ticks = iter([0.0, 0.0, 100.0, 100.0, 100.0, 100.0, 100.0])  # 第一个网址派出后时钟直接过了预算
+    clock = lambda: next(ticks, 100.0)  # noqa: E731
+    respx.get("https://site-d.com/robots.txt").mock(return_value=httpx.Response(404))
+    one = respx.get("https://site-d.com/1").mock(return_value=_html(ARTICLE))
+    two = respx.get("https://site-e.com/2").mock(return_value=_html(ARTICLE))
+    index, _ = _check(["https://site-d.com/1", "https://site-e.com/2"], budget_s=10.0, concurrency=1, clock=clock)
+    assert one.call_count == 1 and two.call_count == 0
+    assert index.not_attempted("https://site-e.com/2") and not index.not_attempted("https://site-d.com/1")
+
+
+@respx.mock
+def test_same_host_is_serialized_with_a_gap_and_priority_orders_the_queue():
+    """同一网站同时只开 1 个、开完隔一段再开下一个;优先级小的先开(被引 0 先于搜到 1)。真时钟:间隔要真等。"""
+    respx.get("https://site-f.com/robots.txt").mock(return_value=httpx.Response(404))
+    spans: list[tuple[str, float, float]] = []
+    lock = threading.Lock()
+    for name in ("a", "b", "c"):
+        def serve(request, _n=name):
+            started = time.monotonic()
+            time.sleep(0.03)
+            with lock:
+                spans.append((_n, started, time.monotonic()))
+            return _html(ARTICLE)
+        respx.get(f"https://site-f.com/{name}").mock(side_effect=serve)
+    store = MemoryStore()
+    checker = PageChecker(store, concurrency=3, host_gap_s=0.2)
+    try:
+        checker.check([
+            PageRequest(url="https://site-f.com/a", priority=1), PageRequest(url="https://site-f.com/b", priority=0),
+            PageRequest(url="https://site-f.com/c", priority=1),
+        ])
+    finally:
+        checker.close()
+    spans.sort(key=lambda span: span[1])
+    assert spans[0][0] == "b"  # 被引(0)先于搜到(1)
+    for (_, _, previous_end), (_, next_start, _) in zip(spans, spans[1:], strict=False):
+        assert next_start >= previous_end + 0.2 - 0.02  # 同站不重叠,且隔够间隔
+    assert len(store.rows) == 3
+
+
+META_SHELL = (
+    "<html><head><title>Video</title><meta property='og:title' content='AuroraCRM walkthrough'>"
+    "<meta property='og:description' content='A 10 minute tour of AuroraCRM for small teams.'></head>"
+    "<body><div id='player'></div><script>x()</script></body></html>"
+)
+LOADING = (
+    "<html><head><title>App</title><meta name='description' content='Compare CRMs incl. Aurora CRM'></head>"
+    "<body><div>Loading…</div></body></html>"
+)
+
+
+class FakePlatform:
+    name = "fake"
+
+    def __init__(self, text: str | None) -> None:
+        self.text, self.calls = text, []  # type: tuple[str | None, list[str]]
+
+    def matches(self, url: str) -> bool:
+        return "platform.test" in url
+
+    def fetch(self, url: str):
+        from crawler.platform import PlatformPage
+
+        self.calls.append(url)
+        if self.text is None:
+            return None
+        return PlatformPage(title="Thread", text=self.text, final_url=url, http_status=200)
+
+    def close(self) -> None:
+        pass
+
+
+@respx.mock
+def test_meta_summary_is_the_fallback_when_the_page_has_no_body_text():
+    """S6.3:脚本页抽不出正文 → 读网页自带的标题 + 简介(meta);只有「Loading…」这种碎字也先用摘要;光有标题不算。"""
+    respx.get("https://v.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://v.test/watch").mock(return_value=_html(META_SHELL))
+    respx.get("https://v.test/app").mock(return_value=_html(LOADING))
+    respx.get("https://v.test/bare").mock(return_value=_html(SHELL))
+    index, _ = _check(["https://v.test/watch", "https://v.test/app", "https://v.test/bare"])
+    watch = index.lookup("https://v.test/watch")
+    assert watch.status is PageFetchStatus.OK and watch.text_source == "meta"
+    assert watch.text.startswith("AuroraCRM walkthrough")
+    assert page_mention(watch, BRAND).position is MentionPosition.TITLE
+    app = index.lookup("https://v.test/app")
+    assert app.text_source == "meta" and page_mention(app, BRAND).found  # 「Loading…」不够,摘要里有品牌
+    assert index.lookup("https://v.test/bare").status is PageFetchStatus.EMPTY_TEXT  # 只有 <title>:不算摘要
+
+
+@respx.mock
+def test_oembed_gives_a_title_when_the_page_itself_is_blocked_or_disallowed():
+    """S6.3:平台公开嵌入接口不要 key;网页被拦 / robots 不让抓时退一步拿标题(来源标 oembed)。"""
+    respx.get("https://social.test/robots.txt").mock(
+        return_value=httpx.Response(200, text="User-agent: *\nDisallow: /private/\n"))
+    respx.get("https://social.test/p/1").mock(return_value=httpx.Response(403))
+    respx.get("https://social.test/private/2").mock(return_value=_html(ARTICLE))
+    respx.get("https://social.test/p/3").mock(return_value=httpx.Response(403))
+    oembed = respx.get(url__startswith="https://social.test/oembed").mock(
+        side_effect=lambda request: httpx.Response(200, json={"title": "AuroraCRM thread"})
+        if "p%2F1" in str(request.url) or "private%2F2" in str(request.url) else httpx.Response(404))
+    index, store = _check(["https://social.test/p/1", "https://social.test/private/2", "https://social.test/p/3"],
+                          oembed={"social.test": "https://social.test/oembed?url={url}"})
+    one = index.lookup("https://social.test/p/1")
+    assert one.status is PageFetchStatus.OK and one.text_source == "oembed" and one.text == "AuroraCRM thread"
+    assert page_mention(one, BRAND).position is MentionPosition.TITLE
+    assert index.lookup("https://social.test/private/2").text_source == "oembed"  # robots 不让抓网页,嵌入接口是另一扇门
+    assert index.lookup("https://social.test/p/3").status is PageFetchStatus.BLOCKED  # 嵌入接口也没有 → 照旧被拦
+    assert oembed.call_count == 3
+
+
+@respx.mock
+def test_platform_api_comes_first_and_falls_back_to_the_page_when_it_fails():
+    """S6.3:配了官方接口的平台先走接口(标题 + 正文 + 评论,来源 api:<平台>);接口拿不到就退回普通抓取。"""
+    respx.get("https://platform.test/robots.txt").mock(return_value=httpx.Response(404))
+    page = respx.get("https://platform.test/t/1").mock(return_value=_html(ARTICLE))
+    good = FakePlatform("Thread about Aurora CRM and others")
+    index, store = _check(["https://platform.test/t/1"], platform_fetchers=[good])
+    got = index.lookup("https://platform.test/t/1")
+    assert got.status is PageFetchStatus.OK and got.text_source == "api:fake" and got.title == "Thread"
+    assert page_mention(got, BRAND).found and page.call_count == 0 and good.calls == ["https://platform.test/t/1"]
+    broken = FakePlatform(None)
+    index2, _ = _check(["https://platform.test/t/1"], platform_fetchers=[broken])
+    assert index2.lookup("https://platform.test/t/1").text_source == "main" and page.call_count == 1  # 退回抓网页
+
+
+class FakeRenderer:
+    def __init__(self, html: str | None) -> None:
+        self.html, self.calls = html, []  # type: tuple[str | None, list[str]]
+
+    def render(self, url: str) -> RenderedPage | None:
+        self.calls.append(url)
+        return None if self.html is None else RenderedPage(html=self.html, final_url=url, http_status=200)
+
+    def close(self) -> None:
+        pass
+
+
+@respx.mock
+def test_empty_pages_are_rendered_once_and_judged_from_the_rendered_text():
+    """S6.2:只有抽不出正文的页才渲染;渲染后抽到正文 → OK(来源标 rendered);
+    原始行与渲染行各留一条;库里有渲染结果就复用。"""
+    respx.get("https://app.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://app.test/shell").mock(return_value=_html(SHELL))
+    respx.get("https://app.test/plain").mock(return_value=_html(ARTICLE))
+    renderer = FakeRenderer(ARTICLE)
+    store = MemoryStore()
+    checker = PageChecker(store, sleep=lambda s: None, renderer=renderer)
+    try:
+        index = checker.check([PageRequest(url="https://app.test/shell"), PageRequest(url="https://app.test/plain")])
+    finally:
+        checker.close()
+    assert renderer.calls == ["https://app.test/shell"]  # 能抽出正文的页不渲染
+    shell = index.lookup("https://app.test/shell")
+    assert shell is not None and shell.status is PageFetchStatus.OK and shell.text_source == "rendered_main"
+    assert page_mention(shell, BRAND) is not None and page_mention(shell, BRAND).found
+    shell_rows = [r for r in store.rows if r.normalized_url == "https://app.test/shell"]
+    assert [r.status for r in shell_rows] == [PageFetchStatus.EMPTY_TEXT, PageFetchStatus.OK]  # 原始 + 渲染,都留档
+    again = PageChecker(store, sleep=lambda s: None, renderer=renderer)
+    try:
+        again.check([PageRequest(url="https://app.test/shell")])
+    finally:
+        again.close()
+    assert renderer.calls == ["https://app.test/shell"]  # 7 天内复用渲染结果,不再渲染
+
+
+@respx.mock
+def test_render_failures_stay_unobservable_with_the_attempt_on_record():
+    """渲染失败 / 渲染后仍无正文 / 没有渲染器 / 预算到顶:都照旧记「抽不出正文」,原因写明,不猜。"""
+    respx.get("https://app.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://app.test/shell").mock(return_value=_html(SHELL))
+    failing, store = FakeRenderer(None), MemoryStore()
+    index, _ = _check(["https://app.test/shell"], store, renderer=failing)
+    assert index.lookup("https://app.test/shell").status is PageFetchStatus.EMPTY_TEXT
+    assert index.lookup("https://app.test/shell").error == "render:failed" and len(store.rows) == 2
+    assert page_mention(index.lookup("https://app.test/shell"), BRAND) is None
+    still_empty, store2 = FakeRenderer(SHELL), MemoryStore()
+    index2, _ = _check(["https://app.test/shell"], store2, renderer=still_empty)
+    assert index2.lookup("https://app.test/shell").error == "render:empty" and len(store2.rows) == 2
+    index3, store3 = _check(["https://app.test/shell"])  # render=False:没有渲染器
+    assert index3.lookup("https://app.test/shell").status is PageFetchStatus.EMPTY_TEXT
+    assert index3.lookup("https://app.test/shell").error is None and len(store3.rows) == 1
+    ticks = iter([0.0, 0.0, 0.0, 100.0])  # 原始抓完就过了预算 → 不渲染
+    late, store4 = FakeRenderer(ARTICLE), MemoryStore()
+    index4, _ = _check(["https://app.test/shell"], store4, renderer=late, budget_s=10.0, concurrency=1,
+                       clock=lambda: next(ticks, 100.0))
+    assert late.calls == [] and index4.lookup("https://app.test/shell").status is PageFetchStatus.EMPTY_TEXT
+
+
+class FakeArchive:
+    def __init__(self, pages: dict[str, str | None]) -> None:
+        self.pages, self.calls = pages, []  # type: tuple[dict[str, str | None], list[str]]
+
+    def fetch(self, url: str):
+        from crawler.wayback import ArchivedPage
+
+        self.calls.append(url)
+        html = self.pages.get(url)
+        if html is None:
+            return None
+        return ArchivedPage(html=html, archive_url=f"https://web.archive.org/web/20250102030405/{url}",
+                            timestamp="20250102030405", http_status=200)
+
+    def close(self) -> None:
+        self.closed = True
+
+
+@respx.mock
+def test_pages_that_cannot_be_opened_now_fall_back_to_the_archive_with_the_date_on_record():
+    """S6.4:被拦 / 打不开的第三方页查档案馆快照;存档行带快照地址、时间戳、实时状态;robots 不让抓的不查;
+    用户自己的站不查;没有快照的记「存档也没有」且不再重查;存档不是实时观测(判定照常,口径另算,见聚合测试)。"""
+    respx.get("https://news.test/robots.txt").mock(
+        return_value=httpx.Response(200, text="User-agent: *\nDisallow: /private/\n"))
+    respx.get("https://news.test/blocked").mock(return_value=httpx.Response(403))
+    respx.get("https://news.test/gone").mock(return_value=httpx.Response(404))
+    respx.get("https://news.test/private/x").mock(return_value=_html(ARTICLE))
+    respx.get("https://brand.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://brand.test/down").mock(side_effect=httpx.ConnectError("down"))
+    archive = FakeArchive({"https://news.test/blocked": ARTICLE, "https://brand.test/down": ARTICLE})
+    store = MemoryStore()
+    checker = PageChecker(store, sleep=lambda s: None, archive=archive)
+    try:
+        index = checker.check([
+            PageRequest(url="https://news.test/blocked"), PageRequest(url="https://news.test/gone"),
+            PageRequest(url="https://news.test/private/x"),
+            PageRequest(url="https://brand.test/down", respect_robots=False, allow_archive=False),
+        ])
+    finally:
+        checker.close()
+    assert archive.calls == ["https://news.test/blocked", "https://news.test/gone"]  # robots 不让的、自己的站都不查
+    blocked = index.lookup("https://news.test/blocked")
+    assert blocked.status is PageFetchStatus.OK and blocked.text_source == "archive_main"
+    assert blocked.archive_timestamp == "20250102030405" and blocked.live_status is PageFetchStatus.BLOCKED
+    assert blocked.archive_url.startswith("https://web.archive.org/web/20250102030405/")
+    assert page_mention(blocked, BRAND).found
+    gone = index.lookup("https://news.test/gone")
+    assert gone.status is PageFetchStatus.FETCH_FAILED and gone.error == "archive:none"  # 存档也没有,查过了
+    assert index.lookup("https://news.test/private/x").status is PageFetchStatus.ROBOTS_DISALLOWED
+    assert index.lookup("https://brand.test/down").status is PageFetchStatus.FETCH_FAILED
+    assert len(store.rows) == 6  # 4 条实时 + 2 条存档尝试,都留档
+    again = PageChecker(store, sleep=lambda s: None, archive=archive)
+    try:
+        again.check([PageRequest(url="https://news.test/blocked"), PageRequest(url="https://news.test/gone")])
+    finally:
+        again.close()
+    assert archive.calls == ["https://news.test/blocked", "https://news.test/gone"]  # 7 天内复用,不重查
+    assert archive.closed is True  # 核实器关闭时一并关掉存档源
+
+
+class LimitedArchive(FakeArchive):
+    def __init__(self, pages: dict[str, str | None], limited_calls: int) -> None:
+        super().__init__(pages)
+        self.limited_calls = limited_calls  # 前几次调用都回「限流」
+
+    def fetch(self, url: str):
+        from crawler.wayback import ArchiveRateLimited
+
+        if self.limited_calls > 0:
+            self.limited_calls -= 1
+            raise ArchiveRateLimited(retry_after_s=5.0)
+        return super().fetch(url)
+
+
+@respx.mock
+def test_archive_rate_limit_waits_once_within_bounds_then_stops_the_pass():
+    """S6.4:档案馆限流按 Retry-After 等一次(有上限),再限流整轮停;没查到的页不带「已查」标记,下次再查。"""
+    respx.get("https://news.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://news.test/a").mock(return_value=httpx.Response(403))
+    respx.get("https://news.test/b").mock(return_value=httpx.Response(403))
+    sleeps: list[float] = []
+    archive = LimitedArchive({"https://news.test/a": ARTICLE, "https://news.test/b": ARTICLE}, limited_calls=1)
+    checker = PageChecker(MemoryStore(), sleep=sleeps.append, archive=archive)
+    try:
+        index = checker.check([PageRequest(url="https://news.test/a", priority=0),
+                               PageRequest(url="https://news.test/b", priority=1)])
+    finally:
+        checker.close()
+    assert 5.0 in sleeps  # 按 Retry-After 等了一次
+    assert index.lookup("https://news.test/a").text_source == "archive_main"
+    assert index.lookup("https://news.test/b").text_source == "archive_main"
+    stuck = LimitedArchive({"https://news.test/a": ARTICLE, "https://news.test/b": ARTICLE}, limited_calls=5)
+    again = PageChecker(MemoryStore(), sleep=sleeps.append, archive=stuck)
+    try:
+        index = again.check([PageRequest(url="https://news.test/a"), PageRequest(url="https://news.test/b")])
+    finally:
+        again.close()
+    a = index.lookup("https://news.test/a")
+    assert a.status is PageFetchStatus.BLOCKED and a.archive_timestamp is None and a.error != "archive:none"
+    assert index.lookup("https://news.test/b").archive_timestamp is None
+    assert stuck.limited_calls == 3  # 等一次、再试一次就停,不逐页硬撞
+
+
+@respx.mock
+def test_progress_is_reported_per_page_and_at_the_end():
+    """S8.5:核实器把「已开 / 共 / 阶段」报给调用方(任务页用);回调出错不影响核实。"""
+    respx.get("https://a.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://b.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://a.test/1").mock(return_value=_html(ARTICLE))
+    respx.get("https://b.test/2").mock(return_value=_html(ARTICLE))
+    events: list[tuple[int, int, str]] = []
+    index, _ = _check(["https://a.test/1", "https://b.test/2"], progress=lambda d, t, s: events.append((d, t, s)))
+    assert index.lookup("https://a.test/1").status is PageFetchStatus.OK
+    assert events[0] == (0, 2, "fetch") and events[-1] == (2, 2, "done")
+    fetch_counts = [d for d, _, s in events if s == "fetch"]
+    assert fetch_counts == sorted(fetch_counts) and fetch_counts[-1] == 2  # 只增不减,最后到齐
+
+    def boom(done: int, total: int, stage: str) -> None:
+        raise RuntimeError("callback bug")
+
+    index2, _ = _check(["https://a.test/1"], progress=boom)
+    assert index2.lookup("https://a.test/1").status is PageFetchStatus.OK  # 回调炸了,核实照常
+
+
+@respx.mock
+def test_progress_reports_done_even_when_the_check_blows_up():
+    """审核发现(2026-10-14):核实中途抛错就不报「结束」,任务页会停在半截倒计时;现在 finally 里报实际开了几个。"""
+
+    class BrokenStore(MemoryStore):
+        def insert_page_check(self, check: PageCheck) -> None:
+            raise RuntimeError("db down")
+
+    respx.get("https://a.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://a.test/1").mock(return_value=_html(ARTICLE))
+    events: list[tuple[int, int, str]] = []
+    with pytest.raises(RuntimeError, match="db down"):
+        _check(["https://a.test/1"], store=BrokenStore(), progress=lambda d, t, s: events.append((d, t, s)))
+    assert events[-1] == (0, 1, "done")  # 一个都没落成,如实报 0/1,但阶段是「结束」
+
+
+def test_page_check_table_is_append_only_and_latest_per_url(storage):
+    now = datetime.now(UTC)  # 日期要相对现在:recent_page_checks 只认 7 天内的,写死日期的测试过一周就过期(10-20 踩过)
+    older = PageCheck(url="https://x.test/a", normalized_url="https://x.test/a", status=PageFetchStatus.FETCH_FAILED,
+                      error="ConnectError", fetcher_version=1, fetched_at=now - timedelta(days=2))
+    newer = PageCheck(url="https://x.test/a", normalized_url="https://x.test/a", status=PageFetchStatus.OK,
+                      http_status=200, title="T", text="AuroraCRM is here", text_source="archive_main", text_chars=17,
+                      fetcher_version=1, fetched_at=now - timedelta(days=1),
+                      archive_url="https://web.archive.org/web/20250102030405/https://x.test/a",
+                      archive_timestamp="20250102030405", live_status=PageFetchStatus.BLOCKED)
+    storage.insert_page_check(older)
+    storage.insert_page_check(newer)
+    latest = storage.recent_page_checks(["https://x.test/a", "https://x.test/never"])
+    assert set(latest) == {"https://x.test/a"} and latest["https://x.test/a"].status is PageFetchStatus.OK
+    assert latest["https://x.test/a"].text == "AuroraCRM is here" and latest["https://x.test/a"].truncated is False
+    assert latest["https://x.test/a"].archive_timestamp == "20250102030405"
+    assert latest["https://x.test/a"].live_status is PageFetchStatus.BLOCKED  # 存档三列往返
+    assert storage.recent_page_checks([]) == {}
+    with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
+        storage._conn.execute("UPDATE page_check SET text = NULL")
+    with pytest.raises(psycopg.errors.RaiseException, match="append-only"):
+        storage._conn.execute("DELETE FROM page_check")
+
+
+@respx.mock
+def test_third_party_page_is_not_fetched_when_its_robots_cannot_be_read():
+    """对方 robots.txt 返回 5xx:按 RFC 9309 当全禁,不抓,记「抓取规则读不到」(第二轮;原来当没规则照抓)。"""
+    respx.get("https://flaky.test/robots.txt").mock(return_value=httpx.Response(503))
+    page = respx.get("https://flaky.test/a").mock(return_value=_html(ARTICLE))
+    store = MemoryStore()
+    checker = PageChecker(store, sleep=lambda s: None)
+    try:
+        index = checker.check([PageRequest(url="https://flaky.test/a")])
+    finally:
+        checker.close()
+    assert index.lookup("https://flaky.test/a").status is PageFetchStatus.ROBOTS_UNAVAILABLE and page.call_count == 0
+
+
+@respx.mock
+def test_redirects_obey_the_robots_of_every_site_they_land_on():
+    """第三方页跳到别的站(或同站别的路径)时,要守跳到的那一站的 robots(第二轮审核 B2:原来只查原网址那个站)。
+    不让抓 → 记 robots 不允许、那一站不去请求,去向照记;允许的照常跟到底、照常判。"""
+    respx.get("https://short.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://short.test/a").mock(return_value=httpx.Response(301, headers={"Location": "https://closed.test/p"}))
+    respx.get("https://closed.test/robots.txt").mock(
+        return_value=httpx.Response(200, text="User-agent: *\nDisallow: /p\n"))
+    closed = respx.get("https://closed.test/p").mock(return_value=_html(ARTICLE))
+    respx.get("https://same.test/robots.txt").mock(
+        return_value=httpx.Response(200, text="User-agent: *\nDisallow: /private\n"))
+    respx.get("https://same.test/b").mock(return_value=httpx.Response(302, headers={"Location": "/private/x"}))
+    private = respx.get("https://same.test/private/x").mock(return_value=_html(ARTICLE))
+    respx.get("https://short.test/c").mock(return_value=httpx.Response(302, headers={"Location": "https://open.test/r"}))
+    respx.get("https://open.test/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://open.test/r").mock(return_value=_html(ARTICLE))
+    index, _ = _check(["https://short.test/a", "https://same.test/b", "https://short.test/c"])
+    refused = index.lookup("https://short.test/a")
+    assert refused.status is PageFetchStatus.ROBOTS_DISALLOWED and refused.final_url == "https://closed.test/p"
+    same_site = index.lookup("https://same.test/b")  # 同站跳到 robots 不让的路径:同样拦下
+    assert same_site.status is PageFetchStatus.ROBOTS_DISALLOWED and same_site.final_url == "https://same.test/private/x"
+    assert closed.call_count == 0 and private.call_count == 0
+    assert index.lookup("https://short.test/c").status is PageFetchStatus.OK
+    assert index.lookup("https://short.test/c").final_url == "https://open.test/r"
+
+
+BAD_URLS = ("http://[bad/x", "https://a.test:abc/x", "ftp://files.test/y", "notaurl")
+
+
+@respx.mock
+def test_malformed_citation_urls_are_recorded_as_unopenable_without_crashing_the_check():
+    """平台给的引用网址是外来输入:方括号不配对、端口不是数字、不是 http(s)——原来规范化时抛错没人接,整段核实崩
+    (第二轮审核 B4)。现在每条记「打不开」(原因 InvalidURL)、不发请求、照样落库;好网址照常核实。"""
+    respx.get("https://site-a.com/robots.txt").mock(return_value=httpx.Response(404))
+    respx.get("https://site-a.com/review").mock(return_value=_html(ARTICLE))
+    for url in BAD_URLS:
+        assert isinstance(normalize_url(url), str)  # 不抛错
+    index, store = _check([*BAD_URLS, "https://site-a.com/review"])
+    for url in BAD_URLS:
+        check = index.lookup(url)
+        assert check is not None and check.status is PageFetchStatus.FETCH_FAILED and check.error == "InvalidURL", url
+    assert index.lookup("https://site-a.com/review").status is PageFetchStatus.OK
+    assert len(store.rows) == len(BAD_URLS) + 1

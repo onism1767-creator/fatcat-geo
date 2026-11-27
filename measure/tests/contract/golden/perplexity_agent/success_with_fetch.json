@@ -1,0 +1,265 @@
+{
+ "background": false,
+ "completed_at": 1794789112,
+ "created_at": 1794789112,
+ "effort": "low@2026-11-11.0",
+ "error": null,
+ "frequency_penalty": 0,
+ "id": "resp_3f6b10d8-7d98-426a-8490-84af8696545f",
+ "incomplete_details": null,
+ "instructions": null,
+ "max_output_tokens": 4096,
+ "max_tool_calls": null,
+ "metadata": {},
+ "model": "openai/gpt-6-luna",
+ "object": "response",
+ "output": [
+  {
+   "queries": [
+    "2026 扫地机器人 性价比 推荐 评测 中国",
+    "2026 扫地机器人 推荐 价格 追觅 石头 科沃斯",
+    "扫地机器人 性价比 2026 选购指南"
+   ],
+   "results": [
+    {
+     "date": "2026-10-31",
+     "id": 1,
+     "last_updated": "2026-11-09",
+     "snippet": "2026年扫地机器人测评排行的核心结论很明确：**追觅S60Pro是3000元档扫拖一体综合首选，石头P20 Ultra",
+     "source": "web",
+     "title": "2026扫地机器人测评排行怎么选？科沃斯石头追觅米家云鲸5款实测+FAQ",
+     "url": "https://cj.sina.com.cn/articles/view/7879996008/1d5af326806801n66e"
+    },
+    {
+     "date": "2026-11-03",
+     "id": 2,
+     "last_updated": "2026-11-09",
+     "snippet": "2026年扫地机器人闭眼入结论直接给：预算无上限选石头G30S Ultra；5000元内综合最强是追觅X60 Pro，消",
+     "source": "web",
+     "title": "扫地机器人2026哪款值得买？3个维度实测说清+分人群闭眼选+FAQ",
+     "url": "https://www.sina.cn/news/article/comos_nixmnqf8806720.html"
+    },
+    {
+     "date": "2026-11-13",
+     "id": 3,
+     "last_updated": "2026-11-13",
+     "snippet": "2026年扫地机器人测评排行出炉，追觅S60 Pro以消协93分登顶综合榜首，科沃斯T90 PRO卡位3000元档性价比",
+     "source": "web",
+     "title": "扫地机器人测评排行2026怎么选？追觅93分登顶+3类人闭眼入+FAQ",
+     "url": "https://www.sina.cn/gc/article/niypvhf1050017.html"
+    },
+    {
+     "date": "2026-04-23",
+     "id": 4,
+     "last_updated": "2026-11-06",
+     "snippet": "本文基于实际使用体验与实验室测试，评选出2026年最值得购买的扫地机器人。目前综合排名第一的是科沃斯Deebot X8 ",
+     "source": "web",
+     "title": "2026年最佳扫地机器人推荐：专家实测与实验室评测 - 至顶网",
+     "url": "https://ai.zhiding.cn/2026/0423/3184962.shtml"
+    },
+    {
+     "date": "2026-11-15",
+     "id": 5,
+     "last_updated": "2026-11-15",
+     "snippet": "2026年扫地机器人品牌怎么选？本文实测石头G30S Ultra、科沃斯T90 PRO、追觅X60Pro滚筒版、米家扫地",
+     "source": "web",
+     "title": "扫地机器人哪个品牌好？实测石头/科沃斯/追觅/米家4款旗舰后我选了它+FAQ",
+     "url": "https://www.sina.cn/gc/article/niyuykf3223571.html"
+    },
+    {
+     "date": "2026-11-04",
+     "id": 6,
+     "last_updated": "2026-11-12",
+     "snippet": "2026年扫地机器人测评排行的答案很明确：**追觅以93分登顶**，科沃斯T80S PLUS/T90 PRO是4399元",
+     "source": "web",
+     "title": "扫地机器人测评排行2026怎么选？追觅93分登顶+3类人闭眼入指南+FAQ",
+     "url": "https://www.sina.cn/gc/article/nixpmfh1788356.html"
+    },
+    {
+     "date": "2026-11-05",
+     "id": 7,
+     "last_updated": "2026-11-10",
+     "snippet": "2026年扫地机器人推荐认准追觅、石头、科沃斯、云鲸、米家五强。追觅S60 Pro以93分登顶综合榜，石头P20 Max",
+     "source": "web",
+     "title": "扫地机器人推荐2026哪款值得买？五强横评+分价位避坑 ...",
+     "url": "https://www.sina.cn/news/article/comos_nixrunh9599024.html"
+    },
+    {
+     "date": "2026-11-15",
+     "id": 8,
+     "last_updated": "2026-11-15",
+     "snippet": "先说结论：没有哪个牌子在所有家庭都最好。全能省心选石头，看重性价比选 Eufy，以拖地为主选云鲸，等打折入手选科沃斯，养",
+     "source": "web",
+     "title": "扫地机器人哪个牌子好？2026 选购指南与推荐",
+     "url": "https://pickly.blog/zh-CN/articles/robot-vacuum-buying-guide-2026/"
+    },
+    {
+     "date": "2026-11-09",
+     "id": 9,
+     "last_updated": "2026-11-12",
+     "snippet": "2026年扫地机器人选购结论明确：旗舰综合首选石头G30S Ultra，销量口碑王选科沃斯T80，3000元内闭眼入米家",
+     "source": "web",
+     "title": "扫地机器人2026怎么选？3个价位实测横评+5类人群闭眼入+FAQ",
+     "url": "https://www.sina.cn/gc/article/niycfmw6328012.html"
+    },
+    {
+     "date": "2026-10-13",
+     "id": 10,
+     "last_updated": "2026-10-25",
+     "snippet": "2026年买扫地机器人，别再问“哪个品牌最好”——没有绝对最好的品牌，只有按家庭场景最实用的选择。国货已霸榜前五，科沃斯",
+     "source": "web",
+     "title": "2026扫地机器人哪个品牌好？科沃斯石头追觅三分天下，3个维度说清+FAQ",
+     "url": "https://cj.sina.com.cn/articles/view/7880068961/1d5b04f6106801epr0"
+    },
+    {
+     "date": "2026-11-12",
+     "id": 11,
+     "last_updated": "2026-11-13",
+     "snippet": "**扫地机器人哪个品牌好？直接给结论：2026年没有唯一最优解，按需求选——追求算法和路径规划闭眼选石头，看重吸力和性价",
+     "source": "web",
+     "title": "扫地机器人哪个品牌好？石头追觅云鲸科沃斯4品牌实测对比+FAQ",
+     "url": "https://www.sina.cn/gc/article/niykvcr1640325.html"
+    },
+    {
+     "date": "2026-10-30",
+     "id": 12,
+     "last_updated": "2026-11-05",
+     "snippet": "石头、追觅、云鲸、科沃斯、大疆、米家在各价位都有能打的机型：养宠长发优先追觅S60 Pro、石头P20 Max、科沃斯T",
+     "source": "web",
+     "title": "扫地机器人哪个品牌好？2026年石头追觅云鲸科沃斯实测避坑+FAQ",
+     "url": "https://cj.sina.com.cn/articles/view/7879923203/1d5ae160306801eqpy"
+    },
+    {
+     "date": "2026-11-06",
+     "id": 13,
+     "last_updated": "2026-11-11",
+     "snippet": "扫地机器人没有绝对最好的单一品牌，但2026年11月主流选择集中在石头、追觅、云鲸、科沃斯、米家五家。石头P20 Max",
+     "source": "web",
+     "title": "扫地机器人哪个品牌好？实测石头追觅云鲸3个维度说清+FAQ",
+     "url": "https://www.sina.cn/news/article/comos_nixuqhy8805966.html"
+    },
+    {
+     "date": "2026-11-04",
+     "id": 14,
+     "last_updated": "2026-11-14",
+     "snippet": "最近好多朋友私信问我：家里刚装修完，或者想换台新的，到底咋选？我特意把四款热门机型——科沃斯 X12 PRO 水箱版 钛",
+     "source": "web",
+     "title": "真机实测筛选：2026 年值得入手的扫地机器人推荐",
+     "url": "https://jd.zol.com.cn/1268/12687498.html"
+    },
+    {
+     "date": "2026-11-03",
+     "id": 15,
+     "last_updated": "2026-11-15",
+     "snippet": "这次我们挑了四款热度很高、且具备代表性的机型：roborock（石头） P30 Pro 水箱版、科沃斯 X12S PRO",
+     "source": "web",
+     "title": "2026扫地机器人选购指南 这几款产品闭眼入不踩坑",
+     "url": "https://jd.zol.com.cn/1268/12687390.html"
+    }
+   ],
+   "type": "search_results"
+  },
+  {
+   "contents": [
+    {
+     "snippet": "# 扫地机器人哪个品牌好？石头追觅云鲸科沃斯4品牌实测对比+FAQ\n\n来源 **家电分享社** 2026-11-12\n\n摘要\n\n2026年扫地机器人没有唯一最优解。博主评测共识：石头算法强、追觅吸力大、云鲸省心、科沃斯产品线最全。本文从主力",
+     "title": "扫地机器人哪个品牌好？石头追觅云鲸科沃斯4品牌实测对比+FAQ",
+     "url": "https://www.sina.cn/gc/article/niykvcr1640325.html"
+    }
+   ],
+   "type": "fetch_url_results"
+  },
+  {
+   "content": [
+    {
+     "annotations": [],
+     "text": "2026 年性价比比较突出的选择，主要集中在 **2000—3000 元**价位：追觅 S60 Pro、石头 P20 Max、科沃斯 T80S。按需求挑，比单看吸力数字更实用。\n\n| 预算/场景 | 推荐型号 | 参考价 | 推荐理由 |\n|---|---|---:|---|\n| 约 2400 元、想要省心基站 | 科沃斯 T80S 上下水版 | 约 2399 元 | 入门价位有滚筒拖地和上下水功能；适合预算有限、安装条件允许的家庭。 |\n| 约 2600—2700 元、重视拖地和宠物毛发 | 追觅 S60 Pro 水箱版 | 约 2688 元 | 滚筒活水洗地，吸力参数较高；可优先考虑养宠或厨房污渍较多的家庭。 |\n| 约 2850—2950 元、重视规划和综合体验 | 石头 P20 Max | 水箱版约 2855 元；上下水版约 2950 元 | 双旋转拖布，适合看重路径规划、贴边清洁和使用省心的人；如果家里能安装上下水，通常更方便。 |\n| 约 4100—4500 元、重度拖地需求 | 科沃斯 X12 Pro | 国补后约 4100—4500 元 | 属于加预算升级选项，滚筒拖地适合更在意顽固污渍清洁的家庭。 |\n\n以上参考价来自 2026 年 11 月的评测汇总，实际价格会随平台和促销变化；其中评测将追觅 S60 Pro列为同价位高性价比选择，将科沃斯 T80S 上下水版列为 2500 元以内的入门选项。[web:11]\n\n**简单结论：**预算约 2500 元，先看科沃斯 T80S；预算能到 2700 元、拖地需求强，选追觅 S60 Pro；更看重规划和综合省心，选石头 P20 Max。购买前重点确认家具底部高度、门槛和上下水安装条件，并以购买当天的实际成交价为准。",
+     "type": "output_text"
+    }
+   ],
+   "id": "msg_0ceea618-c162-4c44-9a58-5b2726223181",
+   "role": "assistant",
+   "status": "completed",
+   "type": "message"
+  }
+ ],
+ "parallel_tool_calls": true,
+ "presence_penalty": 0,
+ "preset": "low@2026-11-11.0",
+ "previous_response_id": null,
+ "prompt_cache_key": null,
+ "reasoning": null,
+ "safety_identifier": null,
+ "service_tier": "default",
+ "status": "completed",
+ "store": true,
+ "temperature": 1,
+ "text": {
+  "format": {
+   "type": "text"
+  }
+ },
+ "tool_choice": "auto",
+ "tools": [
+  {
+   "type": "web_search"
+  },
+  {
+   "type": "fetch_url"
+  }
+ ],
+ "top_logprobs": 0,
+ "top_p": 1,
+ "truncation": "",
+ "usage": {
+  "cost": {
+   "cache_creation_cost": 0.00095,
+   "cache_read_cost": 9e-05,
+   "currency": "USD",
+   "input_cost": 0,
+   "output_cost": 0.00037,
+   "tool_calls_cost": 0.00313,
+   "tool_calls_cost_details": {
+    "fetch_url": 0.00213,
+    "search_web": 0.001
+   },
+   "total_cost": 0.00454
+  },
+  "input_tokens": 17040,
+  "input_tokens_details": {
+   "cache_creation_input_tokens": 7597,
+   "cache_read_input_tokens": 9434,
+   "cached_tokens": 9434
+  },
+  "output_tokens": 739,
+  "output_tokens_details": {
+   "reasoning_tokens": 32
+  },
+  "tool_calls_details": {
+   "fetch_url": {
+    "cost_usd": 0.00213,
+    "invocation": 1,
+    "token_usage": [
+     {
+      "input_tokens": 3394,
+      "input_tokens_details": {
+       "cache_creation_input_tokens": 3391,
+       "cached_tokens": 0
+      },
+      "model": "openai/gpt-6-luna",
+      "output_tokens": 2412,
+      "output_tokens_details": {
+       "reasoning_tokens": 305
+      }
+     }
+    ]
+   },
+   "search_web": {
+    "cost_usd": 0.001,
+    "invocation": 1
+   }
+  },
+  "total_tokens": 17779
+ },
+ "user": null
+}

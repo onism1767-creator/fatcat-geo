@@ -1,0 +1,11 @@
+{% extends "base.html" %}
+{% block title %}{{ t["drafting_title"] }}{% endblock %}
+{% block content %}
+{#- 品类页之后 AI 正在出题(1–2 分钟):这期间确认页不显示空的候选题,只说在出题、自动刷新(第二轮) -#}
+<meta http-equiv="refresh" content="5">
+<h1>{{ t["drafting_title"] }}</h1>
+<div class="card">
+  <p>{{ t["drafting_wait"] }}</p>
+  <p class="muted">{{ t["brand_word"] }}:{{ job.brand.name }} · {{ job.category }}</p>
+</div>
+{% endblock %}

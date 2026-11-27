@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+{% block content %}
+<h1>{{ t["new_diag"] }}</h1>
+{% if error %}<div class="err">{{ error }}</div>{% endif %}
+<form class="card" method="post" action="/jobs?lang={{ lang }}">
+  <div class="row">
+    <div><label>{{ t["brand_name"] }}</label><input type="text" name="brand_name" required placeholder="{{ t['brand_name_ph'] }}"></div>
+    <div><label>{{ t["aliases"] }}</label><input type="text" name="aliases" placeholder="{{ t['aliases_ph'] }}"></div>
+  </div>
+  <div class="row">
+    <div><label>{{ t["website"] }}</label><input type="text" name="website" required placeholder="aurora-crm.com"></div>
+    <div><label>{{ t["category"] }}</label><input type="text" name="category" required placeholder="{{ t['category_ph'] }}"></div>
+    <div><label>{{ t["locale_label"] }}</label>
+      <select name="locale">
+        <option value="zh-CN" {{ "selected" if lang == "zh" else "" }}>中文</option>
+        <option value="en-US" {{ "selected" if lang == "en" else "" }}>English</option>
+      </select>
+    </div>
+  </div>
+  <label>{{ t["questions_label"] }}</label>
+  <textarea name="questions"></textarea>
+  {% if surfaces %}
+  <label style="font-weight:400"><input type="checkbox" name="generate" value="1">
+    {{ t["generate_label"] }}</label>
+  {% else %}
+  <p class="muted">{{ t["no_surface"] }}</p>
+  {% endif %}
+  <button type="submit">{{ t["submit_next"] }}</button>
+</form>
+
+{% if jobs %}
+<h2>{{ t["history"] }}</h2>
+<table>
+  <tr><th>{{ t["th_brand"] }}</th><th>{{ t["th_state"] }}</th><th>{{ t["th_phase"] }}</th><th>{{ t["th_cost"] }}</th><th></th></tr>
+  {% for j in jobs %}
+  <tr>
+    <td>{{ j.brand.name }}<span class="muted"> · {{ j.category }} · {{ j.locale }}{% if j.fresh %} · {{ t["retest_tag"] }}{% endif %}</span></td>
+    <td>{{ state_labels[j.state.value] }}</td>
+    <td>{{ t[j.phase] }}</td>
+    <td>${{ "%.4f"|format(j.spent_usd) }}</td>
+    <td>
+      {% if j.state.value in ("INTERRUPTED", "FAILED") %}
+      <form method="post" action="/jobs/{{ j.job_id }}/resume?lang={{ lang }}" style="display:inline">
+        <button type="submit">{{ t["btn_resume"] }}</button>
+      </form>
+      {% elif j.state.value == "PARTIAL" %}
+      <a href="/jobs/{{ j.job_id }}/report?lang={{ lang }}">{{ t["view_report"] }}</a> ·
+      <a href="/jobs/{{ j.job_id }}?lang={{ lang }}">{{ t["btn_resume_fill"] }}</a>
+      {% elif j.finished and j.class_reports %}
+      <a href="/jobs/{{ j.job_id }}/report?lang={{ lang }}">{{ t["view_report"] }}</a>
+      {% elif j.finished %}
+      <form method="post" action="/jobs/{{ j.job_id }}/resume?lang={{ lang }}" style="display:inline">
+        <input type="hidden" name="regenerate" value="1">
+        <button type="submit" style="margin:0;padding:4px 12px;font-weight:400">{{ t["btn_recompute"] }}</button>
+      </form>
+      {% elif j.state.value == "DRAFT" %}
+      <a href="/jobs/{{ j.job_id }}/confirm?lang={{ lang }}">{{ t["btn_continue_draft"] }}</a>
+      {% else %}
+      <a href="/jobs/{{ j.job_id }}?lang={{ lang }}">{{ t["view"] }}</a>
+      {% endif %}
+    </td>
+  </tr>
+  {% endfor %}
+</table>
+{% endif %}
+{% endblock %}

@@ -1,0 +1,28 @@
+{% extends "base.html" %}
+{% block title %}{{ t["category_title"] }}{% endblock %}
+{% block content %}
+{#- 品类核对页(S11.4,产品文档 D24):只在自动核对判「不是一类」时出现;一致 / 看不出来 / 核对不了都不会来这一页 -#}
+<h1>{{ t["category_title"] }}</h1>
+<p class="muted">{{ t["brand_word"] }}:{{ job.brand.name }}({{ ", ".join(job.brand.domains) }})</p>
+{% if error %}<div class="err">{{ error }}</div>{% endif %}
+
+<div class="card">
+  <p>{{ t["category_intro"] }}</p>
+  <table class="brief">
+    <tr><td>{{ t["category_yours"] }}</td><td><b>{{ job.category }}</b></td></tr>
+    <tr><td>{{ t["category_site_says"] }}</td><td>“{{ check.site_phrase }}”</td></tr>
+    <tr><td>{{ t["category_site_looks"] }}</td><td><b>{{ check.suggested }}</b></td></tr>
+  </table>
+  <form method="post" action="/jobs/{{ job.job_id }}/category?lang={{ lang }}">
+    <label style="font-weight:400"><input type="radio" name="choice" value="mine">
+      {{ t["category_use_mine"].format(category=job.category) }}</label>
+    <label style="font-weight:400"><input type="radio" name="choice" value="site">
+      {{ t["category_use_site"].format(category=check.suggested) }}</label>
+    <label style="font-weight:400"><input type="radio" name="choice" value="custom">
+      {{ t["category_use_custom"] }}</label>
+    <input type="text" name="custom_category" placeholder="{{ t['category_ph'] }}">
+    <p class="muted">{{ t["category_note"] }}</p>
+    <button type="submit">{{ t["category_submit"] }}</button>
+  </form>
+</div>
+{% endblock %}

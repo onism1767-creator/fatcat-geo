@@ -1,0 +1,52 @@
+{
+  "id": "resp_367113ed-7a1b-4b2e-bad7-93e53a6cbeca",
+  "object": "response",
+  "created_at": 1760400000,
+  "completed_at": 1760400006,
+  "model": "perplexity/sonar",
+  "status": "failed",
+  "error": {
+    "message": "model overloaded, request aborted",
+    "code": "model_error",
+    "type": "server"
+  },
+  "output": [
+    {
+      "type": "message",
+      "id": "msg_1",
+      "role": "assistant",
+      "status": "failed",
+      "content": [
+        {
+          "type": "output_text",
+          "text": "",
+          "annotations": [],
+          "logprobs": []
+        }
+      ]
+    }
+  ],
+  "tools": [
+    {
+      "type": "web_search"
+    }
+  ],
+  "max_output_tokens": 4096,
+  "usage": {
+    "input_tokens": 4718,
+    "output_tokens": 450,
+    "total_tokens": 5168,
+    "cost": {
+      "currency": "USD",
+      "input_cost": 0.00118,
+      "output_cost": 0.001125,
+      "tool_calls_cost": 0.0025,
+      "total_cost": 0.0
+    },
+    "tool_calls_details": {
+      "search_web": {
+        "invocation": 1
+      }
+    }
+  }
+}

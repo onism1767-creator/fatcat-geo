@@ -1,0 +1,354 @@
+{% extends "base.html" %}
+{% block title %}{{ job.brand.name }} {{ t["report_title"] }}{% endblock %}
+{% block content %}
+<h1>{{ job.brand.name }} {{ t["report_title"] }}</h1>
+<p class="muted">{{ t["scope_note"] }} {{ t["api_note"] }}</p>
+<p><a class="button" href="/jobs/{{ job.job_id }}/download?lang={{ lang }}">{{ t["download_bundle"] }}</a></p>
+
+{#- 「修好后再测」的单(S11.3):说明一切与上一单相同、全部重新提问,链到上一单报告好对照 -#}
+{% if job.fresh %}
+<div class="card"><b>{{ t["retest_banner_swapped" if job.model_swaps else "retest_banner"] }}</b>{% if parent %} <a href="/jobs/{{ parent.job_id }}/report?lang={{ lang }}">{{ t["retest_parent_link"].format(when=(parent.started_at or parent.created_at)|local_time) }}</a>{% endif %}
+  {#- 上一单测过、现在已移出清单的型号换成了什么(用户 2026-11-13 定) -#}
+  {% for line in swap_lines(job.model_swaps, lang) %}<p style="margin:6px 0 0">{{ line }}</p>{% endfor %}</div>
+{% endif %}
+
+{#- 采样说明(S8.2,架构书 v0.4.26 §10):这份报告是怎么测出来的——实际发生的数字,不是计划 -#}
+{% set sn = job.sampling %}
+{% if sn %}
+<div class="card" id="sampling">
+  <h2 style="margin-top:0">{{ t["sampling_title"] }}</h2>
+  {#- 每一条在 report/narrative.py::sampling_lines 拼,结果文件同用(第三轮审核 B4);上一单 / 换型号两条在顶部卡片里,这里跳过 -#}
+  <ul class="ev">
+    {% for kind, text in sampling_lines(job, lang) if kind not in ("parent", "swap") %}
+    <li>{{ text }}{% if kind == "domains" %} <a href="#official">{{ t["sampling_domains_link"] }}</a>{% endif %}</li>
+    {% endfor %}
+  </ul>
+</div>
+{% endif %}
+
+{#- 提前停的腿(S10.2,用户定「熔断要说清原因」):在报告最前面说清哪条腿没问完、为什么 -#}
+{% if stop_texts %}
+<div class="caution"><b>{{ t["breaker_title"] }}</b>
+  <ul class="ev">{% for code, text in stop_texts %}<li>{{ text }} <a href="/errors?lang={{ lang }}#{{ code }}">{{ t["errors_link"].format(code=code) }}</a></li>{% endfor %}</ul>
+</div>
+{% endif %}
+
+{% set access = job.access_result %}
+{% set info_tag = t["info_tag"] %}
+
+{# ══ 用户视图(v0.4.14):全部人话(plain 目录),技术词只在最后的「检测依据与方法」 ══ #}
+
+{#- 结果前的一句提醒(用户 2026-11-17 定):判别和被测用的是同一家 AI;整页只在这里出现一次 -#}
+{% set reminder = same_ai_reminder(job, lang) %}
+{% if reminder %}<div class="caution">{{ reminder }}</div>{% endif %}
+<div class="card exec">
+  <h2 style="margin-top:0">{{ t["sec1_title"] }}</h2>
+  <p><b>{{ t["access_word"] }}:</b>
+    {% if access %}<span class="chip {{ access.overall.value }}">{{ access_labels[access.overall.value] }}</span>{% endif %}
+    {% if summary.access %}{{ summary.access.headline|plain(lang) }}{% else %}{{ t["access_missing"] }}{% endif %}</p>
+  {#- 各 AI 一句话(S8.7,用户定写法 1):每个型号的百分比,不用灯、不用 emoji;每个型号的结论句移到证据区 -#}
+  {% if summary.api_lines %}
+  <p style="margin-bottom:2px"><b>{{ t["verdicts_word"] }}:</b></p>
+  <ul class="verdicts">
+    {% for line in summary.api_lines %}<li>{{ api_line_text(line, lang) }}</li>{% endfor %}
+  </ul>
+  {% endif %}
+  <p><b>{{ t["first_word"] }}:</b>
+    {% if summary.actions %}{% for a in summary.actions[:3] %}{{ action_text(a.recommendation, lang) }}{% if not loop.last %};{% endif %}{% endfor %}{% else %}{{ t["no_actions"] }}{% endif %}</p>
+</div>
+
+{% macro ev(e) %}{{ t["ev_" ~ e.kind].format(detail=e.detail or "", source=e.source or "") }}{% endmacro %}
+{#- 饼图(S8.1,用户定):提到你的句子按正面 / 中性 / 负面 / 混合——四类互斥,可以画成一张饼;一句没有的不画 -#}
+{% macro pie(st) %}{% set total = st.positive + st.neutral + st.negative + st.mixed %}{% set ns = namespace(offset=25) %}<svg class="pie" viewBox="0 0 36 36" width="56" height="56" aria-hidden="true">{% for value, color in [(st.positive, "var(--pass)"), (st.neutral, "var(--na)"), (st.negative, "var(--fail)"), (st.mixed, "var(--weak)")] %}{% if value %}{% set arc = 100 * value / total %}<circle cx="18" cy="18" r="15.9155" fill="none" stroke="{{ color }}" stroke-width="7" stroke-dasharray="{{ arc }} {{ 100 - arc }}" stroke-dashoffset="{{ ns.offset }}"/>{% set ns.offset = ns.offset - arc %}{% endif %}{% endfor %}</svg>{% endmacro %}
+{#- 圆环(S7,用户定):每个名字各一个环——一次回答可同时提到几家,不能画成一张饼;数字永远在,环只是看一眼 -#}
+{% macro ring(r, label, relation) %}{% set p = pct(r.k, r.n) %}<span class="ring" title="{{ r.k }}/{{ r.n }}"><svg viewBox="0 0 36 36" width="56" height="56" aria-hidden="true"><circle cx="18" cy="18" r="15.9155" fill="none" stroke="#e4e9f0" stroke-width="3.5"/><circle cx="18" cy="18" r="15.9155" fill="none" stroke="{{ '#2f6fb3' if relation is none else '#8da2bb' }}" stroke-width="3.5" stroke-dasharray="{{ p }} {{ 100 - p }}" stroke-dashoffset="25"/><text x="18" y="20.5" text-anchor="middle" font-size="8" fill="#223">{{ r.k }}/{{ r.n }}</text></svg><span class="ring-label"><b>{{ label }}</b><br>{{ p }}%{% if relation %} · {{ t["compare_" ~ relation] }}{% endif %}</span></span>{% endmacro %}
+<div class="card" id="official">
+  <h2 style="margin-top:0">{{ t["official_title"] }}</h2>
+  {% set dl = job.domain_list %}
+  {% if dl %}
+  <p>{{ t["official_primary"].format(domain=dl.primary) }}</p>
+  {% set auto = dl.domains|selectattr("status", "equalto", "confirmed")|list %}
+  {% set pending = dl.domains|selectattr("status", "equalto", "unconfirmed")|list %}
+  {% set removed = dl.domains|selectattr("status", "equalto", "removed")|list %}
+  <form method="post" action="/jobs/{{ job.job_id }}/official_domains?lang={{ lang }}">
+    {% if auto %}
+    <p>{{ t["official_auto_intro"] }}</p>
+    <ul class="ev">{% for d in auto %}
+      <li><b>{{ d.domain }}</b> — {% for e in d.evidence %}{{ ev(e) }}{% if not loop.last %};{% endif %}{% endfor %}
+        <label style="font-weight:400"><input type="checkbox" name="remove" value="{{ d.domain }}"> {{ t["official_remove"] }}</label></li>
+    {% endfor %}</ul>
+    {% else %}<p class="muted">{{ t["official_none_auto"] }}</p>{% endif %}
+    {% if pending %}
+    <p>{{ t["official_unconfirmed_intro"] }}</p>
+    <ul class="ev">{% for d in pending %}
+      <li><b>{{ d.domain }}</b> — {% for e in d.evidence %}{{ ev(e) }}{% if not loop.last %};{% endif %}{% endfor %}
+        <label style="font-weight:400"><input type="checkbox" name="confirm" value="{{ d.domain }}"> {{ t["official_add"] }}</label></li>
+    {% endfor %}</ul>
+    {% endif %}
+    {% if removed %}<p class="muted">{{ t["official_removed_intro"].format(domains=t["list_sep"].join(removed|map(attribute="domain"))) }}</p>{% endif %}
+    {% if dl.official_channels %}
+    <p>{{ t["official_channels_intro"] }}</p>
+    <ul class="ev">{% for c in dl.official_channels %}<li><b>{{ c.match }}</b>({{ c.platform }})— {{ ev(c.evidence) }}</li>{% endfor %}</ul>
+    {% endif %}
+    {% if dl.notes %}<ul class="ev">{% for n in dl.notes %}<li class="muted">{{ ev(n) }}</li>{% endfor %}</ul>{% endif %}
+    {% if auto or pending %}<button type="submit">{{ t["official_confirm"] }}</button>{% endif %}
+  </form>
+  {% if dl.user_changed %}<p class="muted">{{ t["official_changed"] }}</p>{% endif %}
+  {% else %}
+  <p>{{ t["official_current"].format(domains=t["list_sep"].join(job.brand.domains)) }}</p>
+  {% endif %}
+</div>
+
+{#- ══ 四步(S8.7,用户定 2026-09-29 / 10-14):每步一张卡 → 题型全展开 → 每家 AI 一行型号数数 → 每个型号一行 ══ -#}
+{% macro step_table(it, own_col, third_col) %}
+  <table class="step"><tr><th style="width:30%">{{ t["col_ai_model"] }}</th><th>{{ own_col }}</th>{% if third_col %}<th>{{ third_col }}</th>{% endif %}</tr>
+  {% for block in it.apis %}
+    <tr class="api"><td>{{ block.api }}</td><td colspan="{{ 2 if third_col else 1 }}">{{ count_models(block.status_counts, block.models|length, lang) }}</td></tr>
+    {% for m in block.models %}
+    <tr><td class="model">· {{ m.model }}{% if (m.surface, m.model) in truncated %} <span class="muted">{{ t["truncated_tag"] }}</span>{% endif %}</td>
+      <td><span class="chip {{ m.own.status.value }}">{{ status_labels[m.own.status.value] }}</span> {{ m.own.text|plain(lang) }}</td>
+      {% if third_col %}<td>{% if m.third %}<span class="chip {{ m.third.status.value }}">{{ status_labels[m.third.status.value] }}</span> {{ m.third.text|plain(lang) }}{% else %}<span class="muted">—</span>{% endif %}</td>{% endif %}</tr>
+    {% endfor %}
+  {% endfor %}
+  </table>
+{% endmacro %}
+
+<div class="card">
+  <h2 style="margin-top:0">{{ t["step1_title"] }}</h2>
+  <p>{% if access %}<span class="chip {{ access.overall.value }}">{{ access_labels[access.overall.value] }}</span> {% endif %}{% if summary.access %}{{ summary.access.headline|plain(lang) }}{% else %}{{ t["access_missing"] }}{% endif %} <span class="muted">{{ t["step1_note"] }}</span></p>
+  {% if access %}{% set problems = access.checks|selectattr("gating")|selectattr("status.value", "equalto", "FAIL")|list %}
+  <p><b>{{ t["problems_word"] }}:</b>{% if not problems %} {{ t["problems_none"] }}{% endif %}</p>
+  {% if problems %}<ul class="ev">{% for c in problems %}<li>{{ c.detail|plain(lang) }}</li>{% endfor %}</ul>{% endif %}
+  {% endif %}
+</div>
+
+{% for step in summary.steps %}
+<div class="card">
+  {% if step.stage.value == "RETRIEVAL" %}
+  <h2 style="margin-top:0">{{ t["step2_title"] }}</h2><p class="muted">{{ t["step2_intro"] }}</p>
+  {% elif step.stage.value == "CITATION" %}
+  <h2 style="margin-top:0">{{ t["step3_title"] }}</h2><p class="muted">{{ t["step3_intro"] }}</p>
+  {% else %}
+  <h2 style="margin-top:0">{{ t["step4_title"] }}</h2><p class="muted">{{ t["step4_intro"] }}</p>
+  {% endif %}
+  {% for it in step.intents %}
+  <h3 style="margin:14px 0 4px">{{ intent_labels[it.intent] }} <span class="muted" style="font-weight:400">· {{ t["prompts_in_class"].format(n=it.n_prompts, runs=runs_per_prompt) }}</span></h3>
+  {% if step.stage.value == "RETRIEVAL" %}{{ step_table(it, t["col_own_retrieval"], t["col_tp_retrieved"]) }}
+  {% elif step.stage.value == "CITATION" %}{{ step_table(it, t["col_own_citation"], t["col_tp_cited"]) }}
+  {% else %}{{ step_table(it, t["col_mention"], none) }}
+    {#- 竞品提及对比(S7,用户定 A / P1):计数 + 百分比 + 每名一环;差 ≥ gap 才说多 / 少 -#}
+    {% if it.compares %}
+    <h4 style="margin:12px 0 4px">{{ t["compare_title"] }}</h4>
+    <p class="muted">{{ t["compare_note"].format(pts=(it.compares[0][1].gap * 100)|round|int) }}</p>
+    <table class="brief compare">
+      {% for display, mc in it.compares %}
+      <tr><td style="width:30%"><b>{{ display }}</b><br><span class="muted">{{ t["compare_n"].format(n=mc.brand.rate.n) }}</span></td>
+        <td>{{ ring(mc.brand.rate, t["compare_you"], none) }}{% for c in mc.competitors %}{{ ring(c.rate, c.name, c.relation) }}{% endfor %}</td></tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+    {#- AI 怎么评价你(S8.1,用户定):按句计数 + 百分比 + 饼图;一句都没有的型号不列 -#}
+    {% if it.sentiments %}
+    <h4 style="margin:12px 0 4px">{{ t["sentiment_title"] }}</h4>
+    <table class="brief compare">
+      {% for display, st in it.sentiments %}
+      <tr><td style="width:30%"><b>{{ display }}</b></td>
+        <td><span class="ring pie-row">{{ pie(st) }}<span class="ring-label">{{ t["sentiment_line"].format(n=st.total, items=sentiment_items_text(st, lang)) }}</span></span></td></tr>
+      {% endfor %}
+    </table>
+    {% endif %}
+    {% if it.has_quotes %}<p class="muted">{{ t["quotes_hint"] }}</p>{% endif %}
+  {% endif %}
+  {% endfor %}
+</div>
+{% endfor %}
+
+{#- 末尾一段汇总(用户定):把上面的数字串起来说一遍,没有新判断、不打分 -#}
+{% if summary.wrap_up %}
+<div class="card exec">
+  <h2 style="margin-top:0">{{ t["wrapup_title"] }}</h2>
+  <p>{{ wrap_up_text(summary.wrap_up, lang, runs_per_prompt, action_text(summary.actions[0].recommendation, lang) if summary.actions else none) }}</p>
+</div>
+{% endif %}
+
+{#- AI 回答里写你的名字的写法(S9.2b,用户定):按次数,标出还没登记的,下次测可加进别名 -#}
+{% if job.spellings %}
+<div class="card">
+  <h2 style="margin-top:0">{{ t["spellings_report_title"] }}</h2>
+  <p class="muted">{{ t["spellings_report_lead"] }}</p>
+  <table class="brief">
+    <tr><th>{{ t["spellings_col_text"] }}</th><th>{{ t["spellings_col_count"] }}</th><th>{{ t["spellings_col_status"] }}</th></tr>
+    {% for sp in job.spellings %}
+    <tr><td>{{ sp.text }}</td><td>{{ sp.count }}</td><td>{% if sp.suggested %}{{ t["spellings_suggested"] }}{% elif sp.registered %}{{ t["spellings_registered"] }}{% else %}{{ t["spellings_unregistered"] }}{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+</div>
+{% endif %}
+
+<div class="card">
+  <h2 style="margin-top:0">{{ t["sec4_title"] }}</h2>
+  {% if summary.actions %}
+  <table class="brief">
+    <tr><th></th><th>{{ t["col_do"] }}</th><th>{{ t["col_verify"] }}</th></tr>
+    {% for a in summary.actions %}
+    {% set rec = a.recommendation %}
+    <tr class="rec">
+      <td>{{ loop.index }}</td>
+      <td><span class="muted">[{{ t["kind_geo_method"] if rec.kind == "geo_method" else t["kind_technical_fix"] }}]</span>
+        <b>{{ rec.plain[lang] }}</b>{% if rec.kind != "geo_method" and rec.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}<br>
+        {#- 实验卡 = 猜想(上面那句人话)/ 依据(这一行)/ 怎么验证(右边那列);技术修复 = 直接建议 + 出处(硬边界 9) -#}
+        {#- 主视图只放证据强弱的人话;来源原文(研究名、数字、术语)在下面「为什么这么建议」里(第二轮:原来把来源原文搬进主视图) -#}
+        {% if rec.kind == "geo_method" %}<span class="kv">{{ t["card_basis"] }}:{{ level_labels[rec.evidence_level] }}{{ t["card_sources_below"] }}</span><br>
+        <span class="muted">{{ t["card_disclaimer"] }}</span><br>
+        {% else %}<span class="kv">{{ t["card_sources"] }}:{{ level_labels[rec.evidence_level] }}{{ t["card_sources_below"] }}</span><br>{% endif %}
+        <span class="muted">{{ t["supported_by"].format(n=a.support_count) }}</span>
+        <details><summary>{{ t["why_summary"] }}</summary>
+          <div class="kv">{{ level_labels[rec.evidence_level] }} · {{ t["evidence_id_word"] }} <span class="id">{{ rec.evidence_id }}</span><br>
+            {{ t["claim_word"] }}:{{ rec.hypothesis[lang] }}<br>
+            {{ t["sources_word"] }}:{{ "; ".join(rec.sources[lang]) }}
+            {% if rec.guardrail %}<br>{{ t["guardrail_word"] }}:{{ rec.guardrail[lang] }}{% endif %}
+            {% if rec.contraindications[lang] %}<br>{{ t["contra_word"] }}:{{ "; ".join(rec.contraindications[lang]) }}{% endif %}
+            <br>{{ t["supporters_summary"] }}:{% for intent, display in a.supporters %}{{ t["quote_l"] }}{{ intent_labels[intent] }}{{ t["quote_r"] }} × {{ display }}{% if not loop.last %};{% endif %}{% endfor %}</div>
+        </details></td>
+      <td>{{ rec.verify[lang] }}</td>
+    </tr>
+    {% endfor %}
+  </table>
+  {% else %}<p class="muted">{{ t["no_actions"] }}</p>{% endif %}
+</div>
+
+{# ══ 检测依据与方法:技术目录,全部折叠 ══ #}
+
+<div class="card" id="methods">
+  <h2 style="margin-top:0">{{ t["sec5_title"] }}</h2>
+  <p class="muted">{{ t["audit_intro"] }}</p>
+  <p class="muted">{{ t["psl_note"].format(version=psl_version) }}</p>
+
+  {% if access %}
+  <details><summary>{{ t["preflight_detail"] }} <span class="chip {{ access.overall.value }}">{{ access.overall.value }}</span></summary>
+    <p style="margin:6px 0">{% if summary.access %}{{ summary.access.headline|msg(lang) }}{% endif %}</p>
+    {% for layer in access_layers %}
+    <div class="layer">▸ {{ layer_msg(layer)|msg(lang) }}</div>
+    <ul class="ev">
+      {% for check in access.checks_in(layer) %}
+      <li>[{{ check.status.value }}]{{ info_tag if not check.gating else "" }} {{ check.check }} — {{ check.detail|msg(lang) }}</li>
+      {% endfor %}
+    </ul>
+    {% endfor %}
+    <div class="layer">{{ t["caveats_summary"] }}</div>
+    <ul class="ev">{% for caveat in access.caveats %}<li>{{ caveat|msg(lang) }}</li>{% endfor %}</ul>
+  </details>
+  {% else %}<p class="muted">{{ t["access_missing"] }}</p>{% endif %}
+
+  {% for cr in job.class_reports %}
+  {% set d = cr.diagnosis %}
+  <details class="audit">
+    <summary><b>{{ intent_labels[cr.intent] }}</b> — {{ t["audit_open"] }}</summary>
+    <p class="kv">{{ t["sampled_prompts"] }}:</p>
+    <ol class="ev">{% for pt in cr.prompt_texts %}<li>{{ pt }}</li>{% endfor %}</ol>
+
+    {% for sd in d.surfaces %}
+    <h3 style="border-top:1px solid #e4e9f0; padding-top:10px">◆ {{ sd.surface }}
+      <span class="muted" style="font-weight:400">model={{ sd.model }} · provider={{ sd.provider }}</span></h3>
+    {% set sv = job.surface_verdicts|selectattr("surface", "equalto", sd.surface)|selectattr("model", "equalto", sd.model)|first|default(none) %}
+    {% if sv %}<p class="kv">{{ verdict_text(sv, target_name(sd.surface, sd.model), lang) }}</p>{% endif %}
+
+    {% for finding in sd.findings %}
+    <h4 style="margin:10px 0 2px">■ {{ finding.stage.value }}
+      <span class="chip {{ finding.status.value }}">{{ finding.status.value }}</span></h4>
+    <p style="margin:4px 0">{{ finding.headline|msg(lang) }}</p>
+    {% if finding.evidence_lines %}
+    <details>
+      <summary>{{ t["evidence_summary"] }}</summary>
+      <ul class="ev">{% for line in finding.evidence_lines %}<li>{{ line|msg(lang) }}</li>{% endfor %}</ul>
+    </details>
+    {% endif %}
+    {% endfor %}
+
+    {% if sd.third_party %}
+    <h4 style="margin:10px 0 2px">■ {{ t["tp_section"] }}{% if sd.third_party_failure %} <span class="muted">{{ t["tp_failure_pre"] }} {{ sd.third_party_failure.value }}</span>{% endif %}</h4>
+    {% for finding in sd.third_party %}
+    <p style="margin:4px 0">[{{ finding.stage.value }}] <span class="chip {{ finding.status.value }}">{{ finding.status.value }}</span> {{ finding.headline|msg(lang) }}</p>
+    {% if finding.evidence_lines %}
+    <details>
+      <summary>{{ t["evidence_summary"] }}</summary>
+      <ul class="ev">{% for line in finding.evidence_lines %}<li>{{ line|msg(lang) }}</li>{% endfor %}</ul>
+    </details>
+    {% endif %}
+    {% endfor %}
+    {% for c in sd.third_party_cautions %}<p class="muted">{{ c|msg(lang) }}</p>{% endfor %}
+    {#- 证据区:AI 引用了、但没写到你的第三方网页(实验卡 C1 的名单;用户 2026-10-28 定补)。外来网址只认 http(s) 才给链接 -#}
+    {% if sd.third_party_cited_elsewhere %}{% set ce = sd.third_party_cited_elsewhere %}
+    <details class="cited-elsewhere">
+      <summary>{{ t["tp_cited_elsewhere_summary"].format(n=ce.total) }}</summary>
+      <p class="muted">{{ t["tp_cited_elsewhere_note"] }}</p>
+      <ol class="ev">{% for p in ce.pages %}
+        <li>{{ p.domain }}{% if p.title %} · {{ p.title }}{% endif %} · {{ t["tp_cited_elsewhere_count"].format(n=p.answers) }}{% if p.url.startswith("http://") or p.url.startswith("https://") %} · <a href="{{ p.url }}" rel="noopener noreferrer nofollow" target="_blank">{{ t["tp_cited_elsewhere_open"] }}</a>{% endif %}</li>{% endfor %}
+      </ol>
+      {% if ce.total > ce.pages|length %}<p class="muted">{{ t["tp_cited_elsewhere_more"].format(n=ce.total - ce.pages|length) }}</p>{% endif %}
+    </details>
+    {% endif %}
+    {% endif %}
+
+    {#- AI 原话(S7,用户定 Q1):只进证据区;每道题前 3 次回答里第一次提到你的那句,没提到就写没提到;外来文字自动转义 -#}
+    {% set sq = cr.quotes|selectattr("surface", "equalto", sd.surface)|selectattr("model", "equalto", sd.model)|first|default(none) %}
+    {% if sq %}
+    <details class="quotes">
+      <summary>{{ t["quotes_summary"] }}</summary>
+      <ol class="ev">{% for pt in cr.prompt_texts %}{% set qs = sq.quotes|selectattr("prompt_no", "equalto", loop.index)|list %}
+        <li>{{ pt }}<ul class="ev">{% for q in qs %}
+          <li><a class="muted" href="/jobs/{{ job.job_id }}/responses/{{ q.run_id }}?lang={{ lang }}">{{ t["quote_attempt"].format(i=q.run_index) }}</a>{% if q.mentioned %}{{ t["quote_l"] }}{{ q.sentence }}{{ t["quote_r"] }}{% elif q.unsure %}<span class="muted">{{ t["quote_unsure"] }}</span>{% elif q.mentioned is none %}<span class="muted">{{ t["quote_invalid"] }}</span>{% else %}<span class="muted">{{ t["quote_none"] }}</span>{% endif %}</li>{% endfor %}
+        </ul></li>{% endfor %}</ol>
+    </details>
+    {% endif %}
+
+    {% if sd.retrieval_dependency %}
+    {% set dep = sd.retrieval_dependency %}
+    <h4 style="margin:10px 0 2px">■ {{ t["dep_section"] }}
+      <span class="chip {{ dep.level.value }}">{{ dep.level.value }}</span></h4>
+    <p style="margin:4px 0">{{ dep.headline|msg(lang) }}</p>
+    <details>
+      <summary>{{ t["evidence_summary"] }}</summary>
+      <ul class="ev">{% for line in dep.evidence_lines %}<li>{{ line|msg(lang) }}</li>{% endfor %}</ul>
+    </details>
+    {% endif %}
+
+    <h4 style="margin:10px 0 2px">{{ t["localization_title"] }}</h4>
+    <p>{% if sd.primary_failure %}{{ t["loc_pre"] }} <b>{{ sd.primary_failure.value }}</b> {{ t["loc_post"] }}
+       {% else %}{{ t["no_failure"] }}{% endif %}</p>
+    {% for caution in sd.cautions %}<div class="caution">{{ caution|msg(lang) }}</div>{% endfor %}
+
+    {% if sd.recommendations %}
+    <h4 style="margin:10px 0 2px">{{ t["recs_title"] }}</h4>
+    <ul class="ev">{% for rec in sd.recommendations %}
+      <li><span class="id">{{ rec.evidence_id }}</span> · {{ t["level_word"] }} {{ rec.evidence_level }} ·
+        [{{ t["kind_geo_method"] if rec.kind == "geo_method" else t["kind_technical_fix"] }}] {{ rec.hypothesis[lang] }}{% if rec.kind != "geo_method" and rec.needs_experiment %}({{ t["needs_experiment"] }}){% endif %}</li>
+    {% endfor %}</ul>
+    {% endif %}
+    {% endfor %}
+  </details>
+  {% endfor %}
+
+  <p class="muted" style="margin-top:14px">{{ t["fingerprint_word"] }} {{ job.fingerprint }} ·
+    {{ t["method_line"].format(prompts=job.prompts|length, runs=runs_per_prompt) }} ·
+    {#- 起测 = 第一次开跑的时刻(采样说明里那个);原来写的是建草稿的时刻(第三轮审核 B7) -#}
+    {{ t["locale_word"] }} {{ job.locale }} · {{ job.sampling.started_at|local_time if job.sampling.started_at else "—" }} {{ t["started_word"] }} ·
+    {{ t["cost_word"] }} ${{ "%.4f"|format(job.spent_usd) }}{% for note in billing_notes %} · {{ note }}{% endfor %}
+    {% if job.state.value == "PARTIAL" %} · <b>{{ t["partial_note"] }}</b>{% endif %}
+    {% if job.report_meta %} · {{ t["report_meta"].format(when=job.report_meta.created_at|local_time, n=job.report_meta.versions, code=job.report_meta.code_version or "—") }}{% endif %}</p>
+  <p class="muted">{{ t["footer"] }}</p>
+  <form method="post" action="/jobs/{{ job.job_id }}/resume?lang={{ lang }}" style="margin-top:10px">
+    <input type="hidden" name="regenerate" value="1">
+    <button type="submit" style="margin:0;padding:4px 12px;font-weight:400">{{ t["btn_recompute"] }}</button>
+    <span class="muted"> {{ t["regen_hint"] }}</span>
+  </form>
+  {#- 修好后再测(S11.3):同样的题 / 竞品 / 型号 / 档位 / 官网名单新开一单、全部重新提问,会花钱;已有的再测列出来好对照 -#}
+  <form method="post" action="/jobs/{{ job.job_id }}/retest?lang={{ lang }}" style="margin-top:10px">
+    <button type="submit" style="margin:0;padding:4px 12px;font-weight:400">{{ t["btn_retest"] }}</button>
+    <span class="muted"> {{ t["retest_hint"] }}{% if job.budget_usd %} {{ t["retest_budget"].format(budget=job.budget_usd) }}{% endif %}
+    {%- if retired %} {{ t["retest_retired_hint"].format(models=t["list_sep"].join(retired)) }}{% endif %}</span>
+  </form>
+  {% if retests %}<p class="muted">{{ t["retests_title"] }}
+    {% for r in retests %}<a href="/jobs/{{ r.job_id }}{% if r.finished %}/report{% endif %}?lang={{ lang }}">{{ r.created_at|local_time }} · {{ state_labels[r.state.value] }}</a>{% if not loop.last %};{% endif %}{% endfor %}</p>{% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,53 @@
+[project]
+name = "geo-tool"
+version = "0.1.0"
+description = "轻量级 AI 可见度诊断:定位品牌在 AI 回答链路中缺席的阶段"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.111",
+    "httpx>=0.27",
+    "idna>=3.7",  # 官网地址的国际域名规整(第二轮审核 B15);httpx 本来就依赖它,这里写明是因为 report/forms.py 直接用
+    "jinja2>=3.1",
+    "psycopg[binary]>=3.2",
+    "pydantic>=2.7",
+    "python-dotenv>=1.0",  # 读 .env:引号、行尾注释、export 前缀按通行规则(用户 2026-10-29 定,原来自己写的读法不去引号)
+    "python-multipart>=0.0.9",
+    "pyyaml>=6",
+    "structlog>=24",
+    "tldextract>=5.3",
+    "trafilatura>=2.3",  # 第三方网页正文抽取(S6.1,用户定 2026-10-13;Apache-2.0)
+    "playwright>=1.49",  # 抽不出正文的网页用无头浏览器渲染回退(S6.2,用户定;装完要 python -m playwright install chromium)
+    "uvicorn>=0.30",
+    "wordfreq>=3.1.1",
+]
+
+[dependency-groups]
+dev = [
+    "mypy>=2",
+    "pytest>=8",
+    "respx>=0.21",
+    "ruff>=0.16",
+    "types-PyYAML>=6",  # mypy 查 yaml 的类型要它(原来是环境里碰巧装着,没写进清单)
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP"]
+ignore = ["B008"]  # 冻结 pydantic 模型作参数默认值是刻意模式(不可变,无共享状态风险)
+
+[tool.ruff.lint.per-file-ignores]
+"scripts/*" = ["E402"]  # smoke 脚本须先注入 sys.path 再导入项目模块
+"diagnosis/messages.py" = ["E501"]  # 双语结论码目录:文案完整性优先,不硬折行
+"report/i18n.py" = ["E501"]  # 界面文案目录,同上
+
+[tool.mypy]
+python_version = "3.12"
+plugins = ["pydantic.mypy"]
+files = ["adapters", "crawler", "engine", "diagnosis", "report"]

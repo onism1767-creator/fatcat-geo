@@ -1,0 +1,84 @@
+{
+  "id": "msg_01XFDUDYJgAACzvnptvVoYEL",
+  "type": "message",
+  "role": "assistant",
+  "model": "claude-sonnet-4-6",
+  "content": [
+    {
+      "type": "server_tool_use",
+      "id": "srvtoolu_01WYG3ziw53XMcoyKL4XcZmE",
+      "name": "web_search",
+      "input": {"query": "best CRM small teams 2026"}
+    },
+    {
+      "type": "web_search_tool_result",
+      "tool_use_id": "srvtoolu_01WYG3ziw53XMcoyKL4XcZmE",
+      "content": [
+        {
+          "type": "web_search_result",
+          "url": "https://www.example-review.com/best-crm-small-teams",
+          "title": "Best CRM for Small Teams (2026)",
+          "encrypted_content": "EqgfCioIARgBIiQ3YTAwMjY1Mi1mZjM5LTQ1NGUtODgxNC1kNjNjNTk1ZWI3_fake",
+          "page_age": "May 11, 2026"
+        },
+        {
+          "type": "web_search_result",
+          "url": "https://blog.example.org/crm-selection-guide",
+          "title": "中小团队 CRM 选型指南",
+          "encrypted_content": "EroZCioIAhgBIiQ3YTAwMjY1Mi1mZjM5LTQ1NGUtODgxNC1kNjNjNTk1ZWI3_fake",
+          "page_age": "March 2, 2026"
+        },
+        {
+          "type": "web_search_result",
+          "url": "https://www.example-pricing.net/crm",
+          "title": "CRM Pricing Comparison",
+          "encrypted_content": "EsQmCioIAxgBIiQ3YTAwMjY1Mi1mZjM5LTQ1NGUtODgxNC1kNjNjNTk1ZWI3_fake",
+          "page_age": "July 30, 2026"
+        }
+      ]
+    },
+    {"type": "text", "text": "对于中小团队,"},
+    {
+      "type": "text",
+      "text": "HubSpot 与 Zoho CRM 是最常被推荐的选择,两者都提供免费档位。",
+      "citations": [
+        {
+          "type": "web_search_result_location",
+          "url": "https://www.example-review.com/best-crm-small-teams",
+          "title": "Best CRM for Small Teams (2026)",
+          "cited_text": "We compared 12 CRMs on price, onboarding time and integrations…",
+          "encrypted_index": "Eo8BCioIAhgBIiQyYjQ0OTk3MQ_fake"
+        },
+        {
+          "type": "web_search_result_location",
+          "url": "https://blog.example.org/crm-selection-guide",
+          "title": "中小团队 CRM 选型指南",
+          "cited_text": "从线索管理到自动化,本文给出五个评估维度…",
+          "encrypted_index": "Eo8BCioIAhgBIiQyYjQ0OTk3Mg_fake"
+        }
+      ]
+    },
+    {
+      "type": "text",
+      "text": "如果预算敏感,可优先试用免费档。",
+      "citations": [
+        {
+          "type": "web_search_result_location",
+          "url": "https://www.example-review.com/best-crm-small-teams",
+          "title": "Best CRM for Small Teams (2026)",
+          "cited_text": "Both offer free tiers suitable for teams under 10 seats…",
+          "encrypted_index": "Eo8BCioIAhgBIiQyYjQ0OTk3Mw_fake"
+        }
+      ]
+    }
+  ],
+  "stop_reason": "end_turn",
+  "stop_sequence": null,
+  "usage": {
+    "input_tokens": 8123,
+    "output_tokens": 542,
+    "cache_creation_input_tokens": 0,
+    "cache_read_input_tokens": 0,
+    "server_tool_use": {"web_search_requests": 1}
+  }
+}

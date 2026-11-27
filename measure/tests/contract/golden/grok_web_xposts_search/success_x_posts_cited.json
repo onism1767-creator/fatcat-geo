@@ -1,0 +1,279 @@
+{
+  "created_at": 1795044019,
+  "completed_at": 1795044095,
+  "id": "56c9c894-6e9c-492d-b53f-56c4aa413928",
+  "max_output_tokens": 4096,
+  "model": "grok-4.5",
+  "object": "response",
+  "output": [
+    {
+      "id": "rs_56c9c894-6e9c-492d-b53f-56c4aa413928",
+      "summary": [
+        {
+          "text": "I'm looking into recent public sentiment about Notion and wh",
+          "type": "summary_text"
+        }
+      ],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "call_id": "xs_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-0",
+      "input": "{\"query\":\"What are people saying about Notion lately? Is it still worth using?\",\"limit\":10}",
+      "name": "x_semantic_search",
+      "type": "custom_tool_call",
+      "id": "ctc_56c9c894-6e9c-492d-b53f-56c4aa413928_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-0",
+      "status": "completed"
+    },
+    {
+      "call_id": "xs_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-1",
+      "input": "{\"query\":\"Notion (review OR worth OR alternative OR hate OR love OR switch OR cancel)\",\"limit\":10,\"mode\":\"Latest\"}",
+      "name": "x_keyword_search",
+      "type": "custom_tool_call",
+      "id": "ctc_56c9c894-6e9c-492d-b53f-56c4aa413928_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-1",
+      "status": "completed"
+    },
+    {
+      "id": "ws_56c9c894-6e9c-492d-b53f-56c4aa413928_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-2",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "Notion review 2024 OR 2025 is it still worth using",
+        "sources": [
+          {
+            "type": "url",
+            "url": "https://thedigicrafters.com/blog/is-notion-still-worth-it"
+          },
+          {
+            "type": "url",
+            "url": "https://www.macworld.com/article/2864423/notion-review-the-most-customizable-productivity-app-around.html"
+          },
+          {
+            "type": "url",
+            "url": "https://saascrmreview.com/notion-review/"
+          }
+        ]
+      }
+    },
+    {
+      "id": "ws_56c9c894-6e9c-492d-b53f-56c4aa413928_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-3",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "Notion site:reddit.com opinions OR review OR worth it 2024 OR 2025",
+        "sources": [
+          {
+            "type": "url",
+            "url": "https://www.reddit.com/r/Notion/comments/1qhj2cs/i_was_one_of_notions_biggest_cheerleaders_now_i"
+          },
+          {
+            "type": "url",
+            "url": "https://old.reddit.com/r/Notion/comments/1n3av27/the_new_notion_ai_updates_are_incredible.json"
+          },
+          {
+            "type": "url",
+            "url": "https://www.reddit.com/r/Notion/comments/1pmlk7r/is_notion_even_good"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tco_56c9c894-6e9c-492d-b53f-56c4aa413928_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-0",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "tco_56c9c894-6e9c-492d-b53f-56c4aa413928_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-1",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "tco_56c9c894-6e9c-492d-b53f-56c4aa413928_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-2",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "tco_56c9c894-6e9c-492d-b53f-56c4aa413928_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-3",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "ws_56c9c894-6e9c-492d-b53f-56c4aa413928_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-4",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "open_page",
+        "url": "https://thedigicrafters.com/blog/is-notion-still-worth-it"
+      }
+    },
+    {
+      "id": "ws_56c9c894-6e9c-492d-b53f-56c4aa413928_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-5",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "open_page",
+        "url": "https://thebusinessdive.com/notion-review"
+      }
+    },
+    {
+      "call_id": "xs_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-6",
+      "input": "{\"query\":\"Notion (slow OR laggy OR buggy OR AI OR agent OR worth OR alternative OR Obsidian OR switch) since:2026-09-01\",\"limit\":10,\"mode\":\"Latest\"}",
+      "name": "x_keyword_search",
+      "type": "custom_tool_call",
+      "id": "ctc_56c9c894-6e9c-492d-b53f-56c4aa413928_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-6",
+      "status": "completed"
+    },
+    {
+      "id": "ws_56c9c894-6e9c-492d-b53f-56c4aa413928_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-7",
+      "type": "web_search_call",
+      "status": "completed",
+      "action": {
+        "type": "search",
+        "query": "Notion alternatives 2026 Obsidian Coda",
+        "sources": [
+          {
+            "type": "url",
+            "url": "https://smartworkflowlab.com/blog/notion-alternatives/"
+          },
+          {
+            "type": "url",
+            "url": "https://findalternative.to/obsidian"
+          },
+          {
+            "type": "url",
+            "url": "https://loam.md/blog/second-brain-app/"
+          }
+        ]
+      }
+    },
+    {
+      "id": "tco_56c9c894-6e9c-492d-b53f-56c4aa413928_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-4",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "tco_56c9c894-6e9c-492d-b53f-56c4aa413928_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-5",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "tco_56c9c894-6e9c-492d-b53f-56c4aa413928_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-6",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "id": "tco_56c9c894-6e9c-492d-b53f-56c4aa413928_call-b7f891b3-dc22-4b44-977e-77f27765dfc6-7",
+      "summary": [],
+      "type": "reasoning",
+      "status": "completed"
+    },
+    {
+      "content": [
+        {
+          "type": "output_text",
+          "text": "**Notion remains popular and widely used in 2026 as a flexible all-in-one workspace for notes, docs, databases, tasks, wikis, and light project management, but opinions are mixed—enthusiastic among those who invest in setup, frustrated among others dealing with performance, bloat, or AI changes.** It is still worth using for many people (especially individuals, freelancers, content teams, startups, and SMBs wanting connected context + structure), but not universally. Dedicated or simpler tools often win for pure speed, advanced project management, offline-first personal knowledge bases, or zero-setup needs.[[1]](https://thedigicrafters.com/blog/is-notion-still-worth-it)\n\n### Recent Sentiment from X/Twitter and Online Discussions\nRecent posts and threads highlight polarization:\n\n- **Complaints (common lately)**: Performance issues (slow/laggy, especially large databases or mobile), unresolved bugs and tech debt, “AI slop” being pushed, complexity/over-customization leading to wasted time building systems instead of working, and feeling it’s falling behind in some areas. Long-time users (years of use) report churning or looking for alternatives because it feels “fundamentally broken” in places despite increased usage via AI/agents. One notable post called it “practically unusable on mobile and extremely slow.” Flexibility is praised but the blank-canvas fatigue and maintenance overhead frustrate people.[[2]](https://x.com/ItzSuds/status/2064444421039587471)",
+          "logprobs": [],
+          "annotations": [
+            {
+              "type": "url_citation",
+              "url": "https://thedigicrafters.com/blog/is-notion-still-worth-it",
+              "start_index": 614,
+              "end_index": 678,
+              "title": "1"
+            },
+            {
+              "type": "url_citation",
+              "url": "https://x.com/ItzSuds/status/2064444421039587471",
+              "start_index": 1424,
+              "end_index": 1479,
+              "title": "2"
+            }
+          ]
+        }
+      ],
+      "id": "msg_56c9c894-6e9c-492d-b53f-56c4aa413928",
+      "role": "assistant",
+      "type": "message",
+      "status": "completed"
+    }
+  ],
+  "parallel_tool_calls": true,
+  "previous_response_id": null,
+  "reasoning": {
+    "effort": "high",
+    "summary": "detailed"
+  },
+  "temperature": 0.7,
+  "text": {
+    "format": {
+      "type": "text"
+    }
+  },
+  "tool_choice": "auto",
+  "tools": [
+    {
+      "type": "web_search",
+      "search_context_size": "medium"
+    },
+    {
+      "type": "x_search"
+    }
+  ],
+  "top_p": 0.95,
+  "usage": {
+    "input_tokens": 62179,
+    "input_tokens_details": {
+      "cached_tokens": 25600
+    },
+    "output_tokens": 2521,
+    "output_tokens_details": {
+      "reasoning_tokens": 744
+    },
+    "total_tokens": 64700,
+    "num_sources_used": 0,
+    "num_server_side_tools_used": 8,
+    "cost_in_usd_ticks": 2659640000,
+    "server_side_tool_usage_details": {
+      "web_search_calls": 5,
+      "x_search_calls": 3,
+      "x_posts_fetched": 29,
+      "x_users_fetched": 0,
+      "code_interpreter_calls": 0,
+      "file_search_calls": 0,
+      "mcp_calls": 0,
+      "document_search_calls": 0,
+      "image_generation_calls": 0
+    },
+    "context_details": {
+      "input_tokens": 38521,
+      "output_tokens": 1655
+    }
+  },
+  "user": null,
+  "incomplete_details": null,
+  "status": "completed",
+  "store": false,
+  "metadata": {
+    "system_fingerprint": "fp_a39489019fa99b6e"
+  },
+  "background": false,
+  "service_tier": "default",
+  "truncation": "disabled",
+  "top_logprobs": 0,
+  "presence_penalty": 0.0,
+  "frequency_penalty": 0.0,
+  "prompt_cache_key": null,
+  "max_tool_calls": null,
+  "safety_identifier": null,
+  "error": null,
+  "instructions": null
+}

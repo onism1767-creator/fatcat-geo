@@ -1,0 +1,51 @@
+{% extends "base.html" %}
+{% block title %}{{ t["resp_title"] }} · {{ job.brand.name }}{% endblock %}
+{% block content %}
+{% set run = view.run %}
+<p class="muted"><a href="/jobs/{{ job.job_id }}/report?lang={{ lang }}">{{ t["resp_back"] }}</a></p>
+<h1>{{ t["resp_title"] }}</h1>
+
+{# ══ 单条回答(S8.3):题目、第几次、型号、时间、提到没提到、摘录、语气;外来文字自动转义 ══ #}
+<div class="card">
+  <p><b>{{ t["resp_question"] }}:</b>{{ view.prompt_text }}</p>
+  <p class="kv">{{ t["resp_meta"].format(i=run.run_index, ai=target_name(run.surface, run.model), time=run.timestamp|local_time) }}</p>
+  <p><b>{{ t["resp_mentioned_word"] }}:</b>
+    {% if not view.valid %}{% set why = t["resp_blank"] if run.outcome.value == "SUCCESS" else t["outcome_" ~ run.outcome.value] %}{{ t["resp_invalid"].format(why=why) }}{% elif view.unsure %}{{ t["resp_unsure"].format(text=view.matched_text or view.matched_alias or "—") }}{% elif view.mentioned is none %}{{ t["resp_no_record"] }}{% elif view.mentioned %}{{ t["resp_yes"] }}{% else %}{{ t["resp_no"] }}{% endif %}</p>
+  {% if view.excerpt %}<p><b>{{ t["resp_excerpt"] }}:</b>{{ t["quote_l"] }}{{ view.excerpt }}{{ t["quote_r"] }}</p>{% endif %}
+  {#- 怎么认出来的(S9.2,模糊判定器起才记;规则判定器的记录没有这一行) -#}
+  {% if view.match_kind and not view.unsure %}<p class="kv">{{ t["resp_match_" ~ view.match_kind].format(text=view.matched_text or "—", alias=view.matched_alias or "—", d=view.edit_distance) }}</p>{% endif %}
+  {% if view.clue %}<p class="kv">{{ t["resp_clue"].format(clue=view.clue) }}</p>{% endif %}
+  {% if view.reason_code %}<p class="kv">{{ t["resp_reason_" ~ view.reason_code] }}</p>{% endif %}
+  {% if view.tone %}<p><b>{{ t["resp_tone"] }}:</b>{{ t["sentiment_" ~ view.tone] }}</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">{{ t["resp_citations_title"] }}</h2>
+  {% if view.own_sites %}<p>{{ t["resp_own_sites"] }}{% for d, tier in view.own_sites %}{{ d }}({{ t["tier_" ~ tier] }}){% if not loop.last %}{{ t["list_sep"] }}{% endif %}{% endfor %}</p>{% endif %}
+  {% if view.citations %}
+  <table class="brief">
+    <tr><th>#</th><th>{{ t["resp_col_url"] }}</th><th>{{ t["resp_col_kind"] }}</th></tr>
+    {% for c in view.citations %}
+    <tr><td>{{ c.position }}</td>
+      <td style="word-break:break-all">{{ c.url }}{% if c.final_url %}<br><span class="muted">{{ t["resp_col_final"] }}:{{ c.final_url }}</span>{% endif %}</td>
+      <td>{{ t["class_" ~ c.kind] }}{% if c.competitor %}({{ c.competitor }}){% endif %}{% if c.reason %}{% set code = "CITATION_UNRESOLVED" if c.reason == "UNRESOLVED" else "PAGE_" ~ c.reason %} <span class="muted">(<a href="/errors?lang={{ lang }}#{{ code }}">{{ t["reason_" ~ c.reason] }}</a>)</span>{% endif %}</td></tr>
+    {% endfor %}
+  </table>
+  {% if view.unresolved %}<p class="muted">{{ t["resp_unresolved"].format(n=view.unresolved) }}</p>{% endif %}
+  {% elif run.answer and not run.answer.citations_available %}<p class="muted">{{ t["resp_citations_hidden"] }}</p>
+  {% else %}<p class="muted">{{ t["resp_no_citations"] }}</p>{% endif %}
+</div>
+
+<div class="card">
+  <h2 style="margin-top:0">{{ t["resp_answer_title"] }}</h2>
+  {% if run.answer %}<pre class="answer">{{ run.answer.answer_text }}</pre>{% else %}<p class="muted">{{ t["resp_no_answer"] }}{% if run.error %}:{{ run.error.message }}{% endif %}</p>{% endif %}
+  <p><a href="/jobs/{{ job.job_id }}/responses/{{ run.run_id }}/download">{{ t["resp_download"] }}</a></p>
+  <details><summary>{{ t["resp_tech"] }}</summary>
+    <ul class="ev">
+      <li>run_id {{ run.run_id }} · surface {{ run.surface }} · model {{ run.model }} · {{ run.search_mode.value }} · {{ run.locale }}</li>
+      <li>outcome {{ run.outcome.value }} · {{ run.latency_ms }} ms · ${{ "%.4f"|format(run.cost_usd) }}</li>
+      <li>detectors: {% for name, version in view.detectors %}{{ name }} v{{ version }}{% if not loop.last %}, {% endif %}{% else %}—{% endfor %}</li>
+    </ul>
+  </details>
+</div>
+{% endblock %}

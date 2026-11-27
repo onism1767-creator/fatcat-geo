@@ -1,0 +1,101 @@
+# Surface 注册表(架构书 6.6)。
+# 新 surface = 一个适配器文件 + 本文件一行,L2/L3 零改动。
+# provider/surface 名字符串只允许存在于本文件与 adapters/ 内;
+# tests/unit/test_no_provider_strings.py 从这里读名单(provider / name / aliases)和 config/crawlers.yaml 的爬虫名去扫描
+# engine/ 与 diagnosis/(用户 2026-10-28 定:禁用词扩到别名与爬虫名)。
+#
+# capabilities 当前为按公开文档的暂定值,每个适配器落地时逐项核对修订。
+# enabled: 适配器落地并通过契约测试后才置 true。
+
+surfaces:
+  # 2026-10-14 迁到 Agent API(旧 Sonar chat/completions 2026-09-27 停止支持):output 里的 search_results 项暴露
+  # 检索词与候选结果,supports_query_trace 改 true;引用 = 正文 [n] / [web:n] 标记指到的结果(平台自己的标记,机械解析)。
+  # 2026-11-15 用户定:改测 Perplexity 自己维护的 low 预设(固定版本 low@2026-11-11.0),删掉 sonar;预设给正文引用标记,
+  # 引用从「看不到」变成看得到。能力声明不变。
+  - name: perplexity_agent
+    provider: perplexity
+    aliases: [sonar, pplx]
+    adapter: adapters.perplexity_agent.PerplexityAgentAdapter
+    api_key_env: PERPLEXITY_API_KEY
+    enabled: true
+    capabilities:
+      supports_query_trace: true
+      supports_citations: true        # 生成+引用通道
+      supports_region: false
+      supports_forced_search: false
+      supports_search_disabled: false
+
+  # 2026-09-08 落地核对。平台的 external_web_access 仅缓存模式存在但无消费方,未接入。
+  - name: openai_web_search
+    provider: openai
+    aliases: [gpt, chatgpt, oai]
+    adapter: adapters.openai_web_search.OpenAIWebSearchAdapter
+    api_key_env: OPENAI_API_KEY
+    enabled: true
+    capabilities:
+      supports_query_trace: true      # web_search_call.action 暴露检索词(queries/query)
+      supports_citations: true        # url_citation 锚注,按首次出现去重成引用池
+      supports_region: true           # user_location(approximate country)
+      supports_forced_search: true    # tool_choice=required——全链首个强制检索 surface
+      supports_search_disabled: true  # 不带工具调用,测参数化知识
+
+  # 2026-09-08 落地核对。候选集平台不暴露(search_result 仅搜索建议组件),retrieved_sources
+  # 记 NOT_OBSERVABLE;引用 URL 为平台跳转链,domain 记跳转服务主机名,引擎采样后还原终点再判(S4,见适配器注)。
+  - name: gemini_grounding
+    provider: gemini
+    aliases: [google, bard, vertexai]
+    adapter: adapters.gemini_grounding.GeminiGroundingAdapter
+    api_key_env: GOOGLE_API_KEY
+    enabled: true
+    capabilities:
+      supports_query_trace: true      # google_search_call 步骤暴露检索词(一步多词)
+      supports_citations: true        # url_citation 锚注,按 url(跳转链)去重成引用池
+      supports_region: false          # 接地工具无地区参数
+      supports_forced_search: false   # 平台无强制检索开关
+      supports_search_disabled: true  # 不带工具调用,测参数化知识
+      citation_urls_redirect: true    # 引用是平台跳转链(vertexaisearch…/grounding-api-redirect),引擎采样后还原终点(S4)
+
+  # 2026-08-25 落地核对。候选集可观测(进 retrieved_sources 存档),走生成端检索链路口径,收敛判据仍是引用。
+  - name: claude_web_search
+    provider: anthropic
+    aliases: [claude]
+    adapter: adapters.claude_web_search.ClaudeWebSearchAdapter
+    api_key_env: ANTHROPIC_API_KEY
+    enabled: true
+    capabilities:
+      supports_query_trace: true      # server_tool_use 块暴露模型自拟检索词
+      supports_citations: true        # 文内锚定引用,按首次出现去重成引用池
+      supports_region: true           # user_location(approximate country)
+      supports_forced_search: false   # 平台无强制检索开关
+      supports_search_disabled: true  # 不带工具调用,测参数化知识
+
+  # 2026-11-17 接入(用户定:测 4.5 + 4.7、只搜网页——X 帖子搜索试了一轮没搜,砍掉)。形状来自真实回包,官方文档没给原始返回。
+  # 打开了哪些网页回包里有(open_page 动作,2026-11-20 才接上,原来漏了);地区、强制检索官方文档没写参数,不声明。
+  # grok-4.7 不在正文里标出处、只把搜到的清单再挂一遍(三次真实回答都这样):那几次的引用记「看不到」,不记 0 条。
+  - name: grok_web_search
+    provider: xai
+    aliases: [spacexsi, supergrok]
+    adapter: adapters.grok_web_search.GrokWebSearchAdapter
+    api_key_env: XAI_API_KEY
+    enabled: true
+    capabilities:
+      supports_query_trace: true      # web_search_call.action 暴露检索词(一次动作一个 query)与候选网址
+      supports_citations: true        # url_citation 锚注,按首次出现去重成引用池
+      supports_region: false          # 官方文档没写地区参数
+      supports_forced_search: false   # 官方文档没写强制检索开关
+      supports_search_disabled: true  # 不带工具调用,测参数化知识
+
+  # 2026-11-20 用户定「让用户可以自选」:开着 X 帖子搜索的 Grok,是另一台仪器(回答分开存、分开报、分开估价)。
+  # 请求与翻译复用上面那台,只多带一个 X 搜索工具;确认页把它收在 Grok 下面当一个可勾的选项(适配器 meta 的 variant_of)。
+  # 搜到了哪些帖子平台不逐条列,候选来源里只有网页;回答里标了出处的帖子进引用。key 与上面那台同一把。
+  - name: grok_web_xposts_search
+    provider: xai
+    adapter: adapters.grok_web_xposts_search.GrokWebXPostsSearchAdapter
+    api_key_env: XAI_API_KEY
+    enabled: true
+    capabilities:
+      supports_query_trace: true      # 网页搜索词 + X 搜索词
+      supports_citations: true
+      supports_region: false
+      supports_forced_search: false
+      supports_search_disabled: true  # 不带任何工具
