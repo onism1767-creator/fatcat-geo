@@ -29,6 +29,7 @@ from urllib.parse import urlsplit
 
 import httpx
 
+from fatcat.hub.pg import LocalPostgres
 from fatcat.modules import Module, ModuleError
 
 STOPPED, STARTING, RUNNING, FAILED = "stopped", "starting", "running", "failed"
@@ -63,6 +64,13 @@ def db_action(*, listening: bool, installed: bool, initialised: bool) -> str:
     if not installed:
         return NO_POSTGRES
     return "start" if initialised else "init"
+
+
+def bundled_database(module: Module) -> LocalPostgres | None:
+    """这份安装是不是自带数据库的(modules.toml 里三项都填了)。是就返回它,不是返回 None。"""
+    if module.db_url and module.pg_bin and module.pg_data:
+        return LocalPostgres(bin_dir=module.pg_bin, data_dir=module.pg_data, url=module.db_url)
+    return None
 
 
 def _port_open(port: int) -> bool:
@@ -259,6 +267,9 @@ class MeasureTool:
 
     def _ensure_db_real(self) -> str | None:
         """测量工具的结果存在本机的 PostgreSQL 里,要先开着。用它自带的脚本开;第一次用的电脑顺手建好。"""
+        bundled = bundled_database(self.module)
+        if bundled is not None:  # 免安装包:数据库的程序和数据都在包里,用它自己的端口
+            return bundled.ensure(self.state_dir)
         script = self.module.require_path() / "scripts" / "pgdev.ps1"
         if not _WINDOWS or not script.is_file():
             return None  # 没有这个脚本的装法:数据库由用户自己管,连不上时测量工具会自己说
@@ -280,6 +291,8 @@ class MeasureTool:
 
     def _spawn_real(self, extra_env: dict[str, str]) -> Any:
         env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONDONTWRITEBYTECODE="1", **extra_env)
+        if self.module.db_url:  # 自带数据库的装法:告诉测量工具连哪一个库
+            env["GEO_DATABASE_URL"] = self.module.db_url
         command = [str(self.module.require_python()), "-B", "-m", "report"]
         cwd = str(self.module.require_path())
         if not _WINDOWS:  # 自成一个会话就够了:入口退出、终端关掉都带不走它

@@ -25,6 +25,10 @@ class Module:
     path: Path
     python: Path | None  # 它自己的解释器;没有就是 None
     url: str = ""  # 它的本机网页地址(有网页的才填)
+    # 下面三项只有「自带数据库」的装法(免安装包)才填:数据库的地址、PostgreSQL 的程序文件夹、这个包自己的数据目录
+    db_url: str = ""
+    pg_bin: Path | None = None
+    pg_data: Path | None = None
 
     def require_path(self) -> Path:
         if not self.path.is_dir():
@@ -65,6 +69,8 @@ def run_readonly(module: Module, args: list[str], *, pythonpath: Path | None = N
     被跑的代码用 `FATCAT_JSON <json>` 交结果,用 `FATCAT_ERROR <一句话>` 说它做不了。
     """
     full_env = dict(os.environ, PYTHONIOENCODING="utf-8", PYTHONDONTWRITEBYTECODE="1", **(env or {}))
+    if module.db_url:  # 自带数据库的装法:读的也是那一个库
+        full_env["GEO_DATABASE_URL"] = module.db_url
     if pythonpath is not None:
         full_env["PYTHONPATH"] = str(pythonpath)
     try:
@@ -95,5 +101,8 @@ def load_modules(file: Path = MODULES_FILE) -> dict[str, Module]:
             path=path,
             python=(path / python) if python else None,
             url=str(entry.get("url", "")).rstrip("/"),
+            db_url=str(entry.get("db_url", "")),
+            pg_bin=(file.parent / entry["pg_bin"]).resolve() if entry.get("pg_bin") else None,
+            pg_data=(file.parent / entry["pg_data"]).resolve() if entry.get("pg_data") else None,
         )
     return modules

@@ -102,12 +102,48 @@ def _serve(args: argparse.Namespace) -> int:
     from fatcat.models import load_catalog
     from fatcat.modules import ROOT
 
-    runs = Path(args.runs) if args.runs else ROOT / "runs"
+    runs = (Path(args.runs) if args.runs else ROOT / "runs").resolve()
     # 各家 key 的变量名以统一型号清单为准;测量工具的进程号和启动日志记在 runs/.tools 里(不进仓库)
-    keys = KeyStore({row["id"]: row["key_env"] for row in load_catalog()["providers"]})
+    names = {row["id"]: row["key_env"] for row in load_catalog()["providers"]}
+    keys = KeyStore(names, Path(args.env_file).resolve()) if args.env_file else KeyStore(names)
     app = create_app(runs, Backend(load_modules(), state_dir=runs / ".tools", keys=keys))
-    print(f"FatCat GEO 统一入口:http://127.0.0.1:{args.port}/  (只有这台电脑能打开;Ctrl+C 结束)")
+    url = f"http://127.0.0.1:{args.port}/"
+    print(f"FatCat GEO: {url}  (this computer only; Ctrl+C or close this window to stop)")
+    print(f"FatCat GEO 统一入口:{url}  (只有这台电脑能打开;按 Ctrl+C 或关掉这个窗口结束)")
+    if args.open:  # 等网页起来再开浏览器
+        import threading
+        import webbrowser
+
+        threading.Timer(1.5, webbrowser.open, args=(url,)).start()
     uvicorn.run(app, host="127.0.0.1", port=args.port, log_level="warning")
+    return 0
+
+
+def _stop(args: argparse.Namespace) -> int:
+    """停掉从入口启动的测量工具,再停自带的数据库。正在测量时都不停:停了那一单就断了。"""
+    from fatcat.hub.backend import Backend
+    from fatcat.hub.tools import bundled_database
+    from fatcat.modules import ROOT
+
+    runs = (Path(args.runs) if args.runs else ROOT / "runs").resolve()
+    modules = load_modules()
+    hub = Backend(modules, state_dir=runs / ".tools")
+    database = bundled_database(modules["toast"])
+    tool = hub.tool_status()
+    if tool["state"] == "running":
+        if not tool["ours"]:
+            print("测量工具开着,但不是从这里启动的,这里不去关它。")
+            return 1
+        try:
+            hub.tool_stop([], force=True)  # 草稿丢不丢由用户自己定:这是他明说要停的
+            print("测量工具停了。")
+        except ModuleError as exc:
+            print(f"测量工具没有停:{exc}")
+            return 1
+    else:
+        print("测量工具本来就没有开着。")
+    if database is not None:
+        print(database.stop(runs / ".tools"))
     return 0
 
 
@@ -142,10 +178,16 @@ def main(argv: list[str] | None = None) -> int:
     serve_parser = commands.add_parser("serve", help="打开统一入口的本机网页")
     serve_parser.add_argument("--port", type=int, default=8500)
     serve_parser.add_argument("--runs", help="项目存放的文件夹;不给就用本项目下的 runs")
+    serve_parser.add_argument("--env-file", help="放 key 的 .env 文件;不给就用本项目文件夹下的 .env")
+    serve_parser.add_argument("--open", action="store_true", help="启动后自动打开浏览器")
+    stop_parser = commands.add_parser("stop", help="停掉从入口启动的测量工具和自带的数据库(正在测量时不停)")
+    stop_parser.add_argument("--runs", help="项目存放的文件夹;要和 serve 用的是同一个")
     args = parser.parse_args(argv)
     try:
         if args.command == "serve":
             return _serve(args)
+        if args.command == "stop":
+            return _stop(args)
         if args.command == "models":
             if args.action == "check":
                 return _models_check(args.strict)
