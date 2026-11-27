@@ -1,0 +1,58 @@
+{% extends "base.html" %}
+{% block main %}
+<h1>你的网站</h1>
+<p>Butter 读你的网站，整理出上面已有的事实，检查几项容易出错的地方，再给出一包可以放上网站的改动。改不改、测不测，都由你定。</p>
+
+{% for j in v.active_jobs %}
+<div class="notice" role="status">正在读 <span class="wrap">{{ j.url }}</span>：{{ j.progress }}。<a href="/jobs/{{ j.job_id }}">看进度</a></div>
+{% endfor %}
+
+<form action="/runs" method="post" class="card" aria-labelledby="h-new">
+  <h2 id="h-new" style="margin-block-start:0">读一个网站</h2>
+  <input type="hidden" name="token" value="{{ token }}">
+  <div class="field">
+    <label for="url">网址</label>
+    <input type="text" id="url" name="url" required inputmode="url" autocomplete="url" autocapitalize="none" spellcheck="false" placeholder="https://" aria-describedby="url-hint">
+    <span id="url-hint" class="hint">可以填首页，也可以填某个商品页。Butter 只读这一个网站，每秒最多读一页。</span>
+  </div>
+  <div class="field">
+    <label for="max_pages">最多读几页</label>
+    <input type="text" id="max_pages" name="max_pages" value="10" inputmode="numeric" pattern="[0-9]{1,2}" aria-describedby="pages-hint" style="inline-size:6rem">
+    <span id="pages-hint" class="hint">1 到 30 之间。</span>
+  </div>
+  {% if v.draft_offer %}
+  <div class="choice">
+    <input type="checkbox" id="draft" name="draft" checked>
+    <label for="draft">让模型帮着写几句文字（用 {{ v.draft_offer.provider }} 的 {{ v.draft_offer.model }}，最多花约 ${{ "%.2f" | format(v.draft_offer.upper_bound_usd) }}）</label>
+  </div>
+  {% else %}
+  <p class="hint">这台电脑上没有找到任何一家 AI 的 key，所以这次不会让模型写文字，其余的照常出。</p>
+  {% endif %}
+  <button type="submit">生成改动包</button>
+</form>
+
+{% for site in v.sites %}
+<h2 id="site-{{ loop.index }}">{{ site.host }}</h2>
+<div class="table-wrap" tabindex="0" role="region" aria-labelledby="site-{{ loop.index }}">
+  <table>
+    <thead><tr><th>什么时候跑的</th><th>从哪个网址开始</th><th class="num">查出的问题</th><th class="num">提示</th><th class="num">改动条数</th><th></th></tr></thead>
+    <tbody>
+    {% for run in site.runs %}
+      <tr>
+        <td>{{ run.generated_at[:16] | replace("T", " ") }}</td>
+        <td class="wrap">{{ run.site_url }}</td>
+        <td class="num">{{ run.problems }}</td>
+        <td class="num">{{ run.notices }}</td>
+        <td class="num">{{ run.change_items }}</td>
+        <td><a href="/runs/{{ run.run_id }}">打开<span class="visually-hidden">{{ run.generated_at[:16] }} 的这次运行</span></a></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endfor %}
+
+{% if v.batch_count %}
+<p><a href="/batches">看 {{ v.batch_count }} 批改动的进展</a></p>
+{% endif %}
+{% endblock %}

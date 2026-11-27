@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block main %}
+<h1>设置</h1>
+
+<h2 id="h-keys">AI 的 key</h2>
+<p>让模型起草文字、拿问题去问 AI,都要用你自己的 key。Butter 只从这台电脑的环境变量里读，不保存，也不显示内容。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-labelledby="h-keys">
+  <table>
+    <thead><tr><th>哪一家</th><th>有没有 key</th></tr></thead>
+    <tbody>
+    {% for k in v["keys"] %}
+      <tr><th scope="row">{{ k.name }}</th><td><span class="chip {{ 'ok' if k.ready else 'plain' }}">{{ "有" if k.ready else "没有" }}</span></td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p class="muted">起草文字时，你有哪家的 key 就用哪家；几家都有时按这个顺序：{% for m in v.draft_models %}{{ m.provider }}({{ m.model }}){% if not loop.last %} → {% endif %}{% endfor %}。</p>
+
+<h2 id="h-defaults">比对时用的数</h2>
+<p>判断"变没变"要用到下面这些数。每个数后面写着它是怎么来的。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-labelledby="h-defaults">
+  <table>
+    <thead><tr><th>用在哪</th><th class="num">数</th><th>怎么来的</th></tr></thead>
+    <tbody>
+    {% for d in v.defaults %}
+      <tr><th scope="row">{{ d.label }}</th><td class="num">{{ d.value }} {{ d.unit if d.unit != "—" else "" }}</td><td>{{ d.source_plain }}</td></tr>
+    {% endfor %}
+    {% if v.noise_count %}
+      <tr><th scope="row">不改网页时，结果平时会起伏多大</th><td class="num">{{ v.noise_count }} 组</td><td>{{ v.noise_source_plain }}</td></tr>
+    {% endif %}
+    </tbody>
+  </table>
+</div>
+
+<h2>文件放在哪</h2>
+<ul>
+  <li>每次运行的产出：<code>{{ v.out_root }}</code></li>
+  <li>批次、卡片和题板：<code>{{ v.workspace }}</code></li>
+</ul>
+{% endblock %}

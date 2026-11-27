@@ -1,0 +1,73 @@
+# Butter 出题用的固定句式(设计 §9.2;用户 2026-11-15 定「也让 Butter 出题」)。
+# 每个品类 24 道:发现 8、比较 6、场景 6、品牌 4。前 20 道只填品类词 {c},不提任何品牌;后 4 道填本品牌名 {f}。
+# 不调模型,不花钱。站长勾选、可以改字。
+version: "qt-1"
+
+en:
+  # 逐字照抄 Potato 的免费档模板:AI checker/src/aivis/templater.py(Potato 提交 6357acd,2026-06-22)。
+  # 不要改这里的字:tests/test_questions.py 会用 Potato 自己的解释器对一遍。Potato 改了模板,这里跟着改并升 version。
+  source: "Potato aivis/templater.py @ 6357acd"
+  category_fallback: "products"
+  discovery:
+    - "What are the best {c} for beginners?"
+    - "Which {c} do experienced users recommend most?"
+    - "What are the best value {c} for the money?"
+    - "What are the best premium {c}?"
+    - "What {c} have the best build quality and durability?"
+    - "Which brands of {c} offer the best warranty and customer support?"
+    - "What are the best {c} for everyday use?"
+    - "What are the top-rated {c} available right now?"
+  comparison:
+    - "How do the top brands of {c} compare on quality?"
+    - "How do popular {c} compare on price and value?"
+    - "Which brands of {c} have the best features, and how do they differ?"
+    - "How do leading {c} compare on reliability and durability?"
+    - "How do well-known brands of {c} compare to lesser-known ones?"
+    - "Which {c} offer the best balance between price and quality?"
+  local:
+    - "What {c} are best for professional or commercial use?"
+    - "What {c} are best for home and personal use?"
+    - "What {c} are best for travel or portable use?"
+    - "What {c} hold up best under heavy, frequent use?"
+    - "What {c} are best for someone upgrading from an entry-level option?"
+    - "What {c} are recommended for demanding or specialized needs?"
+  brand_defense:
+    - "Is {f} a good {c} brand? What are its strengths and weaknesses?"
+    - "How does {f} compare to other brands of {c}?"
+    - "What do users and the community think about {f}?"
+    - "Are {f} products worth it?"
+
+zh:
+  # Butter 新写(2026-11-18),照 Potato 的出题规则 AI checker/docs/question-drafting-principles.md:
+  # 像真实买家随口问;一题只问一件事;不预设答案;同一组里角度各不相同;前 20 道不点名任何品牌;
+  # 品牌题要同时给优点和缺点留出空间。和英文那套一一对应(同一位置问的是同一个角度)。
+  source: "Butter 新写 2026-11-18,规则见 Potato docs/question-drafting-principles.md;用户 2026-11-18 看过认可"
+  category_fallback: "产品"
+  discovery:
+    - "新手入门买{c}，有哪些值得考虑的？"
+    - "用得久的老用户一般会选哪些{c}？"
+    - "预算有限的话，哪些{c}性价比比较高？"
+    - "高端的{c}有哪些可以选？"
+    - "哪些{c}做工扎实、比较耐用？"
+    - "哪些品牌的{c}保修和售后做得比较好？"
+    - "日常使用的话，有哪些{c}可以考虑？"
+    - "现在口碑比较好的{c}有哪些？"
+  comparison:
+    - "主流品牌的{c}在质量上有什么差别？"
+    - "常见的几款{c}在价格和性价比上怎么比？"
+    - "各品牌的{c}在功能上各有什么特点，差别在哪？"
+    - "主流的{c}在可靠性和耐用度上怎么比？"
+    - "大牌的{c}和小众品牌的比起来怎么样？"
+    - "哪些{c}在价格和质量之间平衡得比较好？"
+  local:
+    - "专业或商用场合，适合用哪些{c}？"
+    - "家用或个人使用，适合选哪些{c}？"
+    - "需要经常带出门的话，哪些{c}比较合适？"
+    - "使用频率很高的话，哪些{c}更经得住用？"
+    - "从入门款升级，{c}该怎么选？"
+    - "要求比较高或者用途比较特殊时，有哪些{c}可以考虑？"
+  brand_defense:
+    - "{f}的{c}怎么样？有哪些优点和缺点？"
+    - "{f}和其他品牌的{c}比起来怎么样？"
+    - "用户对{f}的评价怎么样？"
+    - "{f}的产品值得买吗？"

@@ -1,0 +1,13 @@
+# Acme Kettles robots.txt
+User-agent: *
+Disallow: /admin/
+Disallow: /cart
+Crawl-delay: 2
+
+User-agent: GPTBot
+Disallow: /
+
+User-agent: PerplexityBot
+Disallow: /
+
+Sitemap: https://www.acme-kettles.test/sitemap.xml

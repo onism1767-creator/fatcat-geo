@@ -1,0 +1,101 @@
+{% extends "base.html" %}
+{% block main %}
+<p><a href="/">← {{ "回展示页" if static else "回首页" }}</a></p>
+<h1>{{ v.host }}</h1>
+<p class="muted">{{ v.generated_at[:16] | replace("T", " ") }} 跑的，读了 {{ v.pages }} 个页面。从 <span class="wrap">{{ v.site_url }}</span> 开始。</p>
+
+{% for w in v.warnings %}<div class="notice">{{ w }}</div>{% endfor %}
+
+<div class="card">
+  <div class="row">
+    <span><strong>{{ v.changes | length }}</strong> 条改动</span>
+    <span><span class="chip bad">问题 {{ v.audit_counts.problem }}</span></span>
+    <span><span class="chip warn">提示 {{ v.audit_counts.notice }}</span></span>
+    <span><span class="chip ok">通过 {{ v.audit_counts.pass }}</span></span>
+    <span><span class="chip plain">查不了 {{ v.audit_counts.not_checkable }}</span></span>
+    <span><span class="chip plain">不适用 {{ v.audit_counts.not_applicable }}</span></span>
+  </div>
+  <p class="row">
+    {% if not static %}
+    <a href="/runs/{{ v.run_id }}/package.zip">下载改动包(zip）</a>
+    <a href="/runs/{{ v.run_id }}/questions">出题和勾选</a>
+    <a href="/runs/{{ v.run_id }}/facts">读错了？改事实</a>
+    {% endif %}
+    {% if v.batch_id %}<a href="/batches/{{ v.batch_id }}">看这批改动的进展</a>{% endif %}
+  </p>
+  {% if v.draft %}
+  <p class="muted">其中有模型起草的文字：用的是 {{ v.draft.provider }} 的 {{ v.draft.model }},{{ v.draft.accepted }} 条通过了检查，{{ v.draft.voided }} 条作废，花了 ${{ "%.2f" | format(v.draft.cost_usd) }}。{% if v.draft.stopped %}{{ v.draft.stopped }}。{% endif %}</p>
+  {% endif %}
+</div>
+
+<h2 id="h-items">改动包</h2>
+<p>每一条都要你自己放上网站。放之前请读一遍。</p>
+{% for item in v.changes %}
+<details class="card"{% if loop.index <= 3 %} open{% endif %}>
+  <summary><strong>{{ loop.index }}. {{ item.kind_text }}</strong> · {{ item.action_text }} · <span class="muted">{{ item.origin_text }}</span></summary>
+  <p class="wrap">放在哪：{{ item.target }}</p>
+  {% if item.after %}
+  <div class="before-after">
+    <div><div class="label">现在</div><div class="wrap">{{ item.before or "(没有）" }}</div></div>
+    <div><div class="label">建议改成</div><div class="wrap">{{ item.after }}</div></div>
+  </div>
+  {% endif %}
+  <p>{{ item.rationale }}</p>
+  {% if item.files %}<p class="muted">改动包里的文件：{% for f in item.files %}<code>{{ f }}</code>{% if not loop.last %}、{% endif %}{% endfor %}</p>{% endif %}
+  {% if item.needs_human %}
+  <p>要你自己判断的：</p>
+  <ul>{% for n in item.needs_human %}<li>{{ n }}</li>{% endfor %}</ul>
+  {% endif %}
+  <p class="muted">依据：{{ item.entry_plain or item.entry_id }}{% if item.entry_level %}(证据等级 {{ item.entry_level }}){% endif %}。状态：{{ item.validation_text }}。{% if item.checks_passed %}过了 {{ item.checks_passed }} 项检查。{% endif %}</p>
+</details>
+{% endfor %}
+{% if v.not_generated %}
+<h3>这次没有产出的</h3>
+<ul>{% for n in v.not_generated %}<li><strong>{{ n.what }}</strong>:{{ n.reason }}</li>{% endfor %}</ul>
+{% endif %}
+
+<h2 id="h-audit">检查结果</h2>
+<div class="table-wrap" tabindex="0" role="region" aria-labelledby="h-audit">
+  <table>
+    <thead><tr><th>结果</th><th>看到了什么</th><th>哪个页面</th></tr></thead>
+    <tbody>
+    {% for f in v.findings %}
+      <tr>
+        <td><span class="chip {{ {'problem': 'bad', 'notice': 'warn', 'pass': 'ok'}.get(f.level, 'plain') }}">{{ f.level_text }}</span></td>
+        <td class="wrap">{{ f.message }}</td>
+        <td class="wrap muted">{{ f.page_url or "全站" }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2 id="h-facts">从你的网站上读到的事实</h2>
+<div class="table-wrap" tabindex="0" role="region" aria-labelledby="h-facts">
+  <table>
+    <thead><tr><th>是什么</th><th>读到的值</th><th>从哪读到的</th></tr></thead>
+    <tbody>
+    {% for f in v.facts %}
+      <tr><th scope="row">{{ f.label }}</th><td class="wrap">{{ f.value or "(网站上没写）" }}{% if f.edited %} <span class="chip ok">你改过</span>{% endif %}{% if f.conflict %} <span class="chip warn">几处写得不一样</span>{% endif %}</td><td class="wrap muted">{{ f.source }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% if v.products %}
+<h3 id="h-products">商品（{{ v.products | length }} 个）</h3>
+<div class="table-wrap" tabindex="0" role="region" aria-labelledby="h-products">
+  <table>
+    <thead><tr><th>名称</th><th>价格</th><th>货号</th><th class="num">规格条数</th></tr></thead>
+    <tbody>
+    {% for p in v.products %}
+      <tr><th scope="row" class="wrap">{{ p.name }}</th><td>{{ p.price or "(没写）" }}</td><td>{{ p.sku or "(没写）" }}</td><td class="num">{{ p.specs }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+{% if v.gaps %}
+<h3>网站上没写清的</h3>
+<ul>{% for g in v.gaps %}<li>{{ g }}</li>{% endfor %}</ul>
+{% endif %}
+{% endblock %}

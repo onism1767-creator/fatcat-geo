@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block main %}
+<p><a href="/runs/{{ v.run_id }}">← 回 {{ v.host }} 的这次运行</a></p>
+<h1>改事实</h1>
+<p>下面是 Butter 从你的网站上读到的。读错了的，直接改成对的。保存后，Butter 按改过的事实重出一份改动包，不重新读网站，也不花钱。</p>
+<p class="muted">原来读到的值不会丢，报告里照样看得到。想让某个值不被用，把它清空就行。</p>
+
+<form action="/runs/{{ v.run_id }}/facts" method="post" aria-label="改事实">
+  <input type="hidden" name="token" value="{{ token }}">
+  {% for g in v.groups %}
+  <fieldset>
+    <legend>{{ g.name }}</legend>
+    {% for r in g.rows %}
+    <div class="field">
+      <label for="{{ r.dom_id }}">{{ r.label }}{% if r.edited %} <span class="chip ok">你改过</span>{% endif %}</label>
+      {% if r.long %}
+      <textarea id="{{ r.dom_id }}" name="fact:{{ r.field }}" maxlength="2000">{{ r.value }}</textarea>
+      {% else %}
+      <input type="text" id="{{ r.dom_id }}" name="fact:{{ r.field }}" value="{{ r.value }}" maxlength="2000" autocomplete="off">
+      {% endif %}
+    </div>
+    {% endfor %}
+  </fieldset>
+  {% endfor %}
+  <div class="field">
+    <label for="note">为什么改（可以不填）</label>
+    <input type="text" id="note" name="note" maxlength="200" autocomplete="off" aria-describedby="note-hint">
+    <span id="note-hint" class="hint">比如"网站上显示的是划线价"。会记在报告里。</span>
+  </div>
+  <button type="submit">保存，并重出改动包</button>
+</form>
+{% endblock %}

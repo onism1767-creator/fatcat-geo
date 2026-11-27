@@ -1,0 +1,107 @@
+{
+  "generated_by": "experiments/E0/analysis/export_showcase_example.py(不要手改,重跑脚本)",
+  "what": "E0 实验里谁都没改的数据:第 0 天当改之前,第 7 天当改之后,用 Butter 的比对模块各判一次(只看提及率,无对照)",
+  "gap_days": 7,
+  "measured_from": "2026-11-06",
+  "measured_to": "2026-11-14",
+  "brands": 96,
+  "within": 95,
+  "legs": [
+    {
+      "lang": "zh",
+      "provider": "anthropic",
+      "brands": 19,
+      "within": 19,
+      "up": 0,
+      "down": 0,
+      "example": {
+        "questions": 10,
+        "pre": 0.2,
+        "post": 0.1667,
+        "diff": -0.0333,
+        "band": 0.1427,
+        "label": "within"
+      }
+    },
+    {
+      "lang": "zh",
+      "provider": "openai",
+      "brands": 14,
+      "within": 14,
+      "up": 0,
+      "down": 0,
+      "example": {
+        "questions": 10,
+        "pre": 0.0667,
+        "post": 0.0,
+        "diff": -0.0667,
+        "band": 0.0962,
+        "label": "within"
+      }
+    },
+    {
+      "lang": "zh",
+      "provider": "gemini",
+      "brands": 20,
+      "within": 19,
+      "up": 1,
+      "down": 0,
+      "example": {
+        "questions": 10,
+        "pre": 0.2667,
+        "post": 0.2333,
+        "diff": -0.0333,
+        "band": 0.1444,
+        "label": "within"
+      }
+    },
+    {
+      "lang": "en",
+      "provider": "anthropic",
+      "brands": 15,
+      "within": 15,
+      "up": 0,
+      "down": 0,
+      "example": {
+        "questions": 10,
+        "pre": 0.2,
+        "post": 0.1667,
+        "diff": -0.0333,
+        "band": 0.1156,
+        "label": "within"
+      }
+    },
+    {
+      "lang": "en",
+      "provider": "openai",
+      "brands": 13,
+      "within": 13,
+      "up": 0,
+      "down": 0,
+      "example": {
+        "questions": 10,
+        "pre": 0.2333,
+        "post": 0.2,
+        "diff": -0.0333,
+        "band": 0.0643,
+        "label": "within"
+      }
+    },
+    {
+      "lang": "en",
+      "provider": "gemini",
+      "brands": 15,
+      "within": 15,
+      "up": 0,
+      "down": 0,
+      "example": {
+        "questions": 10,
+        "pre": 0.1333,
+        "post": 0.1667,
+        "diff": 0.0333,
+        "band": 0.0997,
+        "label": "within"
+      }
+    }
+  ]
+}

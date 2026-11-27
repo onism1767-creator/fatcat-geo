@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block head %}{% if v.active %}<meta http-equiv="refresh" content="3">{% endif %}{% endblock %}
+{% block main %}
+<p><a href="/">← 回首页</a></p>
+<h1>{{ v.state_text }}</h1>
+<p class="wrap muted">{{ v.url }}</p>
+
+{% if v.active %}
+<div class="notice" role="status">
+  <p><strong>{{ v.progress }}</strong></p>
+  <p class="muted">这一页每 3 秒自己刷新一次。读一个网站一般要一两分钟。你可以先去做别的，回来再看。</p>
+</div>
+{% elif v.state in ("DONE", "PARTIAL") %}
+<div class="card">
+  <p>读了 {{ v.pages }} 个页面，给出 {{ v.change_items }} 条改动。{% if v.drafted %}其中 {{ v.drafted }} 条是模型起草的文字，花了 ${{ "%.2f" | format(v.cost_usd) }}。{% endif %}</p>
+  {% if v.notes %}
+  <p>要你留意的：</p>
+  <ul>{% for n in v.notes %}<li>{{ n }}</li>{% endfor %}</ul>
+  {% endif %}
+  <p class="row">
+    <a href="/runs/{{ v.run_id }}">看结果和改动包</a>
+    {% if v.batch_id %}<a href="/batches/{{ v.batch_id }}">看这批改动</a>{% endif %}
+  </p>
+</div>
+{% else %}
+<div class="notice" role="alert">
+  <p>{{ v.progress }}</p>
+  {% if v.error %}<p class="wrap">原因：{{ v.error }}</p>{% endif %}
+</div>
+<p><a href="/">回首页再试一次</a></p>
+{% endif %}
+{% endblock %}

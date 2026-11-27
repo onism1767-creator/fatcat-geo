@@ -1,0 +1,324 @@
+"""命令行入口。薄:只做参数解析和转发,规则都在库里。
+
+    python -m butter run https://example.com
+    python -m butter run https://example.com --brands brands.yml --questions questions.yml
+    python -m butter run --snapshot out/example.com/<运行号>      # 拿旧快照不联网重跑
+    python -m butter run https://example.com --html-dir 存下的页面/  # 不联网:读你自己存下的 HTML 文件
+    python -m butter proposals                                     # 生成给 Toast 的提案文档(只是文档)
+    python -m butter rebuild-index                                 # 按事件日志重建卡片索引
+    python -m butter showcase build                                # 把最近一次运行导出成展示页(真名换成代号)
+"""
+
+from __future__ import annotations
+
+import argparse
+import sys
+from pathlib import Path
+
+from butter.pipeline import DraftSettings, RunOptions, process_snapshot
+from butter.util import stop_label
+
+DEFAULT_OUT = Path(__file__).resolve().parent.parent / "out"
+DEFAULT_WORKSPACE = Path(__file__).resolve().parent.parent / "workspace"  # 卡片库、索引、提案(设计 §6);不进 git
+
+
+def _parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(prog="butter", description="Butter(FatCat GEO Improve):一个网址进,事实库 / 审计报告 / 改动包出。")
+    sub = parser.add_subparsers(dest="command", required=True)
+    run = sub.add_parser("run", help="抓一个站并产出事实库、审计报告、改动包")
+    run.add_argument("url", nargs="?", help="公开网址(只抓这一个主机)")
+    run.add_argument("--snapshot", type=Path, help="不联网:用一次旧运行的文件夹(或其中的 snapshot/)重跑")
+    run.add_argument("--html-dir", type=Path,
+                     help="不联网:读一个文件夹里你自己存下的 HTML 文件(要同时给网址,说明是哪个站)。"
+                          "站点对程序请求下发人机验证时用:在浏览器里打开页面,另存为「网页,仅 HTML」放进文件夹;"
+                          "可选再放 robots.txt、sitemap.xml 和 urls.txt(每行「文件名 网址」)")
+    run.add_argument("--brands", type=Path, help="Potato 的 brands.yml(只读)")
+    run.add_argument("--brand-domains", type=Path, help="Toast 导出的 brand-domains.json(只读)")
+    run.add_argument("--toast-export", type=Path,
+                     help="Toast 的报告导出包(zip 或解开的文件夹,只读):用里面的官网域名,并在审计报告里照抄 Toast 的结论")
+    run.add_argument("--questions", type=Path, help="Potato 的 questions.yml(只读;给了才出按题板的标题建议)")
+    run.add_argument("--training", choices=("keep", "optout"), default="keep",
+                     help="训练类爬虫:keep 不改动(默认),optout 写 Disallow")
+    run.add_argument("--max-pages", type=int, default=10, help="最多抓几页(含给定页和首页,默认 10)")
+    run.add_argument("--out", type=Path, default=DEFAULT_OUT, help=f"产出目录(默认 {DEFAULT_OUT})")
+    run.add_argument("--no-draft", action="store_true", help="不让模型起草(不调模型、不花钱),只出规则生成的部分")
+    run.add_argument("--env-file", type=Path, help="从这个 .env 文件读模型的 key(只读);不给就只看环境变量")
+    run.add_argument("--draft-provider", choices=("anthropic", "openai", "gemini"),
+                     help="起草用哪家;不给就按你有哪家的 key 来定(几家都有时先用 Anthropic)")
+    run.add_argument("--draft-model", help="起草用哪个型号(要在价目表里);不给就用那一家的默认型号")
+    run.add_argument("--draft-budget", type=float, default=1.0, help="这次运行起草最多花多少美元(默认 1.0)")
+
+    proposals = sub.add_parser("proposals", help="生成给 Toast 的提案文档(只是文档,不改 Toast 的任何文件)")
+    proposals.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE,
+                           help=f"卡片库所在的工作目录(默认 {DEFAULT_WORKSPACE});里面没有卡片也能出前两份提案")
+    proposals.add_argument("--out", type=Path, help="存进哪个新文件夹(默认 <工作目录>/proposals/<日期-时间>);已存在就不写")
+    proposals.add_argument("--toast-registry", type=Path,
+                           help="Toast 的 config/evidence_registry.yaml(只读);不给就找旁边的 Toast 文件夹,找不到用自带快照")
+    index = sub.add_parser("rebuild-index", help="按事件日志整份重建卡片索引(index.sqlite 删了、坏了时用)")
+    index.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE, help=f"工作目录(默认 {DEFAULT_WORKSPACE})")
+    drv = sub.add_parser("measure-batch", help="测量驱动:给一批改动跑一次测量(一般由网页上的按钮起,不用手动敲)")
+    drv.add_argument("batch_id")
+    drv.add_argument("--kind", choices=("baseline", "remeasure"), default="baseline")
+    drv.add_argument("--out", type=Path, default=DEFAULT_OUT)
+    drv.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE)
+    drv.add_argument("--env-file", type=Path, help="从这个 .env 文件读模型的 key(只读)")
+    drv.add_argument("--potato-dir", help="Potato 所在的文件夹(默认是同级的 AI checker)")
+    drv.add_argument("--potato-python", help="Potato 的解释器")
+    drv.add_argument("--potato-pythonpath", default="", help="额外的模块搜索路径(测试用)")
+    show = sub.add_parser("showcase", help="展示页:把一次运行导出成能离线打开的静态文件夹,真名换成代号")
+    show_sub = show.add_subparsers(dest="showcase_command", required=True)
+    build = show_sub.add_parser("build", help="导出展示页。导出里还搜得到真名就不导出")
+    build.add_argument("--run", help="用哪次运行(运行号);不给就用最近的一次")
+    build.add_argument("--out", type=Path, default=DEFAULT_OUT, help=f"运行产出目录(默认 {DEFAULT_OUT})")
+    build.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE, help=f"工作目录(默认 {DEFAULT_WORKSPACE})")
+    build.add_argument("--names", type=Path,
+                       help="人工补的对照表(默认 <工作目录>/showcase/names.yaml;没有会新建一份空的)。它不进仓库、不随展示页导出")
+    build.add_argument("--to", type=Path, help="导出到哪个新文件夹(默认 <产出目录>/showcase/<日期-时间>);已存在就不写")
+    cmp_toast = sub.add_parser(
+        "compare-toast",
+        help="比 Toast 前后两单的结果(改之前的那一单、它的「修好后再测」);不问 AI、不花钱。只列数字,不判变没变")
+    cmp_toast.add_argument("--before", type=Path, required=True, help="改之前那一单的下载包(zip 或解开的文件夹,只读)")
+    cmp_toast.add_argument("--after", type=Path, required=True, help="再测那一单的下载包(只读)")
+    cmp_toast.add_argument("--deployed", help="改动放上网站的日子(如 2026-11-25);不给就当还没部署")
+    cmp_toast.add_argument("--run", type=Path,
+                           help="读网站那次运行的文件夹:按「哪道题对应哪个改过的页面」分处理组和对照组;分不出来时退回全部不点名的题并说明")
+    cmp_toast.add_argument("--treated", help="处理组的题号,逗号隔开(没给 --run 时用);不给就用全部不点名品牌的题")
+    cmp_toast.add_argument("--control", default="", help="对照组的题号,逗号隔开(给了 --treated 才有用)")
+    cmp_toast.add_argument("--sitewide", action="store_true", help="这批改动里有全站性的改动(给了 --treated 才有用)")
+    cmp_toast.add_argument("--json", type=Path, help="把完整结果存成这个新文件(已存在就不写)")
+    web = sub.add_parser("serve", help="在本机打开 Butter 的网页界面(只有这台电脑能访问)")
+    web.add_argument("--out", type=Path, default=DEFAULT_OUT, help=f"运行产出目录(默认 {DEFAULT_OUT})")
+    web.add_argument("--workspace", type=Path, default=DEFAULT_WORKSPACE, help=f"工作目录(默认 {DEFAULT_WORKSPACE})")
+    web.add_argument("--no-browser", action="store_true", help="不自动打开浏览器")
+    web.add_argument("--env-file", type=Path, help="从这个 .env 文件读模型的 key(只读);不给就只看环境变量")
+    return parser
+
+
+def _proposals(args) -> int:
+    from datetime import datetime
+
+    from butter import cards, store
+    from butter.proposals import build_proposals
+    from butter.registry import load_registry
+
+    now = datetime.now()
+    registry = load_registry(args.toast_registry)
+    view, problems = cards.load(args.workspace)
+    for problem in problems:
+        print(f"注意:{problem}", file=sys.stderr)
+    out_dir = args.out or args.workspace / "proposals" / now.strftime("%Y%m%d-%H%M%S")
+    written = store.save_text_files(out_dir, build_proposals(registry, view.methods, generated_on=now.date().isoformat()))
+    print(f"提案文档存在:{out_dir}")
+    for path in written:
+        print(f"  {path.name}")
+    print("这些只是文档,Butter 没有改 Toast 的任何文件;采不采纳由你看过再定。")
+    return 0
+
+
+def _rebuild_index(args) -> int:
+    from butter import cards
+
+    view, problems = cards.rebuild(args.workspace)
+    for problem in problems:
+        print(f"注意:{problem}", file=sys.stderr)
+    for skipped in view.skipped:
+        print(f"注意:日志第 {skipped.seq} 条事件不合规,没有计入({skipped.reason})", file=sys.stderr)
+    print(f"索引已按事件日志重建:{view.events} 条事件,{len(view.batches)} 个批次,{len(view.cards)} 张卡。")
+    return 0
+
+
+NAMES_STARTER = """# 展示页的对照表:真名 → 代号。这个文件不进仓库,也不随展示页导出。
+# Butter 会自动换掉:品牌名和别名、官网域名、社交账号、商品名、货号、本站的网址。
+# 这里只补它认不出来的,比如系列名。一行一个,例如:
+#   - {real: "SkyLine", code: "Series 1"}
+names: []
+"""
+
+
+def _showcase_build(args) -> int:
+    from datetime import datetime
+
+    from butter import sources, store
+    from butter.showcase import ShowcaseLeak, build, parse_names
+
+    runs = store.read_run_index(args.out)
+    run_id = args.run or (runs[-1]["run_id"] if runs else "")
+    run_dir = store.find_run_dir(args.out, run_id) if run_id else None
+    if run_dir is None:
+        print("没有找到这次运行。先跑一次(python -m butter run 网址),或者用 --run 给一个运行号。", file=sys.stderr)
+        return 1
+    names_path = args.names or args.workspace / "showcase" / "names.yaml"
+    if args.names is None:
+        store.ensure_text_files(names_path.parent, {names_path.name: NAMES_STARTER})
+    manual = parse_names(sources.read_yaml(names_path))
+    now = datetime.now()
+    try:
+        files, report = build(run_dir, args.workspace, manual=manual, today=now.date().isoformat())
+    except ShowcaseLeak as exc:
+        print(f"没有导出:{exc}", file=sys.stderr)
+        return 1
+    out_dir = args.to or args.out / "showcase" / now.strftime("%Y%m%d-%H%M%S")
+    store.save_text_files(out_dir, files)
+    print(f"展示页导出在:{out_dir}")
+    print(f"  用的是运行 {run_id};{len(report.pages)} 个页面,改动包里的文件 {report.package_files} 个。打开 index.html 看。")
+    print(f"  换掉了 {len(report.names)} 个真名(人工补的 {len(manual)} 个,对照表在 {names_path})。导出的文件里搜不到它们。")
+    if report.skipped_files:
+        print(f"  改动包里有 {len(report.skipped_files)} 个不是文本的文件,没有导出:{'、'.join(report.skipped_files[:5])}")
+    if report.too_short:
+        print(f"  这些词太短,没有自动换,要你看一眼:{'、'.join(report.too_short)}")
+    if report.hints:
+        words = "、".join(f"{word}({count} 处)" for word, count in report.hints)
+        print(f"  商品名里的这些词没在对照表上,导出里还在:{words}")
+        print("  其中要是有系列名、型号,补进对照表再导出一次;普通词不用管。发布之前请你自己再看一遍页面。")
+    return 0
+
+
+def _compare_toast(args) -> int:
+    from datetime import date
+
+    from butter import store
+    from butter.measure import toast
+
+    ids = lambda text: [x.strip() for x in text.split(",") if x.strip()]  # noqa: E731
+    if args.deployed:
+        date.fromisoformat(args.deployed)  # 写错了在这里就报(ValueError),不带着错日期往下算
+    before = toast.load_run(args.before)
+    result = toast.compare_runs(
+        before, toast.load_run(args.after), deploy_day=args.deployed or None,
+        groups=toast.groups_from_site_run(args.run, before) if args.run else None,
+        treated=ids(args.treated) if args.treated else None, control=ids(args.control), sitewide=args.sitewide)
+    for line in toast.summary_lines(result):
+        print(line)
+    if args.json:
+        if args.json.exists():
+            print(f"没做成:{args.json} 已经存在,没有覆盖。", file=sys.stderr)
+            return 1
+        store.write_new_json(args.json, result)
+        print(f"完整结果存在:{args.json}")
+    return 0
+
+
+def _env(env_file: Path | None) -> dict[str, str]:
+    """整份环境变量,再加上 .env 文件里的模型 key(只读)。cli 自己不认变量名,原样交给 llm。"""
+    import os
+
+    from butter.llm.keys import read_env_file
+
+    env = dict(os.environ)
+    if env_file:
+        env.update(read_env_file(env_file))
+    return env
+
+
+def _draft_settings(args, out_root: Path) -> DraftSettings | None:
+    """按命令行和手上的 key 决定起不起草、用哪家。没有 key 就不起草,照常出规则生成的部分。"""
+    if args.no_draft:
+        return None
+    from butter.drafting import draft_settings
+
+    settings, offer = draft_settings(_env(args.env_file), out_root / ".llm-cache", max_pages=args.max_pages,
+                                     budget_usd=args.draft_budget, provider=args.draft_provider, model=args.draft_model)
+    if settings is None:
+        print("没有找到可用的模型 key(或者价目表里没有指定的型号),这次不起草;规则生成的部分照常出。")
+        return None
+    print(f"起草用 {offer['provider']}:{offer['model']},这次最多花约 ${offer['upper_bound_usd']:.2f}"
+          f"(上限 ${args.draft_budget:.2f});不想起草加 --no-draft。")
+    return settings
+
+
+def main(argv: list[str] | None = None) -> int:
+    for stream in (sys.stdout, sys.stderr):  # Windows 控制台默认编码写不了中文
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+    args = _parser().parse_args(argv)
+    if args.command == "measure-batch":
+        from butter.contracts import PotatoSettings
+        from butter.measure import driver
+
+        base = driver.default_potato()
+        potato = PotatoSettings(potato_dir=args.potato_dir or base.potato_dir, python=args.potato_python or base.python,
+                                pythonpath=args.potato_pythonpath)
+        try:
+            print(driver.run(args.workspace, args.batch_id, args.kind, env=_env(args.env_file), potato=potato))
+        except (ValueError, OSError) as exc:
+            print(f"没做成:{exc}", file=sys.stderr)
+            return 1
+        return 0
+    if args.command == "serve":
+        from butter.web.serve import serve
+
+        return serve(args.out, args.workspace, open_browser=not args.no_browser, env=_env(args.env_file))
+    if args.command in ("proposals", "rebuild-index", "showcase", "compare-toast"):
+        try:
+            if args.command == "compare-toast":
+                return _compare_toast(args)
+            if args.command == "showcase":
+                return _showcase_build(args)
+            return _proposals(args) if args.command == "proposals" else _rebuild_index(args)
+        except (ValueError, OSError) as exc:
+            print(f"没做成:{exc}", file=sys.stderr)
+            return 1
+    if bool(args.url) == bool(args.snapshot):
+        print("要么给一个网址,要么给 --snapshot,二选一。", file=sys.stderr)
+        return 2
+    if args.html_dir and args.snapshot:
+        print("--html-dir 要和网址一起给,不能和 --snapshot 同用。", file=sys.stderr)
+        return 2
+    options = RunOptions(out_root=args.out, brands_path=args.brands, brand_domains_path=args.brand_domains,
+                         toast_export_path=args.toast_export,
+                         questions_path=args.questions, training=args.training,
+                         draft=_draft_settings(args, args.out))
+    try:
+        if args.snapshot:
+            from butter.store import load_snapshot
+
+            snapshot = load_snapshot(args.snapshot)
+            source = f"snapshot:{args.snapshot}"
+        elif args.html_dir:
+            from butter.local_import import import_site
+
+            print(f"不联网:读取文件夹 {args.html_dir} 里的 HTML 文件,当作 {args.url} 的页面…")
+            snapshot = import_site(args.url, args.html_dir)
+            source = f"html-dir:{args.html_dir.name}"
+        else:
+            from butter.fetch import FetchLimits, fetch_site
+
+            if not 1 <= args.max_pages <= 30:
+                print("--max-pages 要在 1 到 30 之间。", file=sys.stderr)
+                return 2
+            print(f"开始抓取 {args.url}(最多 {args.max_pages} 页,每秒 1 个请求,遇验证码即停)…")
+            snapshot = fetch_site(args.url, limits=FetchLimits(max_pages=args.max_pages))
+            source = "fetched"
+        result = process_snapshot(snapshot, options, snapshot_source=source)
+    except (ValueError, OSError) as exc:
+        print(f"没跑成:{exc}", file=sys.stderr)
+        return 1
+
+    counts = {lv: sum(1 for f in result.audit.findings if f.level == lv) for lv in ("problem", "notice", "pass", "not_checkable", "not_applicable")}
+    if result.snapshot.source == "local_files":
+        print(f"导入了 {len(result.snapshot.pages)} 个本机 HTML 文件,其中可分析的 {len(result.factbase.pages)} 个(没有联网)。")
+    else:
+        print(f"收到 {len(result.snapshot.pages)} 个页面响应,其中可分析的 {len(result.factbase.pages)} 个"
+              f"(结束原因:{stop_label(result.snapshot.stop_reason)})。")
+    for note in result.snapshot.notes:
+        print(f"  · {note}")
+    print(f"事实库:{len(result.factbase.products)} 个商品,{len(result.factbase.gaps)} 条空缺。")
+    print(f"审计:问题 {counts['problem']} · 提示 {counts['notice']} · 通过 {counts['pass']} · 查不了 {counts['not_checkable']}"
+          f" · 不适用 {counts['not_applicable']}。")
+    print(f"改动包:{len(result.bundle.package.items)} 条改动,{len(result.bundle.package.not_generated)} 项没有产出。")
+    if result.drafts is not None:
+        d = result.drafts
+        print(f"起草:通过 {len(d.items)} 条,作废 {len(d.voided)} 条;发了 {d.calls} 次请求,花了 ${d.cost_usd:.4f}。")
+        if d.stopped:
+            print(f"注意:{d.stopped}")
+    for warning in result.warnings:
+        print(f"注意:{warning}")
+    print(f"产出在:{result.run_dir}")
+    print("  factbase.md / factbase.json   事实库")
+    print("  audit.md / audit.json         审计报告")
+    print("  change-package/README.md      改动包(从这里看起)")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

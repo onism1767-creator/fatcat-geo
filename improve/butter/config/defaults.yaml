@@ -1,0 +1,208 @@
+# Butter 默认值(defaults/1)。每个数都带来源、一句人话来源(界面只用 source_plain)、测量日期、验证态。
+# 验证态:占位(还没有自己的数据支持) / 单次观测 / 临时 / 已复现。
+# 「不改动时的波动」(σ、τ)在 defaults_noise.yaml,由 E0 的脚本生成,不要手改。
+# 第一版 2026-11-17(设计 §9.5 原定 11-16)。之后三次填数:心跳 1、2、3 之后。
+defaults:
+  - key: remeasure.interval_days
+    value: 28
+    unit: 天
+    source: "Profound:持续被引的页面从首次被引到峰值,中位 36–46 天;Ahrefs:改动前后各看 30 天。用户 2026-11-15 定 28 天(设计 §17 第 4 问),不由 E0 替换"
+    source_plain: "参考公开的行业数据:网页从第一次被 AI 引用,到被引用得最多,一般要一个多月"
+    measured_on: "2026-11-15"
+    validation_state: 占位
+    note: "文献值。界面那句话:推荐改完隔 28 天测一次,看看改动后的效果"
+
+  - key: compare.baseline_valid_days
+    value: 7
+    unit: 天
+    source: "设计 §9.4 总表第 5 行:部署日要在基线后 7 天内。E0:7 天内只有 8–19% 的「题 × 品牌」有变化"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:同一批问题、不改网页,一周内的回答变化不大"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: compare.min_treated_questions
+    value: 5
+    unit: 题
+    source: "E0 事后配对分析:单题前后差的标准差 σ 约 0.10–0.21;5 题时前后差的 95% 波动范围约 9–19 个百分点,再少就看不出东西"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:题太少时,正常起伏就能盖过改动的效果"
+    measured_on: "2026-11-17"
+    validation_state: 占位
+    note: "下限是人定的,E0 只给出量级"
+
+  - key: compare.min_control_questions
+    value: 5
+    unit: 题
+    source: "E0 事后配对分析:5 题对 5 题的差中差,95% 分位 13–33 个百分点;对照组再小就起不到看住漂移的作用"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:对照的题太少时,看不出是不是所有题一起变了"
+    measured_on: "2026-11-17"
+    validation_state: 占位
+    note: "下限是人定的,E0 只给出量级"
+
+  - key: measure.runs_per_question
+    value: 3
+    unit: 次
+    source: "E0 配方:每题同日 3 跑。H5:同题多跑高度相关(ICC 0.71–0.87),再多跑信息量有限"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:同一个问题多问几次,答案差不多,问 3 次够用"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: compare.min_success_rate
+    value: 0.90
+    unit: 比例
+    source: "设计 §9.4 总表第 4 行。E0 各腿正常完成时都是 150/150"
+    source_plain: "一次测量里,成功拿到回答的要占九成以上才算数"
+    measured_on: "2026-11-14"
+    validation_state: 占位
+
+  - key: measure.abort_failure_rate
+    value: 0.10
+    unit: 比例
+    source: "设计 §10.2:一条腿问满 20 次后,失败超过一成就停这条腿。成功率不到九成的腿本来就不能比(compare.min_success_rate),接着问只是白花钱。E0 教训:额度用完时失败会连片出现(第 0 天 OpenAI 150 次里 99 次失败)"
+    source_plain: "失败太多时自动停下,免得白花钱"
+    measured_on: "2026-11-06"
+    validation_state: 占位
+
+  - key: compare.citation_min_searched_share
+    value: 0.30
+    unit: 比例
+    source: "E0 第 0 天各腿搜索过的回答占比:Gemini 2%(中)/ 17%(英),Claude 45% / 53%,OpenAI 94% / 98%。低于三成的腿不比被引率"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:有的 AI 很少上网搜索,这时比「引用了谁」没有意义"
+    measured_on: "2026-11-17"
+    validation_state: 占位
+    note: "阈值是人定的:它把 Gemini 排除在外,留下 Claude 和 OpenAI"
+
+  - key: compare.bootstrap_draws
+    value: 2000
+    unit: 次
+    source: "常用取值;随机种子固定,结果可重现"
+    source_plain: "统计上的常用做法"
+    measured_on: "2026-11-17"
+    validation_state: 占位
+
+  - key: compare.seed
+    value: 20261116
+    unit: "—"
+    source: "固定随机种子"
+    source_plain: "统计上的常用做法"
+    measured_on: "2026-11-17"
+    validation_state: 占位
+
+  - key: compare.z
+    value: 1.96
+    unit: "—"
+    source: "95% 波动范围用的系数"
+    source_plain: "统计上的常用做法"
+    measured_on: "2026-11-17"
+    validation_state: 占位
+
+  - key: measure.abort_min_rows
+    value: 20
+    unit: 次
+    source: "设计 §10.2:问满 20 次再看失败率,免得开头偶然的一两次失败就停"
+    source_plain: "失败太多时自动停下,免得白花钱"
+    measured_on: "2026-11-14"
+    validation_state: 占位
+
+  - key: measure.budget_cap_per_call_usd
+    value: 0.25
+    unit: 美元
+    source: "每条腿的花费上限 = 这个数 × 要问的次数(24 题 × 3 次 = $18),写进 Potato 的配置;Potato 开跑前拿自己的保守估价和它比,超了就不跑,跑的时候真实花费到了也停。真 Potato 2026-11-19 的保守估价折到每次:OpenAI $0.036、Gemini $0.073、Claude $0.126、Grok $0.21,取 0.25 都放得过;E0 实测每次 $0.01–0.05。原来是固定 $15,Grok 的估价 $15.12 刚好被拦,题多时别家也会被拦,所以改成按次数算。上限算在 Potato 的配置指纹里:同一批的题板冻结后次数不变,所以前后两次的上限一样"
+    source_plain: "每家 AI 每次测量最多花的钱,按要问的次数算;到了就停"
+    measured_on: "2026-11-19"
+    validation_state: 占位
+
+  - key: measure.model.anthropic
+    value: claude-sonnet-5
+    unit: "—"
+    source: "E0 用的型号。不改动时的波动范围就是在这个型号上量的,换型号波动范围不一定适用"
+    source_plain: "FatCat GEO 2026 年 11 月实测时用的就是这个型号"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.model.openai
+    value: gpt-6-luna
+    unit: "—"
+    source: "同上"
+    source_plain: "FatCat GEO 2026 年 11 月实测时用的就是这个型号"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.model.gemini
+    value: gemini-3.8-flash
+    unit: "—"
+    source: "同上"
+    source_plain: "FatCat GEO 2026 年 11 月实测时用的就是这个型号"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.model.grok
+    value: grok-4.3
+    unit: "—"
+    source: "Potato 2026-11-19 接入 Grok(提交 1f2ff1d)。选 grok-4.3:Potato 目录里 Grok 的省钱档;grok-4.7 真机试的两次回答都不写行内引用标记,被引率会读成 0,所以不用。E0 没有测过 Grok,这个型号上没有波动数据:只列数字,不判变没变"
+    source_plain: "Potato 2026 年 11 月接入 Grok 时试过的型号里,这个便宜,而且看得出它引用了谁"
+    measured_on: "2026-11-19"
+    validation_state: 占位
+
+  - key: measure.cost_per_call.anthropic
+    value: 0.05
+    unit: 美元
+    source: "E0 实测(experiments/E0/进度.md):Claude 一条腿 150 次花 $6.84–8.09,每次约 $0.046–0.054"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:问一次大约花这么多"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.cost_per_call.openai
+    value: 0.022
+    unit: 美元
+    source: "E0 实测:OpenAI 一条腿 150 次花 $3.07–3.36,每次约 $0.021–0.022"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:问一次大约花这么多"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.cost_per_call.gemini
+    value: 0.014
+    unit: 美元
+    source: "E0 实测:Gemini 一条腿 150 次花 $1.37–2.13,每次约 $0.009–0.014,取高的"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:问一次大约花这么多"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.cost_per_call.grok
+    value: 0.05
+    unit: 美元
+    source: "Potato 接入 Grok 时的真机试打(providers/grok.py 注释):grok-4.3 一次实际 $0.048。只有 1 次,等 Butter 真测过再换"
+    source_plain: "Potato 2026 年 11 月试打过 1 次:问一次大约花这么多。次数太少,只能当参考"
+    measured_on: "2026-11-19"
+    validation_state: 占位
+
+  - key: measure.seconds_per_call.anthropic
+    value: 30
+    unit: 秒
+    source: "E0 实测:Claude 一条腿 150 次用 39–75 分钟,取慢的"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:问一次大约要这么久"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.seconds_per_call.openai
+    value: 18
+    unit: 秒
+    source: "E0 实测:OpenAI 一条腿 150 次用 31–45 分钟,取慢的"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:问一次大约要这么久"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.seconds_per_call.gemini
+    value: 24
+    unit: 秒
+    source: "E0 实测:Gemini 一条腿 150 次用 51–61 分钟,取慢的"
+    source_plain: "FatCat GEO 2026 年 11 月的实测:问一次大约要这么久"
+    measured_on: "2026-11-14"
+    validation_state: 单次观测
+
+  - key: measure.seconds_per_call.grok
+    value: 30
+    unit: 秒
+    source: "没有实测。先照三家里最慢的 Claude(30 秒)填,等 Butter 真测过再换"
+    source_plain: "还没有实测,先按最慢的那家估"
+    measured_on: "2026-11-19"
+    validation_state: 占位

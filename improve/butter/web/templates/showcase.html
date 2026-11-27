@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block main %}
+<h1>Butter 能做什么：一个真实的例子</h1>
+<p>Butter 是 FatCat GEO 里负责「改」的那一步：给它一个网址，它读出网站上的事实，查出问题，出一包可以照着改的内容；改完再测一次，看 AI 的回答有没有变。</p>
+<p>这一页是存下来的结果，不是在运行的程序，所以没有按钮。</p>
+
+<h2 id="h-example">1. 一次完整的例子</h2>
+{% if v.example %}
+<div class="card">
+  <p>这是对一个真实网站跑出来的结果。品牌名、商品名、货号、网址都换成了代号（比如 Brand A、Model 1），价格、参数和检查结果照原样。</p>
+  <p class="row">
+    <span>读了 <strong>{{ v.example.pages }}</strong> 个页面</span>
+    <span>出了 <strong>{{ v.example.changes }}</strong> 条改动</span>
+    <span><span class="chip bad">问题 {{ v.example.problems }}</span></span>
+    <span><span class="chip warn">提示 {{ v.example.notices }}</span></span>
+    <span><span class="chip ok">通过 {{ v.example.passed }}</span></span>
+  </p>
+  <p class="row">
+    <a href="{{ v.example.run_path }}">看事实、检查结果和改动包</a>
+    {% if v.example.batch_path %}<a href="{{ v.example.batch_path }}">看这批改动走到哪一步了</a>{% endif %}
+  </p>
+</div>
+{% else %}
+<p class="muted">这一份展示页没有带例子。</p>
+{% endif %}
+
+<h2 id="h-steps">2. 一批改动会走过哪几步</h2>
+<div class="table-wrap" tabindex="0" role="region" aria-labelledby="h-steps">
+  <table>
+    <thead><tr><th>到哪一步</th><th>这一步发生了什么</th></tr></thead>
+    <tbody>
+    {% for s in v.steps %}
+      <tr><th scope="row">{{ loop.index }}. {{ s.name }}</th><td>{{ s.what }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h3 id="h-nochange">什么都没改，测两次，Butter 会怎么说</h3>
+<p>我们手上有一批谁都没改过的数据：同样的问题，隔 {{ v.no_change.gap_days }} 天各问一遍。把第一次当「改之前」、第二次当「改之后」交给 Butter 去比，一共比了 {{ v.no_change.total }} 次，其中 <strong>{{ v.no_change.within }} 次说「在平时的波动范围内」</strong>，{{ v.no_change.changed }} 次说「变了」。</p>
+<p>波动范围本身就是从这批数据里量出来的，所以这里只是给你看「在波动范围内」长什么样，不是在证明 Butter 判得准。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-labelledby="h-nochange">
+  <table>
+    <thead><tr><th>问的是谁</th><th>比了几个品牌</th><th>说「在波动范围内」</th><th>说「变了」</th></tr></thead>
+    <tbody>
+    {% for leg in v.no_change.legs %}
+      <tr>
+        <th scope="row">{{ leg.name }}</th>
+        <td>{{ leg.brands }}</td>
+        <td>{{ leg.within }}</td>
+        <td>{{ leg.changed }}</td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+<p>每一家各举一个品牌的例子：</p>
+<ul>
+  {% for leg in v.no_change.legs %}
+  <li><strong>{{ leg.name }}</strong>：{{ leg.example }}Butter 的说法：{{ leg.verdict }}。</li>
+  {% endfor %}
+</ul>
+
+<h2 id="h-bands">3. 什么都不改，结果自己会晃多少</h2>
+<p>同样的 {{ v.band_questions }} 道题、不改网页，隔几天再问一遍，「提到这个品牌的回答占多少」这个数，前后通常差在下面这个范围以内。Butter 只在变化超过它时才说「变了」。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-labelledby="h-bands">
+  <table class="bars">
+    <thead><tr><th>问的是谁</th><th>隔几天</th><th>前后通常差在</th><th aria-hidden="true">比一比</th></tr></thead>
+    <tbody>
+    {% for b in v.bands %}
+      <tr>
+        <th scope="row">{{ b.name }}</th>
+        <td>{{ b.days }} 天</td>
+        <td>±{{ b.band_pp }} 个百分点以内</td>
+        <td aria-hidden="true"><span class="bar" style="inline-size: {{ b.bar }}%"></span></td>
+      </tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2 id="h-excluded">4. 哪些厂商的爬虫没有放进来，为什么</h2>
+<p>Butter 生成 robots.txt 时，只写有官方说明文档的爬虫。下面这些厂商，查的时候没有找到官方的爬虫说明，所以没有放进来。厂商发布文档后可以再加。</p>
+<div class="table-wrap" tabindex="0" role="region" aria-labelledby="h-excluded">
+  <table>
+    <thead><tr><th>厂商</th><th>产品</th><th>为什么没放进来</th><th>查的日子</th></tr></thead>
+    <tbody>
+    {% for x in v.excluded %}
+      <tr><th scope="row">{{ x.vendor }}</th><td>{{ x.products }}</td><td class="wrap">{{ x.reason }}</td><td>{{ x.checked_on }}</td></tr>
+    {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<h2 id="h-limits">5. Butter 做什么，不做什么</h2>
+<div class="before-after">
+  <div>
+    <p class="label">做的</p>
+    <ul>{% for line in v.does %}<li>{{ line }}</li>{% endfor %}</ul>
+  </div>
+  <div>
+    <p class="label">不做的</p>
+    <ul>{% for line in v.does_not %}<li>{{ line }}</li>{% endfor %}</ul>
+  </div>
+</div>
+<h3>读结果的时候要知道的</h3>
+<ul>{% for line in v.know %}<li>{{ line }}</li>{% endfor %}</ul>
+{% endblock %}
