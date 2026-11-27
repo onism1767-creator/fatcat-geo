@@ -1,91 +1,65 @@
-# FatCat GEO Full Toolkit
+# FatCat GEO
 
-English · [中文](README.zh.md)
+English · [中文](README.zh.md) · [Install and use](#install-and-use) · [What GEO is](#what-geo-is)
 
-Measure how AI systems answer questions about your brand, see where you drop out, improve your site, and
-measure again. One guided flow, one list of measured AI models, one long report.
+See and improve how often AI mentions your brand. FatCat GEO is open source, runs on your own computer and starts with one click.
 
-It runs on your own computer with your own AI keys. Nothing is sent to a FatCat server.
+Below is a report we measured for Xiaomi. Everything we can measure is in this one image.
 
-## What is in this repository
+![A FatCat GEO report measured for Xiaomi](assets/report-example-en.png)
 
-| Folder | What it does |
+## Install and use
+
+For Windows 10 and 11. Nothing to install.
+
+1. Open the [Releases page](https://github.com/onism1767-creator/fatcat-geo/releases) and download the file that ends in `windows-x64.zip`.
+2. Unzip it.
+3. Double-click `FatCat-GEO.bat`. A black window opens and your browser shows the FatCat GEO page. Leave the black window open.
+4. Add an AI key at the bottom of the page: Anthropic, OpenAI, Google Gemini, xAI or Perplexity. One is enough. FatCat GEO runs on your own computer, so your key and your results stay there.
+5. Enter your brand name, website and category, then follow the six steps on the page.
+6. To stop, double-click `Stop-FatCat-GEO.bat`.
+
+The six steps on the page:
+
+| Step | What happens |
 |---|---|
-| `fatcat/` | The entry page: fill in your brand once and follow six steps; builds the long report |
-| `measure/` | Asks the AIs your questions, judges the answers and diagnoses where you drop out |
-| `improve/` | Reads your site, checks its content, prepares a change package, compares before and after |
-| `catalog/models.json` | The measured AI models (the only list) |
+| 1. Quick Check | Add the result of a Quick Check from the FatCat GEO website. You can skip it. |
+| 2. Brand details | Brand name, website and category. You enter them once. |
+| 3. Measure | Press "Start the measurement tool", then "Open the measurement tool". It drafts the questions and shows the estimated cost before it asks the AIs. |
+| 4. Improve | FatCat reads your site and lists what to change. Free. |
+| 5. Measure again | When your changes are live, press "Measure again now" to ask the same questions again. It starts at once, and the button shows the price. Then press "Compare with this one" to see before and after side by side. |
+| 6. Report | One long report of everything above, like the image at the top of this page. |
 
-## The quick way: portable package for Windows
+Steps 3 and 5 use your own AI keys, and you pay the AI providers directly. The Xiaomi report above asked 5 AIs 24 questions, 3 times each, and cost $19.23.
 
-Download `FatCat-GEO-<version>-windows-x64.zip` from the
-[Releases page](https://github.com/onism1767-creator/fatcat-geo/releases), unzip it and double-click
-`FatCat-GEO.bat`. Python and the database are inside the folder; there is nothing to install.
-The package has no headless browser, so a few cited pages that only show their content after running
-scripts are recorded as could not be read. Everything else is the same.
+### Run from source
 
-The rest of this page is for installing from source.
-
-## Before you install
-
-- Windows 10 or 11.
-- Python 3.12 and [uv](https://docs.astral.sh/uv/).
-- PostgreSQL, installed with the Windows installer from [postgresql.org](https://www.postgresql.org/download/windows/)
-  using the default options. The measurement results are stored in it, on your computer. The entry page
-  creates and starts the database it needs the first time you start the measurement tool.
-- An API key for at least one of: Anthropic, OpenAI, Google Gemini, xAI, Perplexity.
-
-## Install and run
+Install Python 3.12, [uv](https://docs.astral.sh/uv/) and [PostgreSQL](https://www.postgresql.org/download/windows/) first.
 
 ```
 uv sync --all-packages
-uv run python -m playwright install chromium      once; used to read pages that only render in a browser
-uv run python -m fatcat serve                     open http://127.0.0.1:8500/ (this computer only)
+uv run python -m playwright install chromium
+uv run python -m fatcat serve
 ```
 
-Other commands:
+Then open http://127.0.0.1:8500/. The second command installs a browser for reading pages that only show their content after running scripts.
 
-```
-uv run python -m fatcat sources                   list results that can go into a report
-uv run python -m fatcat report --measure-job <id> --improve-run <folder> --weblite <bundle.zip> --lang en --out report.html
-uv run python -m fatcat models check              check the model list; exit code 1 when it does not match
-uv run python -m fatcat evidence check            check that the copied evidence table still matches the original
-uv run python scripts/check.py                    lint, tests, both checks, secret scan
-uv run python scripts/build_portable.py           build the portable package (Windows; needs PostgreSQL installed to copy its programs from)
-```
+## What GEO is
 
-## The six steps on the entry page
+GEO is short for generative engine optimization. It means getting AI search to find your site and cite it.
 
-1. Quick Check (optional): add the evidence bundle downloaded from the FatCat GEO website.
-2. Brand details: filled in once.
-3. Measure and diagnose: press "Start the measurement tool", then "Open the measurement tool". It shows a
-   full cost estimate before any measuring starts.
-4. Improve: reads your site (no AI, free) and prepares the facts it found, content checks and a change package.
-5. Put the changes live, then measure again: record the day the changes went live and press "Measure again
-   now". **This starts spending at once** (it repeats the earlier run; there is no confirmation page); the
-   button states roughly how much. Then press "Compare with this one".
-6. Report: one long report from everything done so far. Steps not done say so.
+When someone asks an AI a question, your brand goes through four steps. We measure each one:
 
-## Cost and keys
+| Step | What the AI does | What we measure |
+|---|---|---|
+| 1. Read | AI crawlers read your site | Which AI crawlers are allowed in, and what fails on your page |
+| 2. Find | The AI searches the web before it answers | How often your site turns up in what it searches |
+| 3. Cite | The AI links to sources in its answer | How often answers link to your site, and to other pages about you |
+| 4. Describe | The AI names brands and describes them | How often you're named, how you compare with competitors, and what AI says about you |
 
-- Only two steps cost money: measuring (step 3) and measuring again (step 5). They use your own AI keys and
-  you pay the AI providers directly.
-- Enter keys once, at the bottom of the entry page. Keys typed there stay in memory only. To keep them, put
-  them in a `.env` file in this folder, using the variable names shown on the page.
-- Keys are never written to logs, reports or result files. `.env` and `runs/` are not committed.
-- The measurement tool runs independently of the entry page: closing the entry page does not stop a
-  measurement. Stop the tool from step 3; it refuses while a measurement is running.
+After measuring you also get:
 
-## Limits you should know
+- A list of changes for your site, each tied to the answers behind it.
+- The same questions asked again, with before and after side by side.
 
-- Answers come from each provider's API with web search on. They are not the same as what you see in the
-  providers' chat products.
-- Before/after numbers are listed without a verdict: how much these models move on their own has not been
-  measured for this method yet.
-- `improve/` also has pages of its own with an older before/after measurement. That one needs a separate
-  sampling tool which is not part of this repository; use step 5 on the entry page instead.
-- Nothing here promises an effect. Whether a change helped is only known after measuring again.
-
-## License
-
-MIT, see [LICENSE](LICENSE). Changes are listed in [CHANGELOG.md](CHANGELOG.md).
+We measure GPT, Claude, Gemini, Grok and Perplexity. Every number comes from saved AI answers you can read.
