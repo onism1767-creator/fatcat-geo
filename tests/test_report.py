@@ -386,7 +386,7 @@ def test_regional_site_the_brand_confirmed_counts_as_the_same_site() -> None:
 def test_page_has_no_script_and_escapes_outside_text() -> None:
     page = render(build(_full(), "en", generated_at=NOW))
     assert "<script" not in page and "&lt;script&gt;alert(1)&lt;/script&gt;" in page
-    assert '<meta name="color-scheme" content="light dark">' in page
+    assert '<meta name="color-scheme" content="light">' in page
     assert page.count("<h2 ") == 12 and 'role="region"' in page and "<caption id=" in page
     assert 'href="http' not in page and 'src="' not in page
 

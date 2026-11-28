@@ -153,8 +153,8 @@ def test_before_and_after_are_two_pages_side_by_side_not_one_table() -> None:
     for side in (before, after):  # 两页一样的行,同一个 AI 在同一行
         assert side.index("Alpha API · a-one") < side.index("Beta API · b-two")
     css = page.split("<style>")[1].split("</style>")[0]
-    assert "--before: #2a78d6" in css and "--after: #eb6834" in css  # 两页两种颜色
-    assert ".side.after { --tone: var(--after); }" in css
+    assert "--before: #dcebf9" in css and "--after: #fbe3da" in css  # 两页两种颜色:网站的浅蓝和珊瑚
+    assert ".side.after { --tone: var(--after);" in css
 
 
 def test_the_comparison_report_stands_alone() -> None:
