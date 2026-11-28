@@ -200,7 +200,7 @@ def test_robots_meta_finding_lives_in_the_access_chapter_only() -> None:
 
 def test_quick_check_owns_the_access_chapter_and_the_local_check_shrinks_to_one_line() -> None:
     with_bundle = _text(_chapter(build(_full(), "en", generated_at=NOW), "access"))
-    assert "I03 noindex" in with_bundle and "issue · critical" in with_bundle
+    assert "I03 noindex" in with_bundle and "Issue · critical" in with_bundle
     assert "A01" not in with_bundle  # 通过的不逐项列
     assert "local-access-headline" in with_bundle and "local-access-evidence" not in with_bundle
     without = _text(_chapter(build(Sources(toast=_toast()), "en", generated_at=NOW), "access"))
@@ -258,11 +258,55 @@ def test_how_the_site_was_read_is_said_in_words_not_codes() -> None:
     busy["run"].update(robots={"state": "unreadable"}, stop_reason="challenge", models_called=1, cost_usd=0.02,
                        owner_edits=2)
     en = _text(_chapter(build(Sources(butter=busy), "en", generated_at=NOW), "method"))
-    assert "robots.txt could not be read, and reading stopped at a human-verification page." in en
+    assert "We could not read robots.txt, and reading stopped at a human-verification page." in en
+    assert "We read robots.txt and every page planned for this run." in _text(
+        _chapter(build(Sources(butter=_butter()), "en", generated_at=NOW), "method"))
     assert "Drafting text while reading the site used 1 AI call and cost $0.02." in en
     assert "You corrected 2 of the facts it read." in en
     busy["run"]["stop_reason"] = "a-code-from-the-future"  # 不认识的代码原样印,不猜
     assert "a-code-from-the-future" in _text(_chapter(build(Sources(butter=busy), "en", generated_at=NOW), "method"))
+
+
+def test_access_chapter_says_results_in_words_not_codes() -> None:
+    zh = _text(_chapter(build(_full(), "zh", generated_at=NOW), "access"))
+    assert "未通过或不适用的检查（3 项里 2 项）" in zh and "有问题 · 严重" in zh and "无法检测" in zh
+    assert "robots 标记有问题或提醒的页面（2 页里 1 页）" in zh
+    assert not {"issue · critical", "unable_to_test", "problem"} & set(zh.splitlines())  # 代码不再原样印成一格
+    clean = _butter()
+    clean["audit"]["findings"] = [f for f in clean["audit"]["findings"] if f["level"] == "pass"]
+    assert "读网站时读到的 1 个页面，robots 标记都没有问题。" in _text(
+        _chapter(build(Sources(butter=clean), "zh", generated_at=NOW), "access"))
+    assert "The robots meta tags on the 1 page read from the site have no problems." in _text(
+        _chapter(build(Sources(butter=clean), "en", generated_at=NOW), "access"))
+
+
+def test_the_note_about_the_tools_own_page_shows_only_when_the_sentence_points_there() -> None:
+    plain = _text(_chapter(build(_full(), "en", generated_at=NOW), "access"))
+    assert WORDS["en"]["c2_toast_refs"] not in plain  # 那句话没有指着测量工具自己的页面
+    pointing = _toast()
+    pointing["text"]["en"]["access"]["headline"] = "We cannot confirm it. See the checks below."
+    text = _text(_chapter(build(Sources(toast=pointing, weblite=_weblite()), "en", generated_at=NOW), "access"))
+    assert text.count(WORDS["en"]["c2_toast_refs"]) == 1
+
+
+def test_official_domains_are_written_as_sentences_without_tier_codes() -> None:
+    zh = _text(_chapter(build(Sources(toast=_toast()), "zh", generated_at=NOW), "citation"))
+    assert "主站是 brand.example。" in zh and "另外算作你官网的域名有 brand.example.cn。" in zh
+    assert "名字相近但还没有确认的域名没有计入：brand.cn（出现 1 次）。" in zh
+    en = _text(_chapter(build(Sources(toast=_toast()), "en", generated_at=NOW), "citation"))
+    assert "The main site is brand.example." in en and "These domains also count as yours: brand.example.cn." in en
+    assert "These look-alike domains are not confirmed and were not counted: brand.cn (seen once)." in en
+    assert "B1" not in zh + en and "A1" not in zh + en  # 内部的档位代码不印
+    assert "CITATION label" not in zh + en  # 测量工具给这一步起的名字只是把章节标题再说一遍,不印
+
+
+def test_only_text_quoted_from_another_tool_is_marked_as_another_language() -> None:
+    quiet = _butter()
+    quiet["run"]["fetch_notes"] = []
+    page = render(build(Sources(butter=quiet), "en", generated_at=NOW))
+    assert WORDS["en"]["lang_note_zh"] not in page.split('<section id="c1"')[1].split("</section>")[0]
+    page = render(build(Sources(butter=_butter()), "en", generated_at=NOW))  # 带着改进工具的原话
+    assert page.split('<section id="c1"')[1].split("</section>")[0].count(WORDS["en"]["lang_note_zh"]) == 1
 
 
 def test_what_the_site_read_saw_in_the_sitemap_sits_with_the_sitemap_checks() -> None:

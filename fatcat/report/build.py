@@ -200,9 +200,15 @@ class _Builder:
             done=done, total=len(findings), issues=issues, issues_s=_s(issues),
             sev=w["paren"].format(text=sev) if sev else "", rest=rest)
 
+    def _code(self, kind: str, code: Any) -> str:
+        """别的工具给的代码(issue、not_applicable、notice 之类)换成这份报告的话;不认识的原样印,不猜。"""
+        return self.w.get(f"{kind}_{code}", str(code))
+
     def _robots_line(self, state: Any, stop: Any) -> str:
         """读网站时 robots.txt 读没读到、为什么停下。改进工具给的是代码;认识的换成话,不认识的原样印。"""
         w = self.w
+        if state == "ok" and stop == "completed":  # 最常见的情况单写一句,读着顺
+            return w["c1_bt_robots_ok"]
         robots, stopped = w.get(f"robots_{state}"), w.get(f"stop_{stop}")
         if robots and stopped:
             return w["c1_bt_robots"].format(robots=robots, stop=stopped)
@@ -245,9 +251,11 @@ class _Builder:
                 w["c1_bt_cost" if calls else "c1_bt_cost_none"].format(calls=calls, calls_s=_s(calls),
                                                                        usd=float(run.get("cost_usd") or 0)),
                 *([w["c1_bt_edits"].format(edits=edits)] if edits else []),  # 没改过就不写这一句
-                *self._fetch_notes(sitemap=False),
             ]
-            blocks.append(Block("list", caption=w["c1_butter"], items=items, lang=self._foreign("butter")))
+            notes = self._fetch_notes(sitemap=False)
+            # 前面几句是这里自己的话;只有带着改进工具的原话时才标「这一部分只有中文」
+            blocks.append(Block("list", caption=w["c1_butter"], items=items + notes,
+                                lang=self._foreign("butter") if notes else None))
         return blocks or self._empty("not_done")
 
     def _fetch_notes(self, *, sitemap: bool) -> list[str]:
@@ -266,7 +274,8 @@ class _Builder:
             failed = [f for f in findings if f["state"] != "passed"]
             if failed:
                 rows = [[f"{f['rule_id']} {f['name']}",
-                         f["state"] + (f" · {f['severity']}" if f.get("severity") else ""),
+                         self._code("state", f["state"])
+                         + (f" · {self._code('sev', f['severity'])}" if f.get("severity") else ""),
                          " · ".join(str(x) for x in (f.get("value"), f.get("observation")) if x),
                          str(f.get("cause_label") or f.get("why") or "")] for f in failed]
                 blocks.append(Block("table", caption=w["c2_table"].format(n=len(failed), total=len(findings)),
@@ -285,7 +294,8 @@ class _Builder:
             if s.weblite:  # 同一件事 Quick Check 已经逐项列了,本机那次只留一句结论
                 blocks.append(Block("p", text=w["c2_local"].format(status=access["status_label"],
                                                                  headline=access["headline"])))
-                blocks.append(Block("note", text=w["toast_refs"]))
+                if w["c2_toast_refs_if"] in access["headline"].lower():  # 那句话指着测量工具自己的页面时才说明
+                    blocks.append(Block("note", text=w["c2_toast_refs"]))
             else:
                 blocks.append(Block(
                     "list", caption=f"{w['c2_local_full']}{w['colon']}{access['status_label']} {access['headline']}",
@@ -297,9 +307,10 @@ class _Builder:
                 blocks.append(Block(
                     "table", caption=w["c2_pages"].format(n=len(checked), bad=len(bad)),
                     head=[w["col_page"], w["col_level"], w["col_what"]],
-                    rows=[[f["page_url"], f["level"], f["message"]] for f in bad], lang=self._foreign("butter")))
+                    rows=[[f["page_url"], self._code("level", f["level"]), f["message"]] for f in bad],
+                    lang=self._foreign("butter")))
             elif checked:
-                blocks.append(Block("p", text=w["c2_pages_ok"].format(n=len(checked))))
+                blocks.append(Block("p", text=w["c2_pages_ok"].format(n=len(checked), n_s=_s(len(checked)))))
         return blocks or self._empty("not_done")
 
     # 3 / 4 / 5 检索、引用、提及:Toast 的三步,原话
@@ -308,7 +319,7 @@ class _Builder:
             return self._empty("not_done_ai")
         w = self.w
         step = next(s for s in self.t["steps"] if s["stage"] == _STAGE_OF[key])
-        blocks = [Block("p", text=step["label"])]
+        blocks: list[Block] = []  # 测量工具给这一步起的名字不印:它只是把章节标题再说一遍
         if key == "citation":
             blocks += self._domains()
         for intent in step["intents"]:
@@ -350,14 +361,17 @@ class _Builder:
         w, listed = self.w, self.s.toast.get("domains")
         if not listed:
             return []
+        def seen(d: dict[str, Any]) -> str:  # 出现过几次照写;内部的档位代码(B1 之类)不印
+            n = d.get("seen_count")
+            return w["c4_seen" if n != 1 else "c4_seen_1"].format(domain=d["domain"], n=n) if n else d["domain"]
+
         confirmed = [d["domain"] for d in listed.get("domains", []) if d.get("status") == "confirmed"]
-        unconfirmed = [f"{d['domain']} ({d.get('tier')}, ×{d.get('seen_count')})" for d in listed.get("domains", [])
-                       if d.get("status") != "confirmed"]
+        unconfirmed = [seen(d) for d in listed.get("domains", []) if d.get("status") != "confirmed"]
         items = [w["c4_primary"].format(domain=listed.get("primary"))]
         if confirmed:
-            items.append(w["c4_confirmed"].format(domains=", ".join(confirmed)))
+            items.append(w["c4_confirmed"].format(domains=w["list_sep"].join(confirmed)))
         if unconfirmed:
-            items.append(w["c4_unconfirmed"].format(domains=", ".join(unconfirmed)))
+            items.append(w["c4_unconfirmed"].format(domains=w["list_sep"].join(unconfirmed)))
         return [Block("list", caption=w["c4_domains"], items=items)]
 
     # 6 网站上现在写着什么
