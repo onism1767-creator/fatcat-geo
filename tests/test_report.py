@@ -184,7 +184,8 @@ def test_advice_on_the_same_evidence_becomes_one_card() -> None:
 def test_advice_chapter_counts_and_does_not_repeat_the_title_or_the_evidence_id() -> None:
     advice = _chapter(build(_full(), "en", generated_at=NOW), "advice")
     text = _text(advice)
-    assert "2 recommendations from diagnosis and 2 changes" in text and "into 3 cards; 1 cards have both" in text
+    assert "There are 3 cards below: 2 from the measurement and 2 from reading the site, 1 of them from both." in text
+    assert "Replace" in text and " · replace · " not in text  # 改动的代码写成话
     assert "1 items are already in place" in text
     assert text.count("Make titles say what the page answers") == 1  # 标题那一行不在卡片里再出现
     assert text.count("EVIDENCE_STRUCT_V1") == 1  # Toast 的话里已经带了编号
@@ -197,7 +198,8 @@ def test_robots_meta_finding_lives_in_the_access_chapter_only() -> None:
     assert "robots-meta-problem-on-page-a" in _text(_chapter(report, "access"))
     content = _text(_chapter(report, "content"))
     assert "robots-meta-problem-on-page-a" not in content and "meta_robots" not in content
-    assert "jsonld_consistency" in content
+    assert "Structured data matches the page" in content and "jsonld_consistency" not in content
+    assert "Checks run and their results" in content and "Could not check" in content
 
 
 def test_quick_check_owns_the_access_chapter_and_the_local_check_shrinks_to_one_line() -> None:
@@ -213,7 +215,7 @@ def test_each_fact_appears_once_in_the_page() -> None:
     page = render(build(_full(), "en", generated_at=NOW))
     for once in ("sampling-line-24-questions", "method version 9.9", "wrap-up-paragraph", "scope-note-text",
                  "weblite-limit-one", "butter-limit-one", "fetch-note-kept-verbatim", "mentioned-19-of-24",
-                 WORDS["en"]["c10_shared_2"], "meta robots noindex on line 42"):
+                 WORDS["en"]["c10_remeasure"], "meta robots noindex on line 42"):
         assert page.count(once) == 1, once
     report = build(_full(), "en", generated_at=NOW)
     assert "sampling-line-24-questions" in _text(_chapter(report, "method"))
@@ -405,7 +407,7 @@ def test_before_after_chapter_reports_what_exists() -> None:
     sources.batches = [{"batch_id": "b-1", "created_at": "x", "cards": 5,
                         "events": {"batch_created": 1, "remeasure_finished": 1}}]
     text = _text(_chapter(build(sources, "en", generated_at=NOW), "compare"))
-    assert WORDS["en"]["c9_pending"] in text and "Batch b-1: 5 cards" in text and "remeasure_finished ×1" in text
+    assert WORDS["en"]["c9_pending"] in text and "Batch b-1 has 5 cards." in text and "remeasure_finished" not in text
 
 
 # ---------------------------------------------------------------- 读文件的两处

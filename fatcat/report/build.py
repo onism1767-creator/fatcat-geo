@@ -392,17 +392,17 @@ class _Builder:
     def facts(self) -> list[Block]:
         if not self.s.butter:
             return self._empty("not_done_improve")
-        w, base, lang = self.w, self.s.butter["factbase"], self._foreign("butter")
+        w, base = self.w, self.s.butter["factbase"]
 
         def values(fact: dict[str, Any] | None) -> tuple[str, str]:
             found = (fact or {}).get("values") or []
             return (" · ".join(_clip(str(v.get("value")), 160) for v in found),
                     " · ".join(dict.fromkeys(_where(str(v.get("source_url") or "")) for v in found)))
 
-        entity_rows = [[key, *values(fact)] for key, fact in base.get("entity", {}).items()
+        entity_rows = [[self._code("fact", key), *values(fact)] for key, fact in base.get("entity", {}).items()
                        if isinstance(fact, dict) and fact.get("values")]
         blocks = [Block("table", caption=w["c6_entity"], head=[w["col_field"], w["col_value"], w["col_source"]],
-                        rows=entity_rows, lang=lang)]
+                        rows=entity_rows)]
         products = base.get("products") or []
         if products:
             rows = []
@@ -412,12 +412,12 @@ class _Builder:
                              values(product.get("availability"))[0], str(product.get("page_url") or "")])
             blocks.append(Block("table", caption=w["c6_products"].format(shown=len(rows), total=len(products)),
                                 head=[w["col_product"], w["col_price"], w["col_sku"], w["col_stock"], w["col_page"]],
-                                rows=rows, lang=lang))
+                                rows=rows))
             if len(products) > MAX_PRODUCT_ROWS:
                 blocks.append(Block("p", text=w["c6_more"]))
         gaps = [gap["message"] for gap in base.get("gaps") or []]
         if gaps:
-            blocks.append(Block("list", caption=w["c6_gaps"], items=gaps, lang=lang))
+            blocks.append(Block("list", caption=w["c6_gaps"], items=gaps, lang=self._foreign("butter")))
         return blocks
 
     # 7 网站内容查出的问题(「读不读得到」那一项已经在第 2 章)
@@ -428,13 +428,17 @@ class _Builder:
         findings = [f for f in self.s.butter["audit"]["findings"] if f["check"] != _ACCESS_CHECK]
         shown = [f for f in findings if f["level"] in ("problem", "notice")]
         counts = Counter((f["check"], f["level"]) for f in findings)
-        summary = "; ".join(f"{check} {level} {n}" for (check, level), n in sorted(counts.items()))
-        blocks = [Block("p", text=w["c7_counts"].format(text=summary))]
+        levels = [*_LEVELS, *sorted({level for _, level in counts} - set(_LEVELS))]  # 不认识的级别排在后面,原样印
+        blocks = [Block("table", caption=w["c7_counts"],
+                        head=[w["col_rule"], *(self._code("level", level) for level in levels)],
+                        rows=[[self._code("check", check), *(str(counts[check, level]) for level in levels)]
+                              for check in sorted({check for check, _ in counts})])]
         if shown:
             shown.sort(key=lambda f: (f["level"] != "problem", f["check"], f["page_url"]))
             blocks.append(Block("table", caption=w["c7_table"].format(n=len(shown)),
                                 head=[w["col_level"], w["col_rule"], w["col_page"], w["col_what"]],
-                                rows=[[f["level"], f["check"], f["page_url"], f["message"]] for f in shown],
+                                rows=[[self._code("level", f["level"]), self._code("check", f["check"]),
+                                       f["page_url"], f["message"]] for f in shown],
                                 lang=self._foreign("butter")))
         else:
             blocks.append(Block("p", text=w["c7_none"]))
@@ -446,13 +450,13 @@ class _Builder:
         if not self.cards and not self.already_fine:
             return self._empty("not_done")
         both = sum(1 for card in self.cards if card.toast and card.items)
-        blocks = [Block("p", text=w["c8_stats"].format(
-            toast=sum(1 for c in self.cards if c.toast), butter=sum(len(c.items) for c in self.cards),
-            cards=len(self.cards), both=both))]
+        blocks = [Block("p", text=w["c8_stats"].format(  # 按卡数:来自测量几张、来自读网站几张、两边都有几张
+            cards=len(self.cards), cards_s=_s(len(self.cards)), toast=sum(1 for c in self.cards if c.toast),
+            butter=sum(1 for c in self.cards if c.items), both=w["c8_both"].format(n=both) if both else ""))]
         if self.already_fine:
-            blocks.append(Block("p", text=w["c8_already"].format(n=self.already_fine)))
-        if any(card.toast for card in self.cards):
-            blocks.append(Block("note", text=w["toast_refs"]))
+            blocks.append(Block("p", text=w["c8_already"].format(n=self.already_fine, n_s=_s(self.already_fine))))
+        if any(card.toast for card in self.cards):  # 卡片里的话指着测量工具自己的页面,说明它们对应这份报告的哪里
+            blocks.append(Block("note", text=w["c8_toast_refs"]))
         for card in self.cards:
             sections: list[tuple[str, list[str]]] = []
             if card.toast:
@@ -467,11 +471,13 @@ class _Builder:
             if card.items:
                 lines = []
                 for item in card.items:
-                    line = f"{item.get('target')} · {item.get('action')} · {item.get('validation_state')}"
+                    line = (f"{item.get('target')} · {self._code('act', item.get('action'))}"
+                            f" · {item.get('validation_state')}")
                     if item.get("files"):
-                        line += " · " + ", ".join(item["files"])
+                        line += " · " + w["list_sep"].join(item["files"])
                     if item.get("needs_human"):
-                        line += " · " + w["card_needs_human"].format(n=len(item["needs_human"]))
+                        line += " · " + w["card_needs_human"].format(n=len(item["needs_human"]),
+                                                                      n_s=_s(len(item["needs_human"])))
                     lines.append(line)
                     if item.get("rationale"):
                         lines.append(_clip(str(item["rationale"]), 320))
@@ -495,9 +501,8 @@ class _Builder:
         else:
             blocks = [Block("note", text=w["c9_pending"])]
         for batch in self.s.batches:
-            events = ", ".join(f"{name} ×{n}" for name, n in sorted(batch["events"].items()))
             blocks.append(Block("p", text=w["c9_batch"].format(id=batch["batch_id"], cards=batch["cards"],
-                                                             events=events)))
+                                                             cards_s=_s(batch["cards"]))))
         return blocks
 
     def _compared(self, c: dict[str, Any]) -> list[Block]:
@@ -553,8 +558,7 @@ class _Builder:
     # 10 方法和局限(全报告只此一处)
     def limits(self) -> list[Block]:
         w, s = self.w, self.s
-        blocks = [Block("list", caption=w["c10_shared"],
-                        items=[w["c10_shared_1"], w["c10_shared_2"], w["c10_shared_3"]])]
+        blocks = [Block("p", text=w["c10_remeasure"])]
         if self.t:
             blocks.append(Block("list", caption=w["c10_ai"], items=[self.t["scope_note"], self.t["api_note"]]))
         if s.weblite and s.weblite.get("methodology"):
@@ -582,6 +586,7 @@ class _Builder:
         return blocks or self._empty("not_done")
 
 
+_LEVELS = ("pass", "notice", "problem", "not_applicable", "not_checkable")  # 改进工具的内容检查有这五种结果
 _NO_NOISE = "没有这条腿的波动数据"  # 改进工具的原话:这条数照列,只是不判变没变
 
 
