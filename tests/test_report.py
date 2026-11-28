@@ -186,11 +186,11 @@ def test_advice_chapter_counts_and_does_not_repeat_the_title_or_the_evidence_id(
     text = _text(advice)
     assert "There are 3 cards below: 2 from the measurement and 2 from reading the site, 1 of them from both." in text
     assert "Replace" in text and " · replace · " not in text  # 改动的代码写成话
-    assert "1 items are already in place" in text
+    assert "The site already has 1 more item in place, with no change needed." in text
     assert text.count("Make titles say what the page answers") == 1  # 标题那一行不在卡片里再出现
     assert text.count("EVIDENCE_STRUCT_V1") == 1  # Toast 的话里已经带了编号
     assert text.count("EVIDENCE_ACCESS_ROBOTS_V1") == 1  # 只有 Butter 的卡,由这里补一行
-    assert "home <head> · add · hypothesis · jsonld/organization.json" in text
+    assert "home <head> · Add · hypothesis · jsonld/organization.json" in text
 
 
 def test_robots_meta_finding_lives_in_the_access_chapter_only() -> None:
