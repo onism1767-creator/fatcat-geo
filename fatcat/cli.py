@@ -9,7 +9,7 @@ from pathlib import Path
 
 from fatcat import models
 from fatcat.modules import ModuleError, load_modules
-from fatcat.report import Sources, build, render, stamp_now
+from fatcat.report import Sources, build, build_comparison, render, stamp_now
 from fatcat.sources import butter, toast, weblite
 
 
@@ -83,6 +83,8 @@ def _report(args: argparse.Namespace) -> int:
         sources.batches = butter.batches_for(workspace, sources.butter["run"].get("run_id") or "")
     if args.weblite:
         sources.weblite = weblite.load_bundle(Path(args.weblite))
+    if args.compare:
+        sources.compare = _load_compare(Path(args.compare))
     report = build(sources, args.lang, generated_at=stamp_now(),
                    allow_mixed=args.allow_mixed)
     out = Path(args.out)
@@ -91,6 +93,27 @@ def _report(args: argparse.Namespace) -> int:
     print(f"报告已写入 {out.resolve()}")
     for chapter in report.chapters:
         print(f"  {chapter.no:>2}. {chapter.title}  ({len(chapter.blocks)} 块)")
+    return 0
+
+
+def _load_compare(path: Path) -> dict:
+    """改进工具 compare-toast 存下的对比结果。"""
+    import json
+
+    try:
+        return dict(json.loads(path.read_text(encoding="utf-8")))
+    except (OSError, ValueError) as exc:
+        raise ModuleError(f"读不了改前改后的对比结果 {path}:{exc}") from exc
+
+
+def _compare_report(args: argparse.Namespace) -> int:
+    """单独的改前改后对比报告:改之前一页、改之后一页,左右并排。只读存下来的对比结果,不问 AI、不花钱。"""
+    report = build_comparison(_load_compare(Path(args.compare)), args.lang, generated_at=stamp_now(),
+                              brand=args.brand)
+    out = Path(args.out)
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(render(report), encoding="utf-8")
+    print(f"对比报告已写入 {out.resolve()}")
     return 0
 
 
@@ -179,10 +202,17 @@ def main(argv: list[str] | None = None) -> int:
     report_parser.add_argument("--improve-workspace", "--butter-workspace", dest="butter_workspace", metavar="DIR",
                                help="改进工具的工作区;不给就用它自己文件夹下的 workspace")
     report_parser.add_argument("--weblite", help="Quick Check 的证据包 zip")
+    report_parser.add_argument("--compare", metavar="JSON", help="改前改后的对比结果(改进工具 compare-toast 存下的),进第 9 章")
     report_parser.add_argument("--lang", choices=["en", "zh"], default="en", help="报告语言,默认英文")
     report_parser.add_argument("--out", required=True, help="写到哪个 HTML 文件")
     report_parser.add_argument("--allow-mixed", action="store_true",
                                help="几份结果不是同一个网站也照样拼(只为看样子;报告开头会标明)")
+    compare_parser = commands.add_parser("compare-report", help="单独的改前改后对比报告(一个 HTML 文件)")
+    compare_parser.add_argument("--compare", required=True, metavar="JSON",
+                                help="改前改后的对比结果(改进工具 compare-toast 存下的)")
+    compare_parser.add_argument("--brand", help="品牌名,写进标题")
+    compare_parser.add_argument("--lang", choices=["en", "zh"], default="en", help="报告语言,默认英文")
+    compare_parser.add_argument("--out", required=True, help="写到哪个 HTML 文件")
     serve_parser = commands.add_parser("serve", help="打开统一入口的本机网页")
     serve_parser.add_argument("--port", type=int, default=8500)
     serve_parser.add_argument("--runs", help="项目存放的文件夹;不给就用本项目下的 runs")
@@ -204,6 +234,8 @@ def main(argv: list[str] | None = None) -> int:
             return _evidence_check()
         if args.command == "sources":
             return _sources()
+        if args.command == "compare-report":
+            return _compare_report(args)
         return _report(args)
     except ModuleError as exc:
         print(f"出错:{exc}", file=sys.stderr)

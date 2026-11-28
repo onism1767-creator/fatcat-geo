@@ -14,6 +14,7 @@ CHAPTERS = ("conclusion", "method", "access", "retrieval", "citation", "mention"
 WORDS: dict[str, dict[str, str]] = {
     "en": {
         "report": "FatCat GEO report",
+        "cmp_title": "{brand} · before and after", "cmp_title_plain": "Before and after",
         "generated": "This report was generated on {when}.",
         "toc": "Contents",
         "colon": ": ", "semi": "; ", "list_sep": ", ", "paren": " ({text})",
@@ -123,20 +124,22 @@ WORDS: dict[str, dict[str, str]] = {
         "card_evidence": "Evidence entry {id}",
         "card_needs_human": "{n} points need a person to decide",
         "c9_none": "No before/after measurement yet. After the changes are on the site, record the date and measure again.",
-        "c9_when": "Before: measured on {before}. Changes went live: {deploy}. Measured again: {after}. Both runs "
-                   "used the same questions and the same AI models.",
-        "c9_no_deploy": "no day recorded",
-        "c9_all_unprompted": "Compared here: all {n} questions that do not name your brand. They are not yet "
-                             "grouped by which question belongs to which changed page.",
-        "c9_given": "Compared here: {n} questions that belong to changed pages, with {control} questions as a control group.",
-        "c9_listed_only": "How much these models move on their own when nothing is changed has not been measured "
-                          "yet. So the numbers are listed and no verdict is given: a difference of a few points "
-                          "may be nothing more than that normal movement.",
-        "c9_table": "Before and after", "c9_col_mention": "Mentions you (before → after)",
-        "c9_col_citation": "Cites your own site (before → after)",
-        "c9_cell": "{a} of {b} ({pa}) → {x} of {y} ({px})",
+        "c9_deploy": "The changes went live on {deploy}. Both measurements used the same questions and the same AI models.",
+        "c9_deploy_none": "The date the changes went live was not recorded. Both measurements used the same questions "
+                          "and the same AI models.",
+        "c9_all_unprompted": "This comparison covers all {n} questions that do not name your brand. They are not grouped "
+                             "by the changed page each one belongs to.",
+        "c9_given": "This comparison covers the {n} questions that belong to changed pages, with {control} other "
+                    "questions as a control group.",
+        "c9_listed_only": "We have not yet measured how much these models vary when the site stays the same, so below we "
+                          "list the numbers and give no verdict. A difference of a few points may be normal variation.",
+        "c9_before": "Before", "c9_after": "After", "c9_side_sub": "Measured on {day}",
+        "c9_col_mention": "Mentions you", "c9_col_citation": "Cites your own site",
+        "c9_unit_mention": "mentions / answers", "c9_unit_citation": "citations / answers",
+        "c9_count": "{k} / {n} ({p})",
         "c9_metric_mention": "mentions", "c9_metric_citation": "citations of your site",
-        "c9_remarks": "Where a number could not be compared, and why",
+        "c9_all_legs": "Every number above",
+        "c9_remarks": "Numbers that could not be compared, and why",
         "c9_notes": "Other notes",
         "c9_batch": "Batch {id}: {cards} cards; events so far: {events}.",
         "c9_pending": "Comparison results exist in the improve tool for this batch; they are not yet shown here.",
@@ -153,6 +156,7 @@ WORDS: dict[str, dict[str, str]] = {
     },
     "zh": {
         "report": "FatCat GEO 报告",
+        "cmp_title": "{brand} · 改前改后对比", "cmp_title_plain": "改前改后对比",
         "generated": "这份报告生成于 {when}。",
         "toc": "目录",
         "colon": "：", "semi": "；", "list_sep": "、", "paren": "（{text}）",
@@ -257,16 +261,19 @@ WORDS: dict[str, dict[str, str]] = {
         "card_evidence": "证据条目 {id}",
         "card_needs_human": "有 {n} 处要人来定",
         "c9_none": "还没有做改前改后的测量。把改动放上网站后记下日子，隔一段时间再测一次。",
-        "c9_when": "改之前：{before} 测的。改动放上网站：{deploy}。再测：{after}。两次用的是同样的题、同样的 AI 型号。",
-        "c9_no_deploy": "没有记日子",
-        "c9_all_unprompted": "这里比的是全部不点名品牌的题，共 {n} 道。还没有按“哪道题对应哪个改过的页面”来分组。",
-        "c9_given": "这里比的是对应改过的页面的 {n} 道题，另有 {control} 道题作对照。",
-        "c9_listed_only": "这几个型号在什么都不改的时候自己会波动多少，还没有量过。所以下面只列数字，不说变没变："
-                          "差几个百分点，可能只是它平时的波动。",
-        "c9_table": "改前和改后", "c9_col_mention": "提到你（改前 → 改后）", "c9_col_citation": "引用你的官网（改前 → 改后）",
-        "c9_cell": "{b} 次里 {a} 次（{pa}）→ {y} 次里 {x} 次（{px}）",
+        "c9_deploy": "改动在 {deploy} 放上网站。两次测量用的是同样的题和同样的 AI 型号。",
+        "c9_deploy_none": "改动放上网站的日期没有记。两次测量用的是同样的题和同样的 AI 型号。",
+        "c9_all_unprompted": "这里比较的是全部 {n} 道不点名品牌的题，没有按每道题对应哪个改过的页面来分组。",
+        "c9_given": "这里比较的是 {n} 道对应改过页面的题，另有 {control} 道题作为对照。",
+        "c9_listed_only": "我们还没有量过这几个型号在网站不变时自己会波动多少，所以下面只列数字，不判断有没有变化。"
+                          "差几个百分点可能只是平时的波动。",
+        "c9_before": "改之前", "c9_after": "改之后", "c9_side_sub": "{day} 测量",
+        "c9_col_mention": "提到你", "c9_col_citation": "引用你的官网",
+        "c9_unit_mention": "提到次数 / 回答次数", "c9_unit_citation": "引用次数 / 回答次数",
+        "c9_count": "{k} / {n}（{p}）",
         "c9_metric_mention": "提到你", "c9_metric_citation": "引用官网",
-        "c9_remarks": "哪些数没法比，为什么",
+        "c9_all_legs": "上面所有的数",
+        "c9_remarks": "没法比较的数和原因",
         "c9_notes": "其他说明",
         "c9_batch": "批次 {id}：{cards} 张卡；到现在发生过的事：{events}。",
         "c9_pending": "这个批次的对比结果在改进工具里已经有了，这里还没有接上显示。",

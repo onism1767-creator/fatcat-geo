@@ -14,9 +14,12 @@ _CSS = """
 :root {
   color-scheme: light dark;
   --bg: #ffffff; --fg: #1b1b1f; --muted: #5c5f66; --line: #d7d9de; --soft: #f4f5f7; --warn: #fff4d6;
+  /* 改之前蓝、改之后橙:两种颜色只分前后,不表示好坏(报告不判变没变)。色盲下也分得开,深浅两种底色都验过 */
+  --before: #2a78d6; --after: #eb6834; --tint: 7%;
 }
 @media (prefers-color-scheme: dark) {
-  :root { --bg: #16171a; --fg: #e8e9ec; --muted: #a3a6ad; --line: #3a3d44; --soft: #212328; --warn: #4a3d12; }
+  :root { --bg: #16171a; --fg: #e8e9ec; --muted: #a3a6ad; --line: #3a3d44; --soft: #212328; --warn: #4a3d12;
+          --before: #3987e5; --after: #d95926; --tint: 12%; }
 }
 body { margin: 0; background: var(--bg); color: var(--fg);
        font: 16px/1.6 system-ui, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif; }
@@ -41,10 +44,27 @@ th, td { text-align: start; vertical-align: top; padding: 0.45rem 0.8rem; border
 thead th { background: var(--soft); white-space: nowrap; }
 .card { border: 1px solid var(--line); border-radius: 6px; padding: 0.2rem 1rem 0.8rem; margin-block: 1rem; }
 .card ul { margin-block: 0.2rem; }
+/* 改前改后:左右两页,窄屏上下叠;两页列宽一样,同一个 AI 在两页的同一行 */
+.pair { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 22rem), 1fr)); gap: 1rem;
+        margin-block: 0.8rem 1.4rem; }
+.side { --tone: var(--before); border: 1px solid var(--line); border-block-start: 0.3rem solid var(--tone);
+        border-radius: 6px; padding: 0.1rem 0.9rem 0.6rem; background: var(--bg);
+        background: color-mix(in oklab, var(--tone) var(--tint), var(--bg)); }
+.side.after { --tone: var(--after); }
+.side h3 { display: flex; align-items: center; gap: 0.5rem; margin-block: 0.7rem 0; }
+.side h3::before { content: ""; flex: none; inline-size: 0.75rem; block-size: 0.75rem; border-radius: 2px;
+                   background: var(--tone); }
+.side .sub { margin-block: 0.1rem 0.5rem; }
+.side table { table-layout: fixed; font-variant-numeric: tabular-nums; }
+.side col.ai { width: 44%; }
+.side .unit { display: block; font-size: 0.8rem; font-weight: 400; color: var(--muted); }
+.side th, .side td { min-inline-size: 0; padding-inline: 0.5rem; }
+.side thead th { background: transparent; white-space: normal; vertical-align: bottom; }
 @media print {
   nav { display: none; }
   h2 { break-after: avoid; }
-  .card, tr { break-inside: avoid; }
+  .card, tr, .side { break-inside: avoid; }
+  .side { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
   .table-wrapper { overflow: visible; border: 0; }
 }
 """
@@ -97,17 +117,40 @@ def _block(block: Block, lang: str, ids: _Ids, told: set[str]) -> str:
                 parts.append("<ul>" + "".join(f"<li>{escape(line)}</li>" for line in lines) + "</ul>")
         parts.append("</section>")
         return "".join(parts)
+    if block.kind == "pair":
+        parts = ['<div class="pair">']
+        for side in block.sides:
+            side_id = ids.new()
+            units = side.units or [""] * len(side.head)
+            head = "".join(f'<th scope="col">{escape(cell)}'
+                           + (f'<span class="unit">{escape(unit)}</span>' if unit else "") + "</th>"
+                           for cell, unit in zip(side.head, units, strict=True))
+            body = "".join(
+                "<tr>" + "".join(f'<th scope="row">{escape(cell)}</th>' if i == 0 else f"<td>{escape(cell)}</td>"
+                                 for i, cell in enumerate(row)) + "</tr>"
+                for row in side.rows)
+            cols = '<col class="ai">' + "<col>" * (len(side.head) - 1)
+            parts.append(f'<section class="side {side.tone}" aria-labelledby="{side_id}">'
+                         f'<h3 id="{side_id}">{escape(side.title)}</h3><p class="sub">{escape(side.sub)}</p>'
+                         f'<table aria-labelledby="{side_id}"><colgroup>{cols}</colgroup>'
+                         f"<thead><tr>{head}</tr></thead><tbody>{body}</tbody></table></section>")
+        return "".join(parts) + "</div>"
     raise ValueError(f"不认识的块:{block.kind}")
 
 
 def render(report: Report) -> str:
     words, ids = WORDS[report.lang], _Ids()
-    toc = "".join(f'<li><a href="#c{c.no}">{escape(c.title)}</a></li>' for c in report.chapters)
     chapters = ""
     for c in report.chapters:
         told: set[str] = set()
-        chapters += (f'<section id="c{c.no}" aria-labelledby="h{c.no}"><h2 id="h{c.no}">{c.no}. {escape(c.title)}</h2>'
-                     + "".join(_block(block, report.lang, ids, told) for block in c.blocks) + "</section>")
+        blocks = "".join(_block(block, report.lang, ids, told) for block in c.blocks)
+        if report.numbered:
+            chapters += (f'<section id="c{c.no}" aria-labelledby="h{c.no}">'
+                         f'<h2 id="h{c.no}">{c.no}. {escape(c.title)}</h2>{blocks}</section>')
+        else:  # 单独的对比报告:标题就是页面的大标题,不再加一层章名
+            chapters += f"<section>{blocks}</section>"
+    toc = "".join(f'<li><a href="#c{c.no}">{escape(c.title)}</a></li>' for c in report.chapters)
+    nav = (f'<nav aria-label="{escape(words["toc"])}"><ol start="0">{toc}</ol></nav>\n' if report.numbered else "")
     warning = f'<p class="warn" role="note">{escape(report.warning)}</p>' if report.warning else ""
     return (
         f'<!doctype html>\n<html lang="{report.lang}">\n<head>\n<meta charset="utf-8">\n'
@@ -115,6 +158,5 @@ def render(report: Report) -> str:
         '<meta name="color-scheme" content="light dark">\n'
         f"<title>{escape(report.title)}</title>\n<style>{_CSS}</style>\n</head>\n<body>\n"
         f'<header><h1>{escape(report.title)}</h1><p class="sub">{escape(report.subtitle)}</p>{warning}</header>\n'
-        f'<nav aria-label="{escape(words["toc"])}"><ol start="0">{toc}</ol></nav>\n'
-        f"<main>{chapters}</main>\n</body>\n</html>\n"
+        f"{nav}<main>{chapters}</main>\n</body>\n</html>\n"
     )

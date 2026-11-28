@@ -32,14 +32,27 @@ class Sources:
 
 
 @dataclass
+class Side:
+    """改前改后对比里的一页:改之前一页、改之后一页,左右并排,两种颜色。两页的表头和行一样,只有数不同。"""
+
+    tone: str  # before / after:页面上靠它上色
+    title: str
+    sub: str
+    head: list[str]
+    rows: list[list[str]]
+    units: list[str] = field(default_factory=list)  # 表头下面的小字:数是怎么数的(和 head 一一对应,可空)
+
+
+@dataclass
 class Block:
-    kind: str  # p / note / list / table / card
+    kind: str  # p / note / list / table / card / pair
     text: str = ""
     caption: str = ""
     items: list[str] = field(default_factory=list)
     head: list[str] = field(default_factory=list)
     rows: list[list[str]] = field(default_factory=list)
     sections: list[tuple[str, list[str]]] = field(default_factory=list)  # card:(小标题, 几行)
+    sides: list[Side] = field(default_factory=list)  # pair:改之前、改之后两页
     lang: str | None = None  # 这一块原文的语言;和报告语言不同时页面上标一句
 
 
@@ -58,6 +71,7 @@ class Report:
     subtitle: str
     warning: str | None
     chapters: list[Chapter]
+    numbered: bool = True  # 长报告有目录和章号;单独的改前改后对比报告只有一章,两样都不要
 
 
 @dataclass
@@ -487,41 +501,54 @@ class _Builder:
         return blocks
 
     def _compared(self, c: dict[str, Any]) -> list[Block]:
-        """改之前和再测两单并排。只列数字:这几个型号平时自己波动多少还没量过,不说变没变。"""
+        """改之前一页、改之后一页,左右并排(用户 2026-11-27 定:不放在同一张表里比,两页不同颜色)。
+
+        只列数字:这几个型号平时自己波动多少还没量过,不说变没变。"""
         w = self.w
         groups = c.get("groups") or {}
-        blocks = [Block("p", text=w["c9_when"].format(before=c["before"]["day"], after=c["after"]["day"],
-                                                     deploy=c.get("deploy_day") or w["c9_no_deploy"]))]
+        deploy = c.get("deploy_day")
+        blocks = [Block("p", text=w["c9_deploy"].format(deploy=deploy) if deploy else w["c9_deploy_none"])]
         which = w["c9_all_unprompted" if groups.get("basis") == "all_unprompted" else "c9_given"]
         # 分不出「哪道题对应哪个改过的页面」时,原因在改进工具给的说明里,列在本章末尾
         blocks.append(Block("p", text=which.format(n=len(groups.get("treated") or []),
                                                    control=len(groups.get("control") or []))))
         blocks.append(Block("note", text=w["c9_listed_only"]))
 
-        def cell(leg: dict[str, Any] | None) -> str:
+        def count(leg: dict[str, Any] | None, when: str) -> str:
             if leg is None:
                 return ""
-            (a, b), (x, y) = leg["counts"]["pre"], leg["counts"]["post"]
-            rate = lambda k, n: f"{k / n:.0%}" if n else "—"  # noqa: E731
-            return w["c9_cell"].format(a=a, b=b, pa=rate(a, b), x=x, y=y, px=rate(x, y))
+            k, n = leg["counts"][when]
+            return w["c9_count"].format(k=k, n=n, p=f"{k / n:.0%}" if n else "—")
 
         by_ai: dict[str, dict[str, dict[str, Any]]] = {}
         for leg in c.get("legs") or []:
             by_ai.setdefault(leg["ai"], {})[leg["metric"]] = leg
-        rows, remarks = [], []
-        for ai, legs in by_ai.items():
-            rows.append([ai, cell(legs.get("mention")), cell(legs.get("citation"))])
-            for metric, leg in legs.items():
-                if leg.get("reason") and leg["reason"] != _NO_NOISE:  # 「没有波动数据」上面已经统一说过,不逐行重复
-                    remarks.append(f"{ai} · {w['c9_metric_' + metric]}{w['colon']}{leg['label_text']} · {leg['reason']}")
-        blocks.append(Block("table", caption=w["c9_table"],
-                            head=[w["col_ai"], w["c9_col_mention"], w["c9_col_citation"]], rows=rows))
-        if remarks:
+        head = [w["col_ai"], w["c9_col_mention"], w["c9_col_citation"]]
+        units = ["", w["c9_unit_mention"], w["c9_unit_citation"]]
+        sides = [Side(tone, w[f"c9_{tone}"], w["c9_side_sub"].format(day=c[tone]["day"]), head,
+                      [[ai, count(legs.get("mention"), when), count(legs.get("citation"), when)]
+                       for ai, legs in by_ai.items()], units)
+                 for tone, when in (("before", "pre"), ("after", "post"))]
+        blocks.append(Block("pair", sides=sides))
+        if remarks := self._remarks(c.get("legs") or []):
             blocks.append(Block("list", caption=w["c9_remarks"], items=remarks, lang=self._foreign("butter")))
         extra = list(c.get("notes") or []) + list(c.get("errors") or [])
         if extra:
             blocks.append(Block("list", caption=w["c9_notes"], items=extra, lang=self._foreign("butter")))
         return blocks
+
+    def _remarks(self, legs: list[dict[str, Any]]) -> list[str]:
+        """哪些数没法比、为什么。同一个原因只说一次,后面列它管到的数;管到全部的就说「上面所有的数」。
+
+        「没有波动数据」上面已经统一说过,这里不再列。"""
+        w = self.w
+        by_reason: dict[tuple[str, str], list[str]] = {}
+        for leg in legs:
+            if leg.get("reason") and leg["reason"] != _NO_NOISE:
+                by_reason.setdefault((leg["label_text"], leg["reason"]), []).append(
+                    f"{leg['ai']} · {w['c9_metric_' + leg['metric']]}")
+        return [f"{w['c9_all_legs'] if len(which) == len(legs) else w['list_sep'].join(which)}"
+                f"{w['colon']}{label} · {reason}" for (label, reason), which in by_reason.items()]
 
     # 10 方法和局限(全报告只此一处)
     def limits(self) -> list[Block]:
@@ -602,6 +629,17 @@ def _where(source: str) -> str:
         return source
     outer, _, inner = source.partition("!")
     return f"{_tail(outer)} · {inner}" if inner else _tail(outer)
+
+
+def build_comparison(compare: dict[str, Any], lang: str, *, generated_at: str, brand: str | None = None) -> Report:
+    """单独的改前改后对比报告:内容和长报告第 9 章一样,单独成一个文件,没有目录和章号。"""
+    if lang not in WORDS:
+        raise ModuleError(f"报告语言只有 en 和 zh,没有 {lang}")
+    w = WORDS[lang]
+    title = w["cmp_title"].format(brand=brand) if brand else w["cmp_title_plain"]
+    blocks = _Builder(Sources(compare=compare), lang)._compared(compare)
+    return Report(lang=lang, title=title, subtitle=w["generated"].format(when=generated_at), warning=None,
+                  chapters=[Chapter(CHAPTERS.index("compare"), "compare", title, blocks)], numbered=False)
 
 
 def build(sources: Sources, lang: str, *, generated_at: str, allow_mixed: bool = False) -> Report:

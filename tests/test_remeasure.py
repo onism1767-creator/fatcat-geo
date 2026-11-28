@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from fatcat import project as projects
 from fatcat.hub.app import AFTER_NAME, BEFORE_NAME, COMPARE_NAME
 from fatcat.hub.tools import STOPPED
-from fatcat.report import Sources, build, render
+from fatcat.report import Sources, build, build_comparison, render
 from fatcat.report.words import WORDS
 from tests.test_hub import COMPARE, FakeBackend, _create, backend, client  # noqa: F401
 from tests.test_report import NOW, _chapter, _text, _toast
@@ -119,7 +119,60 @@ def test_a_finished_remeasurement_is_compared_and_shown(client: TestClient, back
     assert "Compared run job1 with run feed00000001." in page and "The comparison did not work" not in page
 
     report = client.get(f"/projects/{project_id}/report").text
-    assert "16 of 53 (30%) → 20 of 55 (36%)" in report and "Before and after" in report
+    assert "16 / 53 (30%)" in _side(report, "before") and "20 / 55 (36%)" in _side(report, "after")
+    assert f"/projects/{project_id}/compare?lang=zh" in page  # 第 5 步上有单独对比报告的入口
+    alone = client.get(f"/projects/{project_id}/compare?lang=zh")
+    assert alone.status_code == 200 and "Brand · 改前改后对比" in alone.text
+    assert "53 / 16" not in alone.text and "16 / 53（30%）" in _side(alone.text, "before")
+    assert (folder / "compare-zh.html").read_text(encoding="utf-8") == alone.text
+
+
+def _side(page: str, tone: str) -> str:
+    """页面里改之前或改之后那一页的 HTML。"""
+    return page.split(f'<section class="side {tone}"')[1].split("</section>")[0]
+
+
+def test_no_comparison_report_before_there_is_a_comparison(client: TestClient) -> None:  # noqa: F811
+    project_id = _measured(client)
+    assert client.get(f"/projects/{project_id}/compare").status_code == 404
+    assert "/compare?lang=" not in client.get(f"/projects/{project_id}").text
+
+
+def test_before_and_after_are_two_pages_side_by_side_not_one_table() -> None:
+    """用户 2026-11-27:改前改后不放在同一张表里比,左边改之前一页、右边改之后一页,两页不同颜色。"""
+    page = render(build(Sources(toast=_toast(), compare=COMPARE), "en", generated_at=NOW))
+    chapter = page.split('<section id="c9"')[1].split('<section id="c10"')[0]
+    assert chapter.count('<section class="side before"') == 1 and chapter.count('<section class="side after"') == 1
+    assert chapter.index("side before") < chapter.index("side after")  # 改之前在左(在前)
+    before, after = _side(page, "before"), _side(page, "after")
+    assert "Before" in before and "Measured on 2026-11-03" in before
+    assert "After" in after and "Measured on 2026-11-24" in after
+    assert "16 / 53 (30%)" in before and "0 / 60 (0%)" in before and "20 / 55 (36%)" not in before
+    assert "20 / 55 (36%)" in after and "3 / 60 (5%)" in after and "16 / 53 (30%)" not in after
+    assert "→" not in chapter  # 不再把前后挤在一格里
+    for side in (before, after):  # 两页一样的行,同一个 AI 在同一行
+        assert side.index("Alpha API · a-one") < side.index("Beta API · b-two")
+    css = page.split("<style>")[1].split("</style>")[0]
+    assert "--before: #2a78d6" in css and "--after: #eb6834" in css  # 两页两种颜色
+    assert ".side.after { --tone: var(--after); }" in css
+
+
+def test_the_comparison_report_stands_alone() -> None:
+    for lang in ("en", "zh"):
+        page = render(build_comparison(COMPARE, lang, generated_at=NOW, brand="Brand"))
+        w = WORDS[lang]
+        assert f"<h1>{w['cmp_title'].format(brand='Brand')}</h1>" in page
+        assert "<nav" not in page and "<h2" not in page  # 只有这一件事:没有目录,没有章号
+        assert page.count('<section class="side before"') == 1 and page.count('<section class="side after"') == 1
+        assert w["c9_listed_only"] in page and w["c9_deploy"].format(deploy="2026-11-05") in page
+    assert "<h1>Before and after</h1>" in render(build_comparison(COMPARE, "en", generated_at=NOW))
+
+
+def test_the_same_reason_is_given_once() -> None:
+    legs = [{**leg, "reason": "这一批改动还没部署", "label_text": "未部署"} for leg in COMPARE["legs"]]
+    text = _text(_chapter(build(Sources(toast=_toast(), compare={**COMPARE, "legs": legs}), "zh", generated_at=NOW),
+                          "compare"))
+    assert text.count("这一批改动还没部署") == 1 and "上面所有的数：未部署 · 这一批改动还没部署" in text
 
 
 def test_chapter_nine_lists_numbers_and_gives_no_verdict() -> None:
@@ -134,8 +187,11 @@ def test_chapter_nine_lists_numbers_and_gives_no_verdict() -> None:
         assert "Gamma API · g-three" in text
     en = _text(_chapter(build(Sources(toast=_toast(), compare=COMPARE), "en", generated_at=NOW), "compare"))
     assert "all 20 questions that do not name your brand" in en
-    assert "0 of 60 (0%) → 3 of 60 (5%)" in en and "32 of 46 (70%) → 30 of 44 (68%)" in en
+    assert "0 / 60 (0%)" in en and "3 / 60 (5%)" in en and "32 / 46 (70%)" in en and "30 / 44 (68%)" in en
     zh = _text(_chapter(build(Sources(toast=_toast(), compare=COMPARE), "zh", generated_at=NOW), "compare"))
-    assert "53 次里 16 次（30%）→ 55 次里 20 次（36%）" in zh
+    assert "16 / 53（30%）" in zh and "20 / 55（36%）" in zh
+    no_day = _text(_chapter(build(Sources(toast=_toast(), compare={**COMPARE, "deploy_day": None}), "zh",
+                                  generated_at=NOW), "compare"))
+    assert WORDS["zh"]["c9_deploy_none"] in no_day
     for word in ("improved", "got better", "变好了", "上升", "下降"):  # 不说变没变
         assert word not in en and word not in zh

@@ -142,6 +142,8 @@ def _text(chapter) -> str:
         parts += [block.text, block.caption, *block.items, *block.head]
         parts += [cell for row in block.rows for cell in row]
         parts += [x for title, lines in block.sections for x in (title, *lines)]
+        parts += [x for side in block.sides
+                  for x in (side.title, side.sub, *side.head, *(cell for row in side.rows for cell in row))]
     return "\n".join(part for part in parts if part)
 
 
