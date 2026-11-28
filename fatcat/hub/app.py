@@ -24,7 +24,7 @@ from fatcat.hub.tools import FAILED, RUNNING, STARTING
 from fatcat.keys import FROM_FILE, FROM_PAGE
 from fatcat.modules import ModuleError
 from fatcat.project import Project
-from fatcat.report import Sources, build, render, stamp_now
+from fatcat.report import Sources, build, build_comparison, render, stamp_now
 from fatcat.report.html import _CSS
 
 ALLOWED_HOSTS = ("127.0.0.1", "localhost")
@@ -98,6 +98,8 @@ T: dict[str, dict[str, str]] = {
         "s4_pick": "Finished re-measurements", "s4_use": "Compare with this one",
         "s4_done": "Compared run {before} with run {after}. The numbers are in the report, chapter 9.",
         "s4_failed": "The comparison did not work: {why}",
+        "s4_view_en": "Open the before-and-after report (English)",
+        "s4_view_zh": "Open the before-and-after report (中文)",
         "s5": "Report", "s5_help": "One long report from everything done so far. Steps not done yet say so.",
         "s5_en": "Open report (English)", "s5_zh": "Open report (中文)",
         "s5_nothing": "Nothing to report yet: finish at least one step above.",
@@ -152,6 +154,7 @@ T: dict[str, dict[str, str]] = {
         "s4_pick": "已经做完的再测", "s4_use": "和这一单比",
         "s4_done": "已经把 {before} 和 {after} 两单比过了。数在报告第 9 章。",
         "s4_failed": "对比没做成:{why}",
+        "s4_view_en": "打开改前改后对比报告(English)", "s4_view_zh": "打开改前改后对比报告(中文)",
         "s5": "报告", "s5_help": "把到现在做完的都拼成一份长报告。没做的步骤会照实写没做。",
         "s5_en": "打开报告(English)", "s5_zh": "打开报告(中文)",
         "s5_nothing": "还没有东西可以出报告:先做完上面至少一步。",
@@ -347,7 +350,9 @@ def _project_page(lang: str, p: Project, jobs: list[dict[str, Any]] | None, jobs
         if p.compare_note:
             again += f'<p class="warn">{escape(t["s4_failed"].format(why=p.compare_note))}</p>'
         if p.compare_file and p.retest_job:
-            again += f'<p>{escape(t["s4_done"].format(before=before_job, after=p.retest_job))}</p>'
+            again += (f'<p>{escape(t["s4_done"].format(before=before_job, after=p.retest_job))}</p>'
+                      f'<p class="inline"><a href="/projects/{p.id}/compare?lang=en">{escape(t["s4_view_en"])}</a>'
+                      f'<a href="/projects/{p.id}/compare?lang=zh">{escape(t["s4_view_zh"])}</a></p>')
 
     has_any = bool(p.quick_check or p.toast_job or p.improve_state == "done")
     report = (f'<p class="inline"><a href="/projects/{p.id}/report?lang=en">{escape(t["s5_en"])}</a>'
@@ -641,6 +646,22 @@ def create_app(root: Path, backend: Any, *, inline_jobs: bool = False) -> FastAP
         except ModuleError as exc:
             return show(lang, p, str(exc), 400)
         (base / f"report-{lang}.html").write_text(page, encoding="utf-8")
+        return HTMLResponse(page)
+
+    @app.get("/projects/{project_id}/compare", response_class=HTMLResponse)
+    def comparison(request: Request, project_id: str) -> HTMLResponse:
+        """单独的改前改后对比报告:改之前一页、改之后一页,左右并排。只读项目里存下的对比结果。"""
+        lang = _lang(request)
+        try:
+            p = projects.load(root, project_id)
+        except ModuleError as exc:
+            return home_page(lang, str(exc), 404)
+        base = projects.folder(root, p.id)
+        if not (p.compare_file and (base / p.compare_file).is_file()):
+            return show(lang, p, "这个项目还没有改前改后的对比结果", 404)
+        compare = json.loads((base / p.compare_file).read_text(encoding="utf-8"))
+        page = render(build_comparison(compare, lang, generated_at=stamp_now(), brand=p.brand))
+        (base / f"compare-{lang}.html").write_text(page, encoding="utf-8")
         return HTMLResponse(page)
 
     @app.exception_handler(ModuleError)

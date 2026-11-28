@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import zipfile
 from datetime import UTC
 from pathlib import Path
@@ -141,6 +142,8 @@ def _text(chapter) -> str:
         parts += [block.text, block.caption, *block.items, *block.head]
         parts += [cell for row in block.rows for cell in row]
         parts += [x for title, lines in block.sections for x in (title, *lines)]
+        parts += [x for side in block.sides
+                  for x in (side.title, side.sub, *side.head, *(cell for row in side.rows for cell in row))]
     return "\n".join(part for part in parts if part)
 
 
@@ -181,12 +184,13 @@ def test_advice_on_the_same_evidence_becomes_one_card() -> None:
 def test_advice_chapter_counts_and_does_not_repeat_the_title_or_the_evidence_id() -> None:
     advice = _chapter(build(_full(), "en", generated_at=NOW), "advice")
     text = _text(advice)
-    assert "2 recommendations from diagnosis and 2 changes" in text and "into 3 cards; 1 cards have both" in text
-    assert "1 items are already in place" in text
+    assert "There are 3 cards below: 2 from the measurement and 2 from reading the site, 1 of them from both." in text
+    assert "Replace" in text and " · replace · " not in text  # 改动的代码写成话
+    assert "The site already has 1 more item in place, with no change needed." in text
     assert text.count("Make titles say what the page answers") == 1  # 标题那一行不在卡片里再出现
     assert text.count("EVIDENCE_STRUCT_V1") == 1  # Toast 的话里已经带了编号
     assert text.count("EVIDENCE_ACCESS_ROBOTS_V1") == 1  # 只有 Butter 的卡,由这里补一行
-    assert "home <head> · add · hypothesis · jsonld/organization.json" in text
+    assert "home <head> · Add · hypothesis · jsonld/organization.json" in text
 
 
 def test_robots_meta_finding_lives_in_the_access_chapter_only() -> None:
@@ -194,12 +198,13 @@ def test_robots_meta_finding_lives_in_the_access_chapter_only() -> None:
     assert "robots-meta-problem-on-page-a" in _text(_chapter(report, "access"))
     content = _text(_chapter(report, "content"))
     assert "robots-meta-problem-on-page-a" not in content and "meta_robots" not in content
-    assert "jsonld_consistency" in content
+    assert "Structured data matches the page" in content and "jsonld_consistency" not in content
+    assert "Checks run and their results" in content and "Could not check" in content
 
 
 def test_quick_check_owns_the_access_chapter_and_the_local_check_shrinks_to_one_line() -> None:
     with_bundle = _text(_chapter(build(_full(), "en", generated_at=NOW), "access"))
-    assert "I03 noindex" in with_bundle and "issue · critical" in with_bundle
+    assert "I03 noindex" in with_bundle and "Issue · critical" in with_bundle
     assert "A01" not in with_bundle  # 通过的不逐项列
     assert "local-access-headline" in with_bundle and "local-access-evidence" not in with_bundle
     without = _text(_chapter(build(Sources(toast=_toast()), "en", generated_at=NOW), "access"))
@@ -210,13 +215,102 @@ def test_each_fact_appears_once_in_the_page() -> None:
     page = render(build(_full(), "en", generated_at=NOW))
     for once in ("sampling-line-24-questions", "method version 9.9", "wrap-up-paragraph", "scope-note-text",
                  "weblite-limit-one", "butter-limit-one", "fetch-note-kept-verbatim", "mentioned-19-of-24",
-                 WORDS["en"]["c10_shared_2"], "meta robots noindex on line 42"):
+                 WORDS["en"]["c10_remeasure"], "meta robots noindex on line 42"):
         assert page.count(once) == 1, once
-    assert page.count(WORDS["en"]["no_score"]) == 0  # 诊断那一段的末尾已经说了不打分
-    assert render(build(Sources(butter=_butter()), "en", generated_at=NOW)).count(WORDS["en"]["no_score"]) == 1
     report = build(_full(), "en", generated_at=NOW)
     assert "sampling-line-24-questions" in _text(_chapter(report, "method"))
     assert "scope-note-text" in _text(_chapter(report, "limits"))
+
+
+def test_chinese_copy_uses_full_width_punctuation_and_curly_quotes() -> None:
+    """中文模板用全角标点和“”(决定 Z14)。花括号里是占位和格式(比如 {usd:.2f}),不算。"""
+    for key, text in WORDS["zh"].items():
+        bare = re.sub(r"\{[^}]*\}", "", text)
+        assert not re.search(r"[「」,;:()]", bare), f"{key}: {text}"
+
+
+def test_at_a_glance_is_written_in_whole_sentences() -> None:
+    glance = _text(_chapter(build(_full(), "zh", generated_at=NOW), "conclusion"))
+    assert "Quick Check 的 3 项检查完成了 2 项，查出 1 个问题（严重 1 个），其余 1 项无法检测。" in glance
+    assert "我们读了网站上的 2 个页面，查出 1 个问题和 1 个提醒，建议改动 2 条。另外有 1 条网站上已经做到了。" in glance
+    en = _text(_chapter(build(_full(), "en", generated_at=NOW), "conclusion"))
+    assert ("Quick Check completed 2 of its 3 checks and found 1 issue (1 critical). "
+            "The other one could not be tested.") in en
+    assert ("We read 2 pages of your site and found 1 problem and 1 notice, and we suggest 2 changes. "
+            "The site already has 1 more item in place.") in en
+    assert "score" not in en  # 「没有总分」那一句删掉了:它只在解释报告里没有什么
+
+
+def test_quick_check_sentence_says_where_the_rest_of_the_checks_went() -> None:
+    bundle = _weblite()
+    bundle["findings"]["findings"] = [
+        {"rule_id": "A01", "name": "status", "state": "passed", "severity": None},
+        {"rule_id": "I10", "name": "sitemap", "state": "not_applicable", "severity": None},
+        {"rule_id": "I11", "name": "in sitemap", "state": "not_applicable", "severity": None},
+    ]
+    zh = _text(_chapter(build(Sources(weblite=bundle), "zh", generated_at=NOW), "conclusion"))
+    assert zh == "Quick Check 的 3 项检查完成了 1 项，没有查出问题，其余 2 项不适用。"
+    en = _text(_chapter(build(Sources(weblite=bundle), "en", generated_at=NOW), "conclusion"))
+    assert en == "Quick Check completed 1 of its 3 checks and found no issues. The other 2 did not apply to this page."
+
+
+def test_how_the_site_was_read_is_said_in_words_not_codes() -> None:
+    method = _text(_chapter(build(Sources(butter=_butter()), "zh", generated_at=NOW), "method"))
+    assert "robots.txt 读到了，计划要读的页面都读完了。" in method
+    assert "读网站时没有调用 AI，花费是 $0.00。" in method and "改过" not in method  # 没改过就不写
+    busy = _butter()
+    busy["run"].update(robots={"state": "unreadable"}, stop_reason="challenge", models_called=1, cost_usd=0.02,
+                       owner_edits=2)
+    en = _text(_chapter(build(Sources(butter=busy), "en", generated_at=NOW), "method"))
+    assert "We could not read robots.txt, and reading stopped at a human-verification page." in en
+    assert "We read robots.txt and every page planned for this run." in _text(
+        _chapter(build(Sources(butter=_butter()), "en", generated_at=NOW), "method"))
+    assert "Drafting text while reading the site used 1 AI call and cost $0.02." in en
+    assert "You corrected 2 of the facts it read." in en
+    busy["run"]["stop_reason"] = "a-code-from-the-future"  # 不认识的代码原样印,不猜
+    assert "a-code-from-the-future" in _text(_chapter(build(Sources(butter=busy), "en", generated_at=NOW), "method"))
+
+
+def test_access_chapter_says_results_in_words_not_codes() -> None:
+    zh = _text(_chapter(build(_full(), "zh", generated_at=NOW), "access"))
+    assert "未通过或不适用的检查（3 项里 2 项）" in zh and "有问题 · 严重" in zh and "无法检测" in zh
+    assert "robots 标记有问题或提醒的页面（2 页里 1 页）" in zh
+    assert not {"issue · critical", "unable_to_test", "problem"} & set(zh.splitlines())  # 代码不再原样印成一格
+    clean = _butter()
+    clean["audit"]["findings"] = [f for f in clean["audit"]["findings"] if f["level"] == "pass"]
+    assert "读网站时读到的 1 个页面，robots 标记都没有问题。" in _text(
+        _chapter(build(Sources(butter=clean), "zh", generated_at=NOW), "access"))
+    assert "The robots meta tags on the 1 page read from the site have no problems." in _text(
+        _chapter(build(Sources(butter=clean), "en", generated_at=NOW), "access"))
+
+
+def test_the_note_about_the_tools_own_page_shows_only_when_the_sentence_points_there() -> None:
+    plain = _text(_chapter(build(_full(), "en", generated_at=NOW), "access"))
+    assert WORDS["en"]["c2_toast_refs"] not in plain  # 那句话没有指着测量工具自己的页面
+    pointing = _toast()
+    pointing["text"]["en"]["access"]["headline"] = "We cannot confirm it. See the checks below."
+    text = _text(_chapter(build(Sources(toast=pointing, weblite=_weblite()), "en", generated_at=NOW), "access"))
+    assert text.count(WORDS["en"]["c2_toast_refs"]) == 1
+
+
+def test_official_domains_are_written_as_sentences_without_tier_codes() -> None:
+    zh = _text(_chapter(build(Sources(toast=_toast()), "zh", generated_at=NOW), "citation"))
+    assert "主站是 brand.example。" in zh and "另外算作你官网的域名有 brand.example.cn。" in zh
+    assert "名字相近但还没有确认的域名没有计入：brand.cn（出现 1 次）。" in zh
+    en = _text(_chapter(build(Sources(toast=_toast()), "en", generated_at=NOW), "citation"))
+    assert "The main site is brand.example." in en and "These domains also count as yours: brand.example.cn." in en
+    assert "These look-alike domains are not confirmed and were not counted: brand.cn (seen once)." in en
+    assert "B1" not in zh + en and "A1" not in zh + en  # 内部的档位代码不印
+    assert "CITATION label" not in zh + en  # 测量工具给这一步起的名字只是把章节标题再说一遍,不印
+
+
+def test_only_text_quoted_from_another_tool_is_marked_as_another_language() -> None:
+    quiet = _butter()
+    quiet["run"]["fetch_notes"] = []
+    page = render(build(Sources(butter=quiet), "en", generated_at=NOW))
+    assert WORDS["en"]["lang_note_zh"] not in page.split('<section id="c1"')[1].split("</section>")[0]
+    page = render(build(Sources(butter=_butter()), "en", generated_at=NOW))  # 带着改进工具的原话
+    assert page.split('<section id="c1"')[1].split("</section>")[0].count(WORDS["en"]["lang_note_zh"]) == 1
 
 
 def test_what_the_site_read_saw_in_the_sitemap_sits_with_the_sitemap_checks() -> None:
@@ -292,7 +386,7 @@ def test_regional_site_the_brand_confirmed_counts_as_the_same_site() -> None:
 def test_page_has_no_script_and_escapes_outside_text() -> None:
     page = render(build(_full(), "en", generated_at=NOW))
     assert "<script" not in page and "&lt;script&gt;alert(1)&lt;/script&gt;" in page
-    assert '<meta name="color-scheme" content="light dark">' in page
+    assert '<meta name="color-scheme" content="light">' in page
     assert page.count("<h2 ") == 12 and 'role="region"' in page and "<caption id=" in page
     assert 'href="http' not in page and 'src="' not in page
 
@@ -313,7 +407,7 @@ def test_before_after_chapter_reports_what_exists() -> None:
     sources.batches = [{"batch_id": "b-1", "created_at": "x", "cards": 5,
                         "events": {"batch_created": 1, "remeasure_finished": 1}}]
     text = _text(_chapter(build(sources, "en", generated_at=NOW), "compare"))
-    assert WORDS["en"]["c9_pending"] in text and "Batch b-1: 5 cards" in text and "remeasure_finished ×1" in text
+    assert WORDS["en"]["c9_pending"] in text and "Batch b-1 has 5 cards." in text and "remeasure_finished" not in text
 
 
 # ---------------------------------------------------------------- 读文件的两处
