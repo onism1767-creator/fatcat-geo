@@ -167,27 +167,46 @@ class _Builder:
             blocks.append(Block("p", text=text))
         if s.butter:
             counts = s.butter["run"].get("audit_counts") or {}
-            text = w["c0_butter"].format(
-                problem=counts.get("problem", 0), notice=counts.get("notice", 0),
-                pages=len(s.butter["run"].get("pages") or []), changes=sum(len(c.items) for c in self.cards))
+            problem, notice = int(counts.get("problem", 0)), int(counts.get("notice", 0))
+            pages, changes = len(s.butter["run"].get("pages") or []), sum(len(c.items) for c in self.cards)
+            text = w["c0_butter"].format(problem=problem, problem_s=_s(problem), notice=notice, notice_s=_s(notice),
+                                         pages=pages, pages_s=_s(pages), changes=changes, changes_s=_s(changes))
             if self.already_fine:
-                text += w["c0_already"].format(n=self.already_fine)
+                text += w["c0_already"].format(n=self.already_fine, n_s=_s(self.already_fine))
             blocks.append(Block("p", text=text))
         if self.cards:
             blocks.append(Block("list", caption=w["c0_first"], items=[card.title for card in self.cards[:3]]))
-        if not (self.t and self.t["wrap_up"]):  # Toast 那一段末尾已经说了不打分,不说两遍
-            blocks.append(Block("note", text=w["no_score"]))
         return blocks
 
     def _weblite_counts(self) -> str:
-        findings = self.s.weblite["findings"]["findings"]
+        """Quick Check 的一句话:完成了几项、查出几个问题(按严重程度)、剩下的是不适用还是没法检测。"""
+        w, findings = self.w, self.s.weblite["findings"]["findings"]
         states = Counter(f["state"] for f in findings)
         severities = Counter(f["severity"] for f in findings if f["state"] == "issue")
-        sev = ", ".join(f"{name} {severities[name]}" for name in ("critical", "high", "medium", "low")
-                        if severities[name]) or "0"
-        done = states["passed"] + states["issue"]
-        return self.w["c0_weblite"].format(done=done, total=len(findings), issues=states["issue"], sev=sev,
-                                           unable=states["unable_to_test"])
+        sev = w["list_sep"].join(w["sev_item"].format(n=severities[name], name=w["sev_" + name])
+                                 for name in ("critical", "high", "medium", "low") if severities[name])
+        done, issues = states["passed"] + states["issue"], states["issue"]
+        na, unable = states["not_applicable"], states["unable_to_test"]
+        accounted = done + na + unable == len(findings)  # 「其余」只在几样加起来正好是全部时才说
+        if na and not unable and accounted:
+            rest = w["c0_wl_na" if na > 1 else "c0_wl_na_1"].format(n=na)
+        elif unable and not na and accounted:
+            rest = w["c0_wl_unable" if unable > 1 else "c0_wl_unable_1"].format(n=unable)
+        elif na or unable:
+            rest = w["c0_wl_both"].format(na=na, unable=unable)
+        else:
+            rest = ""
+        return w["c0_weblite" if issues else "c0_weblite_clean"].format(
+            done=done, total=len(findings), issues=issues, issues_s=_s(issues),
+            sev=w["paren"].format(text=sev) if sev else "", rest=rest)
+
+    def _robots_line(self, state: Any, stop: Any) -> str:
+        """读网站时 robots.txt 读没读到、为什么停下。改进工具给的是代码;认识的换成话,不认识的原样印。"""
+        w = self.w
+        robots, stopped = w.get(f"robots_{state}"), w.get(f"stop_{stop}")
+        if robots and stopped:
+            return w["c1_bt_robots"].format(robots=robots, stop=stopped)
+        return w["c1_bt_robots_raw"].format(state=state, stop=stop)
 
     # 1 这次是怎么测的(全报告只此一处)
     def method(self) -> list[Block]:
@@ -203,12 +222,13 @@ class _Builder:
             blocks.append(Block("list", caption=w["c1_ai"], items=items))
         if s.weblite:
             manifest, findings = s.weblite["manifest"], s.weblite["findings"]
+            ai_calls = int(findings.get("ai_model_calls") or 0)
             items = [
                 w["c1_wl_url"].format(url=manifest.get("checked_url"), final=manifest.get("final_url")),
                 w["c1_wl_when"].format(when=_when(findings.get("checked_at") or manifest.get("started_at")),
                                        ruleset=manifest.get("ruleset_version"),
                                        table=manifest.get("crawler_table_version")),
-                w["c1_wl_ai"].format(n=findings.get("ai_model_calls", 0)),
+                w["c1_wl_ai" if ai_calls else "c1_wl_ai_none"].format(n=ai_calls, n_s=_s(ai_calls)),
             ]
             if not s.weblite["ruleset_known"]:
                 items.append(w["c1_wl_unknown"].format(ruleset=manifest.get("ruleset_version")))
@@ -216,12 +236,15 @@ class _Builder:
         if s.butter:
             run = s.butter["run"]
             robots = run.get("robots") or {}
+            pages, calls = len(run.get("pages") or []), int(run.get("models_called") or 0)
+            edits = int(run.get("owner_edits") or 0)
             items = [
-                w["c1_bt_site"].format(url=run.get("site_url"), pages=len(run.get("pages") or []),
+                w["c1_bt_site"].format(url=run.get("site_url"), pages=pages, pages_s=_s(pages),
                                        when=_when(run.get("fetched_at"))),
-                w["c1_bt_robots"].format(state=robots.get("state"), stop=run.get("stop_reason")),
-                w["c1_bt_cost"].format(calls=run.get("models_called", 0), usd=float(run.get("cost_usd") or 0),
-                                       edits=run.get("owner_edits", 0)),
+                self._robots_line(robots.get("state"), run.get("stop_reason")),
+                w["c1_bt_cost" if calls else "c1_bt_cost_none"].format(calls=calls, calls_s=_s(calls),
+                                                                       usd=float(run.get("cost_usd") or 0)),
+                *([w["c1_bt_edits"].format(edits=edits)] if edits else []),  # 没改过就不写这一句
                 *self._fetch_notes(sitemap=False),
             ]
             blocks.append(Block("list", caption=w["c1_butter"], items=items, lang=self._foreign("butter")))
@@ -264,8 +287,9 @@ class _Builder:
                                                                  headline=access["headline"])))
                 blocks.append(Block("note", text=w["toast_refs"]))
             else:
-                blocks.append(Block("list", caption=f"{w['c2_local_full']}: {access['status_label']} {access['headline']}",
-                                    items=list(access["evidence"])))
+                blocks.append(Block(
+                    "list", caption=f"{w['c2_local_full']}{w['colon']}{access['status_label']} {access['headline']}",
+                    items=list(access["evidence"])))
         if s.butter:
             checked = [f for f in s.butter["audit"]["findings"] if f["check"] == _ACCESS_CHECK]
             bad = [f for f in checked if f["level"] in ("problem", "notice")]
@@ -308,11 +332,12 @@ class _Builder:
                         head=[w["col_ai"], w["col_you"], w["col_others"]],
                         rows=[[c["name"], f"{c['brand']['k']}/{c['brand']['n']}",
                                " · ".join(f"{o['name']} {o['k']}/{o['n']}"
-                                          + (f" ({o['relation_label']})" if o.get("relation_label") else "")
+                                          + (w["paren"].format(text=o["relation_label"])
+                                             if o.get("relation_label") else "")
                                           for o in c["competitors"])] for c in intent["compares"]]))
                 if intent["sentiments"]:
                     blocks.append(Block("list", caption=w["c5_tone"].format(label=intent["label"]),
-                                        items=[f"{x['name']}: {x['text']}" for x in intent["sentiments"]]))
+                                        items=[f"{x['name']}{w['colon']}{x['text']}" for x in intent["sentiments"]]))
         if key == "mention" and self.s.toast["spellings"]:
             status = lambda sp: (w["sp_suggested"] if sp["suggested"]  # noqa: E731
                                  else w["sp_registered"] if sp["registered"] else w["sp_other"])
@@ -409,7 +434,8 @@ class _Builder:
                 by_ai: dict[str, list[str]] = {}
                 for supporter in card.toast["supporters"]:
                     by_ai.setdefault(supporter["ai"], []).append(supporter["intent"])
-                sections.append((w["card_who"], [f"{ai}: {'; '.join(intents)}" for ai, intents in by_ai.items()]))
+                sections.append((w["card_who"], [f"{ai}{w['colon']}{w['semi'].join(intents)}"
+                                                 for ai, intents in by_ai.items()]))
             if card.items:
                 lines = []
                 for item in card.items:
@@ -473,7 +499,7 @@ class _Builder:
             rows.append([ai, cell(legs.get("mention")), cell(legs.get("citation"))])
             for metric, leg in legs.items():
                 if leg.get("reason") and leg["reason"] != _NO_NOISE:  # 「没有波动数据」上面已经统一说过,不逐行重复
-                    remarks.append(f"{ai} · {w['c9_metric_' + metric]}: {leg['label_text']} · {leg['reason']}")
+                    remarks.append(f"{ai} · {w['c9_metric_' + metric]}{w['colon']}{leg['label_text']} · {leg['reason']}")
         blocks.append(Block("table", caption=w["c9_table"],
                             head=[w["col_ai"], w["c9_col_mention"], w["c9_col_citation"]], rows=rows))
         if remarks:
@@ -516,6 +542,11 @@ class _Builder:
 
 
 _NO_NOISE = "没有这条腿的波动数据"  # 改进工具的原话:这条数照列,只是不判变没变
+
+
+def _s(n: int) -> str:
+    """英文名词的复数尾巴(1 page / 2 pages)。中文模板里没有这个占位,多给的参数会被忽略。"""
+    return "" if n == 1 else "s"
 
 
 def _clip(text: str, limit: int) -> str:

@@ -136,6 +136,6 @@ def test_chapter_nine_lists_numbers_and_gives_no_verdict() -> None:
     assert "all 20 questions that do not name your brand" in en
     assert "0 of 60 (0%) → 3 of 60 (5%)" in en and "32 of 46 (70%) → 30 of 44 (68%)" in en
     zh = _text(_chapter(build(Sources(toast=_toast(), compare=COMPARE), "zh", generated_at=NOW), "compare"))
-    assert "53 次里 16 次(30%) → 55 次里 20 次(36%)" in zh
+    assert "53 次里 16 次（30%）→ 55 次里 20 次（36%）" in zh
     for word in ("improved", "got better", "变好了", "上升", "下降"):  # 不说变没变
         assert word not in en and word not in zh

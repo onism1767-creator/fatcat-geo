@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 import zipfile
 from datetime import UTC
 from pathlib import Path
@@ -212,11 +213,56 @@ def test_each_fact_appears_once_in_the_page() -> None:
                  "weblite-limit-one", "butter-limit-one", "fetch-note-kept-verbatim", "mentioned-19-of-24",
                  WORDS["en"]["c10_shared_2"], "meta robots noindex on line 42"):
         assert page.count(once) == 1, once
-    assert page.count(WORDS["en"]["no_score"]) == 0  # 诊断那一段的末尾已经说了不打分
-    assert render(build(Sources(butter=_butter()), "en", generated_at=NOW)).count(WORDS["en"]["no_score"]) == 1
     report = build(_full(), "en", generated_at=NOW)
     assert "sampling-line-24-questions" in _text(_chapter(report, "method"))
     assert "scope-note-text" in _text(_chapter(report, "limits"))
+
+
+def test_chinese_copy_uses_full_width_punctuation_and_curly_quotes() -> None:
+    """中文模板用全角标点和“”(决定 Z14)。花括号里是占位和格式(比如 {usd:.2f}),不算。"""
+    for key, text in WORDS["zh"].items():
+        bare = re.sub(r"\{[^}]*\}", "", text)
+        assert not re.search(r"[「」,;:()]", bare), f"{key}: {text}"
+
+
+def test_at_a_glance_is_written_in_whole_sentences() -> None:
+    glance = _text(_chapter(build(_full(), "zh", generated_at=NOW), "conclusion"))
+    assert "Quick Check 的 3 项检查完成了 2 项，查出 1 个问题（严重 1 个），其余 1 项无法检测。" in glance
+    assert "我们读了网站上的 2 个页面，查出 1 个问题和 1 个提醒，建议改动 2 条。另外有 1 条网站上已经做到了。" in glance
+    en = _text(_chapter(build(_full(), "en", generated_at=NOW), "conclusion"))
+    assert ("Quick Check completed 2 of its 3 checks and found 1 issue (1 critical). "
+            "The other one could not be tested.") in en
+    assert ("We read 2 pages of your site and found 1 problem and 1 notice, and we suggest 2 changes. "
+            "The site already has 1 more item in place.") in en
+    assert "score" not in en  # 「没有总分」那一句删掉了:它只在解释报告里没有什么
+
+
+def test_quick_check_sentence_says_where_the_rest_of_the_checks_went() -> None:
+    bundle = _weblite()
+    bundle["findings"]["findings"] = [
+        {"rule_id": "A01", "name": "status", "state": "passed", "severity": None},
+        {"rule_id": "I10", "name": "sitemap", "state": "not_applicable", "severity": None},
+        {"rule_id": "I11", "name": "in sitemap", "state": "not_applicable", "severity": None},
+    ]
+    zh = _text(_chapter(build(Sources(weblite=bundle), "zh", generated_at=NOW), "conclusion"))
+    assert zh == "Quick Check 的 3 项检查完成了 1 项，没有查出问题，其余 2 项不适用。"
+    en = _text(_chapter(build(Sources(weblite=bundle), "en", generated_at=NOW), "conclusion"))
+    assert en == "Quick Check completed 1 of its 3 checks and found no issues. The other 2 did not apply to this page."
+
+
+def test_how_the_site_was_read_is_said_in_words_not_codes() -> None:
+    method = _text(_chapter(build(Sources(butter=_butter()), "zh", generated_at=NOW), "method"))
+    assert "robots.txt 读到了，计划要读的页面都读完了。" in method
+    assert "读网站时没有调用 AI，花费是 $0.00。" in method and "改过" not in method  # 没改过就不写
+    busy = _butter()
+    busy["run"].update(robots={"state": "unreadable"}, stop_reason="challenge", models_called=1, cost_usd=0.02,
+                       owner_edits=2)
+    en = _text(_chapter(build(Sources(butter=busy), "en", generated_at=NOW), "method"))
+    assert "robots.txt could not be read, and reading stopped at a human-verification page." in en
+    assert "Drafting text while reading the site used 1 AI call and cost $0.02." in en
+    assert "You corrected 2 of the facts it read." in en
+    busy["run"]["stop_reason"] = "a-code-from-the-future"  # 不认识的代码原样印,不猜
+    assert "a-code-from-the-future" in _text(_chapter(build(Sources(butter=busy), "en", generated_at=NOW), "method"))
 
 
 def test_what_the_site_read_saw_in_the_sitemap_sits_with_the_sitemap_checks() -> None:
